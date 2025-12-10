@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
-import { SqlSyncRules, DateTimeValue, toSyncRulesValue, SqliteInputRow } from '../../src/index.js';
+import { DateTimeValue, SqlSyncRules, toSyncRulesValue } from '../../src/index.js';
 
-import { ASSETS, identityBucketTransformer, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
+import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {

@@ -6,7 +6,7 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { BucketParameterQuerier, GetQuerierOptions, PendingQueriers } from './index.js';
+import { BucketDataSourceDefinition, BucketParameterQuerier, GetQuerierOptions, PendingQueriers } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
@@ -23,6 +23,7 @@ import {
 } from './types.js';
 import { getBucketId, isJsonValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
+import { resolveHydrationState } from './HydrationState.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
   sql: string;
@@ -36,6 +37,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
   callClause: ParameterValueClause | undefined;
   function: TableValuedFunction;
   callTable: AvailableTable;
+  querierDataSource: BucketDataSourceDefinition;
 
   errors: SqlRuleError[];
 }
@@ -56,7 +58,8 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
     call: FromCall,
     q: SelectFromStatement,
     options: QueryParseOptions,
-    queryId: string
+    queryId: string,
+    querierDataSource: BucketDataSourceDefinition
   ): TableValuedFunctionSqlParameterQuery {
     const compatibility = options.compatibility;
     let errors: SqlRuleError[] = [];
@@ -120,6 +123,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
       callTable,
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       queryId,
+      querierDataSource,
       errors
     });
 
@@ -197,6 +201,8 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
    */
   readonly callTable: AvailableTable;
 
+  public readonly querierDataSource: BucketDataSourceDefinition;
+
   readonly errors: SqlRuleError[];
 
   constructor(options: TableValuedFunctionSqlParameterQueryOptions) {
@@ -206,6 +212,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
     this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
     this.queryId = options.queryId;
+    this.querierDataSource = options.querierDataSource;
 
     this.filter = options.filter;
     this.callClause = options.callClause;
@@ -224,12 +231,11 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
+    const hydrationState = resolveHydrationState(params);
+    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
-        const staticBuckets = this.getStaticBucketDescriptions(
-          options.globalParameters,
-          params.bucketIdTransformer
-        ).map((desc) => {
+        const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketPrefix).map((desc) => {
           return {
             ...desc,
             definition: this.descriptorName,
@@ -251,7 +257,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
     };
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {
+  getStaticBucketDescriptions(parameters: RequestParameters, bucketPrefix: string): BucketDescription[] {
     if (this.filter == null || this.callClause == null) {
       // Error in filter clause
       return [];
@@ -261,7 +267,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
     const rows = this.function.call([valueString]);
     let total: BucketDescription[] = [];
     for (let row of rows) {
-      const description = this.getIndividualBucketDescription(row, parameters, transformer);
+      const description = this.getIndividualBucketDescription(row, parameters, bucketPrefix);
       if (description !== null) {
         total.push(description);
       }
@@ -272,7 +278,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
   private getIndividualBucketDescription(
     row: SqliteRow,
     parameters: RequestParameters,
-    transformer: BucketIdTransformer
+    bucketPrefix: string
   ): BucketDescription | null {
     const mergedParams: ParameterValueSet = {
       ...parameters,
@@ -300,7 +306,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
     }
 
     return {
-      bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
+      bucket: getBucketId(bucketPrefix, this.bucketParameters, result),
       priority: this.priority
     };
   }

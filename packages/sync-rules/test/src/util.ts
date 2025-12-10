@@ -7,7 +7,13 @@ import {
   RequestJwtPayload,
   RequestParameters,
   SourceTableInterface,
-  StaticSchema
+  StaticSchema,
+  BucketDataSourceDefinition,
+  TablePattern,
+  CreateSourceParams,
+  BucketDataSource,
+  SourceSchema,
+  ColumnDefinition
 } from '../../src/index.js';
 
 export class TestSourceTable implements SourceTableInterface {
@@ -82,3 +88,27 @@ export function normalizeQuerierOptions(
 export function identityBucketTransformer(id: string) {
   return id;
 }
+
+/**
+ * Empty data source that can be used for testing parameter queries, where most of the functionality here is not used.
+ */
+export const EMPTY_DATA_SOURCE: BucketDataSourceDefinition = {
+  defaultBucketPrefix: 'mybucket',
+  bucketParameters: [],
+  // These are not used in the tests.
+  getSourceTables: function (): Set<TablePattern> {
+    return new Set();
+  },
+  createDataSource: function (params: CreateSourceParams): BucketDataSource {
+    throw new Error('Function not implemented.');
+  },
+  tableSyncsData: function (table: SourceTableInterface): boolean {
+    throw new Error('Function not implemented.');
+  },
+  resolveResultSets: function (schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
+    throw new Error('Function not implemented.');
+  },
+  debugWriteOutputTables: function (result: Record<string, { query: string }[]>): void {
+    throw new Error('Function not implemented.');
+  }
+};

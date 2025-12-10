@@ -6,6 +6,7 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
+import { resolveHydrationState } from './HydrationState.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
@@ -83,7 +84,13 @@ export class SqlBucketDescriptor implements BucketSource {
   }
 
   addParameterQuery(sql: string, options: QueryParseOptions): QueryParseResult {
-    const parameterQuery = SqlParameterQuery.fromSql(this.name, sql, options, this.parameterIdSequence.nextId());
+    const parameterQuery = SqlParameterQuery.fromSql(
+      this.name,
+      sql,
+      options,
+      this.parameterIdSequence.nextId(),
+      this.dataSource
+    );
     if (this.bucketParametersInternal == null) {
       this.bucketParametersInternal = parameterQuery.bucketParameters;
     } else {
@@ -151,6 +158,8 @@ export class BucketDefinitionDataSource implements BucketDataSourceDefinition {
   }
 
   createDataSource(params: CreateSourceParams): BucketDataSource {
+    const hydrationState = resolveHydrationState(params);
+    const bucketPrefix = hydrationState.getBucketSourceState(this).bucketPrefix;
     return {
       evaluateRow: (options) => {
         let results: EvaluationResult[] = [];
@@ -159,7 +168,7 @@ export class BucketDefinitionDataSource implements BucketDataSourceDefinition {
             continue;
           }
 
-          results.push(...query.evaluateRow(options.sourceTable, options.record, params.bucketIdTransformer));
+          results.push(...query.evaluateRow(options.sourceTable, options.record, bucketPrefix));
         }
         return results;
       }

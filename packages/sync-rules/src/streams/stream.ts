@@ -13,6 +13,7 @@ import {
   CreateSourceParams
 } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
+import { resolveHydrationState } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { GetQuerierOptions, RequestedStream } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
@@ -45,8 +46,14 @@ export class SyncStream implements BucketSource {
     this.variants = variants;
     this.data = data;
 
-    this.dataSources = variants.map((variant) => new SyncStreamDataSource(this, data, variant));
-    this.parameterQuerierSources = variants.map((variant) => new SyncStreamParameterQuerierSource(this, variant));
+    this.dataSources = [];
+    this.parameterQuerierSources = [];
+
+    for (let variant of variants) {
+      const dataSource = new SyncStreamDataSource(this, data, variant);
+      this.dataSources.push(dataSource);
+      this.parameterQuerierSources.push(new SyncStreamParameterQuerierSource(this, variant, dataSource));
+    }
     this.parameterLookupSources = variants.flatMap((variant) => variant.lookupSources(name));
   }
 
@@ -107,6 +114,8 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
   }
 
   createDataSource(params: CreateSourceParams): BucketDataSource {
+    const hydrationState = resolveHydrationState(params);
+    const bucketPrefix = hydrationState.getBucketSourceState(this).bucketPrefix;
     return {
       evaluateRow: (options: EvaluateRowOptions): EvaluationResult[] => {
         if (!this.data.applies(options.sourceTable)) {
@@ -126,7 +135,7 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
           table: options.sourceTable,
           row: options.record,
           bucketIds: () => {
-            return this.variant.bucketIdsForRow(stream.name, row, params.bucketIdTransformer);
+            return this.variant.bucketIdsForRow(bucketPrefix, row);
           }
         });
       }
@@ -139,7 +148,8 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
 
   constructor(
     private stream: SyncStream,
-    private variant: StreamVariant
+    private variant: StreamVariant,
+    public readonly querierDataSource: BucketDataSourceDefinition
   ) {}
 
   /**
@@ -150,6 +160,8 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
+    const hydrationState = resolveHydrationState(params);
+    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
     const stream = this.stream;
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
@@ -169,13 +181,13 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
             hasExplicitDefaultSubscription = true;
           }
 
-          this.queriersForSubscription(result, subscription, subscriptionParams, params.bucketIdTransformer);
+          this.queriersForSubscription(result, subscription, subscriptionParams, bucketPrefix);
         }
 
         // If the stream is subscribed to by default and there is no explicit subscription that would match the default
         // subscription, also include the default querier.
         if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-          this.queriersForSubscription(result, null, options.globalParameters, params.bucketIdTransformer);
+          this.queriersForSubscription(result, null, options.globalParameters, bucketPrefix);
         }
       }
     };
@@ -185,12 +197,12 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
     result: PendingQueriers,
     subscription: RequestedStream | null,
     params: RequestParameters,
-    bucketIdTransformer: BucketIdTransformer
+    bucketPrefix: string
   ) {
     const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
 
     try {
-      const querier = this.variant.querier(this.stream, reason, params, bucketIdTransformer);
+      const querier = this.variant.querier(this.stream, reason, params, bucketPrefix);
       if (querier) {
         result.queriers.push(querier);
       }

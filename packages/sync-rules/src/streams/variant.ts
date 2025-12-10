@@ -82,8 +82,8 @@ export class StreamVariant {
   /**
    * Given a row in the table this stream selects from, returns all ids of buckets to which that row belongs to.
    */
-  bucketIdsForRow(streamName: string, options: TableRow, transformer: BucketIdTransformer): string[] {
-    return this.instantiationsForRow(options).map((values) => this.buildBucketId(streamName, values, transformer));
+  bucketIdsForRow(bucketPrefix: string, options: TableRow): string[] {
+    return this.instantiationsForRow(options).map((values) => this.buildBucketId(bucketPrefix, values));
   }
 
   /**
@@ -132,7 +132,7 @@ export class StreamVariant {
     stream: SyncStream,
     reason: BucketInclusionReason,
     params: RequestParameters,
-    bucketIdTransformer: BucketIdTransformer
+    bucketPrefix: string
   ): BucketParameterQuerier | null {
     const instantiation = this.partiallyEvaluateParameters(params);
     if (instantiation == null) {
@@ -169,7 +169,7 @@ export class StreamVariant {
       // When we have no dynamic parameters, the partial evaluation is a full instantiation.
       const instantiations = this.cartesianProductOfParameterInstantiations(instantiation as SqliteJsonValue[][]);
       for (const instantiation of instantiations) {
-        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketIdTransformer));
+        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketPrefix));
       }
     }
 
@@ -214,7 +214,7 @@ export class StreamVariant {
           perParameterInstantiation as SqliteJsonValue[][]
         );
 
-        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketIdTransformer)));
+        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketPrefix)));
       }
     };
   }
@@ -280,29 +280,29 @@ export class StreamVariant {
   /**
    * Builds a bucket id for an instantiation, like `stream|0[1,2,"foo"]`.
    *
-   * @param streamName The name of the stream, included in the bucket id
+   * @param bucketPrefix The name of the the bucket, excluding parameters
    * @param instantiation An instantiation for all parameters in this variant.
    * @param transformer A transformer adding version information to the inner id.
    * @returns The generated bucket id
    */
-  private buildBucketId(streamName: string, instantiation: SqliteJsonValue[], transformer: BucketIdTransformer) {
+  private buildBucketId(bucketPrefix: string, instantiation: SqliteJsonValue[]) {
     if (instantiation.length != this.parameters.length) {
       throw Error('Internal error, instantiation length mismatch');
     }
 
-    return transformer(`${streamName}|${this.id}${JSONBucketNameSerialize.stringify(instantiation)}`);
+    return `${bucketPrefix}${JSONBucketNameSerialize.stringify(instantiation)}`;
   }
 
   private resolveBucket(
     stream: SyncStream,
     instantiation: SqliteJsonValue[],
     reason: BucketInclusionReason,
-    bucketIdTransformer: BucketIdTransformer
+    bucketPrefix: string
   ): ResolvedBucket {
     return {
       definition: stream.name,
       inclusion_reasons: [reason],
-      bucket: this.buildBucketId(stream.name, instantiation, bucketIdTransformer),
+      bucket: this.buildBucketId(bucketPrefix, instantiation),
       priority: stream.priority
     };
   }

@@ -1,5 +1,6 @@
 import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from './BucketParameterQuerier.js';
 import { ColumnDefinition } from './ExpressionType.js';
+import { HydrationState } from './HydrationState.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
@@ -13,7 +14,11 @@ import {
 } from './types.js';
 
 export interface CreateSourceParams {
-  bucketIdTransformer: BucketIdTransformer;
+  hydrationState?: HydrationState;
+  /**
+   * @deprecated Use hydrationState instead.
+   */
+  bucketIdTransformer?: BucketIdTransformer;
 }
 
 /**
@@ -122,6 +127,13 @@ export interface BucketParameterQuerierSourceDefinition {
    * For debug use only.
    */
   readonly bucketParameters: string[];
+
+  /**
+   * The data source linked to this querier. This determines the bucket names that the querier generates.
+   *
+   * Note that queriers do not persist data themselves; they only resolve which buckets to load based on request parameters.
+   */
+  readonly querierDataSource: BucketDataSourceDefinition;
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource;
 }

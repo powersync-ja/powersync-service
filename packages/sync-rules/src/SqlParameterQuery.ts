@@ -19,7 +19,7 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { GetQuerierOptions } from './index.js';
+import { BucketDataSourceDefinition, GetQuerierOptions } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
@@ -44,6 +44,7 @@ import {
 } from './types.js';
 import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
+import { HydrationState, resolveHydrationState } from './HydrationState.js';
 
 export interface SqlParameterQueryOptions {
   sourceTable: TablePattern;
@@ -59,6 +60,7 @@ export interface SqlParameterQueryOptions {
   bucketParameters: string[];
   queryId: string;
   tools: SqlTools;
+  querierDataSource: BucketDataSourceDefinition;
   errors?: SqlRuleError[];
 }
 
@@ -75,7 +77,8 @@ export class SqlParameterQuery
     descriptorName: string,
     sql: string,
     options: QueryParseOptions,
-    queryId: string
+    queryId: string,
+    querierDataSource: BucketDataSourceDefinition
   ): SqlParameterQuery | StaticSqlParameterQuery | TableValuedFunctionSqlParameterQuery {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options?.schema;
@@ -91,7 +94,7 @@ export class SqlParameterQuery
 
     if (q.from == null) {
       // E.g. SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
-      return StaticSqlParameterQuery.fromSql(descriptorName, sql, q, options, queryId);
+      return StaticSqlParameterQuery.fromSql(descriptorName, sql, q, options, queryId, querierDataSource);
     }
 
     let errors: SqlRuleError[] = [];
@@ -102,7 +105,15 @@ export class SqlParameterQuery
       throw new SqlRuleError('Must SELECT from a single table', sql, q.from?.[0]._location);
     } else if (q.from[0].type == 'call') {
       const from = q.from[0];
-      return TableValuedFunctionSqlParameterQuery.fromSql(descriptorName, sql, from, q, options, queryId);
+      return TableValuedFunctionSqlParameterQuery.fromSql(
+        descriptorName,
+        sql,
+        from,
+        q,
+        options,
+        queryId,
+        querierDataSource
+      );
     } else if (q.from[0].type == 'statement') {
       throw new SqlRuleError('Subqueries are not supported yet', sql, q.from?.[0]._location);
     }
@@ -203,6 +214,7 @@ export class SqlParameterQuery
       bucketParameters,
       queryId,
       tools,
+      querierDataSource,
       errors
     });
 
@@ -297,6 +309,8 @@ export class SqlParameterQuery
   readonly queryId: string;
   readonly tools: SqlTools;
 
+  readonly querierDataSource: BucketDataSourceDefinition;
+
   readonly errors: SqlRuleError[];
 
   constructor(options: SqlParameterQueryOptions) {
@@ -314,6 +328,7 @@ export class SqlParameterQuery
     this.queryId = options.queryId;
     this.tools = options.tools;
     this.errors = options.errors ?? [];
+    this.querierDataSource = options.querierDataSource;
   }
 
   public get defaultLookupName(): string {
@@ -333,15 +348,18 @@ export class SqlParameterQuery
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
+    const hydrationState = resolveHydrationState(params);
+    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
-        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], params.bucketIdTransformer);
+        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], bucketPrefix);
         result.queriers.push(q);
       }
     };
   }
 
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
+    // FIXME: Use HydrationState for lookups.
     return {
       evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
         if (this.tableSyncsParameters(sourceTable)) {
@@ -403,7 +421,7 @@ export class SqlParameterQuery
   resolveBucketDescriptions(
     bucketParameters: SqliteJsonRow[],
     parameters: RequestParameters,
-    transformer: BucketIdTransformer
+    bucketPrefix: string
   ): BucketDescription[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
@@ -428,7 +446,7 @@ export class SqlParameterQuery
         }
 
         return {
-          bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
+          bucket: getBucketId(bucketPrefix, this.bucketParameters, result),
           priority: this.priority
         };
       })
@@ -514,7 +532,7 @@ export class SqlParameterQuery
   getBucketParameterQuerier(
     requestParameters: RequestParameters,
     reasons: BucketInclusionReason[],
-    transformer: BucketIdTransformer
+    bucketPrefix: string
   ): BucketParameterQuerier {
     const lookups = this.getLookups(requestParameters);
     if (lookups.length == 0) {
@@ -534,7 +552,7 @@ export class SqlParameterQuery
       parameterQueryLookups: lookups,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
-        return this.resolveBucketDescriptions(bucketParameters, requestParameters, transformer).map((bucket) => ({
+        return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketPrefix).map((bucket) => ({
           ...bucket,
           definition: this.descriptorName,
           inclusion_reasons: reasons

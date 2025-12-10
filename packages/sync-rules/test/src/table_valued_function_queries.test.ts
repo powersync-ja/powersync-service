@@ -7,7 +7,7 @@ import {
   SqlParameterQuery
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { identityBucketTransformer, PARSE_OPTIONS } from './util.js';
+import { EMPTY_DATA_SOURCE, PARSE_OPTIONS } from './util.js';
 
 describe('table-valued function queries', () => {
   test('json_each(array param)', function () {
@@ -19,16 +19,14 @@ describe('table-valued function queries', () => {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(
-        new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }),
-        identityBucketTransformer
-      )
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), 'mybucket')
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -50,16 +48,14 @@ describe('table-valued function queries', () => {
           new Map([[CompatibilityOption.fixedJsonExtract, true]])
         )
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(
-        new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }),
-        identityBucketTransformer
-      )
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), 'mybucket')
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -70,13 +66,17 @@ describe('table-valued function queries', () => {
 
   test('json_each(static string)', function () {
     const sql = `SELECT json_each.value as v FROM json_each('[1,2,3]')`;
-    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql(
+      'mybucket',
+      sql,
+      PARSE_OPTIONS,
+      '1',
+      EMPTY_DATA_SOURCE
+    ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
-    expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), identityBucketTransformer)
-    ).toEqual([
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), 'mybucket')).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
       { bucket: 'mybucket[3]', priority: 3 }
@@ -85,13 +85,17 @@ describe('table-valued function queries', () => {
 
   test('json_each(null)', function () {
     const sql = `SELECT json_each.value as v FROM json_each(null)`;
-    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql(
+      'mybucket',
+      sql,
+      PARSE_OPTIONS,
+      '1',
+      EMPTY_DATA_SOURCE
+    ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
-    expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), identityBucketTransformer)
-    ).toEqual([]);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), 'mybucket')).toEqual([]);
   });
 
   test('json_each(array param not present)', function () {
@@ -103,14 +107,13 @@ describe('table-valued function queries', () => {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
-    expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), identityBucketTransformer)
-    ).toEqual([]);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), 'mybucket')).toEqual([]);
   });
 
   test('json_each(array param not present, ifnull)', function () {
@@ -122,25 +125,28 @@ describe('table-valued function queries', () => {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
-    expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), identityBucketTransformer)
-    ).toEqual([]);
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), 'mybucket')).toEqual([]);
   });
 
   test('json_each on json_keys', function () {
     const sql = `SELECT value FROM json_each(json_keys('{"a": [], "b": 2, "c": null}'))`;
-    const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as StaticSqlParameterQuery;
+    const query = SqlParameterQuery.fromSql(
+      'mybucket',
+      sql,
+      PARSE_OPTIONS,
+      '1',
+      EMPTY_DATA_SOURCE
+    ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['value']);
 
-    expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), identityBucketTransformer)
-    ).toEqual([
+    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), 'mybucket')).toEqual([
       { bucket: 'mybucket["a"]', priority: 3 },
       { bucket: 'mybucket["b"]', priority: 3 },
       { bucket: 'mybucket["c"]', priority: 3 }
@@ -156,16 +162,14 @@ describe('table-valued function queries', () => {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['value']);
 
     expect(
-      query.getStaticBucketDescriptions(
-        new RequestParameters({ sub: '' }, { array: [1, 2, 3] }),
-        identityBucketTransformer
-      )
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), 'mybucket')
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -182,16 +186,14 @@ describe('table-valued function queries', () => {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['value']);
 
     expect(
-      query.getStaticBucketDescriptions(
-        new RequestParameters({ sub: '' }, { array: [1, 2, 3] }),
-        identityBucketTransformer
-      )
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), 'mybucket')
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -208,16 +210,14 @@ describe('table-valued function queries', () => {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(
-        new RequestParameters({ sub: '' }, { array: [1, 2, 3] }),
-        identityBucketTransformer
-      )
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), 'mybucket')
     ).toEqual([
       { bucket: 'mybucket[2]', priority: 3 },
       { bucket: 'mybucket[3]', priority: 3 }
@@ -234,7 +234,8 @@ describe('table-valued function queries', () => {
         ...PARSE_OPTIONS,
         accept_potentially_dangerous_queries: true
       },
-      '1'
+      '1',
+      EMPTY_DATA_SOURCE
     ) as StaticSqlParameterQuery;
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['project_id']);
@@ -251,7 +252,7 @@ describe('table-valued function queries', () => {
           },
           {}
         ),
-        identityBucketTransformer
+        'mybucket'
       )
     ).toEqual([{ bucket: 'mybucket[1]', priority: 3 }]);
   });
@@ -259,7 +260,13 @@ describe('table-valued function queries', () => {
   describe('dangerous queries', function () {
     function testDangerousQuery(sql: string) {
       test(sql, function () {
-        const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as SqlParameterQuery;
+        const query = SqlParameterQuery.fromSql(
+          'mybucket',
+          sql,
+          PARSE_OPTIONS,
+          '1',
+          EMPTY_DATA_SOURCE
+        ) as SqlParameterQuery;
         expect(query.errors).toMatchObject([
           {
             message:
@@ -271,7 +278,13 @@ describe('table-valued function queries', () => {
     }
     function testSafeQuery(sql: string) {
       test(sql, function () {
-        const query = SqlParameterQuery.fromSql('mybucket', sql, PARSE_OPTIONS, '1') as SqlParameterQuery;
+        const query = SqlParameterQuery.fromSql(
+          'mybucket',
+          sql,
+          PARSE_OPTIONS,
+          '1',
+          EMPTY_DATA_SOURCE
+        ) as SqlParameterQuery;
         expect(query.errors).toEqual([]);
         expect(query.usesDangerousRequestParameters).toEqual(false);
       });
