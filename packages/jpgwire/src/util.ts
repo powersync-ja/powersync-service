@@ -166,21 +166,6 @@ function patchConnection(connection: pgwire.PgConnection, config: PgWireConnecti
     this._rowCtor = RowImplementation;
     await this._fwdBemsg(m);
   };
-
-  // Original definition: https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L702-L714
-  (connection as any)._recvDataRow = function (this: any, _: any, row: Uint8Array[], batch: any) {
-    const { columns } = this._rowCtor.prototype;
-    for (let i = 0; i < columns.length; i++) {
-      const valbuf = row[i];
-      if (!valbuf) continue;
-      const { binary } = columns[i];
-      // TODO avoid this._rowTextDecoder.decode for bytea
-      // TODO maybe allocate buffer per socket.read will be faster
-      // then allocating and copying buffer per cell in binary case?
-      row[i] = binary ? valbuf.slice() : this._rowTextDecoder.decode(valbuf);
-    }
-    batch.rows.push(new this._rowCtor(row));
-  };
 }
 
 export interface PgPoolOptions {
