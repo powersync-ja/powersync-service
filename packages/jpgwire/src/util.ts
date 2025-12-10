@@ -109,25 +109,78 @@ export async function connectPgWire(
     connectionOptions.replication = 'database';
   }
 
-  let tlsOptions: tls.ConnectionOptions | false = false;
-
   if (config.sslmode != 'disable') {
     connectionOptions.sslmode = 'require';
-
-    tlsOptions = makeTlsOptions(config);
   } else {
     connectionOptions.sslmode = 'disable';
   }
-  const connection = pgwire.pgconnection(connectionOptions as pgwire.PgConnectOptions);
 
-  // HACK: Not standard pgwire options
-  // Just the easiest way to pass on our config to SocketAdapter
-  const connectOptions = (connection as any)._socketOptions as ConnectOptions;
-  connectOptions.tlsOptions = tlsOptions;
-  connectOptions.lookup = config.lookup;
+  const connection = pgwire.pgconnection(connectionOptions as pgwire.PgConnectOptions);
+  patchConnection(connection, config);
 
   await connection.query();
   return connection;
+}
+
+function patchConnection(connection: pgwire.PgConnection, config: PgWireConnectionOptions) {
+  // Just the easiest way to pass on our config to SocketAdapter
+  const connectOptions = (connection as any)._socketOptions as ConnectOptions;
+  connectOptions.tlsOptions = makeTlsOptions(config);
+  connectOptions.lookup = config.lookup;
+
+  // Hack for safety: We always want to be responsible for decoding values ourselves, and NEVER
+  // use the PgType.decode implementation from pgwire. We can use our own implementation by using
+  // row.raw, this ensures that forgetting to do that is an error instead of potentially corrupted
+  // data.
+  // Original definition: https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L679-L701
+  (connection as any)._recvRowDescription = async function (this: any, m: any, columns: any) {
+    class RowImplementation implements pgwire.PgRow {
+      declare readonly columns: pgwire.ColumnDescription[];
+
+      constructor(readonly raw: (string | Uint8Array)[]) {}
+
+      get length() {
+        return this.raw.length;
+      }
+
+      decodeWithoutCustomTypes(index: number) {
+        return PgType.decode(this.raw[index], this.columns[index].typeOid);
+      }
+    }
+
+    Object.defineProperties(RowImplementation.prototype, {
+      columns: { enumerable: true, value: columns }
+    });
+
+    for (const [i] of columns.entries()) {
+      Object.defineProperty(RowImplementation.prototype, i, {
+        enumerable: false,
+        get() {
+          throw new Error(
+            `Illegal call to PgRow[i]. Use decodeWithoutCustomTypes(i) instead, or use a custom type registry.`
+          );
+        }
+      });
+    }
+
+    this._rowCtor = RowImplementation;
+    await this._fwdBemsg(m);
+  };
+
+  // Original definition: https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L702-L714
+  (connection as any)._recvDataRow = function (this: any, _: any, row: Uint8Array[], batch: any) {
+    const { columns } = this._rowCtor.prototype;
+    for (let i = 0; i < columns.length; i++) {
+      const valbuf = row[i];
+      if (!valbuf) continue;
+      const { binary } = columns[i];
+      // TODO avoid this._rowTextDecoder.decode for bytea
+      // TODO maybe allocate buffer per socket.read will be faster
+      // then allocating and copying buffer per cell in binary case?
+      row[i] = binary ? valbuf.slice() : this._rowTextDecoder.decode(valbuf);
+    }
+    batch.rows.push(new this._rowCtor(row));
+  };
 }
 
 export interface PgPoolOptions {
@@ -172,11 +225,8 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
     _poolIdleTimeout: idleTimeout
   };
 
-  let tlsOptions: tls.ConnectionOptions | false = false;
   if (config.sslmode != 'disable') {
     connectionOptions.sslmode = 'require';
-
-    tlsOptions = makeTlsOptions(config);
   } else {
     connectionOptions.sslmode = 'disable';
   }
@@ -185,10 +235,7 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
   const originalGetConnection = (pool as any)._getConnection;
   (pool as any)._getConnection = function (this: any) {
     const con = originalGetConnection.call(this);
-
-    const connectOptions = (con as any)._socketOptions as ConnectOptions;
-    connectOptions.tlsOptions = tlsOptions;
-    connectOptions.lookup = config.lookup;
+    patchConnection(con, config);
     return con;
   };
   return pool;
@@ -307,7 +354,7 @@ export function pgwireRows<T = Record<string, any>>(rs: pgwire.PgResult): T[] {
     for (let i = 0; i < columns.length; i++) {
       const c = columns[i];
 
-      (r as any)[c.name] = PgType.decode(row.raw[i] as string, c.typeOid);
+      (r as any)[c.name] = row.decodeWithoutCustomTypes(i);
     }
     return r;
   });

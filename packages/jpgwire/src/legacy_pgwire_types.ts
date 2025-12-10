@@ -86,8 +86,13 @@ export interface PgExtendedQueryOptions {
 }
 
 // POWERSYNC START: New Row type for 0.8.0
-export interface PgRow extends Array<any> {
-  raw: (string | Uint8Array)[];
+export interface PgRow {
+  readonly length: number;
+  readonly columns: ColumnDescription[];
+  readonly raw: (string | Uint8Array)[];
+
+  // Added in our _recvRowDescription patch.
+  decodeWithoutCustomTypes(index: number): any;
 }
 
 // POWERSYNC END
@@ -114,7 +119,7 @@ export interface PgResult extends Iterable<any> {
 export interface PgSubResult {
   /** First row first column value. `undefined` if no rows returned. */
   readonly scalar: any;
-  readonly rows: any[][];
+  readonly rows: PgRow[]; // POWERSYNC: Changed from any[][] to PgRow[][].
   readonly columns: ColumnDescription[];
   /** - Command tag (`'SELECT ...'`, `'UPDATE ...'`) if CommandComplete received.
    * - `'PortalSuspended'` if {@link Statement.limit} has been reached.

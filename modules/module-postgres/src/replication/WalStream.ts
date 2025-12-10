@@ -361,11 +361,7 @@ WHERE  oid = $1::regclass`,
       params: [{ value: table.qualifiedName, type: 'varchar' }]
     });
     const row = results.rows[0];
-    if ((row?.[0] ?? -1n) == -1n) {
-      return -1;
-    } else {
-      return Number(row[0]);
-    }
+    return Number(row?.decodeWithoutCustomTypes(0) ?? -1n);
   }
 
   /**
@@ -499,7 +495,7 @@ WHERE  oid = $1::regclass`,
       // 2. Wait until logical replication has caught up with all the change between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
       const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-      tableLsnNotBefore = rs.rows[0][0];
+      tableLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
       const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);

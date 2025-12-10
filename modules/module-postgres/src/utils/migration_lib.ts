@@ -66,7 +66,7 @@ export class Migrations {
       limit 1
     `
       )
-      .then((results) => ({ id: results.rows[0][0] as number }));
+      .then((results) => ({ id: results.rows[0].decodeWithoutCustomTypes(0) as number }));
   }
 
   async ensureMigrationsTable(db: pgwire.PgConnection) {
