@@ -5,7 +5,8 @@
 export type * from './legacy_pgwire_types.js';
 
 import * as pgwire_untyped from './pgwire_node.js';
+import type * as pgwire_typed from './legacy_pgwire_types.js';
 
-export const pgconnect = (pgwire_untyped as any).pgconnect;
-export const pgconnection = (pgwire_untyped as any).pgconnection;
-export const pgpool = (pgwire_untyped as any).pgpool;
+export const pgconnect: typeof pgwire_typed.pgconnect = (pgwire_untyped as any).pgconnect;
+export const pgconnection: typeof pgwire_typed.pgconnection = (pgwire_untyped as any).pgconnection;
+export const pgpool: typeof pgwire_typed.pgpool = (pgwire_untyped as any).pgpool;
