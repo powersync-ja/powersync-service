@@ -19,7 +19,6 @@ export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
 
 export class SqlDataQuery extends BaseSqlDataQuery {
   static fromSql(
-    descriptorName: string,
     bucketParameters: string[],
     sql: string,
     options: SyncRulesOptions,
@@ -170,7 +169,6 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       sql,
       filter,
       columns: q.columns ?? [],
-      descriptorName,
       bucketParameters,
       tools,
       errors,

@@ -201,7 +201,6 @@ class SyncStreamCompiler {
       table: alias,
       sql: this.sql,
       columns: query.columns ?? [],
-      descriptorName: this.descriptorName,
       tools,
       extractors,
       // Streams don't have traditional parameters, and parameters aren't used in the rest of the stream implementation.

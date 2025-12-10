@@ -34,7 +34,6 @@ export interface BaseSqlDataQueryOptions {
   sql: string;
   columns: SelectedColumn[];
   extractors: RowValueExtractor[];
-  descriptorName: string;
   bucketParameters: string[];
   tools: SqlTools;
   errors?: SqlRuleError[];
@@ -71,10 +70,6 @@ export class BaseSqlDataQuery {
   readonly extractors: RowValueExtractor[];
 
   /**
-   * Bucket definition name.
-   */
-  readonly descriptorName: string;
-  /**
    * Bucket parameter names, without the `bucket.` prefix.
    *
    * These are received from the associated parameter query (if any), and must match the filters
@@ -94,7 +89,6 @@ export class BaseSqlDataQuery {
     this.sql = options.sql;
     this.columns = options.columns;
     this.extractors = options.extractors;
-    this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
     this.tools = options.tools;
     this.errors = options.errors ?? [];
