@@ -113,7 +113,12 @@ export class PgType {
     return ELEM_OID_TO_ARRAY.get(typeOid);
   }
 
-  static decode(text: string, typeOid: number): DatabaseInputValue {
+  static decode(text: string | Uint8Array, typeOid: number): DatabaseInputValue {
+    if (typeof text != 'string') {
+      // We don't support decoding binary values.
+      return text;
+    }
+
     switch (typeOid) {
       // add line here when register new type
       case PgTypeOid.TEXT:

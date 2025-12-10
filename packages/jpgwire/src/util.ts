@@ -306,15 +306,8 @@ export function pgwireRows<T = Record<string, any>>(rs: pgwire.PgResult): T[] {
     let r: T = {} as any;
     for (let i = 0; i < columns.length; i++) {
       const c = columns[i];
-      const rawPostgresValue = row.raw[i];
-      let parsedValue: any = rawPostgresValue;
-      if (typeof rawPostgresValue == 'string') {
-        // We can't parse a binary representation from Postgres, which would be removed in a later step (but this is
-        // highly unlikely since we're not requesting binary values anywhere).
-        parsedValue = PgType.decode(row.raw[i] as string, c.typeOid);
-      }
 
-      (r as any)[c.name] = parsedValue;
+      (r as any)[c.name] = PgType.decode(row.raw[i] as string, c.typeOid);
     }
     return r;
   });

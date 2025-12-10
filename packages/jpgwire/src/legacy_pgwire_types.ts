@@ -126,7 +126,9 @@ export type PgChunk = PgChunkDataRow | PgChunkCopyData | PgChunkCommandComplete 
 
 export interface PgChunkDataRow extends Uint8Array {
   readonly tag: 'DataRow';
-  readonly rows: any[][];
+  // POWERSYNC START: Changed any[][] to PgRow[][]
+  readonly rows: PgRow[];
+  // POWERSYNC END
   readonly copies: [];
   readonly payload: null;
 }
