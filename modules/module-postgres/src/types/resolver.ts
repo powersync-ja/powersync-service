@@ -199,7 +199,12 @@ WHERE a.attnum > 0
     let result: Record<string, any> = {};
     for (const column of relation.columns) {
       const rawval = tupleRaw[column.name];
-      result[column.name] = rawval == null ? null : this.registry.decodeDatabaseValue(rawval, column.typeOid);
+      result[column.name] =
+        rawval == null
+          ? // We can't decode null values, but it's important that null and undefined stay distinct because undefined
+            // represents a TOASTed value.
+            rawval
+          : this.registry.decodeDatabaseValue(rawval, column.typeOid);
     }
 
     return result;

@@ -135,14 +135,14 @@ export interface PgChunkDataRow extends Uint8Array {
 
 export interface PgChunkCopyData extends Uint8Array {
   readonly tag: 'CopyData';
-  readonly rows: [];
+  readonly rows: PgRow[]; // POWERSYNC START: Changed from [] to PgRow[]. POWERSYNC END
   readonly copies: Uint8Array[];
   readonly payload: null;
 }
 
 export interface PgChunkCommandComplete extends Uint8Array {
   readonly tag: 'CommandComplete';
-  readonly rows: [];
+  readonly rows: PgRow[]; // POWERSYNC START: Changed from [] to PgRow[]. POWERSYNC END
   readonly copies: [];
   /** Command, SELECT N, UPDATE 0 N, ... */
   readonly payload: string;
@@ -150,7 +150,7 @@ export interface PgChunkCommandComplete extends Uint8Array {
 
 export interface PgChunkRowDescription extends Uint8Array {
   readonly tag: 'RowDescription';
-  readonly rows: [];
+  readonly rows: PgRow[]; // POWERSYNC START: Changed from [] to PgRow[]. POWERSYNC END
   readonly copies: [];
   readonly payload: ColumnDescription[];
 }

@@ -545,7 +545,7 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
-    let columns: { i: number; name: string }[] = [];
+    let columns: { i: number; name: string; typeOid: number }[] = [];
     let columnMap: Record<string, number> = {};
     let hasRemainingData = true;
     while (hasRemainingData) {
@@ -564,7 +564,7 @@ WHERE  oid = $1::regclass`,
           // all be the same.
           let i = 0;
           columns = chunk.payload.map((c) => {
-            return { i: i++, name: c.name };
+            return { i: i++, name: c.name, typeOid: c.typeOid };
           });
           for (let column of chunk.payload) {
             columnMap[column.name] = column.typeOid;
@@ -575,7 +575,8 @@ WHERE  oid = $1::regclass`,
         const rows = chunk.rows.map((row) => {
           let q: DatabaseInputRow = {};
           for (let c of columns) {
-            q[c.name] = row[c.i];
+            q[c.name] = pgwire.PgType.decode(row.raw[c.i], c.typeOid);
+            row.raw[c.i];
           }
           return q;
         });
