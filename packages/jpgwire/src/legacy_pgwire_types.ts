@@ -10,7 +10,7 @@ export declare function pgpool(...optionsChain: PgConnectOptions[]): PgClient;
 export type PgConnectOptions = string | URL | (PgConnectKnownOptions & Record<string, string | Uint8Array>);
 
 export interface PgConnectKnownOptions {
-  readonly hostname?: string;
+  readonly host?: string;
   readonly port?: number;
   readonly sslmode?: 'require' | 'prefer' | 'allow' | 'disable' | null;
   // readonly sslrootcert?: string;
@@ -85,13 +85,22 @@ export interface PgExtendedQueryOptions {
   readonly signal?: AbortSignal;
 }
 
+// POWERSYNC START: New Row type for 0.8.0
+export interface PgRow extends Array<any> {
+  raw: (string | Uint8Array)[];
+}
+
+// POWERSYNC END
+
 export interface PgResult extends Iterable<any> {
   /**
    * @deprecated Use iterator instead.
    *
    * First row first column value. `undefined` if no rows returned.  a */
   readonly scalar: any;
-  readonly rows: any[][];
+  // POWERSYNC START: Changed type from any[][] to PgRow[]
+  readonly rows: PgRow[];
+  // POWERSYNC END
   readonly columns: ColumnDescription[];
   /** - Command tag (`'SELECT ...'`, `'UPDATE ...'`) if CommandComplete received.
    * - `'PortalSuspended'` if {@link Statement.limit} has been reached.

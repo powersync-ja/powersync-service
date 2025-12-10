@@ -5,7 +5,7 @@ import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType, postgresTimeOptions } from './pgwire_types.js';
 import { ConnectOptions } from './socket_adapter.js';
-import { DatabaseInputValue, DateTimeValue } from '@powersync/service-sync-rules';
+import { DateTimeValue } from '@powersync/service-sync-rules';
 
 // TODO this is duplicated, but maybe that is ok
 export interface NormalizedConnectionConfig {
@@ -97,7 +97,7 @@ export async function connectPgWire(
     application_name: options?.applicationName ?? 'powersync',
 
     // tlsOptions below contains the original hostname
-    hostname: config.resolved_ip ?? config.hostname,
+    host: config.resolved_ip ?? config.hostname,
     port: config.port,
     database: config.database,
 
@@ -122,11 +122,11 @@ export async function connectPgWire(
 
   // HACK: Not standard pgwire options
   // Just the easiest way to pass on our config to SocketAdapter
-  const connectOptions = (connection as any)._connectOptions as ConnectOptions;
+  const connectOptions = (connection as any)._socketOptions as ConnectOptions;
   connectOptions.tlsOptions = tlsOptions;
   connectOptions.lookup = config.lookup;
 
-  await (connection as any).start();
+  await connection.query();
   return connection;
 }
 
@@ -161,7 +161,7 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
     application_name: options?.applicationName ?? 'powersync',
 
     // tlsOptions below contains the original hostname
-    hostname: config.resolved_ip ?? config.hostname,
+    host: config.resolved_ip ?? config.hostname,
     port: config.port,
     database: config.database,
 
@@ -186,7 +186,7 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
   (pool as any)._getConnection = function (this: any) {
     const con = originalGetConnection.call(this);
 
-    const connectOptions = (con as any)._connectOptions as ConnectOptions;
+    const connectOptions = (con as any)._socketOptions as ConnectOptions;
     connectOptions.tlsOptions = tlsOptions;
     connectOptions.lookup = config.lookup;
     return con;
@@ -306,7 +306,15 @@ export function pgwireRows<T = Record<string, any>>(rs: pgwire.PgResult): T[] {
     let r: T = {} as any;
     for (let i = 0; i < columns.length; i++) {
       const c = columns[i];
-      (r as any)[c.name] = row[i];
+      const rawPostgresValue = row.raw[i];
+      let parsedValue: any = rawPostgresValue;
+      if (typeof rawPostgresValue == 'string') {
+        // We can't parse a binary representation from Postgres, which would be removed in a later step (but this is
+        // highly unlikely since we're not requesting binary values anywhere).
+        parsedValue = PgType.decode(row.raw[i] as string, c.typeOid);
+      }
+
+      (r as any)[c.name] = parsedValue;
     }
     return r;
   });
