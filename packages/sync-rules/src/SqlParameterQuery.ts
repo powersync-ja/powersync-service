@@ -331,12 +331,11 @@ export class SqlParameterQuery
     this.querierDataSource = options.querierDataSource;
   }
 
-  public get defaultLookupName(): string {
-    return this.descriptorName;
-  }
-
-  public get defaultQueryId(): string {
-    return this.queryId;
+  public get defaultLookupScope(): ParameterLookupScope {
+    return {
+      lookupName: this.descriptorName,
+      queryId: this.queryId
+    };
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {

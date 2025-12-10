@@ -539,12 +539,15 @@ export class SubqueryParameterLookupSource implements BucketParameterLookupSourc
     private parameterTable: TablePattern,
     private column: RowValueClause,
     private innerVariant: StreamVariant,
-    public readonly defaultQueryId: string,
+    private defaultQueryId: string,
     private streamName: string
   ) {}
 
-  get defaultLookupName() {
-    return this.streamName;
+  public get defaultLookupScope() {
+    return {
+      lookupName: this.streamName,
+      queryId: this.defaultQueryId
+    };
   }
 
   getSourceTables(): Set<TablePattern> {

@@ -45,35 +45,14 @@ export const DEFAULT_HYDRATION_STATE: HydrationState = {
     };
   },
   getParameterLookupScope(source) {
-    return {
-      lookupName: source.defaultLookupName,
-      queryId: source.defaultQueryId
-    };
+    return source.defaultLookupScope;
   }
 };
 
 export function versionedHydrationState(version: number) {
-  return new VersionedHydrationState((bucketId: string) => {
+  return new BucketIdTransformerHydrationState((bucketId: string) => {
     return `${version}#${bucketId}`;
   });
-}
-
-export class VersionedHydrationState implements HydrationState {
-  constructor(private transformer: BucketIdTransformer) {}
-
-  getBucketSourceState(source: BucketDataSourceDefinition): BucketSourceState {
-    return {
-      bucketPrefix: this.transformer(source.defaultBucketPrefix)
-    };
-  }
-
-  getParameterLookupScope(source: BucketParameterLookupSourceDefinition): ParameterLookupScope {
-    // No transformations applied here
-    return {
-      lookupName: source.defaultLookupName,
-      queryId: source.defaultQueryId
-    };
-  }
 }
 
 export class BucketIdTransformerHydrationState implements HydrationState {
@@ -87,10 +66,7 @@ export class BucketIdTransformerHydrationState implements HydrationState {
 
   getParameterLookupScope(source: BucketParameterLookupSourceDefinition): ParameterLookupScope {
     // No transformations applied here
-    return {
-      lookupName: source.defaultLookupName,
-      queryId: source.defaultQueryId
-    };
+    return source.defaultLookupScope;
   }
 }
 

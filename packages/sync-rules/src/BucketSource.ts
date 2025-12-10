@@ -1,6 +1,6 @@
 import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from './BucketParameterQuerier.js';
 import { ColumnDefinition } from './ExpressionType.js';
-import { HydrationState } from './HydrationState.js';
+import { HydrationState, ParameterLookupScope } from './HydrationState.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
@@ -107,8 +107,7 @@ export interface BucketParameterLookupSourceDefinition {
    *
    * This defines the default values if no transformations are applied.
    */
-  defaultLookupName: string;
-  defaultQueryId: string;
+  readonly defaultLookupScope: ParameterLookupScope;
 
   getSourceTables(): Set<TablePattern>;
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource;
