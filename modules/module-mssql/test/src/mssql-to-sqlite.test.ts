@@ -221,9 +221,11 @@ describe('MSSQL Data Types Tests', () => {
   test('Date types mappings', async () => {
     const beforeLSN = await getLatestLSN(connectionManager);
     const testDate = new Date('2023-03-06T15:47:00.123Z');
+    // This adds 0.4567 milliseconds to the JS date, see https://github.com/tediousjs/tedious/blob/0c256f186600d7230aec05553ebad209bed81acc/src/data-types/datetime2.ts#L74.
+    // Note that there's a typo in tedious there. When reading dates, the property is actually called nanosecondsDelta.
+    // This is only relevant when binding datetime values, so only in this test.
     Object.defineProperty(testDate, 'nanosecondDelta', {
       enumerable: false,
-      // Of course, nanosecondDelta is not measured in nanoseconds. It's actually in seconds.
       value: 0.0004567
     });
     await connectionManager.query(

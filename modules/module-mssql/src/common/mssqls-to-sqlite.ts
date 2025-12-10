@@ -45,6 +45,7 @@ export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): Sqlite
           const date = row[key] as DateWithNanosecondsDelta;
           if (isNaN(date.getTime())) {
             result[key] = null;
+            break;
           }
 
           const originalFormat = date.toISOString();
