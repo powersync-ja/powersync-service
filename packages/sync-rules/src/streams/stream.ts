@@ -8,6 +8,7 @@ import {
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
+  BucketSource,
   BucketSourceType,
   CreateSourceParams
 } from '../BucketSource.js';
@@ -27,7 +28,11 @@ import {
 import { StreamVariant } from './variant.js';
 
 export class SyncStream
-  implements BucketDataSourceDefinition, BucketParameterLookupSourceDefinition, BucketParameterQuerierSourceDefinition
+  implements
+    BucketDataSourceDefinition,
+    BucketParameterLookupSourceDefinition,
+    BucketParameterQuerierSourceDefinition,
+    BucketSource
 {
   name: string;
   subscribedToByDefault: boolean;
@@ -51,6 +56,18 @@ export class SyncStream
     // FIXME: check whether this is correct.
     // Could there be multiple variants with different bucket parameters?
     return this.data.bucketParameters;
+  }
+
+  public get dataSource() {
+    return this;
+  }
+
+  public get parameterLookupSources() {
+    return [this];
+  }
+
+  public get parameterQuerierSources() {
+    return [this];
   }
 
   createDataSource(params: CreateSourceParams): BucketDataSource {

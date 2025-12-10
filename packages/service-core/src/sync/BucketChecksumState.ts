@@ -2,6 +2,7 @@ import {
   BucketDataSourceDefinition,
   BucketDescription,
   BucketPriority,
+  BucketSource,
   HydratedSyncRules,
   RequestedStream,
   RequestJwtPayload,
@@ -248,15 +249,15 @@ export class BucketChecksumState {
       const streamNameToIndex = new Map<string, number>();
       this.streamNameToIndex = streamNameToIndex;
 
-      for (const source of this.parameterState.syncRules.bucketDataSources) {
-        if (this.parameterState.isSubscribedToStream(source.definition)) {
-          streamNameToIndex.set(source.definition.name, subscriptions.length);
+      for (const source of this.parameterState.syncRules.definition.bucketSources) {
+        if (this.parameterState.isSubscribedToStream(source)) {
+          streamNameToIndex.set(source.name, subscriptions.length);
 
           subscriptions.push({
-            name: source.definition.name,
-            is_default: source.definition.subscribedToByDefault,
+            name: source.name,
+            is_default: source.subscribedToByDefault,
             errors:
-              this.parameterState.streamErrors[source.definition.name]?.map((e) => ({
+              this.parameterState.streamErrors[source.name]?.map((e) => ({
                 subscription: e.subscription?.opaque_id ?? 'default',
                 message: e.message
               })) ?? []
@@ -484,7 +485,7 @@ export class BucketParameterState {
     };
   }
 
-  isSubscribedToStream(desc: BucketDataSourceDefinition): boolean {
+  isSubscribedToStream(desc: BucketSource): boolean {
     return (desc.subscribedToByDefault && this.includeDefaultStreams) || this.subscribedStreamNames.has(desc.name);
   }
 

@@ -4,7 +4,8 @@ import {
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSourceDefinition,
   BucketSourceType,
-  CreateSourceParams
+  CreateSourceParams,
+  BucketSource
 } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
@@ -28,25 +29,11 @@ export interface QueryParseResult {
   errors: SqlRuleError[];
 }
 
-export class SqlBucketDescriptor implements BucketDataSourceDefinition {
+export class SqlBucketDescriptor implements BucketDataSourceDefinition, BucketSource {
   name: string;
   private bucketParametersInternal: string[] | null = null;
 
-  constructor(name: string) {
-    this.name = name;
-  }
-
-  get type(): BucketSourceType {
-    return BucketSourceType.SYNC_RULE;
-  }
-
-  public get subscribedToByDefault(): boolean {
-    return true;
-  }
-
-  public get bucketParameters(): string[] {
-    return this.bucketParametersInternal ?? [];
-  }
+  public readonly subscribedToByDefault: boolean = true;
 
   /**
    * source table -> queries
@@ -56,6 +43,30 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition {
   globalParameterQueries: (StaticSqlParameterQuery | TableValuedFunctionSqlParameterQuery)[] = [];
 
   parameterIdSequence = new IdSequence();
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  get type(): BucketSourceType {
+    return BucketSourceType.SYNC_RULE;
+  }
+
+  public get bucketParameters(): string[] {
+    return this.bucketParametersInternal ?? [];
+  }
+
+  get dataSource() {
+    return this;
+  }
+
+  get parameterLookupSources() {
+    return this.parameterQueries;
+  }
+
+  get parameterQuerierSources() {
+    return [...this.parameterQueries, ...this.globalParameterQueries];
+  }
 
   addDataQuery(sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext): QueryParseResult {
     if (this.bucketParametersInternal == null) {
@@ -110,14 +121,6 @@ export class SqlBucketDescriptor implements BucketDataSourceDefinition {
         return results;
       }
     };
-  }
-
-  getParameterQuerierSourceDefinitions(): BucketParameterQuerierSourceDefinition[] {
-    return [...this.parameterQueries, ...this.globalParameterQueries];
-  }
-
-  getParameterLookupSourceDefinitions(): BucketParameterLookupSourceDefinition[] {
-    return [...this.parameterQueries];
   }
 
   getSourceTables(): Set<TablePattern> {

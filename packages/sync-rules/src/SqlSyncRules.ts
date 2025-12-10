@@ -4,7 +4,8 @@ import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.j
 import {
   BucketDataSourceDefinition,
   BucketParameterLookupSourceDefinition,
-  BucketParameterQuerierSourceDefinition
+  BucketParameterQuerierSourceDefinition,
+  BucketSource
 } from './BucketSource.js';
 import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
@@ -85,6 +86,7 @@ export class SqlSyncRules {
   bucketDataSources: BucketDataSourceDefinition[] = [];
   bucketParameterLookupSources: BucketParameterLookupSourceDefinition[] = [];
   bucketParameterQuerierSources: BucketParameterQuerierSourceDefinition[] = [];
+  bucketSources: BucketSource[] = [];
 
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
@@ -236,9 +238,11 @@ export class SqlSyncRules {
           return descriptor.addDataQuery(q, queryOptions, compatibility);
         });
       }
-      rules.bucketDataSources.push(descriptor);
-      rules.bucketParameterLookupSources.push(...descriptor.getParameterLookupSourceDefinitions());
-      rules.bucketParameterQuerierSources.push(...descriptor.getParameterQuerierSourceDefinitions());
+
+      rules.bucketSources.push(descriptor);
+      rules.bucketDataSources.push(descriptor.dataSource);
+      rules.bucketParameterLookupSources.push(...descriptor.parameterLookupSources);
+      rules.bucketParameterQuerierSources.push(...descriptor.parameterQuerierSources);
     }
 
     for (const entry of streamMap?.items ?? []) {
@@ -263,9 +267,10 @@ export class SqlSyncRules {
       if (data instanceof Scalar) {
         rules.withScalar(data, (q) => {
           const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
-          rules.bucketDataSources.push(parsed);
-          rules.bucketParameterLookupSources.push(parsed);
-          rules.bucketParameterQuerierSources.push(parsed);
+          rules.bucketSources.push(parsed);
+          rules.bucketDataSources.push(parsed.dataSource);
+          rules.bucketParameterLookupSources.push(...parsed.parameterLookupSources);
+          rules.bucketParameterQuerierSources.push(...parsed.parameterQuerierSources);
           return {
             parsed: true,
             errors

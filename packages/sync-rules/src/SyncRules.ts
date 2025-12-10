@@ -1,4 +1,10 @@
-import { BucketDataSource, BucketParameterLookupSource, BucketParameterQuerierSource } from './BucketSource.js';
+import {
+  BucketDataSource,
+  BucketParameterLookupSource,
+  BucketParameterQuerierSource,
+  BucketParameterQuerierSourceDefinition,
+  HydratedBucketSource
+} from './BucketSource.js';
 import {
   BucketParameterQuerier,
   CompatibilityContext,
@@ -25,6 +31,7 @@ import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, Sqlite
  * specifically affects bucket names.
  */
 export class HydratedSyncRules {
+  bucketSources: HydratedBucketSource[] = [];
   bucketDataSources: BucketDataSource[];
   bucketParameterQuerierSources: BucketParameterQuerierSource[];
   bucketParameterLookupSources: BucketParameterLookupSource[];
@@ -32,7 +39,7 @@ export class HydratedSyncRules {
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-  private definition: SqlSyncRules;
+  readonly definition: SqlSyncRules;
 
   constructor(params: {
     definition: SqlSyncRules;
@@ -46,11 +53,28 @@ export class HydratedSyncRules {
     this.bucketParameterQuerierSources = params.bucketParameterQuerierSources;
     this.bucketParameterLookupSources = params.bucketParameterLookupSources;
     this.definition = params.definition;
+
     if (params.eventDescriptors) {
       this.eventDescriptors = params.eventDescriptors;
     }
     if (params.compatibility) {
       this.compatibility = params.compatibility;
+    }
+
+    let querierMap = new Map<BucketParameterQuerierSourceDefinition, HydratedBucketSource>();
+    for (let definition of this.definition.bucketSources) {
+      const hydratedBucketSource: HydratedBucketSource = { definition: definition, parameterQuerierSources: [] };
+      this.bucketSources.push(hydratedBucketSource);
+      for (let querier of definition.parameterQuerierSources) {
+        querierMap.set(querier, hydratedBucketSource);
+      }
+    }
+    for (let querier of params.bucketParameterQuerierSources) {
+      const bucketSource = querierMap.get(querier.definition);
+      if (bucketSource == null) {
+        throw new Error('Cannot find BucketSource for BucketParameterQuerierSource');
+      }
+      bucketSource.parameterQuerierSources.push(querier);
     }
   }
 
@@ -131,12 +155,14 @@ export class HydratedSyncRules {
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
 
-    for (const source of this.bucketParameterQuerierSources) {
+    for (const source of this.bucketSources) {
       if (
         (source.definition.subscribedToByDefault && options.hasDefaultStreams) ||
         source.definition.name in options.streams
       ) {
-        source.pushBucketParameterQueriers(pending, options);
+        for (let querier of source.parameterQuerierSources) {
+          querier.pushBucketParameterQueriers(pending, options);
+        }
       }
     }
 

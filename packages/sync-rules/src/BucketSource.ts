@@ -16,13 +16,43 @@ export interface CreateSourceParams {
   bucketIdTransformer: BucketIdTransformer;
 }
 
+export interface BucketSource {
+  readonly name: string;
+  readonly type: BucketSourceType;
+  readonly subscribedToByDefault: boolean;
+
+  /**
+   * BucketDataSource describing the data in this bucket/stream definition.
+   *
+   * The same data source could in theory be present in multiple stream definitions.
+   */
+  readonly dataSource: BucketDataSourceDefinition;
+
+  /**
+   * BucketParameterQuerierSource describing the parameter queries / stream subqueries in this bucket/stream definition.
+   *
+   * The same source could in theory be present in multiple stream definitions.
+   */
+  readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
+
+  /**
+   * BucketParameterLookupSource describing the parameter tables used in this bucket/stream definition.
+   *
+   * The same source could in theory be present in multiple stream definitions.
+   */
+  readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
+}
+
+export interface HydratedBucketSource {
+  readonly definition: BucketSource;
+
+  readonly parameterQuerierSources: BucketParameterQuerierSource[];
+}
+
 /**
  * Encodes a static definition of a bucket source, as parsed from sync rules or stream definitions.
  */
 export interface BucketDataSourceDefinition {
-  readonly name: string;
-  readonly type: BucketSourceType;
-  readonly subscribedToByDefault: boolean;
   /**
    * For debug use only.
    */
@@ -50,8 +80,6 @@ export interface BucketDataSourceDefinition {
  * This is only relevant for parameter queries that query tables.
  */
 export interface BucketParameterLookupSourceDefinition {
-  readonly name: string;
-  readonly type: BucketSourceType;
   /**
    * For debug use only.
    */
@@ -70,9 +98,6 @@ export interface BucketParameterLookupSourceDefinition {
  * This may use request data only, or it may use parameter lookup data persisted by a BucketParameterLookupSourceDefinition.
  */
 export interface BucketParameterQuerierSourceDefinition {
-  readonly name: string;
-  readonly type: BucketSourceType;
-  readonly subscribedToByDefault: boolean;
   /**
    * For debug use only.
    */
