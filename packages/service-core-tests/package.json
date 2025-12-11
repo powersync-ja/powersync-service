@@ -10,8 +10,8 @@
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "scripts": {
-    "build": "tsc -b",
-    "clean": "rm -rf ./dist && tsc -b --clean"
+    "build": "tsgo -b",
+    "clean": "rm -rf ./dist && tsgo -b --clean"
   },
   "dependencies": {
     "@powersync/service-core": "workspace:^",

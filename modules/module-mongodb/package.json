@@ -10,9 +10,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b",
-    "build:tests": "tsc -b test/tsconfig.json",
-    "clean": "rm -rf ./dist && tsc -b --clean",
+    "build": "tsgo -b",
+    "build:tests": "tsgo -b test/tsconfig.json",
+    "clean": "rm -rf ./dist && tsgo -b --clean",
     "test": "vitest"
   },
   "exports": {

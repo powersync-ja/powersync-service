@@ -10,10 +10,10 @@
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "scripts": {
-    "build": "tsc -b",
-    "build:tests": "tsc -b test/tsconfig.json",
+    "build": "tsgo -b",
+    "build:tests": "tsgo -b test/tsconfig.json",
     "test": "vitest",
-    "clean": "rm -rf ./dist && tsc -b --clean"
+    "clean": "rm -rf ./dist && tsgo -b --clean"
   },
   "dependencies": {
     "@js-sdsl/ordered-set": "^4.4.2",

@@ -8,11 +8,11 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "fetch-operations": "tsc -b && node dist/bin.js fetch-operations",
-    "generate-token": "tsc -b && node dist/bin.js generate-token",
-    "concurrent-connections": "tsc -b && node dist/bin.js concurrent-connections",
-    "build": "tsc -b",
-    "clean": "rm -rf ./dist && tsc -b --clean"
+    "fetch-operations": "tsgo -b && node dist/bin.js fetch-operations",
+    "generate-token": "tsgo -b && node dist/bin.js generate-token",
+    "concurrent-connections": "tsgo -b && node dist/bin.js concurrent-connections",
+    "build": "tsgo -b",
+    "clean": "rm -rf ./dist && tsgo -b --clean"
   },
   "dependencies": {
     "@powersync/service-core": "workspace:*",

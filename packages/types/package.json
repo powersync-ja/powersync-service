@@ -9,8 +9,8 @@
   },
   "repository": "https://github.com/powersync-ja/powersync-service",
   "scripts": {
-    "clean": "rm -r ./dist && tsc -b --clean",
-    "build": "tsc -b"
+    "clean": "rm -r ./dist && tsgo -b --clean",
+    "build": "tsgo -b"
   },
   "dependencies": {
     "dedent": "^1.6.0",

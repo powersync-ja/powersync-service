@@ -13,8 +13,8 @@
   ],
   "type": "module",
   "scripts": {
-    "clean": "rm -r ./dist && tsc -b --clean",
-    "build": "tsc -b"
+    "clean": "rm -r ./dist && tsgo -b --clean",
+    "build": "tsgo -b"
   },
   "dependencies": {
     "lossless-json": "^2.0.8"

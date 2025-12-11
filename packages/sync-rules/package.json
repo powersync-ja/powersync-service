@@ -14,10 +14,10 @@
   ],
   "type": "module",
   "scripts": {
-    "clean": "rm -r ./dist && tsc -b --clean",
-    "build:tsc": "tsc -b",
+    "clean": "rm -r ./dist && tsgo -b --clean",
+    "build:tsc": "tsgo -b",
     "build": "pnpm build:tsc && node scripts/compile-schema.js",
-    "build:tests": "tsc -b test/tsconfig.json",
+    "build:tests": "tsgo -b test/tsconfig.json",
     "test": "vitest"
   },
   "dependencies": {
