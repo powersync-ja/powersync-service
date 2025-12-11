@@ -2,7 +2,6 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "rootDir": "src",
-    "baseUrl": "./",
     "noEmit": true,
     "esModuleInterop": true,
     "declarationDir": "dist/@types",
