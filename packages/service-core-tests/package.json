@@ -23,7 +23,6 @@
     "vitest": "^3.2.4"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
     "@opentelemetry/sdk-metrics": "^1.30.1"
   }
 }
