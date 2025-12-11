@@ -7,7 +7,6 @@ import {
   BucketParameterQuerierSourceDefinition,
   CreateSourceParams
 } from '../BucketSource.js';
-import { resolveHydrationState } from '../HydrationState.js';
 import { GetQuerierOptions, RequestedStream } from '../index.js';
 import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
 import { isJsonValue, JSONBucketNameSerialize } from '../utils.js';
@@ -350,7 +349,7 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
-    const hydrationState = resolveHydrationState(params);
+    const hydrationState = params.hydrationState;
     const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
     const stream = this.stream;
 

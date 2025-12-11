@@ -6,7 +6,6 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
-import { resolveHydrationState } from './HydrationState.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
@@ -158,7 +157,7 @@ export class BucketDefinitionDataSource implements BucketDataSourceDefinition {
   }
 
   createDataSource(params: CreateSourceParams): BucketDataSource {
-    const hydrationState = resolveHydrationState(params);
+    const hydrationState = params.hydrationState;
     const bucketPrefix = hydrationState.getBucketSourceState(this).bucketPrefix;
     return {
       evaluateRow: (options) => {

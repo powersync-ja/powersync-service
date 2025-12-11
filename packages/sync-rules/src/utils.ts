@@ -4,7 +4,6 @@ import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
 import {
-  BucketIdTransformer,
   DatabaseInputRow,
   DatabaseInputValue,
   SqliteInputRow,

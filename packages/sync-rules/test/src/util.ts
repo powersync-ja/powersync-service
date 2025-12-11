@@ -1,19 +1,18 @@
 import {
+  BucketDataSource,
+  BucketDataSourceDefinition,
+  ColumnDefinition,
   CompatibilityContext,
-  BucketIdTransformer,
+  CreateSourceParams,
   DEFAULT_TAG,
   GetQuerierOptions,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
+  SourceSchema,
   SourceTableInterface,
   StaticSchema,
-  BucketDataSourceDefinition,
-  TablePattern,
-  CreateSourceParams,
-  BucketDataSource,
-  SourceSchema,
-  ColumnDefinition
+  TablePattern
 } from '../../src/index.js';
 
 export class TestSourceTable implements SourceTableInterface {

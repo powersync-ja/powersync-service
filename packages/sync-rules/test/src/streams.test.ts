@@ -4,6 +4,7 @@ import {
   BucketParameterQuerier,
   CompatibilityContext,
   CompatibilityEdition,
+  CreateSourceParams,
   debugHydratedMergedSource,
   DEFAULT_TAG,
   GetBucketParameterQuerierResult,
@@ -22,7 +23,7 @@ import {
   syncStreamFromSql
 } from '../../src/index.js';
 import { normalizeQuerierOptions, PARSE_OPTIONS, TestSourceTable } from './util.js';
-import { ParameterLookupScope } from '../../src/HydrationState.js';
+import { ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
 
 describe('streams', () => {
   const STREAM_0: ParameterLookupScope = {
@@ -49,9 +50,7 @@ describe('streams', () => {
     expect(desc.variants).toHaveLength(1);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['1#stream|0[]']);
     expect(
-      desc.dataSources[0]
-        .createDataSource({ bucketIdTransformer })
-        .evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })
+      desc.dataSources[0].createDataSource(hydrationParams).evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })
     ).toHaveLength(0);
   });
 
@@ -82,7 +81,7 @@ describe('streams', () => {
 
   test('legacy token parameter', async () => {
     const desc = parseStream(`SELECT * FROM issues WHERE owner_id = auth.parameter('$.parameters.test')`);
-    const source = debugHydratedMergedSource(desc, { bucketIdTransformer });
+    const source = debugHydratedMergedSource(desc, hydrationParams);
 
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
@@ -232,7 +231,7 @@ describe('streams', () => {
       ]);
 
       expect(
-        debugHydratedMergedSource(desc, { bucketIdTransformer }).evaluateParameterRow(ISSUES, {
+        debugHydratedMergedSource(desc, hydrationParams).evaluateParameterRow(ISSUES, {
           id: 'i1',
           owner_id: 'u1'
         })
@@ -272,7 +271,7 @@ describe('streams', () => {
       expect(lookup.tableSyncsParameters(ISSUES)).toBe(true);
       expect(
         lookup
-          .createParameterLookupSource({ bucketIdTransformer })
+          .createParameterLookupSource(hydrationParams)
           .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
       ).toStrictEqual([
         {
@@ -308,9 +307,7 @@ describe('streams', () => {
       expect(lookup.tableSyncsParameters(USERS)).toBe(true);
 
       expect(
-        lookup
-          .createParameterLookupSource({ bucketIdTransformer })
-          .evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })
+        lookup.createParameterLookupSource(hydrationParams).evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })
       ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized(STREAM_0, ['u']),
@@ -322,9 +319,7 @@ describe('streams', () => {
         }
       ]);
       expect(
-        lookup
-          .createParameterLookupSource({ bucketIdTransformer })
-          .evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })
+        lookup.createParameterLookupSource(hydrationParams).evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })
       ).toStrictEqual([]);
 
       // Should return bucket id for admin users
@@ -361,7 +356,7 @@ describe('streams', () => {
         '1#stream|1["a"]'
       ]);
 
-      const source = debugHydratedMergedSource(desc, { bucketIdTransformer });
+      const source = debugHydratedMergedSource(desc, hydrationParams);
 
       expect(source.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
         {
@@ -471,9 +466,7 @@ describe('streams', () => {
 
       expect(lookup.tableSyncsParameters(FRIENDS)).toBe(true);
       expect(
-        lookup
-          .createParameterLookupSource({ bucketIdTransformer })
-          .evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
+        lookup.createParameterLookupSource(hydrationParams).evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
       ).toStrictEqual([
         {
           lookup: ParameterLookup.normalized(STREAM_0, ['b']),
@@ -631,7 +624,7 @@ describe('streams', () => {
 
       expect(
         desc.parameterLookupSources[0]
-          .createParameterLookupSource({ bucketIdTransformer })
+          .createParameterLookupSource(hydrationParams)
           .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
       ).toStrictEqual([
         {
@@ -762,7 +755,7 @@ describe('streams', () => {
       // Ensure lookup steps work.
       expect(
         stream.parameterLookupSources[0]
-          .createParameterLookupSource({ bucketIdTransformer })
+          .createParameterLookupSource(hydrationParams)
           .evaluateParameterRow(accountMember, row)
       ).toStrictEqual([
         {
@@ -848,7 +841,7 @@ WHERE
 
       expect(
         desc.parameterLookupSources[0]
-          .createParameterLookupSource({ bucketIdTransformer })
+          .createParameterLookupSource(hydrationParams)
           .evaluateParameterRow(projectInvitation, {
             project: 'foo',
             appliedTo: '[1,2]',
@@ -945,10 +938,10 @@ const options: StreamParseOptions = {
   compatibility: new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS)
 };
 
-const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('1');
+const hydrationParams: CreateSourceParams = { hydrationState: versionedHydrationState(1) };
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
-  return debugHydratedMergedSource(stream, { bucketIdTransformer })
+  return debugHydratedMergedSource(stream, hydrationParams)
     .evaluateRow({ sourceTable, record })
     .map((r) => {
       if ('error' in r) {
@@ -984,7 +977,7 @@ async function createQueriers(
   };
 
   for (let querier of stream.parameterQuerierSources) {
-    querier.createParameterQuerierSource({ bucketIdTransformer }).pushBucketParameterQueriers(pending, querierOptions);
+    querier.createParameterQuerierSource(hydrationParams).pushBucketParameterQueriers(pending, querierOptions);
   }
 
   return { querier: mergeBucketParameterQueriers(queriers), errors };

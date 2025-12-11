@@ -1,3 +1,6 @@
+import { ParameterLookup } from '../BucketParameterQuerier.js';
+import { SqlTools } from '../sql_filters.js';
+import { checkJsonArray, OPERATOR_NOT } from '../sql_functions.js';
 import { isParameterValueClause, isRowValueClause, SQLITE_TRUE, sqliteBool } from '../sql_support.js';
 import { TablePattern } from '../TablePattern.js';
 import {
@@ -10,21 +13,18 @@ import {
   SqliteRow
 } from '../types.js';
 import { isJsonValue, normalizeParameterValue } from '../utils.js';
-import { SqlTools } from '../sql_filters.js';
-import { checkJsonArray, OPERATOR_NOT } from '../sql_functions.js';
-import { ParameterLookup } from '../BucketParameterQuerier.js';
 
-import { StreamVariant } from './variant.js';
-import { SubqueryEvaluator } from './parameter.js';
-import { cartesianProduct } from './utils.js';
 import { NodeLocation } from 'pgsql-ast-parser';
 import {
   BucketParameterLookupSource,
   BucketParameterLookupSourceDefinition,
   CreateSourceParams
 } from '../BucketSource.js';
+import { HydrationState, ParameterLookupScope } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
-import { HydrationState, ParameterLookupScope, resolveHydrationState } from '../HydrationState.js';
+import { SubqueryEvaluator } from './parameter.js';
+import { cartesianProduct } from './utils.js';
+import { StreamVariant } from './variant.js';
 
 /**
  * An intermediate representation of a `WHERE` clause for stream queries.
@@ -600,7 +600,7 @@ export class SubqueryParameterLookupSource implements BucketParameterLookupSourc
   }
 
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
-    const hydrationState = resolveHydrationState(params);
+    const hydrationState = params.hydrationState;
     const lookupScope = hydrationState.getParameterLookupScope(this);
     return {
       evaluateParameterRow: (sourceTable, row) => {

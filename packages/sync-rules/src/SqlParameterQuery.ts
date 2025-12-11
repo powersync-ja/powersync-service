@@ -19,7 +19,7 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { ParameterLookupScope, resolveHydrationState } from './HydrationState.js';
+import { ParameterLookupScope } from './HydrationState.js';
 import { BucketDataSourceDefinition, GetQuerierOptions } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
@@ -346,7 +346,7 @@ export class SqlParameterQuery
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
-    const hydrationState = resolveHydrationState(params);
+    const hydrationState = params.hydrationState;
     const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
     const lookupState = hydrationState.getParameterLookupScope(this);
 
@@ -359,7 +359,7 @@ export class SqlParameterQuery
   }
 
   createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
-    const hydrationState = resolveHydrationState(params);
+    const hydrationState = params.hydrationState;
     const lookupState = hydrationState.getParameterLookupScope(this);
     return {
       evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {

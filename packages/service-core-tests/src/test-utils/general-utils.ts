@@ -1,5 +1,6 @@
 import { storage, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
 import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
@@ -27,7 +28,7 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
         sync_rules: SqlSyncRules.fromYaml(content, options),
         slot_name: 'test',
         hydratedSyncRules() {
-          return this.sync_rules.hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+          return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(1) });
         }
       };
     },

@@ -1,24 +1,13 @@
 import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from './BucketParameterQuerier.js';
 import { ColumnDefinition } from './ExpressionType.js';
-import { HydrationState, ParameterLookupScope } from './HydrationState.js';
+import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupScope } from './HydrationState.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
-import {
-  BucketIdTransformer,
-  EvaluatedParametersResult,
-  EvaluateRowOptions,
-  EvaluationResult,
-  SourceSchema,
-  SqliteRow
-} from './types.js';
+import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SourceSchema, SqliteRow } from './types.js';
 
 export interface CreateSourceParams {
-  hydrationState?: HydrationState;
-  /**
-   * @deprecated Use hydrationState instead.
-   */
-  bucketIdTransformer?: BucketIdTransformer;
+  hydrationState: HydrationState;
 }
 
 /**
@@ -227,7 +216,8 @@ export function mergeParameterQuerierSources(sources: BucketParameterQuerierSour
  * it is useful to have a single merged source that can evaluate everything.
  */
 export function debugHydratedMergedSource(bucketSource: BucketSource, params?: CreateSourceParams): DebugMergedSource {
-  const resolvedParams = params ?? { bucketIdTransformer: (id: string) => id };
+  const hydrationState = params?.hydrationState ?? DEFAULT_HYDRATION_STATE;
+  const resolvedParams = { hydrationState };
   const dataSource = mergeDataSources(
     bucketSource.dataSources.map((source) => source.createDataSource(resolvedParams))
   );

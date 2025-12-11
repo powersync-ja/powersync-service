@@ -6,7 +6,6 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { resolveHydrationState } from './HydrationState.js';
 import { BucketDataSourceDefinition, BucketParameterQuerier, GetQuerierOptions, PendingQueriers } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
@@ -230,7 +229,7 @@ export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuer
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
-    const hydrationState = resolveHydrationState(params);
+    const hydrationState = params.hydrationState;
     const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {

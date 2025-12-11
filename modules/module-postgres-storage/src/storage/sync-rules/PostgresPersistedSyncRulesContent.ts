@@ -4,6 +4,7 @@ import { storage } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 
 import { models } from '../../types/types.js';
+import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
@@ -38,7 +39,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
       sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, options),
       hydratedSyncRules() {
         return this.sync_rules.hydrate({
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.id}`)
+          hydrationState: versionedHydrationState(this.id)
         });
       }
     };

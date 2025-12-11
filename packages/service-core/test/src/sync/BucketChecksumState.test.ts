@@ -12,8 +12,9 @@ import {
   WatchFilterEvent
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { SqliteJsonRow, ParameterLookup, SqlSyncRules, RequestJwtPayload } from '@powersync/service-sync-rules';
-import { describe, expect, test, beforeEach } from 'vitest';
+import { ParameterLookup, RequestJwtPayload, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { beforeEach, describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {
   // Single global[] bucket.
@@ -25,7 +26,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+  ).hydrate({ hydrationState: versionedHydrationState(1) });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -38,7 +39,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('2') });
+  ).hydrate({ hydrationState: versionedHydrationState(2) });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -49,7 +50,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('3') });
+  ).hydrate({ hydrationState: versionedHydrationState(3) });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -614,7 +615,7 @@ config:
 
       const rules = SqlSyncRules.fromYaml(source, {
         defaultSchema: 'public'
-      }).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+      }).hydrate({ hydrationState: versionedHydrationState(1) });
 
       return new BucketChecksumState({
         syncContext,

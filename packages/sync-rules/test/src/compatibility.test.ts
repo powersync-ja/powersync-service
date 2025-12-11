@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest';
 import { DateTimeValue, SqlSyncRules, toSyncRulesValue } from '../../src/index.js';
 
 import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
+import { version } from 'node:process';
+import { versionedHydrationState } from '../../src/HydrationState.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
@@ -70,7 +72,7 @@ config:
   edition: 2
     `,
         PARSE_OPTIONS
-      ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+      ).hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
         rules.evaluateRow({
@@ -108,7 +110,7 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+      ).hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
         rules.evaluateRow({
@@ -145,7 +147,7 @@ config:
   versioned_bucket_ids: true
     `,
       PARSE_OPTIONS
-    ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+    ).hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
       rules.evaluateRow({
@@ -169,7 +171,7 @@ config:
   edition: 2
     `,
       PARSE_OPTIONS
-    ).hydrate({ bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1') });
+    ).hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
       rules.evaluateRow({
@@ -270,7 +272,7 @@ config:
       }
 
       const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).hydrate({
-        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1')
+        hydrationState: versionedHydrationState(1)
       });
       expect(
         rules.evaluateRow({

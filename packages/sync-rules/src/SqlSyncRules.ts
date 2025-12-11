@@ -5,11 +5,13 @@ import {
   BucketDataSourceDefinition,
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSourceDefinition,
-  BucketSource
+  BucketSource,
+  CreateSourceParams
 } from './BucketSource.js';
 import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
+import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
@@ -17,7 +19,6 @@ import { syncStreamFromSql } from './streams/from_sql.js';
 import { HydratedSyncRules } from './SyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import {
-  BucketIdTransformer,
   QueryParseOptions,
   RequestParameters,
   SourceSchema,
@@ -388,21 +389,20 @@ export class SqlSyncRules {
   /**
    * Hydrate the sync rule definitions with persisted state into runnable sync rules.
    *
-   * Right now this is just the bucketIdTransformer, but this is expected to expand in the future to support
-   * incremental sync rule reprocessing.
-   *
-   * @param params.bucketIdTransformer A function that transforms bucket ids based on persisted state. May omit for tests.
+   * @param params.hydrationState Transforms bucket ids based on persisted state. May omit for tests.
    */
-  hydrate(params?: { bucketIdTransformer?: BucketIdTransformer }): HydratedSyncRules {
-    const bucketIdTransformer = this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
-      ? (params?.bucketIdTransformer ?? ((id: string) => id))
-      : (id: string) => id;
+  hydrate(params?: CreateSourceParams): HydratedSyncRules {
+    let hydrationState = params?.hydrationState;
+    if (hydrationState == null || !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+      hydrationState = DEFAULT_HYDRATION_STATE;
+    }
+    const resolvedParams = { hydrationState };
     return new HydratedSyncRules({
       definition: this,
-      createParams: { bucketIdTransformer },
-      bucketDataSources: this.bucketDataSources.map((d) => d.createDataSource({ bucketIdTransformer })),
+      createParams: resolvedParams,
+      bucketDataSources: this.bucketDataSources.map((d) => d.createDataSource(resolvedParams)),
       bucketParameterLookupSources: this.bucketParameterLookupSources.map((d) =>
-        d.createParameterLookupSource({ bucketIdTransformer })
+        d.createParameterLookupSource(resolvedParams)
       ),
       eventDescriptors: this.eventDescriptors,
       compatibility: this.compatibility
@@ -487,9 +487,5 @@ export class SqlSyncRules {
         return priorityValue.value;
       }
     }
-  }
-
-  static versionedBucketIdTransformer(version: string) {
-    return (bucketId: string) => `${version}#${bucketId}`;
   }
 }
