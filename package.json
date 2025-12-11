@@ -38,7 +38,6 @@
     "rsocket-websocket-client": "1.0.0-alpha.3",
     "semver": "^7.5.4",
     "ts-node-dev": "^2.0.0",
-    "tsc-watch": "^6.2.0",
     "typescript": "^5.7.3",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.4",
