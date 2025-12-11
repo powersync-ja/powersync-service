@@ -133,7 +133,6 @@ export async function connectPgWire(
     throw e;
   }
 
-  await connection.query();
   return connection;
 }
 
