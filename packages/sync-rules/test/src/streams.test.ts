@@ -1,5 +1,6 @@
 /// <reference path="../matchers.d.ts" />
 import { describe, expect, test } from 'vitest';
+import { HydrationState, ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
 import {
   BucketParameterQuerier,
   CompatibilityContext,
@@ -7,6 +8,7 @@ import {
   CreateSourceParams,
   debugHydratedMergedSource,
   DEFAULT_TAG,
+  EvaluationResult,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
   mergeBucketParameterQueriers,
@@ -16,14 +18,12 @@ import {
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
-  SqlSyncRules,
   StaticSchema,
   StreamParseOptions,
   SyncStream,
   syncStreamFromSql
 } from '../../src/index.js';
 import { normalizeQuerierOptions, PARSE_OPTIONS, TestSourceTable } from './util.js';
-import { ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
 
 describe('streams', () => {
   const STREAM_0: ParameterLookupScope = {
@@ -878,6 +878,108 @@ WHERE
       ).toStrictEqual(['1#stream|0["foo"]']);
     });
   });
+
+  test('variants with custom hydrationState', async () => {
+    // Convoluted example, but want to test specific variant usage.
+    // This test that bucket prefix and lookup scope mappings are correctly applied for each variant.
+    const desc = parseStream(`
+      SELECT * FROM comments WHERE
+       issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) OR -- stream|0
+       issue_id IN (SELECT id FROM issues WHERE name = subscription.parameter('issue_name')) OR  -- stream|1
+       label = subscription.parameter('comment_label') OR  -- stream|2
+       auth.parameter('is_admin')  -- stream|3
+      `);
+
+    const hydrationState: HydrationState = {
+      getBucketSourceState(source) {
+        return { bucketPrefix: `${source.defaultBucketPrefix}.test` };
+      },
+      getParameterLookupScope(source) {
+        return {
+          lookupName: `${source.defaultLookupScope.lookupName}.test`,
+          queryId: `${source.defaultLookupScope.queryId}.test`
+        };
+      }
+    };
+
+    const hydrated = debugHydratedMergedSource(desc, { hydrationState });
+
+    expect(
+      bucketIds(hydrated.evaluateRow({ sourceTable: COMMENTS, record: { id: 'c', issue_id: 'i1', label: 'l1' } }))
+    ).toStrictEqual(['stream|0.test["i1"]', 'stream|1.test["i1"]', 'stream|2.test["l1"]', 'stream|3.test[]']);
+
+    expect(
+      hydrated.evaluateParameterRow(ISSUES, {
+        id: 'i1',
+        owner_id: 'u1',
+        name: 'myname'
+      })
+    ).toStrictEqual([
+      {
+        lookup: ParameterLookup.normalized({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        bucketParameters: [
+          {
+            result: 'i1'
+          }
+        ]
+      },
+
+      {
+        lookup: ParameterLookup.normalized({ lookupName: 'stream.test', queryId: '1.test' }, ['myname']),
+        bucketParameters: [
+          {
+            result: 'i1'
+          }
+        ]
+      }
+    ]);
+
+    expect(
+      hydrated.evaluateParameterRow(ISSUES, {
+        id: 'i1',
+        owner_id: 'u1'
+      })
+    ).toStrictEqual([
+      {
+        lookup: ParameterLookup.normalized({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        bucketParameters: [
+          {
+            result: 'i1'
+          }
+        ]
+      }
+    ]);
+
+    function getParameterSets(lookups: ParameterLookup[]) {
+      return lookups.flatMap((lookup) => {
+        if (JSON.stringify(lookup.values) == JSON.stringify(['stream.test', '1.test', null])) {
+          return [];
+        } else if (JSON.stringify(lookup.values) == JSON.stringify(['stream.test', '0.test', 'u1'])) {
+          return [{ result: 'i1' }];
+        } else if (JSON.stringify(lookup.values) == JSON.stringify(['stream.test', '1.test', 'myname'])) {
+          return [{ result: 'i2' }];
+        } else {
+          throw new Error(`Unexpected lookup: ${JSON.stringify(lookup.values)}`);
+        }
+      });
+    }
+
+    expect(
+      await queryBucketIds(desc, {
+        hydrationState,
+        token: { sub: 'u1', is_admin: false },
+        getParameterSets
+      })
+    ).toStrictEqual(['stream|2.test[null]', 'stream|0.test["i1"]']);
+    expect(
+      await queryBucketIds(desc, {
+        hydrationState,
+        token: { sub: 'u1', is_admin: true },
+        parameters: { comment_label: 'l1', issue_name: 'myname' },
+        getParameterSets
+      })
+    ).toStrictEqual(['stream|2.test["l1"]', 'stream|3.test[]', 'stream|0.test["i1"]', 'stream|1.test["i2"]']);
+  });
 });
 
 const USERS = new TestSourceTable('users');
@@ -941,24 +1043,28 @@ const options: StreamParseOptions = {
 const hydrationParams: CreateSourceParams = { hydrationState: versionedHydrationState(1) };
 
 function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
-  return debugHydratedMergedSource(stream, hydrationParams)
-    .evaluateRow({ sourceTable, record })
-    .map((r) => {
-      if ('error' in r) {
-        throw new Error(`Unexpected error evaluating row: ${r.error}`);
-      }
-
-      return r.bucket;
-    });
+  return bucketIds(debugHydratedMergedSource(stream, hydrationParams).evaluateRow({ sourceTable, record }));
 }
 
+function bucketIds(result: EvaluationResult[]): string[] {
+  return result.map((r) => {
+    if ('error' in r) {
+      throw new Error(`Unexpected error evaluating row: ${r.error}`);
+    }
+
+    return r.bucket;
+  });
+}
+
+interface TestQuerierOptions {
+  token?: Record<string, any>;
+  parameters?: Record<string, any>;
+  getParameterSets?: (lookups: ParameterLookup[]) => SqliteJsonRow[];
+  hydrationState?: HydrationState;
+}
 async function createQueriers(
   stream: SyncStream,
-  options?: {
-    token?: Record<string, any>;
-    parameters?: Record<string, any>;
-    getParameterSets?: (lookups: ParameterLookup[]) => SqliteJsonRow[];
-  }
+  options?: TestQuerierOptions
 ): Promise<GetBucketParameterQuerierResult> {
   const queriers: BucketParameterQuerier[] = [];
   const errors: QuerierError[] = [];
@@ -977,20 +1083,17 @@ async function createQueriers(
   };
 
   for (let querier of stream.parameterQuerierSources) {
-    querier.createParameterQuerierSource(hydrationParams).pushBucketParameterQueriers(pending, querierOptions);
+    querier
+      .createParameterQuerierSource(
+        options?.hydrationState ? { hydrationState: options.hydrationState } : hydrationParams
+      )
+      .pushBucketParameterQueriers(pending, querierOptions);
   }
 
   return { querier: mergeBucketParameterQueriers(queriers), errors };
 }
 
-async function queryBucketIds(
-  stream: SyncStream,
-  options?: {
-    token?: Record<string, any>;
-    parameters?: Record<string, any>;
-    getParameterSets?: (lookups: ParameterLookup[]) => SqliteJsonRow[];
-  }
-) {
+async function queryBucketIds(stream: SyncStream, options?: TestQuerierOptions) {
   const { querier, errors } = await createQueriers(stream, options);
   expect(errors).toHaveLength(0);
 
