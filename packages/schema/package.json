@@ -14,7 +14,7 @@
   ],
   "repository": "https://github.com/powersync-ja/powersync-service",
   "scripts": {
-    "clean": "rm -r ./dist && tsgo -b --clean",
+    "clean": "rm -rf ./dist && tsgo -b --clean",
     "build:ts": "tsgo -b",
     "build": "pnpm build:ts && node ./dist/scripts/compile-json-schema.js"
   },

@@ -14,7 +14,7 @@
   ],
   "type": "module",
   "scripts": {
-    "clean": "rm -r ./dist && tsgo -b --clean",
+    "clean": "rm -rf ./dist && tsgo -b --clean",
     "build:tsc": "tsgo -b",
     "build": "pnpm build:tsc && node scripts/compile-schema.js",
     "build:tests": "tsgo -b test/tsconfig.json",

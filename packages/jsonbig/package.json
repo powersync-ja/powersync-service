@@ -13,7 +13,7 @@
   ],
   "type": "module",
   "scripts": {
-    "clean": "rm -r ./dist && tsgo -b --clean",
+    "clean": "rm -rf ./dist && tsgo -b --clean",
     "build": "tsgo -b"
   },
   "dependencies": {
