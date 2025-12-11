@@ -4,10 +4,10 @@ import { _net } from 'pgwire';
 import { SocketAdapter } from './socket_adapter.js';
 
 Object.assign(_net, {
-  connectTcp({ host, port, keepAlive }) {
-    return SocketAdapter.connect({ host, port, keepAlive });
+  connectTcp(options) {
+    return SocketAdapter.connect(options);
   },
-  connectUnix({ path }) {
+  connectUnix(_options) {
     throw `Unused and unsupported in PowerSync`;
   },
   reconnectable(err) {

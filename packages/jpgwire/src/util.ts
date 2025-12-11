@@ -118,6 +118,21 @@ export async function connectPgWire(
   const connection = pgwire.pgconnection(connectionOptions as pgwire.PgConnectOptions);
   patchConnection(connection, config);
 
+  // To test the connection, send an empty query. This appears to be the only way to establish a connection, see e.g.
+  // this: https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L26.
+  try {
+    await connection.query();
+  } catch (e) {
+    await connection.end();
+
+    if (e instanceof Error && e.message == 'postgres query failed') {
+      // We didn't actually send a query, so we report the inner cause instead:
+      // https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L334
+      throw e.cause;
+    }
+    throw e;
+  }
+
   await connection.query();
   return connection;
 }

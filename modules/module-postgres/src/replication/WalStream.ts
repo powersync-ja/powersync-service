@@ -572,7 +572,6 @@ WHERE  oid = $1::regclass`,
           let q: DatabaseInputRow = {};
           for (let c of columns) {
             q[c.name] = pgwire.PgType.decode(row.raw[c.i], c.typeOid);
-            row.raw[c.i];
           }
           return q;
         });

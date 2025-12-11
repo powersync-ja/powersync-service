@@ -108,8 +108,8 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
         results: {
           columns: result.columns.map((c) => c.name),
           rows: result.rows.map((row) => {
-            function mapAt(index: number) {
-              const value = row.decodeWithoutCustomTypes(index);
+            return row.raw.map((raw, i) => {
+              const value = pgwire.PgType.decode(raw, row.columns[i].typeOid);
               const sqlValue = sync_rules.applyValueContext(
                 sync_rules.toSyncRulesValue(value),
                 sync_rules.CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
@@ -121,13 +121,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
               } else {
                 return null;
               }
-            }
-
-            const values = [];
-            for (let i = 0; i < row.length; i++) {
-              values.push(mapAt(i));
-            }
-            return values;
+            });
           })
         }
       });
