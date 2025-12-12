@@ -7,20 +7,16 @@ import {
 } from './BucketDescription.js';
 import {
   BucketParameterQuerier,
-  UnscopedParameterLookup,
   ParameterLookupSource,
-  PendingQueriers
+  PendingQueriers,
+  UnscopedParameterLookup
 } from './BucketParameterQuerier.js';
-import {
-  ParameterIndexLookupCreator,
-  BucketParameterQuerierSource,
-  BucketParameterQuerierSourceDefinition,
-  CreateSourceParams
-} from './BucketSource.js';
+import { CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
 import {
   BucketDataSource,
+  BucketParameterQuerierSource,
   GetQuerierOptions,
   ScopedParameterLookup,
   UnscopedEvaluatedParameters,
@@ -34,8 +30,6 @@ import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import {
-  EvaluatedParameters,
-  EvaluatedParametersResult,
   InputParameter,
   ParameterMatchClause,
   ParameterValueClause,
@@ -81,7 +75,7 @@ export interface SqlParameterQueryOptions {
  *  SELECT id as user_id FROM users WHERE users.user_id = token_parameters.user_id
  *  SELECT id as user_id, token_parameters.is_admin as is_admin FROM users WHERE users.user_id = token_parameters.user_id
  */
-export class SqlParameterQuery implements ParameterIndexLookupCreator, BucketParameterQuerierSourceDefinition {
+export class SqlParameterQuery implements ParameterIndexLookupCreator {
   static fromSql(
     descriptorName: string,
     sql: string,

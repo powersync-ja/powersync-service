@@ -1,14 +1,8 @@
 import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
-import { BucketParameterQuerier, UnscopedParameterLookup, PendingQueriers } from '../BucketParameterQuerier.js';
-import {
-  BucketDataSource,
-  ParameterIndexLookupCreator,
-  BucketParameterQuerierSource,
-  BucketParameterQuerierSourceDefinition,
-  CreateSourceParams
-} from '../BucketSource.js';
+import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
+import { BucketDataSource, BucketParameterQuerierSource, ParameterIndexLookupCreator } from '../BucketSource.js';
 import { BucketDataScope } from '../HydrationState.js';
-import { GetQuerierOptions, RequestedStream, ScopedParameterLookup } from '../index.js';
+import { CreateSourceParams, GetQuerierOptions, RequestedStream, ScopedParameterLookup } from '../index.js';
 import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
 import { buildBucketName, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
@@ -71,10 +65,6 @@ export class StreamVariant {
 
   indexLookupCreators(): ParameterIndexLookupCreator[] {
     return this.subqueries.flatMap((subquery) => subquery.indexLookupCreators());
-  }
-
-  querierSource(stream: SyncStream, dataSource: SyncStreamDataSource): BucketParameterQuerierSourceDefinition {
-    return new SyncStreamParameterQuerierSource(stream, this, dataSource);
   }
 
   /**
@@ -309,6 +299,79 @@ export class StreamVariant {
       priority: stream.priority
     };
   }
+
+  createParameterQuerierSource(
+    params: CreateSourceParams,
+    stream: SyncStream,
+    querierDataSource: BucketDataSource
+  ): BucketParameterQuerierSource {
+    const hydrationState = params.hydrationState;
+    const bucketScope = hydrationState.getBucketSourceScope(querierDataSource);
+
+    const hydratedSubqueries: HydratedSubqueries = new Map(
+      this.subqueries.map((s) => [s, s.hydrateLookupsForRequest(hydrationState)])
+    );
+
+    return {
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
+        const subscriptions = options.streams[stream.name] ?? [];
+
+        if (!stream.subscribedToByDefault && !subscriptions.length) {
+          // The client is not subscribing to this stream, so don't query buckets related to it.
+          return;
+        }
+
+        let hasExplicitDefaultSubscription = false;
+        for (const subscription of subscriptions) {
+          let subscriptionParams = options.globalParameters;
+          if (subscription.parameters != null) {
+            subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
+          } else {
+            hasExplicitDefaultSubscription = true;
+          }
+
+          this.queriersForSubscription(
+            stream,
+            result,
+            subscription,
+            subscriptionParams,
+            bucketScope,
+            hydratedSubqueries
+          );
+        }
+
+        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
+        // subscription, also include the default querier.
+        if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+          this.queriersForSubscription(stream, result, null, options.globalParameters, bucketScope, hydratedSubqueries);
+        }
+      }
+    };
+  }
+
+  private queriersForSubscription(
+    stream: SyncStream,
+    result: PendingQueriers,
+    subscription: RequestedStream | null,
+    params: RequestParameters,
+    bucketScope: BucketDataScope,
+    hydratedSubqueries: HydratedSubqueries
+  ) {
+    const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
+
+    try {
+      const querier = this.querier(stream, reason, params, bucketScope, hydratedSubqueries);
+      if (querier) {
+        result.queriers.push(querier);
+      }
+    } catch (e) {
+      result.errors.push({
+        descriptor: stream.name,
+        message: `Error evaluating bucket ids: ${e.message}`,
+        subscription: subscription ?? undefined
+      });
+    }
+  }
 }
 /**
  * A stateless filter condition that only depends on the request itself, e.g. `WHERE token_parameters.is_admin`.
@@ -334,82 +397,5 @@ export interface SubqueryRequestFilter {
   matches(params: RequestParameters, results: SqliteJsonValue[]): boolean;
 }
 export type RequestFilter = StaticRequestFilter | SubqueryRequestFilter;
-
-export class SyncStreamParameterQuerierSource implements BucketParameterQuerierSourceDefinition {
-  constructor(
-    private stream: SyncStream,
-    private variant: StreamVariant,
-    public readonly querierDataSource: BucketDataSource
-  ) {}
-
-  /**
-   * Not relevant for sync streams.
-   */
-  get bucketParameters() {
-    return [];
-  }
-
-  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
-    const hydrationState = params.hydrationState;
-    const bucketScope = hydrationState.getBucketSourceScope(this.querierDataSource);
-    const stream = this.stream;
-
-    const hydratedSubqueries: HydratedSubqueries = new Map(
-      this.variant.subqueries.map((s) => [s, s.hydrateLookupsForRequest(hydrationState)])
-    );
-
-    return {
-      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
-        const subscriptions = options.streams[stream.name] ?? [];
-
-        if (!stream.subscribedToByDefault && !subscriptions.length) {
-          // The client is not subscribing to this stream, so don't query buckets related to it.
-          return;
-        }
-
-        let hasExplicitDefaultSubscription = false;
-        for (const subscription of subscriptions) {
-          let subscriptionParams = options.globalParameters;
-          if (subscription.parameters != null) {
-            subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
-          } else {
-            hasExplicitDefaultSubscription = true;
-          }
-
-          this.queriersForSubscription(result, subscription, subscriptionParams, bucketScope, hydratedSubqueries);
-        }
-
-        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
-        // subscription, also include the default querier.
-        if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-          this.queriersForSubscription(result, null, options.globalParameters, bucketScope, hydratedSubqueries);
-        }
-      }
-    };
-  }
-
-  private queriersForSubscription(
-    result: PendingQueriers,
-    subscription: RequestedStream | null,
-    params: RequestParameters,
-    bucketScope: BucketDataScope,
-    hydratedSubqueries: HydratedSubqueries
-  ) {
-    const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
-
-    try {
-      const querier = this.variant.querier(this.stream, reason, params, bucketScope, hydratedSubqueries);
-      if (querier) {
-        result.queriers.push(querier);
-      }
-    } catch (e) {
-      result.errors.push({
-        descriptor: this.stream.name,
-        message: `Error evaluating bucket ids: ${e.message}`,
-        subscription: subscription ?? undefined
-      });
-    }
-  }
-}
 
 type HydratedSubqueries = Map<SubqueryEvaluator, (params: RequestParameters) => ScopedParameterLookup[]>;

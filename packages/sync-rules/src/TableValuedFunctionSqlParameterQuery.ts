@@ -1,13 +1,15 @@
 import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
-import {
-  BucketParameterQuerierSource,
-  BucketParameterQuerierSourceDefinition,
-  CreateSourceParams
-} from './BucketSource.js';
+import { CreateSourceParams } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
-import { BucketDataSource, BucketParameterQuerier, GetQuerierOptions, PendingQueriers } from './index.js';
+import {
+  BucketDataSource,
+  BucketParameterQuerier,
+  BucketParameterQuerierSource,
+  GetQuerierOptions,
+  PendingQueriers
+} from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
@@ -50,7 +52,7 @@ export interface TableValuedFunctionSqlParameterQueryOptions {
  *
  * This can currently not be combined with parameter table queries or multiple table-valued functions.
  */
-export class TableValuedFunctionSqlParameterQuery implements BucketParameterQuerierSourceDefinition {
+export class TableValuedFunctionSqlParameterQuery {
   static fromSql(
     descriptorName: string,
     sql: string,

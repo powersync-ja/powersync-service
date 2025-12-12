@@ -1,13 +1,7 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
-import {
-  BucketDataSource,
-  ParameterIndexLookupCreator,
-  BucketParameterQuerierSourceDefinition,
-  BucketSource,
-  CreateSourceParams
-} from './BucketSource.js';
+import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
 import {
   CompatibilityContext,
   CompatibilityEdition,
@@ -16,12 +10,12 @@ import {
 } from './compatibility.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
+import { HydratedSyncRules } from './HydratedSyncRules.js';
 import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
-import { HydratedSyncRules } from './HydratedSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import {
   QueryParseOptions,
@@ -91,7 +85,6 @@ export interface GetBucketParameterQuerierResult {
 export class SqlSyncRules {
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
-  bucketParameterQuerierSources: BucketParameterQuerierSourceDefinition[] = [];
   bucketSources: BucketSource[] = [];
 
   eventDescriptors: SqlEventDescriptor[] = [];
@@ -259,7 +252,6 @@ export class SqlSyncRules {
       rules.bucketSources.push(descriptor);
       rules.bucketDataSources.push(...descriptor.dataSources);
       rules.bucketParameterLookupSources.push(...descriptor.parameterIndexLookupCreators);
-      rules.bucketParameterQuerierSources.push(...descriptor.parameterQuerierSources);
     }
 
     for (const entry of streamMap?.items ?? []) {
@@ -287,7 +279,6 @@ export class SqlSyncRules {
           rules.bucketSources.push(parsed);
           rules.bucketDataSources.push(...parsed.dataSources);
           rules.bucketParameterLookupSources.push(...parsed.parameterIndexLookupCreators);
-          rules.bucketParameterQuerierSources.push(...parsed.parameterQuerierSources);
           return {
             parsed: true,
             errors

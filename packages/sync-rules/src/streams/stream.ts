@@ -3,9 +3,11 @@ import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js
 import {
   BucketDataSource,
   ParameterIndexLookupCreator,
-  BucketParameterQuerierSourceDefinition,
   BucketSource,
-  BucketSourceType
+  BucketSourceType,
+  CreateSourceParams,
+  HydratedBucketSource,
+  BucketParameterQuerierSource
 } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
@@ -17,29 +19,27 @@ export class SyncStream implements BucketSource {
   name: string;
   subscribedToByDefault: boolean;
   priority: BucketPriority;
-  variants: StreamVariant[];
+  variants: { variant: StreamVariant; dataSource: SyncStreamDataSource }[];
   data: BaseSqlDataQuery;
 
   public readonly dataSources: BucketDataSource[];
   public readonly parameterIndexLookupCreators: ParameterIndexLookupCreator[];
-  public readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
 
   constructor(name: string, data: BaseSqlDataQuery, variants: StreamVariant[]) {
     this.name = name;
     this.subscribedToByDefault = false;
     this.priority = DEFAULT_BUCKET_PRIORITY;
-    this.variants = variants;
+    this.variants = [];
     this.data = data;
 
     this.dataSources = [];
     this.parameterIndexLookupCreators = [];
-    this.parameterQuerierSources = [];
 
     for (let variant of variants) {
       const dataSource = new SyncStreamDataSource(this, data, variant);
       this.dataSources.push(dataSource);
+      this.variants.push({ variant, dataSource });
       const lookupCreators = variant.indexLookupCreators();
-      this.parameterQuerierSources.push(variant.querierSource(this, dataSource));
       this.parameterIndexLookupCreators.push(...lookupCreators);
     }
   }
@@ -52,10 +52,27 @@ export class SyncStream implements BucketSource {
     return {
       name: this.name,
       type: BucketSourceType[BucketSourceType.SYNC_STREAM],
-      variants: this.variants.map((v) => v.debugRepresentation()),
+      variants: this.variants.map(({ variant }) => variant.debugRepresentation()),
       data: {
         table: this.data.sourceTable,
         columns: this.data.columnOutputNames()
+      }
+    };
+  }
+
+  hydrate(params: CreateSourceParams): HydratedBucketSource {
+    let queriers: BucketParameterQuerierSource[] = [];
+    for (let { variant, dataSource } of this.variants) {
+      const querier = variant.createParameterQuerierSource(params, this, dataSource);
+      queriers.push(querier);
+    }
+
+    return {
+      definition: this,
+      pushBucketParameterQueriers(result, options) {
+        for (let querier of queriers) {
+          querier.pushBucketParameterQueriers(result, options);
+        }
       }
     };
   }

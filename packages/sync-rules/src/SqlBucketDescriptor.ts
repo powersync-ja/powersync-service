@@ -1,16 +1,23 @@
-import { BucketDataSource, BucketSource, BucketSourceType } from './BucketSource.js';
+import { PendingQueriers } from './BucketParameterQuerier.js';
+import {
+  BucketDataSource,
+  BucketSource,
+  BucketSourceType,
+  CreateSourceParams,
+  HydratedBucketSource
+} from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
-import { SyncRulesOptions } from './SqlSyncRules.js';
+import { GetQuerierOptions, SyncRulesOptions } from './SqlSyncRules.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SqlRuleError } from './errors.js';
-import { EvaluateRowOptions, QueryParseOptions, UnscopedEvaluationResult, SourceSchema } from './types.js';
+import { EvaluateRowOptions, QueryParseOptions, SourceSchema, UnscopedEvaluationResult } from './types.js';
 
 export interface QueryParseResult {
   /**
@@ -132,6 +139,27 @@ export class SqlBucketDescriptor implements BucketSource {
           columns: q.columnOutputNames()
         };
       })
+    };
+  }
+
+  hydrate(params: CreateSourceParams): HydratedBucketSource {
+    const hydratedParameterQueriers = this.parameterQueries.map((querier) =>
+      querier.createParameterQuerierSource(params)
+    );
+    const hydratedGlobalParameterQueriers = this.globalParameterQueries.map((querier) =>
+      querier.createParameterQuerierSource(params)
+    );
+
+    return {
+      definition: this,
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
+        for (let querier of hydratedParameterQueriers) {
+          querier.pushBucketParameterQueriers(result, options);
+        }
+        for (let querier of hydratedGlobalParameterQueriers) {
+          querier.pushBucketParameterQueriers(result, options);
+        }
+      }
     };
   }
 }

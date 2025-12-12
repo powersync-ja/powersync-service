@@ -66,13 +66,7 @@ export class HydratedSyncRules {
       this.compatibility = params.compatibility;
     }
 
-    for (let definition of this.definition.bucketSources) {
-      const hydratedBucketSource: HydratedBucketSource = { definition: definition, parameterQuerierSources: [] };
-      this.bucketSources.push(hydratedBucketSource);
-      for (let querier of definition.parameterQuerierSources) {
-        hydratedBucketSource.parameterQuerierSources.push(querier.createParameterQuerierSource(params.createParams));
-      }
-    }
+    this.bucketSources = this.definition.bucketSources.map((source) => source.hydrate(params.createParams));
   }
 
   // These methods do not depend on hydration, so we can just forward them to the definition.
@@ -149,9 +143,7 @@ export class HydratedSyncRules {
         (source.definition.subscribedToByDefault && options.hasDefaultStreams) ||
         source.definition.name in options.streams
       ) {
-        for (let querier of source.parameterQuerierSources) {
-          querier.pushBucketParameterQueriers(pending, options);
-        }
+        source.pushBucketParameterQueriers(pending, options);
       }
     }
 

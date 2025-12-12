@@ -1067,13 +1067,10 @@ async function createQueriers(
     streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] }
   };
 
-  for (let querier of stream.parameterQuerierSources) {
-    querier
-      .createParameterQuerierSource(
-        options?.hydrationState ? { hydrationState: options.hydrationState } : hydrationParams
-      )
-      .pushBucketParameterQueriers(pending, querierOptions);
-  }
+  const hydrated = stream.hydrate(
+    options?.hydrationState ? { hydrationState: options.hydrationState } : hydrationParams
+  );
+  hydrated.pushBucketParameterQueriers(pending, querierOptions);
 
   return { querier: mergeBucketParameterQueriers(queriers), errors };
 }

@@ -1,14 +1,10 @@
 import { SelectFromStatement } from 'pgsql-ast-parser';
 import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
 import { BucketParameterQuerier, PendingQueriers } from './BucketParameterQuerier.js';
-import {
-  BucketParameterQuerierSource,
-  BucketParameterQuerierSourceDefinition,
-  CreateSourceParams
-} from './BucketSource.js';
+import { CreateSourceParams } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
-import { BucketDataSource, GetQuerierOptions } from './index.js';
+import { BucketDataSource, BucketParameterQuerierSource, GetQuerierOptions } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
@@ -35,7 +31,7 @@ export interface StaticSqlParameterQueryOptions {
  *    SELECT token_parameters.user_id
  *    SELECT token_parameters.user_id as user_id WHERE token_parameters.is_admin
  */
-export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefinition {
+export class StaticSqlParameterQuery {
   static fromSql(
     descriptorName: string,
     sql: string,

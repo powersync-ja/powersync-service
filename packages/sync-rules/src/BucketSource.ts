@@ -50,13 +50,6 @@ export interface BucketSource {
   readonly dataSources: BucketDataSource[];
 
   /**
-   * BucketParameterQuerierSource describing the parameter queries / stream subqueries in this bucket/stream definition.
-   *
-   * The same source could in theory be present in multiple stream definitions.
-   */
-  readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
-
-  /**
    * BucketParameterLookupSource describing the parameter tables used in this bucket/stream definition.
    *
    * The same source could in theory be present in multiple stream definitions.
@@ -64,12 +57,26 @@ export interface BucketSource {
   readonly parameterIndexLookupCreators: ParameterIndexLookupCreator[];
 
   debugRepresentation(): any;
+
+  hydrate(params: CreateSourceParams): HydratedBucketSource;
 }
 
-export interface HydratedBucketSource {
-  readonly definition: BucketSource;
+/**
+ * Internal interface for individual queriers. This is not used on its in the public API directly, apart
+ * from in HydratedBucketSource. Everywhere else it is just to standardize the internal functions that we re-use.
+ */
+export interface BucketParameterQuerierSource {
+  /**
+   * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.
+   *
+   * @param result The target array to insert queriers and errors into.
+   * @param options Options, including parameters that may affect the buckets loaded by this source.
+   */
+  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
+}
 
-  readonly parameterQuerierSources: BucketParameterQuerierSource[];
+export interface HydratedBucketSource extends BucketParameterQuerierSource {
+  readonly definition: BucketSource;
 }
 
 export type ScopedEvaluateRow = (options: EvaluateRowOptions) => EvaluationResult[];
@@ -145,38 +152,7 @@ export interface ParameterIndexLookupCreator {
   tableSyncsParameters(table: SourceTableInterface): boolean;
 }
 
-/**
- * Parameter querier source definitions define how to bucket parameter queries are evaluated.
- *
- * This may use request data only, or it may use parameter lookup data persisted by a BucketParameterLookupSourceDefinition.
- */
-export interface BucketParameterQuerierSourceDefinition {
-  /**
-   * For debug use only.
-   */
-  readonly bucketParameters: string[];
-
-  /**
-   * The data source linked to this querier. This determines the bucket names that the querier generates.
-   *
-   * Note that queriers do not persist data themselves; they only resolve which buckets to load based on request parameters.
-   */
-  readonly querierDataSource: BucketDataSource;
-
-  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource;
-}
-
-export interface BucketParameterQuerierSource {
-  /**
-   * Reports {@link BucketParameterQuerier}s resolving buckets that a specific stream request should have access to.
-   *
-   * @param result The target array to insert queriers and errors into.
-   * @param options Options, including parameters that may affect the buckets loaded by this source.
-   */
-  pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
-}
-
-export interface DebugMergedSource extends BucketParameterQuerierSource {
+export interface DebugMergedSource extends HydratedBucketSource {
   evaluateRow: ScopedEvaluateRow;
   evaluateParameterRow: ScopedEvaluateParameterRow;
 }
@@ -247,16 +223,6 @@ export function mergeParameterIndexLookupCreators(
   };
 }
 
-export function mergeParameterQuerierSources(sources: BucketParameterQuerierSource[]): BucketParameterQuerierSource {
-  return {
-    pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void {
-      for (let source of sources) {
-        source.pushBucketParameterQueriers(result, options);
-      }
-    }
-  };
-}
-
 /**
  * For production purposes, we typically need to operate on the different sources separately. However, for debugging,
  * it is useful to have a single merged source that can evaluate everything.
@@ -269,12 +235,11 @@ export function debugHydratedMergedSource(bucketSource: BucketSource, params?: C
     hydrationState,
     bucketSource.parameterIndexLookupCreators
   );
-  const parameterQuerierSource = mergeParameterQuerierSources(
-    bucketSource.parameterQuerierSources.map((source) => source.createParameterQuerierSource(resolvedParams))
-  );
+  const hydratedBucketSource = bucketSource.hydrate(resolvedParams);
   return {
+    definition: bucketSource,
     evaluateParameterRow: parameterLookupSource.evaluateParameterRow.bind(parameterLookupSource),
     evaluateRow: dataSource.evaluateRow.bind(dataSource),
-    pushBucketParameterQueriers: parameterQuerierSource.pushBucketParameterQueriers.bind(parameterQuerierSource)
+    pushBucketParameterQueriers: hydratedBucketSource.pushBucketParameterQueriers.bind(hydratedBucketSource)
   };
 }
