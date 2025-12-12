@@ -91,7 +91,7 @@ export function identityBucketTransformer(id: string) {
  * Empty data source that can be used for testing parameter queries, where most of the functionality here is not used.
  */
 export const EMPTY_DATA_SOURCE: BucketDataSource = {
-  defaultBucketPrefix: 'mybucket',
+  uniqueName: 'mybucket',
   bucketParameters: [],
   // These are not used in the tests.
   getSourceTables: function (): Set<TablePattern> {

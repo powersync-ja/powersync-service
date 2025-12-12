@@ -75,7 +75,7 @@ export class SyncStreamDataSource implements BucketDataSource {
     return [];
   }
 
-  public get defaultBucketPrefix(): string {
+  public get uniqueName(): string {
     return this.variant.defaultBucketPrefix(this.stream.name);
   }
 

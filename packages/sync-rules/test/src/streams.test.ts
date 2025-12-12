@@ -890,7 +890,7 @@ WHERE
 
     const hydrationState: HydrationState = {
       getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.defaultBucketPrefix}.test` };
+        return { bucketPrefix: `${source.uniqueName}.test` };
       },
       getParameterLookupScope(source) {
         return {

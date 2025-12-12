@@ -73,11 +73,11 @@ export interface HydratedBucketSource {
  */
 export interface BucketDataSource {
   /**
-   * Bucket prefix if no transformations are defined.
+   * Unique name of the data source within a sync rules version.
    *
-   * Transformations may use this as a base, or may generate an entirely different prefix.
+   * This may be used as the basis for bucketPrefix (or it could be ignored).
    */
-  readonly defaultBucketPrefix: string;
+  readonly uniqueName: string;
 
   /**
    * For debug use only.

@@ -40,7 +40,7 @@ export interface HydrationState<
 export const DEFAULT_HYDRATION_STATE: HydrationState = {
   getBucketSourceScope(source: BucketDataSource) {
     return {
-      bucketPrefix: source.defaultBucketPrefix
+      bucketPrefix: source.uniqueName
     };
   },
   getParameterLookupScope(source) {
@@ -64,7 +64,7 @@ export function versionedHydrationState(version: number): HydrationState {
   return {
     getBucketSourceScope(source: BucketDataSource): BucketDataScope {
       return {
-        bucketPrefix: `${version}#${source.defaultBucketPrefix}`
+        bucketPrefix: `${version}#${source.uniqueName}`
       };
     },
 

@@ -146,7 +146,7 @@ export class BucketDefinitionDataSource implements BucketDataSource {
     return this.descriptor.bucketParameters;
   }
 
-  public get defaultBucketPrefix(): string {
+  public get uniqueName(): string {
     return this.descriptor.name;
   }
 
