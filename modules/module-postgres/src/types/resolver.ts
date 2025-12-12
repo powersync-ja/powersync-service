@@ -153,7 +153,7 @@ WHERE a.attnum > 0
   AND cn.nspname not in ('information_schema', 'pg_catalog', 'pg_toast')
     `;
 
-    const query = await this.pool.query({ statement: sql });
+    const query = await this.pool.query(sql);
     let ids: number[] = [];
     for (const row of pgwire.pgwireRows(query)) {
       ids.push(Number(row.type_oid));
@@ -183,11 +183,6 @@ WHERE a.attnum > 0
       return undefined;
     }
     const record = this.decodeTuple(message.relation, rawData);
-    return toSyncRulesRow(record);
-  }
-
-  constructRowRecord(columnMap: Record<string, number>, tupleRaw: Record<string, any>): SqliteInputRow {
-    const record = this.decodeTupleForTable(columnMap, tupleRaw);
     return toSyncRulesRow(record);
   }
 

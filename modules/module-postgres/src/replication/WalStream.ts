@@ -20,17 +20,20 @@ import {
 } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import {
+  applyRowContext,
   applyValueContext,
   CompatibilityContext,
   DatabaseInputRow,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
+  SqliteValue,
   SqlSyncRules,
   HydratedSyncRules,
   TablePattern,
   ToastableSqliteRow,
-  toSyncRulesRow
+  toSyncRulesRow,
+  toSyncRulesValue
 } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
@@ -45,6 +48,7 @@ import {
   SimpleSnapshotQuery,
   SnapshotQuery
 } from './SnapshotQuery.js';
+import { PostgresTypeResolver } from '../types/resolver.js';
 
 export interface WalStreamOptions {
   logger?: Logger;
@@ -463,11 +467,25 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
-    for (let row of results) {
-      yield toSyncRulesRow(row);
-    }
+  static decodeRow(row: pgwire.PgRow, types: PostgresTypeResolver): SqliteInputRow {
+    let result: SqliteInputRow = {};
+
+    row.raw.forEach((rawValue, i) => {
+      const column = row.columns[i];
+      let mappedValue: SqliteInputValue;
+
+      if (typeof rawValue == 'string') {
+        mappedValue = toSyncRulesValue(types.registry.decodeDatabaseValue(rawValue, column.typeOid), false, true);
+      } else {
+        // Binary format, expose as-is.
+        mappedValue = rawValue;
+      }
+
+      result[column.name] = mappedValue;
+    });
+    return result;
   }
+
   private async snapshotTableInTx(
     batch: storage.BucketStorageBatch,
     db: pgwire.PgConnection,
@@ -542,8 +560,6 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
-    let columns: { i: number; name: string; typeOid: number }[] = [];
-    let columnMap: Record<string, number> = {};
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -557,31 +573,16 @@ WHERE  oid = $1::regclass`,
       // There are typically 100-200 rows per chunk.
       for await (let chunk of cursor) {
         if (chunk.tag == 'RowDescription') {
-          // We get a RowDescription for each FETCH call, but they should
-          // all be the same.
-          let i = 0;
-          columns = chunk.payload.map((c) => {
-            return { i: i++, name: c.name, typeOid: c.typeOid };
-          });
-          for (let column of chunk.payload) {
-            columnMap[column.name] = column.typeOid;
-          }
           continue;
         }
 
-        const rows = chunk.rows.map((row) => {
-          let q: DatabaseInputRow = {};
-          for (let c of columns) {
-            q[c.name] = pgwire.PgType.decode(row.raw[c.i], c.typeOid);
-          }
-          return q;
-        });
-        if (rows.length > 0) {
+        if (chunk.rows.length > 0) {
           hasRemainingData = true;
         }
 
-        for (const inputRecord of WalStream.getQueryData(rows)) {
-          const record = this.syncRulesRecord(this.connections.types.constructRowRecord(columnMap, inputRecord));
+        for (const rawRow of chunk.rows) {
+          const record = this.sync_rules.applyRowContext<never>(WalStream.decodeRow(rawRow, this.connections.types));
+
           // This auto-flushes when the batch reaches its size limit
           await batch.save({
             tag: storage.SaveOperationTag.INSERT,
@@ -593,8 +594,8 @@ WHERE  oid = $1::regclass`,
           });
         }
 
-        at += rows.length;
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(rows.length);
+        at += chunk.rows.length;
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(chunk.rows.length);
 
         this.touch();
       }
