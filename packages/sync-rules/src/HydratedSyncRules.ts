@@ -2,7 +2,7 @@ import { Scope } from 'ajv/dist/compile/codegen/scope.js';
 import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
 import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
 import {
-  BucketParameterLookupSourceDefinition,
+  ParameterIndexLookupCreator,
   BucketParameterQuerier,
   buildBucketName,
   CompatibilityContext,
@@ -16,7 +16,7 @@ import {
   isEvaluationError,
   mergeBucketParameterQueriers,
   mergeDataSources,
-  mergeParameterLookupSources,
+  mergeParameterIndexLookupCreators,
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
@@ -46,7 +46,7 @@ export class HydratedSyncRules {
     definition: SqlSyncRules;
     createParams: CreateSourceParams;
     bucketDataSources: BucketDataSource[];
-    bucketParameterLookupSources: BucketParameterLookupSourceDefinition[];
+    bucketParameterIndexLookupCreators: ParameterIndexLookupCreator[];
     eventDescriptors?: SqlEventDescriptor[];
     compatibility?: CompatibilityContext;
   }) {
@@ -54,9 +54,9 @@ export class HydratedSyncRules {
 
     this.definition = params.definition;
     this.innerEvaluateRow = mergeDataSources(hydrationState, params.bucketDataSources).evaluateRow;
-    this.innerEvaluateParameterRow = mergeParameterLookupSources(
+    this.innerEvaluateParameterRow = mergeParameterIndexLookupCreators(
       hydrationState,
-      params.bucketParameterLookupSources
+      params.bucketParameterIndexLookupCreators
     ).evaluateParameterRow;
 
     if (params.eventDescriptors) {

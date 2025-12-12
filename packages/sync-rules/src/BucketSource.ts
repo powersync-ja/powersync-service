@@ -61,7 +61,7 @@ export interface BucketSource {
    *
    * The same source could in theory be present in multiple stream definitions.
    */
-  readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
+  readonly parameterIndexLookupCreators: ParameterIndexLookupCreator[];
 
   debugRepresentation(): any;
 }
@@ -118,11 +118,11 @@ export interface BucketDataSource {
 }
 
 /**
- * A parameter lookup source defines how to extract parameter lookup values from parameter queries.
+ * This defines how to extract parameter index lookup values from parameter queries or stream subqueries.
  *
- * This is only relevant for parameter queries that query tables.
+ * This is only relevant for parameter queries and subqueries that query tables.
  */
-export interface BucketParameterLookupSourceDefinition {
+export interface ParameterIndexLookupCreator {
   /**
    * lookupName + queryId is used to uniquely identify parameter queries for parameter storage.
    *
@@ -207,9 +207,9 @@ export function hydrateEvaluateRow(hydrationState: HydrationState, source: Bucke
 
 export function hydrateEvaluateParameterRow(
   hydrationState: HydrationState,
-  source: BucketParameterLookupSourceDefinition
+  source: ParameterIndexLookupCreator
 ): ScopedEvaluateParameterRow {
-  const scope = hydrationState.getParameterLookupScope(source);
+  const scope = hydrationState.getParameterIndexLookupScope(source);
   return (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
     return source.evaluateParameterRow(sourceTable, row).map((result) => {
       if (isEvaluationError(result)) {
@@ -235,9 +235,9 @@ export function mergeDataSources(
   };
 }
 
-export function mergeParameterLookupSources(
+export function mergeParameterIndexLookupCreators(
   hydrationState: HydrationState,
-  sources: BucketParameterLookupSourceDefinition[]
+  sources: ParameterIndexLookupCreator[]
 ): { evaluateParameterRow: ScopedEvaluateParameterRow } {
   const withScope = sources.map((source) => hydrateEvaluateParameterRow(hydrationState, source));
   return {
@@ -265,7 +265,10 @@ export function debugHydratedMergedSource(bucketSource: BucketSource, params?: C
   const hydrationState = params?.hydrationState ?? DEFAULT_HYDRATION_STATE;
   const resolvedParams = { hydrationState };
   const dataSource = mergeDataSources(hydrationState, bucketSource.dataSources);
-  const parameterLookupSource = mergeParameterLookupSources(hydrationState, bucketSource.parameterLookupSources);
+  const parameterLookupSource = mergeParameterIndexLookupCreators(
+    hydrationState,
+    bucketSource.parameterIndexLookupCreators
+  );
   const parameterQuerierSource = mergeParameterQuerierSources(
     bucketSource.parameterQuerierSources.map((source) => source.createParameterQuerierSource(resolvedParams))
   );

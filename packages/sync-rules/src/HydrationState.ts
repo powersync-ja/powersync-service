@@ -1,4 +1,4 @@
-import { BucketDataSource, BucketParameterLookupSourceDefinition } from './BucketSource.js';
+import { BucketDataSource, ParameterIndexLookupCreator } from './BucketSource.js';
 
 export interface BucketDataScope {
   /** The prefix is the bucket name before the parameters. */
@@ -29,7 +29,7 @@ export interface HydrationState<
   /**
    * Given a bucket parameter lookup definition, get the persistence name to use.
    */
-  getParameterLookupScope(source: BucketParameterLookupSourceDefinition): U;
+  getParameterIndexLookupScope(source: ParameterIndexLookupCreator): U;
 }
 
 /**
@@ -43,7 +43,7 @@ export const DEFAULT_HYDRATION_STATE: HydrationState = {
       bucketPrefix: source.uniqueName
     };
   },
-  getParameterLookupScope(source) {
+  getParameterIndexLookupScope(source) {
     return source.defaultLookupScope;
   }
 };
@@ -68,7 +68,7 @@ export function versionedHydrationState(version: number): HydrationState {
       };
     },
 
-    getParameterLookupScope(source: BucketParameterLookupSourceDefinition): ParameterLookupScope {
+    getParameterIndexLookupScope(source: ParameterIndexLookupCreator): ParameterLookupScope {
       // No transformations applied here
       return source.defaultLookupScope;
     }

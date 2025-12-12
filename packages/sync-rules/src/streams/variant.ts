@@ -2,7 +2,7 @@ import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, UnscopedParameterLookup, PendingQueriers } from '../BucketParameterQuerier.js';
 import {
   BucketDataSource,
-  BucketParameterLookupSourceDefinition,
+  ParameterIndexLookupCreator,
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
   CreateSourceParams
@@ -69,8 +69,8 @@ export class StreamVariant {
     return `${streamName}|${this.id}`;
   }
 
-  lookupSources(): BucketParameterLookupSourceDefinition[] {
-    return this.subqueries.flatMap((subquery) => subquery.lookupSources());
+  indexLookupCreators(): ParameterIndexLookupCreator[] {
+    return this.subqueries.flatMap((subquery) => subquery.indexLookupCreators());
   }
 
   querierSource(stream: SyncStream, dataSource: SyncStreamDataSource): BucketParameterQuerierSourceDefinition {

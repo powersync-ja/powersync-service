@@ -54,7 +54,7 @@ export class SqlBucketDescriptor implements BucketSource {
     return [this.dataSource];
   }
 
-  get parameterLookupSources() {
+  get parameterIndexLookupCreators() {
     return this.parameterQueries;
   }
 

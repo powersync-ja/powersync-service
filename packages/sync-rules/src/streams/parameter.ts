@@ -1,5 +1,5 @@
 import { ScopedParameterLookup, UnscopedParameterLookup } from '../BucketParameterQuerier.js';
-import { BucketParameterLookupSourceDefinition } from '../BucketSource.js';
+import { ParameterIndexLookupCreator } from '../BucketSource.js';
 import { HydrationState } from '../HydrationState.js';
 import { TablePattern } from '../TablePattern.js';
 import { ParameterValueSet, RequestParameters, SqliteJsonValue, SqliteValue, TableRow } from '../types.js';
@@ -31,7 +31,7 @@ export interface BucketParameter {
 export interface SubqueryEvaluator {
   parameterTable: TablePattern;
 
-  lookupSources(): BucketParameterLookupSourceDefinition[];
+  indexLookupCreators(): ParameterIndexLookupCreator[];
   // TODO: Is there a better design here?
   // This is used for parameter _queries_. But the queries need to know which lookup scopes to
   // use, and each querier may use multiple lookup sources, each with their own scope.

@@ -16,7 +16,7 @@ import {
 import { isJsonValue, normalizeParameterValue } from '../utils.js';
 
 import { NodeLocation } from 'pgsql-ast-parser';
-import { BucketParameterLookupSourceDefinition, CreateSourceParams } from '../BucketSource.js';
+import { ParameterIndexLookupCreator, CreateSourceParams } from '../BucketSource.js';
 import { HydrationState, ParameterLookupScope } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SubqueryEvaluator } from './parameter.js';
@@ -263,16 +263,16 @@ export class Subquery {
 
     const column = this.column;
 
-    let lookupSources: BucketParameterLookupSourceDefinition[] = [];
+    let lookupCreators: ParameterIndexLookupCreator[] = [];
     let lookupsForRequest: ((
       hydrationState: HydrationState
     ) => (parameters: RequestParameters) => ScopedParameterLookup[])[] = [];
 
     for (let [variant, id] of innerVariants) {
       const source = new SubqueryParameterLookupSource(this.table, column, variant, id, context.streamName);
-      lookupSources.push(source);
+      lookupCreators.push(source);
       lookupsForRequest.push((hydrationState: HydrationState) => {
-        const scope = hydrationState.getParameterLookupScope(source);
+        const scope = hydrationState.getParameterIndexLookupScope(source);
         return (parameters: RequestParameters) => {
           const lookups: ScopedParameterLookup[] = [];
           const instantiations = variant.findStaticInstantiations(parameters);
@@ -286,8 +286,8 @@ export class Subquery {
 
     const evaluator: SubqueryEvaluator = {
       parameterTable: this.table,
-      lookupSources() {
-        return lookupSources;
+      indexLookupCreators() {
+        return lookupCreators;
       },
       hydrateLookupsForRequest(hydrationState: HydrationState) {
         const hydrated = lookupsForRequest.map((fn) => fn(hydrationState));
@@ -531,7 +531,7 @@ export class EvaluateSimpleCondition extends FilterOperator {
   }
 }
 
-export class SubqueryParameterLookupSource implements BucketParameterLookupSourceDefinition {
+export class SubqueryParameterLookupSource implements ParameterIndexLookupCreator {
   constructor(
     private parameterTable: TablePattern,
     private column: RowValueClause,

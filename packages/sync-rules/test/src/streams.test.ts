@@ -265,7 +265,7 @@ describe('streams', () => {
       const desc = parseStream(
         'SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())'
       );
-      const lookup = desc.parameterLookupSources[0];
+      const lookup = desc.parameterIndexLookupCreators[0];
 
       expect(lookup.tableSyncsParameters(ISSUES)).toBe(true);
       expect(lookup.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
@@ -296,7 +296,7 @@ describe('streams', () => {
 
     test('parameter value in subquery', async () => {
       const desc = parseStream('SELECT * FROM issues WHERE auth.user_id() IN (SELECT id FROM users WHERE is_admin)');
-      const lookup = desc.parameterLookupSources[0];
+      const lookup = desc.parameterIndexLookupCreators[0];
 
       expect(lookup.tableSyncsParameters(ISSUES)).toBe(false);
       expect(lookup.tableSyncsParameters(USERS)).toBe(true);
@@ -453,7 +453,7 @@ describe('streams', () => {
       const desc = parseStream(
         'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = auth.user_id())'
       );
-      const lookup = desc.parameterLookupSources[0];
+      const lookup = desc.parameterIndexLookupCreators[0];
 
       expect(lookup.tableSyncsParameters(FRIENDS)).toBe(true);
       expect(lookup.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
@@ -612,7 +612,11 @@ describe('streams', () => {
       );
 
       expect(
-        desc.parameterLookupSources[0].evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
+        desc.parameterIndexLookupCreators[0].evaluateParameterRow(ISSUES, {
+          id: 'issue_id',
+          owner_id: 'user1',
+          name: 'name'
+        })
       ).toStrictEqual([
         {
           lookup: UnscopedParameterLookup.normalized(['user1']),
@@ -737,10 +741,10 @@ describe('streams', () => {
       const row = { id: 'id', account_id: 'account_id' };
 
       expect(stream.dataSources[0].tableSyncsData(accountMember)).toBeTruthy();
-      expect(stream.parameterLookupSources[0].tableSyncsParameters(accountMember)).toBeTruthy();
+      expect(stream.parameterIndexLookupCreators[0].tableSyncsParameters(accountMember)).toBeTruthy();
 
       // Ensure lookup steps work.
-      expect(stream.parameterLookupSources[0].evaluateParameterRow(accountMember, row)).toStrictEqual([
+      expect(stream.parameterIndexLookupCreators[0].evaluateParameterRow(accountMember, row)).toStrictEqual([
         {
           lookup: UnscopedParameterLookup.normalized(['id']),
           bucketParameters: [
@@ -823,7 +827,7 @@ WHERE
       expect(evaluateBucketIds(desc, scene, { _id: 'scene', project: 'foo' })).toStrictEqual(['1#stream|0["foo"]']);
 
       expect(
-        desc.parameterLookupSources[0].evaluateParameterRow(projectInvitation, {
+        desc.parameterIndexLookupCreators[0].evaluateParameterRow(projectInvitation, {
           project: 'foo',
           appliedTo: '[1,2]',
           status: 'CLAIMED'
@@ -875,7 +879,7 @@ WHERE
       getBucketSourceScope(source) {
         return { bucketPrefix: `${source.uniqueName}.test` };
       },
-      getParameterLookupScope(source) {
+      getParameterIndexLookupScope(source) {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
           queryId: `${source.defaultLookupScope.queryId}.test`

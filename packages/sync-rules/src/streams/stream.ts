@@ -2,7 +2,7 @@ import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import {
   BucketDataSource,
-  BucketParameterLookupSourceDefinition,
+  ParameterIndexLookupCreator,
   BucketParameterQuerierSourceDefinition,
   BucketSource,
   BucketSourceType
@@ -21,7 +21,7 @@ export class SyncStream implements BucketSource {
   data: BaseSqlDataQuery;
 
   public readonly dataSources: BucketDataSource[];
-  public readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
+  public readonly parameterIndexLookupCreators: ParameterIndexLookupCreator[];
   public readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
 
   constructor(name: string, data: BaseSqlDataQuery, variants: StreamVariant[]) {
@@ -32,15 +32,15 @@ export class SyncStream implements BucketSource {
     this.data = data;
 
     this.dataSources = [];
-    this.parameterLookupSources = [];
+    this.parameterIndexLookupCreators = [];
     this.parameterQuerierSources = [];
 
     for (let variant of variants) {
       const dataSource = new SyncStreamDataSource(this, data, variant);
       this.dataSources.push(dataSource);
-      const lookupSources = variant.lookupSources();
+      const lookupCreators = variant.indexLookupCreators();
       this.parameterQuerierSources.push(variant.querierSource(this, dataSource));
-      this.parameterLookupSources.push(...lookupSources);
+      this.parameterIndexLookupCreators.push(...lookupCreators);
     }
   }
 

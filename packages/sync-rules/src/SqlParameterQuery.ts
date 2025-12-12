@@ -12,7 +12,7 @@ import {
   PendingQueriers
 } from './BucketParameterQuerier.js';
 import {
-  BucketParameterLookupSourceDefinition,
+  ParameterIndexLookupCreator,
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
   CreateSourceParams
@@ -81,9 +81,7 @@ export interface SqlParameterQueryOptions {
  *  SELECT id as user_id FROM users WHERE users.user_id = token_parameters.user_id
  *  SELECT id as user_id, token_parameters.is_admin as is_admin FROM users WHERE users.user_id = token_parameters.user_id
  */
-export class SqlParameterQuery
-  implements BucketParameterLookupSourceDefinition, BucketParameterQuerierSourceDefinition
-{
+export class SqlParameterQuery implements ParameterIndexLookupCreator, BucketParameterQuerierSourceDefinition {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -360,7 +358,7 @@ export class SqlParameterQuery
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     const hydrationState = params.hydrationState;
     const bucketScope = hydrationState.getBucketSourceScope(this.querierDataSource);
-    const lookupState = hydrationState.getParameterLookupScope(this);
+    const lookupState = hydrationState.getParameterIndexLookupScope(this);
 
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {

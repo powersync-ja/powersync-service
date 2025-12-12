@@ -3,7 +3,7 @@ import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
 import {
   BucketDataSource,
-  BucketParameterLookupSourceDefinition,
+  ParameterIndexLookupCreator,
   BucketParameterQuerierSourceDefinition,
   BucketSource,
   CreateSourceParams
@@ -90,7 +90,7 @@ export interface GetBucketParameterQuerierResult {
 
 export class SqlSyncRules {
   bucketDataSources: BucketDataSource[] = [];
-  bucketParameterLookupSources: BucketParameterLookupSourceDefinition[] = [];
+  bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketParameterQuerierSources: BucketParameterQuerierSourceDefinition[] = [];
   bucketSources: BucketSource[] = [];
 
@@ -258,7 +258,7 @@ export class SqlSyncRules {
 
       rules.bucketSources.push(descriptor);
       rules.bucketDataSources.push(...descriptor.dataSources);
-      rules.bucketParameterLookupSources.push(...descriptor.parameterLookupSources);
+      rules.bucketParameterLookupSources.push(...descriptor.parameterIndexLookupCreators);
       rules.bucketParameterQuerierSources.push(...descriptor.parameterQuerierSources);
     }
 
@@ -286,7 +286,7 @@ export class SqlSyncRules {
           const [parsed, errors] = syncStreamFromSql(key, q, queryOptions);
           rules.bucketSources.push(parsed);
           rules.bucketDataSources.push(...parsed.dataSources);
-          rules.bucketParameterLookupSources.push(...parsed.parameterLookupSources);
+          rules.bucketParameterLookupSources.push(...parsed.parameterIndexLookupCreators);
           rules.bucketParameterQuerierSources.push(...parsed.parameterQuerierSources);
           return {
             parsed: true,
@@ -417,7 +417,7 @@ export class SqlSyncRules {
       definition: this,
       createParams: resolvedParams,
       bucketDataSources: this.bucketDataSources,
-      bucketParameterLookupSources: this.bucketParameterLookupSources,
+      bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
       eventDescriptors: this.eventDescriptors,
       compatibility: this.compatibility
     });
