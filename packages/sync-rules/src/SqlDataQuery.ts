@@ -10,8 +10,8 @@ import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-import { EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
-import { getBucketId, isSelectStatement } from './utils.js';
+import { ParameterMatchClause, QuerySchema, SourceEvaluationResult, SqliteRow } from './types.js';
+import { isSelectStatement, serializeBucketParameters } from './utils.js';
 
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
   filter: ParameterMatchClause;
@@ -190,13 +190,13 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     this.filter = options.filter;
   }
 
-  evaluateRow(table: SourceTableInterface, row: SqliteRow, bucketPrefix: string): EvaluationResult[] {
+  evaluateRow(table: SourceTableInterface, row: SqliteRow): SourceEvaluationResult[] {
     return this.evaluateRowWithOptions({
       table,
       row,
-      bucketIds: (tables) => {
+      serializedBucketParameters: (tables) => {
         const bucketParameters = this.filter.filterRow(tables);
-        return bucketParameters.map((params) => getBucketId(bucketPrefix, this.bucketParameters, params));
+        return bucketParameters.map((params) => serializeBucketParameters(this.bucketParameters, params));
       }
     });
   }

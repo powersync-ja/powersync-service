@@ -1,14 +1,14 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
+import { BucketPriority } from './BucketDescription.js';
+import { ParameterLookup } from './BucketParameterQuerier.js';
+import { CompatibilityContext } from './compatibility.js';
 import { ColumnDefinition } from './ExpressionType.js';
+import { RequestFunctionCall } from './request_functions.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
-import { toSyncRulesParameters } from './utils.js';
-import { BucketPriority } from './BucketDescription.js';
-import { ParameterLookup } from './BucketParameterQuerier.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { CompatibilityContext } from './compatibility.js';
-import { RequestFunctionCall } from './request_functions.js';
+import { toSyncRulesParameters } from './utils.js';
 
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
@@ -48,16 +48,52 @@ export interface EvaluatedRow {
   data: SqliteJsonRow;
 }
 
+/**
+ * Bucket data as evaluated by the BucketDataSource.
+ *
+ * The bucket name must still be resolved, external to this.
+ */
+export interface SourceEvaluatedRow {
+  /**
+   * Serialized evaluated parameters used to generate the bucket id. Serialized as a JSON array.
+   *
+   * Examples:
+   *  [] // no bucket parameters
+   *  [1] // single numeric parameter
+   *  [1,"foo"] // multiple parameters
+   *
+   * The bucket name is derived by using concetenating these parameters with the generated bucket name.
+   */
+  serializedBucketParameters: string;
+
+  /** Output table - may be different from input table. */
+  table: string;
+
+  /**
+   * Convenience attribute. Must match data.id.
+   */
+  id: string;
+
+  /** Must be JSON-serializable. */
+  data: SqliteJsonRow;
+}
+
 export interface EvaluationError {
   error: string;
 }
 
-export function isEvaluationError(e: any): e is EvaluationError {
-  return typeof e.error == 'string';
+export function isEvaluationError(
+  e: EvaluationResult | SourceEvaluationResult | EvaluatedParametersResult
+): e is EvaluationError {
+  return typeof (e as EvaluationError).error == 'string';
 }
 
 export function isEvaluatedRow(e: EvaluationResult): e is EvaluatedRow {
   return typeof (e as EvaluatedRow).bucket == 'string';
+}
+
+export function isSourceEvaluatedRow(e: SourceEvaluationResult): e is SourceEvaluatedRow {
+  return typeof (e as SourceEvaluatedRow).serializedBucketParameters == 'string';
 }
 
 export function isEvaluatedParameters(e: EvaluatedParametersResult): e is EvaluatedParameters {
@@ -65,6 +101,7 @@ export function isEvaluatedParameters(e: EvaluatedParametersResult): e is Evalua
 }
 
 export type EvaluationResult = EvaluatedRow | EvaluationError;
+export type SourceEvaluationResult = SourceEvaluatedRow | EvaluationError;
 
 export interface RequestJwtPayload {
   /**

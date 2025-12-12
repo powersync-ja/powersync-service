@@ -49,9 +49,7 @@ describe('streams', () => {
 
     expect(desc.variants).toHaveLength(1);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo' })).toStrictEqual(['1#stream|0[]']);
-    expect(
-      desc.dataSources[0].createDataSource(hydrationParams).evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })
-    ).toHaveLength(0);
+    expect(desc.dataSources[0].evaluateRow({ sourceTable: USERS, record: { id: 'foo' } })).toHaveLength(0);
   });
 
   test('row condition', () => {
@@ -891,7 +889,7 @@ WHERE
       `);
 
     const hydrationState: HydrationState = {
-      getBucketSourceState(source) {
+      getBucketSourceScope(source) {
         return { bucketPrefix: `${source.defaultBucketPrefix}.test` };
       },
       getParameterLookupScope(source) {

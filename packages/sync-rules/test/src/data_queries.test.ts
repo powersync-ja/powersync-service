@@ -1,38 +1,23 @@
 import { describe, expect, test } from 'vitest';
-import { CompatibilityContext, ExpressionType, SqlDataQuery, SqlSyncRules } from '../../src/index.js';
-import { ASSETS, BASIC_SCHEMA, identityBucketTransformer, PARSE_OPTIONS } from './util.js';
+import { CompatibilityContext, ExpressionType, SqlDataQuery } from '../../src/index.js';
+import { ASSETS, BASIC_SCHEMA, PARSE_OPTIONS } from './util.js';
 
 describe('data queries', () => {
-  test('uses bucket id transformer', function () {
-    const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
-    const query = SqlDataQuery.fromSql(['org_id'], sql, PARSE_OPTIONS, compatibility);
-    expect(query.errors).toEqual([]);
-
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, '1#mybucket')).toEqual([
-      {
-        bucket: '1#mybucket["org1"]',
-        table: 'assets',
-        id: 'asset1',
-        data: { id: 'asset1', org_id: 'org1' }
-      }
-    ]);
-  });
-
   test('bucket parameters = query', function () {
     const sql = 'SELECT * FROM assets WHERE assets.org_id = bucket.org_id';
     const query = SqlDataQuery.fromSql(['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, 'mybucket')).toEqual([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' })).toEqual([
       {
-        bucket: 'mybucket["org1"]',
+        serializedBucketParameters: '["org1"]',
         table: 'assets',
         id: 'asset1',
         data: { id: 'asset1', org_id: 'org1' }
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, 'mybucket')).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
   });
 
   test('bucket parameters IN query', function () {
@@ -40,22 +25,20 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql(['category'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
-    expect(
-      query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) }, 'mybucket')
-    ).toMatchObject([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
       {
-        bucket: 'mybucket["red"]',
+        serializedBucketParameters: '["red"]',
         table: 'assets',
         id: 'asset1'
       },
       {
-        bucket: 'mybucket["green"]',
+        serializedBucketParameters: '["green"]',
         table: 'assets',
         id: 'asset1'
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null }, 'mybucket')).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: null })).toEqual([]);
   });
 
   test('static IN data query', function () {
@@ -63,19 +46,15 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql([], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
-    expect(
-      query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) }, 'mybucket')
-    ).toMatchObject([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
       {
-        bucket: 'mybucket[]',
+        serializedBucketParameters: '[]',
         table: 'assets',
         id: 'asset1'
       }
     ]);
 
-    expect(
-      query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'blue']) }, 'mybucket')
-    ).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'blue']) })).toEqual([]);
   });
 
   test('data IN static query', function () {
@@ -83,15 +62,15 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql([], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' }, 'mybucket')).toMatchObject([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' })).toMatchObject([
       {
-        bucket: 'mybucket[]',
+        serializedBucketParameters: '[]',
         table: 'assets',
         id: 'asset1'
       }
     ]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' }, 'mybucket')).toEqual([]);
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' })).toEqual([]);
   });
 
   test('table alias', function () {
@@ -99,9 +78,9 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql(['org_id'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
-    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' }, 'mybucket')).toEqual([
+    expect(query.evaluateRow(ASSETS, { id: 'asset1', org_id: 'org1' })).toEqual([
       {
-        bucket: 'mybucket["org1"]',
+        serializedBucketParameters: '["org1"]',
         table: 'others',
         id: 'asset1',
         data: { id: 'asset1', org_id: 'org1' }

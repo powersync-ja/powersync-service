@@ -2,7 +2,7 @@ import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from '
 import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
 import {
-  BucketDataSourceDefinition,
+  BucketDataSource,
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSourceDefinition,
   BucketSource,
@@ -21,7 +21,7 @@ import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
-import { HydratedSyncRules } from './SyncRules.js';
+import { HydratedSyncRules } from './HydratedSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import {
   QueryParseOptions,
@@ -89,7 +89,7 @@ export interface GetBucketParameterQuerierResult {
 }
 
 export class SqlSyncRules {
-  bucketDataSources: BucketDataSourceDefinition[] = [];
+  bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: BucketParameterLookupSourceDefinition[] = [];
   bucketParameterQuerierSources: BucketParameterQuerierSourceDefinition[] = [];
   bucketSources: BucketSource[] = [];
@@ -416,7 +416,7 @@ export class SqlSyncRules {
     return new HydratedSyncRules({
       definition: this,
       createParams: resolvedParams,
-      bucketDataSources: this.bucketDataSources.map((d) => d.createDataSource(resolvedParams)),
+      bucketDataSources: this.bucketDataSources,
       bucketParameterLookupSources: this.bucketParameterLookupSources.map((d) =>
         d.createParameterLookupSource(resolvedParams)
       ),

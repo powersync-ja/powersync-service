@@ -7,13 +7,14 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { BucketDataSourceDefinition, GetQuerierOptions } from './index.js';
+import { BucketDataScope } from './HydrationState.js';
+import { BucketDataSource, GetQuerierOptions } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
 import { TablePattern } from './TablePattern.js';
 import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
-import { getBucketId, isJsonValue } from './utils.js';
+import { buildBucketName, isJsonValue, serializeBucketParameters } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface StaticSqlParameterQueryOptions {
@@ -24,7 +25,7 @@ export interface StaticSqlParameterQueryOptions {
   bucketParameters: string[];
   queryId: string;
   filter: ParameterValueClause | undefined;
-  querierDataSource: BucketDataSourceDefinition;
+  querierDataSource: BucketDataSource;
   errors?: SqlRuleError[];
 }
 
@@ -41,7 +42,7 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
     q: SelectFromStatement,
     options: QueryParseOptions,
     queryId: string,
-    querierDataSource: BucketDataSourceDefinition
+    querierDataSource: BucketDataSource
   ) {
     let errors: SqlRuleError[] = [];
 
@@ -154,7 +155,7 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
    */
   readonly filter: ParameterValueClause | undefined;
 
-  public readonly querierDataSource: BucketDataSourceDefinition;
+  public readonly querierDataSource: BucketDataSource;
 
   readonly errors: SqlRuleError[];
 
@@ -180,10 +181,10 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     const hydrationState = params.hydrationState;
-    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
+    const bucketScope = hydrationState.getBucketSourceScope(this.querierDataSource);
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
-        const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketPrefix).map((desc) => {
+        const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketScope).map((desc) => {
           return {
             ...desc,
             definition: this.descriptorName,
@@ -205,7 +206,7 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
     };
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters, bucketPrefix: string): BucketDescription[] {
+  getStaticBucketDescriptions(parameters: RequestParameters, bucketSourceScope: BucketDataScope): BucketDescription[] {
     if (this.filter == null) {
       // Error in filter clause
       return [];
@@ -227,9 +228,11 @@ export class StaticSqlParameterQuery implements BucketParameterQuerierSourceDefi
       }
     }
 
+    const serializedParamters = serializeBucketParameters(this.bucketParameters, result);
+
     return [
       {
-        bucket: getBucketId(bucketPrefix, this.bucketParameters, result),
+        bucket: buildBucketName(bucketSourceScope, serializedParamters),
         priority: this.priority
       }
     ];

@@ -1,15 +1,16 @@
 import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from '../BucketParameterQuerier.js';
 import {
-  BucketDataSourceDefinition,
+  BucketDataSource,
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
   CreateSourceParams
 } from '../BucketSource.js';
+import { BucketDataScope } from '../HydrationState.js';
 import { GetQuerierOptions, RequestedStream } from '../index.js';
 import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
-import { isJsonValue, JSONBucketNameSerialize } from '../utils.js';
+import { buildBucketName, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
 import { SyncStream, SyncStreamDataSource } from './stream.js';
 import { cartesianProduct } from './utils.js';
@@ -79,8 +80,8 @@ export class StreamVariant {
   /**
    * Given a row in the table this stream selects from, returns all ids of buckets to which that row belongs to.
    */
-  bucketIdsForRow(bucketPrefix: string, options: TableRow): string[] {
-    return this.instantiationsForRow(options).map((values) => this.buildBucketId(bucketPrefix, values));
+  bucketParametersForRow(options: TableRow): string[] {
+    return this.instantiationsForRow(options).map((values) => this.serializeBucketParameters(values));
   }
 
   /**
@@ -129,7 +130,7 @@ export class StreamVariant {
     stream: SyncStream,
     reason: BucketInclusionReason,
     params: RequestParameters,
-    bucketPrefix: string,
+    bucketScope: BucketDataScope,
     hydratedSubqueries: HydratedSubqueries
   ): BucketParameterQuerier | null {
     const instantiation = this.partiallyEvaluateParameters(params);
@@ -171,7 +172,7 @@ export class StreamVariant {
       // When we have no dynamic parameters, the partial evaluation is a full instantiation.
       const instantiations = this.cartesianProductOfParameterInstantiations(instantiation as SqliteJsonValue[][]);
       for (const instantiation of instantiations) {
-        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketPrefix));
+        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketScope));
       }
     }
 
@@ -216,7 +217,7 @@ export class StreamVariant {
           perParameterInstantiation as SqliteJsonValue[][]
         );
 
-        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketPrefix)));
+        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketScope)));
       }
     };
   }
@@ -287,24 +288,24 @@ export class StreamVariant {
    * @param transformer A transformer adding version information to the inner id.
    * @returns The generated bucket id
    */
-  private buildBucketId(bucketPrefix: string, instantiation: SqliteJsonValue[]) {
+  private serializeBucketParameters(instantiation: SqliteJsonValue[]) {
     if (instantiation.length != this.parameters.length) {
       throw Error('Internal error, instantiation length mismatch');
     }
 
-    return `${bucketPrefix}${JSONBucketNameSerialize.stringify(instantiation)}`;
+    return JSONBucketNameSerialize.stringify(instantiation);
   }
 
   private resolveBucket(
     stream: SyncStream,
     instantiation: SqliteJsonValue[],
     reason: BucketInclusionReason,
-    bucketPrefix: string
+    bucketScope: BucketDataScope
   ): ResolvedBucket {
     return {
       definition: stream.name,
       inclusion_reasons: [reason],
-      bucket: this.buildBucketId(bucketPrefix, instantiation),
+      bucket: buildBucketName(bucketScope, this.serializeBucketParameters(instantiation)),
       priority: stream.priority
     };
   }
@@ -338,7 +339,7 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
   constructor(
     private stream: SyncStream,
     private variant: StreamVariant,
-    public readonly querierDataSource: BucketDataSourceDefinition
+    public readonly querierDataSource: BucketDataSource
   ) {}
 
   /**
@@ -350,7 +351,7 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     const hydrationState = params.hydrationState;
-    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
+    const bucketScope = hydrationState.getBucketSourceScope(this.querierDataSource);
     const stream = this.stream;
 
     const hydratedSubqueries: HydratedSubqueries = new Map(
@@ -375,13 +376,13 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
             hasExplicitDefaultSubscription = true;
           }
 
-          this.queriersForSubscription(result, subscription, subscriptionParams, bucketPrefix, hydratedSubqueries);
+          this.queriersForSubscription(result, subscription, subscriptionParams, bucketScope, hydratedSubqueries);
         }
 
         // If the stream is subscribed to by default and there is no explicit subscription that would match the default
         // subscription, also include the default querier.
         if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
-          this.queriersForSubscription(result, null, options.globalParameters, bucketPrefix, hydratedSubqueries);
+          this.queriersForSubscription(result, null, options.globalParameters, bucketScope, hydratedSubqueries);
         }
       }
     };
@@ -391,13 +392,13 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
     result: PendingQueriers,
     subscription: RequestedStream | null,
     params: RequestParameters,
-    bucketPrefix: string,
+    bucketScope: BucketDataScope,
     hydratedSubqueries: HydratedSubqueries
   ) {
     const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
 
     try {
-      const querier = this.variant.querier(this.stream, reason, params, bucketPrefix, hydratedSubqueries);
+      const querier = this.variant.querier(this.stream, reason, params, bucketScope, hydratedSubqueries);
       if (querier) {
         result.queriers.push(querier);
       }

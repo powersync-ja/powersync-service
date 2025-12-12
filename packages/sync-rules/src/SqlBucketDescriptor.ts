@@ -1,10 +1,4 @@
-import {
-  BucketDataSource,
-  BucketDataSourceDefinition,
-  BucketSource,
-  BucketSourceType,
-  CreateSourceParams
-} from './BucketSource.js';
+import { BucketDataSource, BucketSource, BucketSourceType } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -16,7 +10,7 @@ import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SqlRuleError } from './errors.js';
-import { EvaluationResult, QueryParseOptions, SourceSchema } from './types.js';
+import { EvaluateRowOptions, QueryParseOptions, SourceEvaluationResult, SourceSchema } from './types.js';
 
 export interface QueryParseResult {
   /**
@@ -142,7 +136,7 @@ export class SqlBucketDescriptor implements BucketSource {
   }
 }
 
-export class BucketDefinitionDataSource implements BucketDataSourceDefinition {
+export class BucketDefinitionDataSource implements BucketDataSource {
   constructor(private descriptor: SqlBucketDescriptor) {}
 
   /**
@@ -156,22 +150,16 @@ export class BucketDefinitionDataSource implements BucketDataSourceDefinition {
     return this.descriptor.name;
   }
 
-  createDataSource(params: CreateSourceParams): BucketDataSource {
-    const hydrationState = params.hydrationState;
-    const bucketPrefix = hydrationState.getBucketSourceState(this).bucketPrefix;
-    return {
-      evaluateRow: (options) => {
-        let results: EvaluationResult[] = [];
-        for (let query of this.descriptor.dataQueries) {
-          if (!query.applies(options.sourceTable)) {
-            continue;
-          }
-
-          results.push(...query.evaluateRow(options.sourceTable, options.record, bucketPrefix));
-        }
-        return results;
+  evaluateRow(options: EvaluateRowOptions) {
+    let results: SourceEvaluationResult[] = [];
+    for (let query of this.descriptor.dataQueries) {
+      if (!query.applies(options.sourceTable)) {
+        continue;
       }
-    };
+
+      results.push(...query.evaluateRow(options.sourceTable, options.record));
+    }
+    return results;
   }
 
   getSourceTables(): Set<TablePattern> {

@@ -1,11 +1,10 @@
 import {
   BucketDataSource,
   BucketParameterLookupSource,
-  BucketParameterQuerierSource,
-  BucketParameterQuerierSourceDefinition,
   CreateSourceParams,
   HydratedBucketSource
 } from './BucketSource.js';
+import { BucketDataScope } from './HydrationState.js';
 import {
   BucketParameterQuerier,
   CompatibilityContext,
@@ -35,6 +34,7 @@ export class HydratedSyncRules {
   bucketSources: HydratedBucketSource[] = [];
   bucketDataSources: BucketDataSource[];
   bucketParameterLookupSources: BucketParameterLookupSource[];
+  bucketSourceHydration: Map<BucketDataSource, BucketDataScope> = new Map();
 
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
@@ -52,6 +52,13 @@ export class HydratedSyncRules {
     this.bucketDataSources = params.bucketDataSources;
     this.bucketParameterLookupSources = params.bucketParameterLookupSources;
     this.definition = params.definition;
+
+    const hydrationState = params.createParams.hydrationState;
+
+    for (let source of this.bucketDataSources) {
+      const state = hydrationState.getBucketSourceScope(source);
+      this.bucketSourceHydration.set(source, state);
+    }
 
     if (params.eventDescriptors) {
       this.eventDescriptors = params.eventDescriptors;
@@ -107,7 +114,24 @@ export class HydratedSyncRules {
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
     let rawResults: EvaluationResult[] = [];
     for (let source of this.bucketDataSources) {
-      rawResults.push(...source.evaluateRow(options));
+      const sourceResults = source.evaluateRow(options);
+      if (sourceResults.length == 0) {
+        continue;
+      }
+      const bucketPrefix = this.bucketSourceHydration.get(source)!.bucketPrefix;
+      rawResults.push(
+        ...sourceResults.map((sourceRow) => {
+          if (isEvaluationError(sourceRow)) {
+            return sourceRow;
+          }
+          return {
+            bucket: bucketPrefix + sourceRow.serializedBucketParameters,
+            id: sourceRow.id,
+            table: sourceRow.table,
+            data: sourceRow.data
+          } satisfies EvaluatedRow;
+        })
+      );
     }
 
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];

@@ -6,9 +6,10 @@ import { AvailableTable, SqlTools } from './sql_filters.js';
 import { castAsText } from './sql_functions.js';
 import { TablePattern } from './TablePattern.js';
 import {
-  EvaluationResult,
   QueryParameters,
   QuerySchema,
+  SourceEvaluatedRow,
+  SourceEvaluationResult,
   SourceSchema,
   SourceSchemaTable,
   SqliteJsonRow,
@@ -24,7 +25,7 @@ export interface RowValueExtractor {
 export interface EvaluateRowOptions {
   table: SourceTableInterface;
   row: SqliteRow;
-  bucketIds: (params: QueryParameters) => string[];
+  serializedBucketParameters: (params: QueryParameters) => string[];
 }
 
 export interface BaseSqlDataQueryOptions {
@@ -169,13 +170,14 @@ export class BaseSqlDataQuery {
     }
   }
 
-  evaluateRowWithOptions(options: EvaluateRowOptions): EvaluationResult[] {
+  evaluateRowWithOptions(options: EvaluateRowOptions): SourceEvaluationResult[] {
     try {
-      const { table, row, bucketIds } = options;
+      const { table, row, serializedBucketParameters } = options;
 
       const tables = { [this.table.nameInSchema]: this.addSpecialParameters(table, row) };
-      const resolvedBucketIds = bucketIds(tables);
-      if (resolvedBucketIds.length == 0) {
+      // Array of _serialized_ parameters, one per output result.
+      const resolvedBucketParameters = serializedBucketParameters(tables);
+      if (resolvedBucketParameters.length == 0) {
         // Short-circuit: No need to transform the row if there are no matching buckets.
         return [];
       }
@@ -193,13 +195,13 @@ export class BaseSqlDataQuery {
       }
       const outputTable = this.getOutputName(table.name);
 
-      return resolvedBucketIds.map((bucketId) => {
+      return resolvedBucketParameters.map((serializedBucketParameters) => {
         return {
-          bucket: bucketId,
+          serializedBucketParameters,
           table: outputTable,
           id: id,
           data
-        } as EvaluationResult;
+        } satisfies SourceEvaluatedRow;
       });
     } catch (e) {
       return [{ error: e.message ?? `Evaluating data query failed` }];

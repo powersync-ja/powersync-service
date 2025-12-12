@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
+import { ParameterLookupScope } from '../../src/HydrationState.js';
 import { ParameterLookup, SqlParameterQuery } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import { BASIC_SCHEMA, EMPTY_DATA_SOURCE, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
-import { ParameterLookupScope } from '../../src/HydrationState.js';
 
 describe('parameter queries', () => {
   // Specifically different from mybucket/1, to make sure this is being used.
@@ -112,19 +112,15 @@ describe('parameter queries', () => {
 
     // We _do_ need to care about the bucket string representation.
     expect(
-      query.resolveBucketDescriptions(
-        [{ int1: 314, float1: 3.14, float2: 314 }],
-        normalizeTokenParameters({}),
-        'mybucket'
-      )
+      query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}), {
+        bucketPrefix: 'mybucket'
+      })
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
     expect(
-      query.resolveBucketDescriptions(
-        [{ int1: 314n, float1: 3.14, float2: 314 }],
-        normalizeTokenParameters({}),
-        'mybucket'
-      )
+      query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}), {
+        bucketPrefix: 'mybucket'
+      })
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
@@ -492,7 +488,7 @@ describe('parameter queries', () => {
       query.resolveBucketDescriptions(
         [{ user_id: 'user1' }],
         normalizeTokenParameters({ user_id: 'user1', is_admin: true }),
-        'mybucket'
+        { bucketPrefix: 'mybucket' }
       )
     ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });

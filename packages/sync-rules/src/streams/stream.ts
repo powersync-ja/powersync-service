@@ -2,17 +2,15 @@ import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import {
   BucketDataSource,
-  BucketDataSourceDefinition,
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSourceDefinition,
   BucketSource,
-  BucketSourceType,
-  CreateSourceParams
+  BucketSourceType
 } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { TablePattern } from '../TablePattern.js';
-import { EvaluateRowOptions, EvaluationResult, SourceSchema, TableRow } from '../types.js';
+import { EvaluateRowOptions, SourceEvaluationResult, SourceSchema, TableRow } from '../types.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {
@@ -22,7 +20,7 @@ export class SyncStream implements BucketSource {
   variants: StreamVariant[];
   data: BaseSqlDataQuery;
 
-  public readonly dataSources: BucketDataSourceDefinition[];
+  public readonly dataSources: BucketDataSource[];
   public readonly parameterLookupSources: BucketParameterLookupSourceDefinition[];
   public readonly parameterQuerierSources: BucketParameterQuerierSourceDefinition[];
 
@@ -63,7 +61,7 @@ export class SyncStream implements BucketSource {
   }
 }
 
-export class SyncStreamDataSource implements BucketDataSourceDefinition {
+export class SyncStreamDataSource implements BucketDataSource {
   constructor(
     private stream: SyncStream,
     private data: BaseSqlDataQuery,
@@ -102,32 +100,25 @@ export class SyncStreamDataSource implements BucketDataSourceDefinition {
     result[this.data.table!.sqlName].push(r);
   }
 
-  createDataSource(params: CreateSourceParams): BucketDataSource {
-    const hydrationState = params.hydrationState;
-    const bucketPrefix = hydrationState.getBucketSourceState(this).bucketPrefix;
-    return {
-      evaluateRow: (options: EvaluateRowOptions): EvaluationResult[] => {
-        if (!this.data.applies(options.sourceTable)) {
-          return [];
-        }
+  evaluateRow(options: EvaluateRowOptions): SourceEvaluationResult[] {
+    if (!this.data.applies(options.sourceTable)) {
+      return [];
+    }
 
-        const stream = this.stream;
-        const row: TableRow = {
-          sourceTable: options.sourceTable,
-          record: options.record
-        };
-
-        // There is some duplication in work here when there are multiple variants on a stream:
-        // Each variant does the same row transformation (only the filters / bucket ids differ).
-        // However, architecturally we do need to be able to evaluate each variant separately.
-        return this.data.evaluateRowWithOptions({
-          table: options.sourceTable,
-          row: options.record,
-          bucketIds: () => {
-            return this.variant.bucketIdsForRow(bucketPrefix, row);
-          }
-        });
-      }
+    const row: TableRow = {
+      sourceTable: options.sourceTable,
+      record: options.record
     };
+
+    // There is some duplication in work here when there are multiple variants on a stream:
+    // Each variant does the same row transformation (only the filters / bucket ids differ).
+    // However, architecturally we do need to be able to evaluate each variant separately.
+    return this.data.evaluateRowWithOptions({
+      table: options.sourceTable,
+      row: options.record,
+      serializedBucketParameters: () => {
+        return this.variant.bucketParametersForRow(row);
+      }
+    });
   }
 }

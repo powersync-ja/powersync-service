@@ -19,8 +19,8 @@ import {
   CreateSourceParams
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { ParameterLookupScope } from './HydrationState.js';
-import { BucketDataSourceDefinition, GetQuerierOptions } from './index.js';
+import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
+import { BucketDataSource, GetQuerierOptions } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
@@ -42,7 +42,14 @@ import {
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
-import { filterJsonRow, getBucketId, isJsonValue, isSelectStatement, normalizeParameterValue } from './utils.js';
+import {
+  buildBucketName,
+  filterJsonRow,
+  isJsonValue,
+  isSelectStatement,
+  normalizeParameterValue,
+  serializeBucketParameters
+} from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface SqlParameterQueryOptions {
@@ -59,7 +66,7 @@ export interface SqlParameterQueryOptions {
   bucketParameters: string[];
   queryId: string;
   tools: SqlTools;
-  querierDataSource: BucketDataSourceDefinition;
+  querierDataSource: BucketDataSource;
   errors?: SqlRuleError[];
 }
 
@@ -77,7 +84,7 @@ export class SqlParameterQuery
     sql: string,
     options: QueryParseOptions,
     queryId: string,
-    querierDataSource: BucketDataSourceDefinition
+    querierDataSource: BucketDataSource
   ): SqlParameterQuery | StaticSqlParameterQuery | TableValuedFunctionSqlParameterQuery {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options?.schema;
@@ -308,7 +315,7 @@ export class SqlParameterQuery
   readonly queryId: string;
   readonly tools: SqlTools;
 
-  readonly querierDataSource: BucketDataSourceDefinition;
+  readonly querierDataSource: BucketDataSource;
 
   readonly errors: SqlRuleError[];
 
@@ -347,12 +354,12 @@ export class SqlParameterQuery
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
     const hydrationState = params.hydrationState;
-    const bucketPrefix = hydrationState.getBucketSourceState(this.querierDataSource).bucketPrefix;
+    const bucketScope = hydrationState.getBucketSourceScope(this.querierDataSource);
     const lookupState = hydrationState.getParameterLookupScope(this);
 
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
-        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], bucketPrefix, lookupState);
+        const q = this.getBucketParameterQuerier(options.globalParameters, ['default'], bucketScope, lookupState);
         result.queriers.push(q);
       }
     };
@@ -422,7 +429,7 @@ export class SqlParameterQuery
   resolveBucketDescriptions(
     bucketParameters: SqliteJsonRow[],
     parameters: RequestParameters,
-    bucketPrefix: string
+    bucketScope: BucketDataScope
   ): BucketDescription[] {
     // Filters have already been applied and gotten us the set of bucketParameters - don't attempt to filter again.
     // We _do_ need to evaluate the output columns here, using a combination of precomputed bucketParameters,
@@ -446,8 +453,10 @@ export class SqlParameterQuery
           }
         }
 
+        const serializedParameters = serializeBucketParameters(this.bucketParameters, result);
+
         return {
-          bucket: getBucketId(bucketPrefix, this.bucketParameters, result),
+          bucket: buildBucketName(bucketScope, serializedParameters),
           priority: this.priority
         };
       })
@@ -533,7 +542,7 @@ export class SqlParameterQuery
   getBucketParameterQuerier(
     requestParameters: RequestParameters,
     reasons: BucketInclusionReason[],
-    bucketPrefix: string,
+    bucketDataScope: BucketDataScope,
     scope: ParameterLookupScope
   ): BucketParameterQuerier {
     const lookups = this.getLookups(scope, requestParameters);
@@ -554,7 +563,7 @@ export class SqlParameterQuery
       parameterQueryLookups: lookups,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
-        return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketPrefix).map((bucket) => ({
+        return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => ({
           ...bucket,
           definition: this.descriptorName,
           inclusion_reasons: reasons

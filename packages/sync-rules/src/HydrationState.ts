@@ -1,6 +1,6 @@
-import { BucketDataSourceDefinition, BucketParameterLookupSourceDefinition } from './BucketSource.js';
+import { BucketDataSource, BucketParameterLookupSourceDefinition } from './BucketSource.js';
 
-export interface BucketSourceState {
+export interface BucketDataScope {
   /** The prefix is the bucket name before the parameters. */
   bucketPrefix: string;
 }
@@ -18,13 +18,13 @@ export interface ParameterLookupScope {
  * both to re-use mappings across hydrations of different sync rule versions, or to generate new mappings.
  */
 export interface HydrationState<
-  T extends BucketSourceState = BucketSourceState,
+  T extends BucketDataScope = BucketDataScope,
   U extends ParameterLookupScope = ParameterLookupScope
 > {
   /**
    * Given a bucket data source definition, get the bucket prefix to use for it.
    */
-  getBucketSourceState(source: BucketDataSourceDefinition): T;
+  getBucketSourceScope(source: BucketDataSource): T;
 
   /**
    * Given a bucket parameter lookup definition, get the persistence name to use.
@@ -38,7 +38,7 @@ export interface HydrationState<
  * This is the legacy default behavior with no bucket versioning.
  */
 export const DEFAULT_HYDRATION_STATE: HydrationState = {
-  getBucketSourceState(source: BucketDataSourceDefinition) {
+  getBucketSourceScope(source: BucketDataSource) {
     return {
       bucketPrefix: source.defaultBucketPrefix
     };
@@ -62,7 +62,7 @@ export const DEFAULT_HYDRATION_STATE: HydrationState = {
  */
 export function versionedHydrationState(version: number): HydrationState {
   return {
-    getBucketSourceState(source: BucketDataSourceDefinition): BucketSourceState {
+    getBucketSourceScope(source: BucketDataSource): BucketDataScope {
       return {
         bucketPrefix: `${version}#${source.defaultBucketPrefix}`
       };

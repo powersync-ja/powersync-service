@@ -1,6 +1,5 @@
 import {
   BucketDataSource,
-  BucketDataSourceDefinition,
   ColumnDefinition,
   CompatibilityContext,
   CreateSourceParams,
@@ -91,14 +90,14 @@ export function identityBucketTransformer(id: string) {
 /**
  * Empty data source that can be used for testing parameter queries, where most of the functionality here is not used.
  */
-export const EMPTY_DATA_SOURCE: BucketDataSourceDefinition = {
+export const EMPTY_DATA_SOURCE: BucketDataSource = {
   defaultBucketPrefix: 'mybucket',
   bucketParameters: [],
   // These are not used in the tests.
   getSourceTables: function (): Set<TablePattern> {
     return new Set();
   },
-  createDataSource: function (params: CreateSourceParams): BucketDataSource {
+  evaluateRow(options) {
     throw new Error('Function not implemented.');
   },
   tableSyncsData: function (table: SourceTableInterface): boolean {

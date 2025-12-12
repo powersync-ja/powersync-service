@@ -2,6 +2,7 @@ import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/servi
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
+import { BucketDataScope } from './HydrationState.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
 import {
   DatabaseInputRow,
@@ -19,14 +20,14 @@ export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
 }
 
-export function getBucketId(
-  bucketPrefix: string,
-  bucketParameters: string[],
-  params: Record<string, SqliteJsonValue>
-): string {
+export function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {
+  return scope.bucketPrefix + serializedParameters;
+}
+
+export function serializeBucketParameters(bucketParameters: string[], params: Record<string, SqliteJsonValue>): string {
   // Important: REAL and INTEGER values matching the same number needs the same representation in the bucket name.
   const paramArray = bucketParameters.map((name) => params[`bucket.${name}`]);
-  return `${bucketPrefix}${JSONBucketNameSerialize.stringify(paramArray)}`;
+  return JSONBucketNameSerialize.stringify(paramArray);
 }
 
 const DEPTH_LIMIT = 10;

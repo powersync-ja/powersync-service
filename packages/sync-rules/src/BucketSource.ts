@@ -4,7 +4,17 @@ import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupScope } from '.
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
-import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SourceSchema, SqliteRow } from './types.js';
+import {
+  EvaluatedParametersResult,
+  EvaluatedRow,
+  EvaluateRowOptions,
+  EvaluationResult,
+  isEvaluationError,
+  SourceEvaluationResult,
+  SourceSchema,
+  SqliteRow
+} from './types.js';
+import { buildBucketName } from './utils.js';
 
 export interface CreateSourceParams {
   hydrationState: HydrationState;
@@ -30,7 +40,7 @@ export interface BucketSource {
    * Specifically, bucket definitions would always have a single data source, while stream definitions may have
    * one per variant.
    */
-  readonly dataSources: BucketDataSourceDefinition[];
+  readonly dataSources: BucketDataSource[];
 
   /**
    * BucketParameterQuerierSource describing the parameter queries / stream subqueries in this bucket/stream definition.
@@ -57,8 +67,11 @@ export interface HydratedBucketSource {
 
 /**
  * Encodes a static definition of a bucket source, as parsed from sync rules or stream definitions.
+ *
+ * This does not require any "hydration" itself: All results are independent of bucket names.
+ * The higher-level HydratedSyncRules will use a HydrationState to generate bucket names.
  */
-export interface BucketDataSourceDefinition {
+export interface BucketDataSource {
   /**
    * Bucket prefix if no transformations are defined.
    *
@@ -70,9 +83,15 @@ export interface BucketDataSourceDefinition {
    * For debug use only.
    */
   readonly bucketParameters: string[];
+
   getSourceTables(): Set<TablePattern>;
-  createDataSource(params: CreateSourceParams): BucketDataSource;
   tableSyncsData(table: SourceTableInterface): boolean;
+
+  /**
+   * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
+   * data for rows to add to buckets.
+   */
+  evaluateRow(options: EvaluateRowOptions): SourceEvaluationResult[];
 
   /**
    * Given a static schema, infer all logical tables and associated columns that appear in buckets defined by this
@@ -121,27 +140,9 @@ export interface BucketParameterQuerierSourceDefinition {
    *
    * Note that queriers do not persist data themselves; they only resolve which buckets to load based on request parameters.
    */
-  readonly querierDataSource: BucketDataSourceDefinition;
+  readonly querierDataSource: BucketDataSource;
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource;
-}
-
-/**
- * An interface declaring
- *
- *  - which buckets the sync service should create when processing change streams from the database.
- *  - how data in source tables maps to data in buckets (e.g. when we're not selecting all columns).
- *  - which buckets a given connection has access to.
- *
- * There are two ways to define bucket sources: Via sync rules made up of parameter and data queries, and via stream
- * definitions that only consist of a single query.
- */
-export interface BucketDataSource {
-  /**
-   * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
-   * data for rows to add to buckets.
-   */
-  evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
 }
 
 export interface BucketParameterLookupSource {
@@ -165,10 +166,9 @@ export interface BucketParameterQuerierSource {
   pushBucketParameterQueriers(result: PendingQueriers, options: GetQuerierOptions): void;
 }
 
-export interface DebugMergedSource
-  extends BucketDataSource,
-    BucketParameterLookupSource,
-    BucketParameterQuerierSource {}
+export interface DebugMergedSource extends BucketParameterLookupSource, BucketParameterQuerierSource {
+  evaluateRow(options: EvaluateRowOptions): EvaluationResult[];
+}
 
 export enum BucketSourceType {
   SYNC_RULE,
@@ -177,14 +177,31 @@ export enum BucketSourceType {
 
 export type ResultSetDescription = { name: string; columns: ColumnDefinition[] };
 
-export function mergeDataSources(sources: BucketDataSource[]): BucketDataSource {
+export function hydrateEvaluateRow(
+  hydrationState: HydrationState,
+  source: BucketDataSource
+): (options: EvaluateRowOptions) => EvaluationResult[] {
+  const scope = hydrationState.getBucketSourceScope(source);
+  return (options: EvaluateRowOptions): EvaluationResult[] => {
+    return source.evaluateRow(options).map((result) => {
+      if (isEvaluationError(result)) {
+        return result;
+      }
+      return {
+        bucket: buildBucketName(scope, result.serializedBucketParameters),
+        id: result.id,
+        table: result.table,
+        data: result.data
+      } satisfies EvaluatedRow;
+    });
+  };
+}
+
+export function mergeDataSources(hydrationState: HydrationState, sources: BucketDataSource[]) {
+  const withScope = sources.map((source) => hydrateEvaluateRow(hydrationState, source));
   return {
     evaluateRow(options: EvaluateRowOptions): EvaluationResult[] {
-      let results: EvaluationResult[] = [];
-      for (let source of sources) {
-        results.push(...source.evaluateRow(options));
-      }
-      return results;
+      return withScope.flatMap((source) => source(options));
     }
   };
 }
@@ -218,9 +235,7 @@ export function mergeParameterQuerierSources(sources: BucketParameterQuerierSour
 export function debugHydratedMergedSource(bucketSource: BucketSource, params?: CreateSourceParams): DebugMergedSource {
   const hydrationState = params?.hydrationState ?? DEFAULT_HYDRATION_STATE;
   const resolvedParams = { hydrationState };
-  const dataSource = mergeDataSources(
-    bucketSource.dataSources.map((source) => source.createDataSource(resolvedParams))
-  );
+  const dataSource = mergeDataSources(hydrationState, bucketSource.dataSources);
   const parameterLookupSource = mergeParameterLookupSources(
     bucketSource.parameterLookupSources.map((source) => source.createParameterLookupSource(resolvedParams))
   );
