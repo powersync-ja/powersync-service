@@ -1,6 +1,6 @@
 import { pbkdf2 as _pbkdf2 } from 'crypto';
 
-import { _net } from 'pgwire';
+import { _net } from 'pgwire/index.js';
 import { SocketAdapter } from './socket_adapter.js';
 
 Object.assign(_net, {
@@ -28,4 +28,4 @@ Object.assign(_net, {
   }
 });
 
-export * from 'pgwire';
+export * from 'pgwire/index.js';
