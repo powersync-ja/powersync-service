@@ -559,8 +559,6 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
-    let columns: { i: number; name: string; typeOid: number }[] = [];
-    let columnMap: Record<string, number> = {};
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -574,15 +572,6 @@ WHERE  oid = $1::regclass`,
       // There are typically 100-200 rows per chunk.
       for await (let chunk of cursor) {
         if (chunk.tag == 'RowDescription') {
-          // We get a RowDescription for each FETCH call, but they should
-          // all be the same.
-          let i = 0;
-          columns = chunk.payload.map((c) => {
-            return { i: i++, name: c.name, typeOid: c.typeOid };
-          });
-          for (let column of chunk.payload) {
-            columnMap[column.name] = column.typeOid;
-          }
           continue;
         }
 
