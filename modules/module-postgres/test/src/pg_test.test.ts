@@ -327,10 +327,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
       await insert(db);
 
-      const transformed = [
-        ...WalStream.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data ORDER BY id`)))
-      ];
-
+      const transformed = await queryAll(db, `SELECT * FROM test_data ORDER BY id`);
       checkResults(transformed);
     } finally {
       await db.end();
@@ -346,17 +343,11 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
       await insert(db);
 
-      const transformed = [
-        ...WalStream.getQueryData(
-          pgwire.pgwireRows(
-            await db.query({
-              statement: `SELECT * FROM test_data WHERE $1 ORDER BY id`,
-              params: [{ type: 'bool', value: true }]
-            })
-          )
-        )
-      ];
-
+      const raw = await db.query({
+        statement: `SELECT * FROM test_data WHERE $1 ORDER BY id`,
+        params: [{ type: 'bool', value: true }]
+      });
+      const transformed = await interpretResults(db, raw);
       checkResults(transformed);
     } finally {
       await db.end();
@@ -370,9 +361,9 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
       await insertArrays(db);
 
-      const transformed = [
-        ...WalStream.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data_arrays ORDER BY id`)))
-      ].map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+      const transformed = (await queryAll(db, `SELECT * FROM test_data_arrays ORDER BY id`)).map((e) =>
+        applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)
+      );
 
       checkResultArrays(transformed);
     } finally {
@@ -465,7 +456,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
   });
 
   test('date formats', async () => {
-    const db = await connectPgWire();
+    const db = await connectPgPool();
     try {
       await setupTable(db);
 
@@ -473,11 +464,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
 INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12', '2023-03-06 15:47:12.4', '2023-03-06 15:47+02');
 `);
 
-      const [row] = [
-        ...WalStream.getQueryData(
-          pgwire.pgwireRows(await db.query(`SELECT time, timestamp, timestamptz FROM test_data`))
-        )
-      ];
+      const [row] = await queryAll(db, `SELECT time, timestamp, timestamptz FROM test_data`);
 
       const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
       expect(oldFormat).toMatchObject({
@@ -731,8 +718,12 @@ async function getReplicationTx(db: pgwire.PgClient, replicationStream: pgwire.R
  */
 async function queryAll(db: pgwire.PgClient, sql: string) {
   const raw = await db.query(sql);
+  return await interpretResults(db, raw);
+}
+
+async function interpretResults(db: pgwire.PgClient, results: pgwire.PgResult) {
   const typeCache = new PostgresTypeResolver(db);
   await typeCache.fetchTypesForSchema();
-  const columns = Object.fromEntries(raw.columns.map((col) => [col.name, col.typeOid]));
-  return [...WalStream.getQueryData(pgwire.pgwireRows(raw))].map((row) => typeCache.constructRowRecord(columns, row));
+
+  return results.rows.map((row) => WalStream.decodeRow(row, typeCache));
 }
