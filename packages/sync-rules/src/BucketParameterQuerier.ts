@@ -1,4 +1,5 @@
-import { BucketDescription, ResolvedBucket } from './BucketDescription.js';
+import { ResolvedBucket } from './BucketDescription.js';
+import { ParameterLookupScope } from './HydrationState.js';
 import { RequestedStream } from './SqlSyncRules.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
 import { normalizeParameterValue } from './utils.js';
@@ -25,7 +26,7 @@ export interface BucketParameterQuerier {
    */
   readonly hasDynamicBuckets: boolean;
 
-  readonly parameterQueryLookups: ParameterLookup[];
+  readonly parameterQueryLookups: ScopedParameterLookup[];
 
   /**
    * These buckets depend on parameter storage, and needs to be retrieved dynamically for each checkpoint.
@@ -58,7 +59,7 @@ export interface PendingQueriers {
 }
 
 export interface ParameterLookupSource {
-  getParameterSets: (lookups: ParameterLookup[]) => Promise<SqliteJsonRow[]>;
+  getParameterSets: (lookups: ScopedParameterLookup[]) => Promise<SqliteJsonRow[]>;
 }
 
 export interface QueryBucketDescriptorOptions extends ParameterLookupSource {
@@ -88,19 +89,38 @@ export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[])
  *
  * Other query types are not supported yet.
  */
-export class ParameterLookup {
+export class ScopedParameterLookup {
   // bucket definition name, parameter query index, ...lookup values
   readonly values: SqliteJsonValue[];
 
-  static normalized(bucketDefinitionName: string, queryIndex: string, values: SqliteJsonValue[]): ParameterLookup {
-    return new ParameterLookup([bucketDefinitionName, queryIndex, ...values.map(normalizeParameterValue)]);
+  static normalized(scope: ParameterLookupScope, lookup: UnscopedParameterLookup): ScopedParameterLookup {
+    return new ScopedParameterLookup([scope.lookupName, scope.queryId, ...lookup.lookupValues]);
+  }
+
+  /**
+   * Primarily for test fixtures.
+   */
+  static direct(scope: ParameterLookupScope, values: SqliteJsonValue[]): ScopedParameterLookup {
+    return new ScopedParameterLookup([scope.lookupName, scope.queryId, ...values.map(normalizeParameterValue)]);
   }
 
   /**
    *
    * @param values must be pre-normalized (any integer converted into bigint)
    */
-  constructor(values: SqliteJsonValue[]) {
+  private constructor(values: SqliteJsonValue[]) {
     this.values = values;
+  }
+}
+
+export class UnscopedParameterLookup {
+  readonly lookupValues: SqliteJsonValue[];
+
+  static normalized(values: SqliteJsonValue[]): UnscopedParameterLookup {
+    return new UnscopedParameterLookup(values.map(normalizeParameterValue));
+  }
+
+  constructor(lookupValues: SqliteJsonValue[]) {
+    this.lookupValues = lookupValues;
   }
 }

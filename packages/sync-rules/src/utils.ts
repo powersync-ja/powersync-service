@@ -2,9 +2,9 @@ import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/servi
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
+import { BucketDataScope } from './HydrationState.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
 import {
-  BucketIdTransformer,
   DatabaseInputRow,
   DatabaseInputValue,
   SqliteInputRow,
@@ -20,15 +20,14 @@ export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
 }
 
-export function getBucketId(
-  descriptor_id: string,
-  bucket_parameters: string[],
-  params: Record<string, SqliteJsonValue>,
-  transformer: BucketIdTransformer
-): string {
+export function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {
+  return scope.bucketPrefix + serializedParameters;
+}
+
+export function serializeBucketParameters(bucketParameters: string[], params: Record<string, SqliteJsonValue>): string {
   // Important: REAL and INTEGER values matching the same number needs the same representation in the bucket name.
-  const paramArray = bucket_parameters.map((name) => params[`bucket.${name}`]);
-  return transformer(`${descriptor_id}${JSONBucketNameSerialize.stringify(paramArray)}`);
+  const paramArray = bucketParameters.map((name) => params[`bucket.${name}`]);
+  return JSONBucketNameSerialize.stringify(paramArray);
 }
 
 const DEPTH_LIMIT = 10;

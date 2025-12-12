@@ -1,6 +1,7 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { parse } from 'pgsql-ast-parser';
 import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from './BaseSqlDataQuery.js';
+import { CompatibilityContext } from './compatibility.js';
 import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -9,9 +10,8 @@ import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-import { BucketIdTransformer, EvaluationResult, ParameterMatchClause, QuerySchema, SqliteRow } from './types.js';
-import { getBucketId, isSelectStatement } from './utils.js';
-import { CompatibilityContext } from './compatibility.js';
+import { ParameterMatchClause, QuerySchema, UnscopedEvaluationResult, SqliteRow } from './types.js';
+import { isSelectStatement, serializeBucketParameters } from './utils.js';
 
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
   filter: ParameterMatchClause;
@@ -19,7 +19,6 @@ export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
 
 export class SqlDataQuery extends BaseSqlDataQuery {
   static fromSql(
-    descriptorName: string,
     bucketParameters: string[],
     sql: string,
     options: SyncRulesOptions,
@@ -170,7 +169,6 @@ export class SqlDataQuery extends BaseSqlDataQuery {
       sql,
       filter,
       columns: q.columns ?? [],
-      descriptorName,
       bucketParameters,
       tools,
       errors,
@@ -192,19 +190,13 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     this.filter = options.filter;
   }
 
-  evaluateRow(
-    table: SourceTableInterface,
-    row: SqliteRow,
-    bucketIdTransformer: BucketIdTransformer
-  ): EvaluationResult[] {
+  evaluateRow(table: SourceTableInterface, row: SqliteRow): UnscopedEvaluationResult[] {
     return this.evaluateRowWithOptions({
       table,
       row,
-      bucketIds: (tables) => {
+      serializedBucketParameters: (tables) => {
         const bucketParameters = this.filter.filterRow(tables);
-        return bucketParameters.map((params) =>
-          getBucketId(this.descriptorName, this.bucketParameters, params, bucketIdTransformer)
-        );
+        return bucketParameters.map((params) => serializeBucketParameters(this.bucketParameters, params));
       }
     });
   }

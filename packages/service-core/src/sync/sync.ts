@@ -1,5 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketDescription, BucketPriority, RequestJwtPayload } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, RequestJwtPayload, HydratedSyncRules } from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -9,7 +9,7 @@ import * as util from '../util/util-index.js';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { mergeAsyncIterables } from '../streams/streams-index.js';
-import { BucketChecksumState, CheckpointLine, VersionedSyncRules } from './BucketChecksumState.js';
+import { BucketChecksumState, CheckpointLine } from './BucketChecksumState.js';
 import { OperationsSentStats, RequestTracker, statsForBatch } from './RequestTracker.js';
 import { SyncContext } from './SyncContext.js';
 import { TokenStreamOptions, acquireSemaphoreAbortable, settledPromise, tokenStream } from './util.js';
@@ -17,7 +17,7 @@ import { TokenStreamOptions, acquireSemaphoreAbortable, settledPromise, tokenStr
 export interface SyncStreamParameters {
   syncContext: SyncContext;
   bucketStorage: storage.SyncRulesBucketStorage;
-  syncRules: VersionedSyncRules;
+  syncRules: HydratedSyncRules;
   params: util.StreamingSyncRequest;
   token: auth.JwtPayload;
   logger?: Logger;
@@ -94,7 +94,7 @@ export async function* streamResponse(
 async function* streamResponseInner(
   syncContext: SyncContext,
   bucketStorage: storage.SyncRulesBucketStorage,
-  syncRules: VersionedSyncRules,
+  syncRules: HydratedSyncRules,
   params: util.StreamingSyncRequest,
   tokenPayload: RequestJwtPayload,
   tracker: RequestTracker,

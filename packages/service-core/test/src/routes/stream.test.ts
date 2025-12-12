@@ -45,7 +45,7 @@ describe('Stream Route', () => {
 
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}');
+          return new SqlSyncRules('bucket_definitions: {}').hydrate();
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');
@@ -83,7 +83,7 @@ describe('Stream Route', () => {
     it('logs the application metadata', async () => {
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}');
+          return new SqlSyncRules('bucket_definitions: {}').hydrate();
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');

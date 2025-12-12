@@ -10,7 +10,7 @@ export abstract class SchemaGenerator {
   protected getAllTables(source: SqlSyncRules, schema: SourceSchema) {
     let tables: Record<string, Record<string, ColumnDefinition>> = {};
 
-    for (let descriptor of source.bucketSources) {
+    for (let descriptor of source.bucketDataSources) {
       descriptor.resolveResultSets(schema, tables);
     }
 

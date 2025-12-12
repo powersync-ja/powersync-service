@@ -22,7 +22,7 @@ export class SqlEventDescriptor {
   }
 
   addSourceQuery(sql: string, options: SyncRulesOptions): QueryParseResult {
-    const source = SqlEventSourceQuery.fromSql(this.name, sql, options, this.compatibility);
+    const source = SqlEventSourceQuery.fromSql(sql, options, this.compatibility);
 
     // Each source query should be for a unique table
     const existingSourceQuery = this.sourceQueries.find((q) => q.table == source.table);

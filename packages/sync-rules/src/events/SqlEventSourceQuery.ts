@@ -25,7 +25,7 @@ export type EvaluatedEventRowWithErrors = {
  * Defines how a Replicated Row is mapped to source parameters for events.
  */
 export class SqlEventSourceQuery extends BaseSqlDataQuery {
-  static fromSql(descriptor_name: string, sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext) {
+  static fromSql(sql: string, options: SyncRulesOptions, compatibility: CompatibilityContext) {
     const parsed = parse(sql, { locationTracking: true });
     const schema = options.schema;
 
@@ -121,7 +121,6 @@ export class SqlEventSourceQuery extends BaseSqlDataQuery {
       sourceTable,
       table: alias,
       sql,
-      descriptorName: descriptor_name,
       columns: q.columns ?? [],
       extractors: extractors,
       tools,

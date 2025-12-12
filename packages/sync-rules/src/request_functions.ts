@@ -1,5 +1,5 @@
 import { ExpressionType } from './ExpressionType.js';
-import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
+import { CompatibilityContext, CompatibilityEdition } from './compatibility.js';
 import { generateSqlFunctions } from './sql_functions.js';
 import { CompiledClause, ParameterValueClause, ParameterValueSet, SqliteValue } from './types.js';
 

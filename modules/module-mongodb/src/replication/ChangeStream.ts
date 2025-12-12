@@ -10,7 +10,6 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
-  InternalOpId,
   MetricsEngine,
   RelationCache,
   SaveOperationTag,
@@ -18,7 +17,13 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { DatabaseInputRow, SqliteInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import {
+  DatabaseInputRow,
+  SqliteInputRow,
+  SqliteRow,
+  HydratedSyncRules,
+  TablePattern
+} from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -75,7 +80,7 @@ export class ChangeStreamInvalidatedError extends DatabaseConnectionError {
 }
 
 export class ChangeStream {
-  sync_rules: SqlSyncRules;
+  sync_rules: HydratedSyncRules;
   group_id: number;
 
   connection_id = 1;

@@ -3,19 +3,19 @@ import { SqlRuleError } from './errors.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
+import { castAsText } from './sql_functions.js';
 import { TablePattern } from './TablePattern.js';
 import {
-  BucketIdTransformer,
-  EvaluationResult,
   QueryParameters,
   QuerySchema,
+  UnscopedEvaluatedRow,
+  UnscopedEvaluationResult,
   SourceSchema,
   SourceSchemaTable,
   SqliteJsonRow,
   SqliteRow
 } from './types.js';
 import { filterJsonRow } from './utils.js';
-import { castAsText } from './sql_functions.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
@@ -25,8 +25,7 @@ export interface RowValueExtractor {
 export interface EvaluateRowOptions {
   table: SourceTableInterface;
   row: SqliteRow;
-  bucketIds: (params: QueryParameters) => string[];
-  bucketIdTransformer: BucketIdTransformer | null;
+  serializedBucketParameters: (params: QueryParameters) => string[];
 }
 
 export interface BaseSqlDataQueryOptions {
@@ -35,7 +34,6 @@ export interface BaseSqlDataQueryOptions {
   sql: string;
   columns: SelectedColumn[];
   extractors: RowValueExtractor[];
-  descriptorName: string;
   bucketParameters: string[];
   tools: SqlTools;
   errors?: SqlRuleError[];
@@ -72,10 +70,6 @@ export class BaseSqlDataQuery {
   readonly extractors: RowValueExtractor[];
 
   /**
-   * Bucket definition name.
-   */
-  readonly descriptorName: string;
-  /**
    * Bucket parameter names, without the `bucket.` prefix.
    *
    * These are received from the associated parameter query (if any), and must match the filters
@@ -95,7 +89,6 @@ export class BaseSqlDataQuery {
     this.sql = options.sql;
     this.columns = options.columns;
     this.extractors = options.extractors;
-    this.descriptorName = options.descriptorName;
     this.bucketParameters = options.bucketParameters;
     this.tools = options.tools;
     this.errors = options.errors ?? [];
@@ -177,12 +170,17 @@ export class BaseSqlDataQuery {
     }
   }
 
-  evaluateRowWithOptions(options: Omit<EvaluateRowOptions, 'bucketIdTransformer'>): EvaluationResult[] {
+  evaluateRowWithOptions(options: EvaluateRowOptions): UnscopedEvaluationResult[] {
     try {
-      const { table, row, bucketIds } = options;
+      const { table, row, serializedBucketParameters } = options;
 
       const tables = { [this.table.nameInSchema]: this.addSpecialParameters(table, row) };
-      const resolvedBucketIds = bucketIds(tables);
+      // Array of _serialized_ parameters, one per output result.
+      const resolvedBucketParameters = serializedBucketParameters(tables);
+      if (resolvedBucketParameters.length == 0) {
+        // Short-circuit: No need to transform the row if there are no matching buckets.
+        return [];
+      }
 
       const data = this.transformRow(tables);
       let id = data.id;
@@ -197,13 +195,13 @@ export class BaseSqlDataQuery {
       }
       const outputTable = this.getOutputName(table.name);
 
-      return resolvedBucketIds.map((bucketId) => {
+      return resolvedBucketParameters.map((serializedBucketParameters) => {
         return {
-          bucket: bucketId,
+          serializedBucketParameters,
           table: outputTable,
           id: id,
           data
-        } as EvaluationResult;
+        } satisfies UnscopedEvaluatedRow;
       });
     } catch (e) {
       return [{ error: e.message ?? `Evaluating data query failed` }];
