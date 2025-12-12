@@ -1,5 +1,29 @@
 # @powersync/service-image
 
+## 1.19.0
+
+### Minor Changes
+
+- bdfd287: Add the `timestamp_max_precision` option for sync rules. It can be set to `seconds`, `milliseconds` or `microseconds` to restrict the precision of synced datetime values.
+
+### Patch Changes
+
+- 8fdbf8d: - Rework dynamic module loading, fixing startup issues for migration and compact jobs in 1.18.0 / 1.18.1
+- Updated dependencies [a4ead94]
+- Updated dependencies [8fdbf8d]
+- Updated dependencies [bdfd287]
+- Updated dependencies [c2da2be]
+  - @powersync/service-module-postgres@0.16.16
+  - @powersync/service-core@1.19.0
+  - @powersync/service-module-mongodb@0.12.16
+  - @powersync/service-module-mysql@0.9.16
+  - @powersync/service-module-mssql@0.1.2
+  - @powersync/service-module-core@0.2.16
+  - @powersync/service-module-mongodb-storage@0.12.16
+  - @powersync/service-module-postgres-storage@0.10.16
+  - @powersync/lib-services-framework@0.7.14
+  - @powersync/service-rsocket-router@0.2.11
+
 ## 1.18.1
 
 ### Patch Changes
