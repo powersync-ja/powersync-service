@@ -256,10 +256,7 @@ export class CustomTypeRegistry {
       case 'unknown':
         return true;
       case 'array':
-        return (
-          type.separatorCharCode == pgwire.CHAR_CODE_COMMA &&
-          this.isParsedWithoutCustomTypesSupport(this.lookupType(type.innerId))
-        );
+        return type.separatorCharCode == pgwire.CHAR_CODE_COMMA && pgwire.ARRAY_TO_ELEM_OID.has(type.innerId);
       default:
         return false;
     }

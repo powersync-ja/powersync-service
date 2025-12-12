@@ -579,7 +579,7 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       const oldFormatQueried = applyRowContext(queried, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
       expect(oldFormatQueried).toMatchObject({
-        rating: '1',
+        rating: 1,
         composite: '("{2,3}",bar,sad)',
         nested_composite: '(t,"(""{2,3}"",bar,sad)")',
         boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]',
