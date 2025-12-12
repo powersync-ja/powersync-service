@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.29.10
+
+### Patch Changes
+
+- bdfd287: Add the `timestamp_max_precision` option for sync rules. It can be set to `seconds`, `milliseconds` or `microseconds` to restrict the precision of synced datetime values.
+
 ## 0.29.9
 
 ### Patch Changes
