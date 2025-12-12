@@ -197,15 +197,16 @@ WHERE a.attnum > 0
    */
   decodeTuple(relation: pgwire.PgoutputRelation, tupleRaw: Record<string, any>): DatabaseInputRow {
     let result: Record<string, any> = {};
-    for (let columnName in tupleRaw) {
-      const rawval = tupleRaw[columnName];
-      const typeOid = (relation as any)._tupleDecoder._typeOids.get(columnName);
-      if (typeof rawval == 'string' && typeOid) {
-        result[columnName] = this.registry.decodeDatabaseValue(rawval, typeOid);
-      } else {
-        result[columnName] = rawval;
-      }
+    for (const column of relation.columns) {
+      const rawval = tupleRaw[column.name];
+      result[column.name] =
+        rawval == null
+          ? // We can't decode null values, but it's important that null and undefined stay distinct because undefined
+            // represents a TOASTed value.
+            rawval
+          : this.registry.decodeDatabaseValue(rawval, column.typeOid);
     }
+
     return result;
   }
 

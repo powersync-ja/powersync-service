@@ -1,3 +1,6 @@
+import type { LookupFunction } from 'node:net';
+import * as dns from 'node:dns';
+
 import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyRowContext,
@@ -8,11 +11,32 @@ import {
   CompatibilityEdition,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
-import { describe, expect, test } from 'vitest';
-import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
+import { describe, expect, Mock, test, vi } from 'vitest';
+import { clearTestDb, connectPgPool, connectPgWire, TEST_CONNECTION_OPTIONS, TEST_URI } from './util.js';
 import { WalStream } from '@module/replication/WalStream.js';
 import { PostgresTypeResolver } from '@module/types/resolver.js';
-import { CustomTypeRegistry } from '@module/types/registry.js';
+
+describe('connection options', () => {
+  test('uses custom lookup', async () => {
+    const lookup: Mock<LookupFunction> = vi.fn((hostname, options, cb) => {
+      expect(hostname).toStrictEqual('powersynctest.example.org');
+      dns.lookup('localhost', options, cb);
+    });
+
+    const db = await pgwire.connectPgWire({
+      ...TEST_CONNECTION_OPTIONS,
+      hostname: 'powersynctest.example.org',
+      lookup
+    });
+    expect(lookup).toHaveBeenCalled();
+
+    try {
+      await db.query('SELECT 1');
+    } finally {
+      await db.end();
+    }
+  });
+});
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {
