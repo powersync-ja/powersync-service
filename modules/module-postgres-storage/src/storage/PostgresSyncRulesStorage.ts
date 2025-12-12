@@ -4,7 +4,6 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
-  CompactOptions,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -376,7 +375,7 @@ export class PostgresSyncRulesStorage
 
   async getParameterSets(
     checkpoint: ReplicationCheckpoint,
-    lookups: sync_rules.ParameterLookup[]
+    lookups: sync_rules.ScopedParameterLookup[]
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
       SELECT DISTINCT
@@ -881,7 +880,7 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     public readonly lsn: string | null
   ) {}
 
-  getParameterSets(lookups: sync_rules.ParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
+  getParameterSets(lookups: sync_rules.ScopedParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
     return this.storage.getParameterSets(this, lookups);
   }
 }

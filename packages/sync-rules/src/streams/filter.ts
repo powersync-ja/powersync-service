@@ -1,4 +1,4 @@
-import { ParameterLookup } from '../BucketParameterQuerier.js';
+import { ScopedParameterLookup, UnscopedParameterLookup } from '../BucketParameterQuerier.js';
 import { SqlTools } from '../sql_filters.js';
 import { checkJsonArray, OPERATOR_NOT } from '../sql_functions.js';
 import { isParameterValueClause, isRowValueClause, SQLITE_TRUE, sqliteBool } from '../sql_support.js';
@@ -10,16 +10,13 @@ import {
   RequestParameters,
   RowValueClause,
   SqliteJsonValue,
-  SqliteRow
+  SqliteRow,
+  UnscopedEvaluatedParametersResult
 } from '../types.js';
 import { isJsonValue, normalizeParameterValue } from '../utils.js';
 
 import { NodeLocation } from 'pgsql-ast-parser';
-import {
-  BucketParameterLookupSource,
-  BucketParameterLookupSourceDefinition,
-  CreateSourceParams
-} from '../BucketSource.js';
+import { BucketParameterLookupSourceDefinition, CreateSourceParams } from '../BucketSource.js';
 import { HydrationState, ParameterLookupScope } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SubqueryEvaluator } from './parameter.js';
@@ -269,7 +266,7 @@ export class Subquery {
     let lookupSources: BucketParameterLookupSourceDefinition[] = [];
     let lookupsForRequest: ((
       hydrationState: HydrationState
-    ) => (parameters: RequestParameters) => ParameterLookup[])[] = [];
+    ) => (parameters: RequestParameters) => ScopedParameterLookup[])[] = [];
 
     for (let [variant, id] of innerVariants) {
       const source = new SubqueryParameterLookupSource(this.table, column, variant, id, context.streamName);
@@ -277,10 +274,10 @@ export class Subquery {
       lookupsForRequest.push((hydrationState: HydrationState) => {
         const scope = hydrationState.getParameterLookupScope(source);
         return (parameters: RequestParameters) => {
-          const lookups: ParameterLookup[] = [];
+          const lookups: ScopedParameterLookup[] = [];
           const instantiations = variant.findStaticInstantiations(parameters);
           for (const instantiation of instantiations) {
-            lookups.push(ParameterLookup.normalized(scope, instantiation));
+            lookups.push(ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(instantiation)));
           }
           return lookups;
         };
@@ -295,7 +292,7 @@ export class Subquery {
       hydrateLookupsForRequest(hydrationState: HydrationState) {
         const hydrated = lookupsForRequest.map((fn) => fn(hydrationState));
         return (parameters: RequestParameters) => {
-          const lookups: ParameterLookup[] = [];
+          const lookups: ScopedParameterLookup[] = [];
           for (const getLookups of hydrated) {
             lookups.push(...getLookups(parameters));
           }
@@ -569,11 +566,7 @@ export class SubqueryParameterLookupSource implements BucketParameterLookupSourc
    * @param sourceTable A table we depend on in a subquery.
    * @param row Row data to index.
    */
-  evaluateParameterRow(
-    lookupScope: ParameterLookupScope,
-    sourceTable: SourceTableInterface,
-    row: SqliteRow
-  ): EvaluatedParametersResult[] {
+  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
     if (this.parameterTable.matches(sourceTable)) {
       // Theoretically we're doing duplicate work by doing this for each innerVariant in a subquery.
       // In practice, we don't have more than one innerVariant per subquery right now, so this is fine.
@@ -582,9 +575,9 @@ export class SubqueryParameterLookupSource implements BucketParameterLookupSourc
         return [];
       }
 
-      const lookups: ParameterLookup[] = [];
+      const lookups: UnscopedParameterLookup[] = [];
       for (const instantiation of this.innerVariant.instantiationsForRow({ sourceTable, record: row })) {
-        lookups.push(ParameterLookup.normalized(lookupScope, instantiation));
+        lookups.push(UnscopedParameterLookup.normalized(instantiation));
       }
 
       // The row of the subquery. Since we only support subqueries with a single column, we unconditionally name the
@@ -597,16 +590,6 @@ export class SubqueryParameterLookupSource implements BucketParameterLookupSourc
       }));
     }
     return [];
-  }
-
-  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
-    const hydrationState = params.hydrationState;
-    const lookupScope = hydrationState.getParameterLookupScope(this);
-    return {
-      evaluateParameterRow: (sourceTable, row) => {
-        return this.evaluateParameterRow(lookupScope, sourceTable, row);
-      }
-    };
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {

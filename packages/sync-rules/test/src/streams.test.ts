@@ -12,7 +12,7 @@ import {
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
   mergeBucketParameterQueriers,
-  ParameterLookup,
+  UnscopedParameterLookup,
   QuerierError,
   RequestParameters,
   SourceTableInterface,
@@ -21,7 +21,8 @@ import {
   StaticSchema,
   StreamParseOptions,
   SyncStream,
-  syncStreamFromSql
+  syncStreamFromSql,
+  ScopedParameterLookup
 } from '../../src/index.js';
 import { normalizeQuerierOptions, PARSE_OPTIONS, TestSourceTable } from './util.js';
 
@@ -235,7 +236,7 @@ describe('streams', () => {
         })
       ).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized(STREAM_0, ['u1']),
+          lookup: ScopedParameterLookup.direct(STREAM_0, ['u1']),
           bucketParameters: [
             {
               result: 'i1'
@@ -244,8 +245,8 @@ describe('streams', () => {
         }
       ]);
 
-      function getParameterSets(lookups: ParameterLookup[]) {
-        expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['u1'])]);
+      function getParameterSets(lookups: ScopedParameterLookup[]) {
+        expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u1'])]);
 
         return [{ result: 'i1' }];
       }
@@ -267,13 +268,9 @@ describe('streams', () => {
       const lookup = desc.parameterLookupSources[0];
 
       expect(lookup.tableSyncsParameters(ISSUES)).toBe(true);
-      expect(
-        lookup
-          .createParameterLookupSource(hydrationParams)
-          .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
-      ).toStrictEqual([
+      expect(lookup.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized(STREAM_0, ['user1']),
+          lookup: UnscopedParameterLookup.normalized(['user1']),
           bucketParameters: [
             {
               result: 'issue_id'
@@ -289,7 +286,7 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           token: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['user1'])]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
             return [{ result: 'issue_id' }];
           }
@@ -304,11 +301,9 @@ describe('streams', () => {
       expect(lookup.tableSyncsParameters(ISSUES)).toBe(false);
       expect(lookup.tableSyncsParameters(USERS)).toBe(true);
 
-      expect(
-        lookup.createParameterLookupSource(hydrationParams).evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })
-      ).toStrictEqual([
+      expect(lookup.evaluateParameterRow(USERS, { id: 'u', is_admin: 1n })).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized(STREAM_0, ['u']),
+          lookup: UnscopedParameterLookup.normalized(['u']),
           bucketParameters: [
             {
               result: 'u'
@@ -316,16 +311,14 @@ describe('streams', () => {
           ]
         }
       ]);
-      expect(
-        lookup.createParameterLookupSource(hydrationParams).evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })
-      ).toStrictEqual([]);
+      expect(lookup.evaluateParameterRow(USERS, { id: 'u', is_admin: 0n })).toStrictEqual([]);
 
       // Should return bucket id for admin users
       expect(
         await queryBucketIds(desc, {
           token: { sub: 'u' },
-          getParameterSets: (lookups: ParameterLookup[]) => {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['u'])]);
+          getParameterSets: (lookups: ScopedParameterLookup[]) => {
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u'])]);
             return [{ result: 'u' }];
           }
         })
@@ -335,8 +328,8 @@ describe('streams', () => {
       expect(
         await queryBucketIds(desc, {
           token: { sub: 'u2' },
-          getParameterSets: (lookups: ParameterLookup[]) => {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['u2'])]);
+          getParameterSets: (lookups: ScopedParameterLookup[]) => {
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u2'])]);
             return [];
           }
         })
@@ -358,7 +351,7 @@ describe('streams', () => {
 
       expect(source.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized(STREAM_0, ['b']),
+          lookup: ScopedParameterLookup.direct(STREAM_0, ['b']),
           bucketParameters: [
             {
               result: 'a'
@@ -366,7 +359,7 @@ describe('streams', () => {
           ]
         },
         {
-          lookup: ParameterLookup.normalized(STREAM_1, ['a']),
+          lookup: ScopedParameterLookup.direct(STREAM_1, ['a']),
           bucketParameters: [
             {
               result: 'b'
@@ -375,14 +368,14 @@ describe('streams', () => {
         }
       ]);
 
-      function getParameterSets(lookups: ParameterLookup[]) {
+      function getParameterSets(lookups: ScopedParameterLookup[]) {
         expect(lookups).toHaveLength(1);
         const [lookup] = lookups;
         if (lookup.values[1] == '0') {
-          expect(lookup).toStrictEqual(ParameterLookup.normalized(STREAM_0, ['a']));
+          expect(lookup).toStrictEqual(ScopedParameterLookup.direct(STREAM_0, ['a']));
           return [];
         } else {
-          expect(lookup).toStrictEqual(ParameterLookup.normalized(STREAM_1, ['a']));
+          expect(lookup).toStrictEqual(ScopedParameterLookup.direct(STREAM_1, ['a']));
           return [{ result: 'b' }];
         }
       }
@@ -422,7 +415,7 @@ describe('streams', () => {
           getParameterSets(lookups) {
             expect(lookups).toHaveLength(1);
             const [lookup] = lookups;
-            expect(lookup).toStrictEqual(ParameterLookup.normalized(STREAM_0, ['a']));
+            expect(lookup).toStrictEqual(ScopedParameterLookup.direct(STREAM_0, ['a']));
             return [{ result: 'i1' }, { result: 'i2' }];
           }
         })
@@ -463,11 +456,9 @@ describe('streams', () => {
       const lookup = desc.parameterLookupSources[0];
 
       expect(lookup.tableSyncsParameters(FRIENDS)).toBe(true);
-      expect(
-        lookup.createParameterLookupSource(hydrationParams).evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })
-      ).toStrictEqual([
+      expect(lookup.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized(STREAM_0, ['b']),
+          lookup: UnscopedParameterLookup.normalized(['b']),
           bucketParameters: [
             {
               result: 'a'
@@ -484,7 +475,7 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           token: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['user1'])]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
             return [{ result: 'issue_id' }];
           }
@@ -621,12 +612,10 @@ describe('streams', () => {
       );
 
       expect(
-        desc.parameterLookupSources[0]
-          .createParameterLookupSource(hydrationParams)
-          .evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
+        desc.parameterLookupSources[0].evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })
       ).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized(STREAM_0, ['user1']),
+          lookup: UnscopedParameterLookup.normalized(['user1']),
           bucketParameters: [
             {
               result: 'issue_id'
@@ -642,7 +631,7 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           token: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['user1'])]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
             return [{ result: 'issue_id' }];
           }
@@ -697,7 +686,7 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           token: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['user1'])]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
             return [{ result: 'issue_id' }];
           }
@@ -707,7 +696,7 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           token: { sub: 'user1', is_admin: true },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, ['user1'])]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
             return [{ result: 'issue_id' }];
           }
@@ -751,13 +740,9 @@ describe('streams', () => {
       expect(stream.parameterLookupSources[0].tableSyncsParameters(accountMember)).toBeTruthy();
 
       // Ensure lookup steps work.
-      expect(
-        stream.parameterLookupSources[0]
-          .createParameterLookupSource(hydrationParams)
-          .evaluateParameterRow(accountMember, row)
-      ).toStrictEqual([
+      expect(stream.parameterLookupSources[0].evaluateParameterRow(accountMember, row)).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized({ lookupName: 'account_member', queryId: '0' }, ['id']),
+          lookup: UnscopedParameterLookup.normalized(['id']),
           bucketParameters: [
             {
               result: 'account_id'
@@ -772,7 +757,7 @@ describe('streams', () => {
           parameters: {},
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([
-              ParameterLookup.normalized({ lookupName: 'account_member', queryId: '0' }, ['id'])
+              ScopedParameterLookup.direct({ lookupName: 'account_member', queryId: '0' }, ['id'])
             ]);
             return [{ result: 'account_id' }];
           }
@@ -838,16 +823,14 @@ WHERE
       expect(evaluateBucketIds(desc, scene, { _id: 'scene', project: 'foo' })).toStrictEqual(['1#stream|0["foo"]']);
 
       expect(
-        desc.parameterLookupSources[0]
-          .createParameterLookupSource(hydrationParams)
-          .evaluateParameterRow(projectInvitation, {
-            project: 'foo',
-            appliedTo: '[1,2]',
-            status: 'CLAIMED'
-          })
+        desc.parameterLookupSources[0].evaluateParameterRow(projectInvitation, {
+          project: 'foo',
+          appliedTo: '[1,2]',
+          status: 'CLAIMED'
+        })
       ).toStrictEqual([
         {
-          lookup: ParameterLookup.normalized(STREAM_0, [1n, 'foo']),
+          lookup: UnscopedParameterLookup.normalized([1n, 'foo']),
           bucketParameters: [
             {
               result: 'foo'
@@ -855,7 +838,7 @@ WHERE
           ]
         },
         {
-          lookup: ParameterLookup.normalized(STREAM_0, [2n, 'foo']),
+          lookup: UnscopedParameterLookup.normalized([2n, 'foo']),
           bucketParameters: [
             {
               result: 'foo'
@@ -869,7 +852,7 @@ WHERE
           token: { sub: 'user1', haystack_id: 1 },
           parameters: { project: 'foo' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ParameterLookup.normalized(STREAM_0, [1n, 'foo'])]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, [1n, 'foo'])]);
             return [{ result: 'foo' }];
           }
         })
@@ -914,7 +897,7 @@ WHERE
       })
     ).toStrictEqual([
       {
-        lookup: ParameterLookup.normalized({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
         bucketParameters: [
           {
             result: 'i1'
@@ -923,7 +906,7 @@ WHERE
       },
 
       {
-        lookup: ParameterLookup.normalized({ lookupName: 'stream.test', queryId: '1.test' }, ['myname']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '1.test' }, ['myname']),
         bucketParameters: [
           {
             result: 'i1'
@@ -939,7 +922,7 @@ WHERE
       })
     ).toStrictEqual([
       {
-        lookup: ParameterLookup.normalized({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
         bucketParameters: [
           {
             result: 'i1'
@@ -948,7 +931,7 @@ WHERE
       }
     ]);
 
-    function getParameterSets(lookups: ParameterLookup[]) {
+    function getParameterSets(lookups: ScopedParameterLookup[]) {
       return lookups.flatMap((lookup) => {
         if (JSON.stringify(lookup.values) == JSON.stringify(['stream.test', '1.test', null])) {
           return [];
@@ -1057,7 +1040,7 @@ function bucketIds(result: EvaluationResult[]): string[] {
 interface TestQuerierOptions {
   token?: Record<string, any>;
   parameters?: Record<string, any>;
-  getParameterSets?: (lookups: ParameterLookup[]) => SqliteJsonRow[];
+  getParameterSets?: (lookups: ScopedParameterLookup[]) => SqliteJsonRow[];
   hydrationState?: HydrationState;
 }
 async function createQueriers(
@@ -1095,7 +1078,7 @@ async function queryBucketIds(stream: SyncStream, options?: TestQuerierOptions) 
   const { querier, errors } = await createQueriers(stream, options);
   expect(errors).toHaveLength(0);
 
-  async function getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async function getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
     const provided = options?.getParameterSets;
     if (provided) {
       return provided(lookups);

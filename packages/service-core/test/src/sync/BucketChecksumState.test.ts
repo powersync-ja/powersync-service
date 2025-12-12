@@ -12,7 +12,7 @@ import {
   WatchFilterEvent
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ParameterLookup, RequestJwtPayload, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { RequestJwtPayload, ScopedParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
 import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { beforeEach, describe, expect, test } from 'vitest';
 
@@ -505,7 +505,7 @@ bucket_definitions:
 
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
-        expect(lookups).toEqual([ParameterLookup.normalized({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
         return [{ id: 1 }, { id: 2 }];
       }),
       writeCheckpoint: null,
@@ -566,7 +566,7 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
-        expect(lookups).toEqual([ParameterLookup.normalized({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
       writeCheckpoint: null,
@@ -854,12 +854,12 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
 
   makeCheckpoint(
     opId: InternalOpId,
-    parameters?: (lookups: ParameterLookup[]) => SqliteJsonRow[]
+    parameters?: (lookups: ScopedParameterLookup[]) => SqliteJsonRow[]
   ): ReplicationCheckpoint {
     return {
       checkpoint: opId,
       lsn: String(opId),
-      getParameterSets: async (lookups: ParameterLookup[]) => {
+      getParameterSets: async (lookups: ScopedParameterLookup[]) => {
         if (parameters == null) {
           throw new Error(`getParametersSets not defined for checkpoint ${opId}`);
         }

@@ -1,5 +1,5 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
-import { ParameterLookup, SqliteJsonRow, HydratedSyncRules } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
@@ -284,7 +284,7 @@ export interface ReplicationCheckpoint {
    *
    * This gets parameter sets specific to this checkpoint.
    */
-  getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]>;
+  getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]>;
 }
 
 export interface WatchWriteCheckpointOptions {

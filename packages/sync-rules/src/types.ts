@@ -1,6 +1,6 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { BucketPriority } from './BucketDescription.js';
-import { ParameterLookup } from './BucketParameterQuerier.js';
+import { ScopedParameterLookup, UnscopedParameterLookup } from './BucketParameterQuerier.js';
 import { CompatibilityContext } from './compatibility.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { RequestFunctionCall } from './request_functions.js';
@@ -21,7 +21,18 @@ export interface StreamParseOptions extends QueryParseOptions {
 }
 
 export interface EvaluatedParameters {
-  lookup: ParameterLookup;
+  lookup: ScopedParameterLookup;
+
+  /**
+   * Parameters used to generate bucket id. May be incomplete.
+   *
+   * JSON-serializable.
+   */
+  bucketParameters: Record<string, SqliteJsonValue>[];
+}
+
+export interface UnscopedEvaluatedParameters {
+  lookup: UnscopedParameterLookup;
 
   /**
    * Parameters used to generate bucket id. May be incomplete.
@@ -32,6 +43,7 @@ export interface EvaluatedParameters {
 }
 
 export type EvaluatedParametersResult = EvaluatedParameters | EvaluationError;
+export type UnscopedEvaluatedParametersResult = UnscopedEvaluatedParameters | EvaluationError;
 
 export interface EvaluatedRow {
   bucket: string;
@@ -53,7 +65,7 @@ export interface EvaluatedRow {
  *
  * The bucket name must still be resolved, external to this.
  */
-export interface SourceEvaluatedRow {
+export interface UnscopedEvaluatedRow {
   /**
    * Serialized evaluated parameters used to generate the bucket id. Serialized as a JSON array.
    *
@@ -83,7 +95,7 @@ export interface EvaluationError {
 }
 
 export function isEvaluationError(
-  e: EvaluationResult | SourceEvaluationResult | EvaluatedParametersResult
+  e: EvaluationResult | UnscopedEvaluationResult | EvaluatedParametersResult | UnscopedEvaluatedParametersResult
 ): e is EvaluationError {
   return typeof (e as EvaluationError).error == 'string';
 }
@@ -92,8 +104,8 @@ export function isEvaluatedRow(e: EvaluationResult): e is EvaluatedRow {
   return typeof (e as EvaluatedRow).bucket == 'string';
 }
 
-export function isSourceEvaluatedRow(e: SourceEvaluationResult): e is SourceEvaluatedRow {
-  return typeof (e as SourceEvaluatedRow).serializedBucketParameters == 'string';
+export function isSourceEvaluatedRow(e: UnscopedEvaluationResult): e is UnscopedEvaluatedRow {
+  return typeof (e as UnscopedEvaluatedRow).serializedBucketParameters == 'string';
 }
 
 export function isEvaluatedParameters(e: EvaluatedParametersResult): e is EvaluatedParameters {
@@ -101,7 +113,7 @@ export function isEvaluatedParameters(e: EvaluatedParametersResult): e is Evalua
 }
 
 export type EvaluationResult = EvaluatedRow | EvaluationError;
-export type SourceEvaluationResult = SourceEvaluatedRow | EvaluationError;
+export type UnscopedEvaluationResult = UnscopedEvaluatedRow | EvaluationError;
 
 export interface RequestJwtPayload {
   /**

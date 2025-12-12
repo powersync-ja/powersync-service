@@ -1,12 +1,10 @@
+import { Scope } from 'ajv/dist/compile/codegen/scope.js';
+import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
+import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
 import {
-  BucketDataSource,
-  BucketParameterLookupSource,
-  CreateSourceParams,
-  HydratedBucketSource
-} from './BucketSource.js';
-import { BucketDataScope } from './HydrationState.js';
-import {
+  BucketParameterLookupSourceDefinition,
   BucketParameterQuerier,
+  buildBucketName,
   CompatibilityContext,
   EvaluatedParameters,
   EvaluatedRow,
@@ -17,7 +15,11 @@ import {
   isEvaluatedRow,
   isEvaluationError,
   mergeBucketParameterQueriers,
+  mergeDataSources,
+  mergeParameterLookupSources,
   QuerierError,
+  ScopedEvaluateParameterRow,
+  ScopedEvaluateRow,
   SqlEventDescriptor,
   SqliteInputValue,
   SqliteValue,
@@ -32,33 +34,30 @@ import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, Sqlite
  */
 export class HydratedSyncRules {
   bucketSources: HydratedBucketSource[] = [];
-  bucketDataSources: BucketDataSource[];
-  bucketParameterLookupSources: BucketParameterLookupSource[];
-  bucketSourceHydration: Map<BucketDataSource, BucketDataScope> = new Map();
-
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   readonly definition: SqlSyncRules;
 
+  private readonly innerEvaluateRow: ScopedEvaluateRow;
+  private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
+
   constructor(params: {
     definition: SqlSyncRules;
     createParams: CreateSourceParams;
     bucketDataSources: BucketDataSource[];
-    bucketParameterLookupSources: BucketParameterLookupSource[];
+    bucketParameterLookupSources: BucketParameterLookupSourceDefinition[];
     eventDescriptors?: SqlEventDescriptor[];
     compatibility?: CompatibilityContext;
   }) {
-    this.bucketDataSources = params.bucketDataSources;
-    this.bucketParameterLookupSources = params.bucketParameterLookupSources;
-    this.definition = params.definition;
-
     const hydrationState = params.createParams.hydrationState;
 
-    for (let source of this.bucketDataSources) {
-      const state = hydrationState.getBucketSourceScope(source);
-      this.bucketSourceHydration.set(source, state);
-    }
+    this.definition = params.definition;
+    this.innerEvaluateRow = mergeDataSources(hydrationState, params.bucketDataSources).evaluateRow;
+    this.innerEvaluateParameterRow = mergeParameterLookupSources(
+      hydrationState,
+      params.bucketParameterLookupSources
+    ).evaluateParameterRow;
 
     if (params.eventDescriptors) {
       this.eventDescriptors = params.eventDescriptors;
@@ -112,28 +111,7 @@ export class HydratedSyncRules {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
-    let rawResults: EvaluationResult[] = [];
-    for (let source of this.bucketDataSources) {
-      const sourceResults = source.evaluateRow(options);
-      if (sourceResults.length == 0) {
-        continue;
-      }
-      const bucketPrefix = this.bucketSourceHydration.get(source)!.bucketPrefix;
-      rawResults.push(
-        ...sourceResults.map((sourceRow) => {
-          if (isEvaluationError(sourceRow)) {
-            return sourceRow;
-          }
-          return {
-            bucket: bucketPrefix + sourceRow.serializedBucketParameters,
-            id: sourceRow.id,
-            table: sourceRow.table,
-            data: sourceRow.data
-          } satisfies EvaluatedRow;
-        })
-      );
-    }
-
+    const rawResults: EvaluationResult[] = this.innerEvaluateRow(options);
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
 
@@ -155,11 +133,7 @@ export class HydratedSyncRules {
     table: SourceTableInterface,
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
-    let rawResults: EvaluatedParametersResult[] = [];
-    for (let source of this.bucketParameterLookupSources) {
-      rawResults.push(...source.evaluateParameterRow(table, row));
-    }
-
+    const rawResults: EvaluatedParametersResult[] = this.innerEvaluateParameterRow(table, row);
     const results = rawResults.filter(isEvaluatedParameters) as EvaluatedParameters[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
     return { results, errors };

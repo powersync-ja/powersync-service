@@ -10,7 +10,7 @@ import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SqlRuleError } from './errors.js';
-import { EvaluateRowOptions, QueryParseOptions, SourceEvaluationResult, SourceSchema } from './types.js';
+import { EvaluateRowOptions, QueryParseOptions, UnscopedEvaluationResult, SourceSchema } from './types.js';
 
 export interface QueryParseResult {
   /**
@@ -151,7 +151,7 @@ export class BucketDefinitionDataSource implements BucketDataSource {
   }
 
   evaluateRow(options: EvaluateRowOptions) {
-    let results: SourceEvaluationResult[] = [];
+    let results: UnscopedEvaluationResult[] = [];
     for (let query of this.descriptor.dataQueries) {
       if (!query.applies(options.sourceTable)) {
         continue;

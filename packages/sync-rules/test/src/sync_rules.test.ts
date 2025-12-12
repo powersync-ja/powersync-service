@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest';
-import { CreateSourceParams, ParameterLookup, SqlParameterQuery, SqlSyncRules } from '../../src/index.js';
+import {
+  CreateSourceParams,
+  ScopedParameterLookup,
+  UnscopedParameterLookup,
+  SqlParameterQuery,
+  SqlSyncRules
+} from '../../src/index.js';
 
 import {
   ASSETS,
@@ -111,7 +117,7 @@ bucket_definitions:
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],
-        lookup: ParameterLookup.normalized({ lookupName: 'mybucket', queryId: '1' }, ['user1'])
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1' }, ['user1'])
       }
     ]);
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -963,10 +969,10 @@ bucket_definitions:
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
       hasDynamicBuckets: true,
       parameterQueryLookups: [
-        ParameterLookup.normalized({ lookupName: 'mybucket', queryId: '2' }, ['user1']),
-        ParameterLookup.normalized({ lookupName: 'by_list', queryId: '1' }, ['user1']),
+        ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '2' }, ['user1']),
+        ScopedParameterLookup.direct({ lookupName: 'by_list', queryId: '1' }, ['user1']),
         // These are not filtered out yet, due to how the lookups are structured internally
-        ParameterLookup.normalized({ lookupName: 'admin_only', queryId: '1' }, [1])
+        ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
       ],
       staticBuckets: [
         {

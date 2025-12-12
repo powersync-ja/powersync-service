@@ -8,8 +8,8 @@ import { TablePattern } from './TablePattern.js';
 import {
   QueryParameters,
   QuerySchema,
-  SourceEvaluatedRow,
-  SourceEvaluationResult,
+  UnscopedEvaluatedRow,
+  UnscopedEvaluationResult,
   SourceSchema,
   SourceSchemaTable,
   SqliteJsonRow,
@@ -170,7 +170,7 @@ export class BaseSqlDataQuery {
     }
   }
 
-  evaluateRowWithOptions(options: EvaluateRowOptions): SourceEvaluationResult[] {
+  evaluateRowWithOptions(options: EvaluateRowOptions): UnscopedEvaluationResult[] {
     try {
       const { table, row, serializedBucketParameters } = options;
 
@@ -201,7 +201,7 @@ export class BaseSqlDataQuery {
           table: outputTable,
           id: id,
           data
-        } satisfies SourceEvaluatedRow;
+        } satisfies UnscopedEvaluatedRow;
       });
     } catch (e) {
       return [{ error: e.message ?? `Evaluating data query failed` }];

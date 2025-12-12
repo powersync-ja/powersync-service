@@ -417,9 +417,7 @@ export class SqlSyncRules {
       definition: this,
       createParams: resolvedParams,
       bucketDataSources: this.bucketDataSources,
-      bucketParameterLookupSources: this.bucketParameterLookupSources.map((d) =>
-        d.createParameterLookupSource(resolvedParams)
-      ),
+      bucketParameterLookupSources: this.bucketParameterLookupSources,
       eventDescriptors: this.eventDescriptors,
       compatibility: this.compatibility
     });

@@ -10,7 +10,7 @@ import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { TableQuerySchema } from './TableQuerySchema.js';
-import { ParameterMatchClause, QuerySchema, SourceEvaluationResult, SqliteRow } from './types.js';
+import { ParameterMatchClause, QuerySchema, UnscopedEvaluationResult, SqliteRow } from './types.js';
 import { isSelectStatement, serializeBucketParameters } from './utils.js';
 
 export interface SqlDataQueryOptions extends BaseSqlDataQueryOptions {
@@ -190,7 +190,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     this.filter = options.filter;
   }
 
-  evaluateRow(table: SourceTableInterface, row: SqliteRow): SourceEvaluationResult[] {
+  evaluateRow(table: SourceTableInterface, row: SqliteRow): UnscopedEvaluationResult[] {
     return this.evaluateRowWithOptions({
       table,
       row,

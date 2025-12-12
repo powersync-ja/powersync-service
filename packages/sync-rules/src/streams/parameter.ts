@@ -1,4 +1,4 @@
-import { ParameterLookup } from '../BucketParameterQuerier.js';
+import { ScopedParameterLookup, UnscopedParameterLookup } from '../BucketParameterQuerier.js';
 import { BucketParameterLookupSourceDefinition } from '../BucketSource.js';
 import { HydrationState } from '../HydrationState.js';
 import { TablePattern } from '../TablePattern.js';
@@ -37,11 +37,11 @@ export interface SubqueryEvaluator {
   // use, and each querier may use multiple lookup sources, each with their own scope.
   // This implementation here does "hydration" on each subquery, which gives us hydrated function call.
   // Should this maybe be part of a higher-level class instead of just a function, i.e. a hydrated subquery?
-  hydrateLookupsForRequest(hydrationState: HydrationState): (params: RequestParameters) => ParameterLookup[];
+  hydrateLookupsForRequest(hydrationState: HydrationState): (params: RequestParameters) => ScopedParameterLookup[];
 }
 
 export interface SubqueryLookups {
-  lookups: ParameterLookup[];
+  lookups: UnscopedParameterLookup[];
   /**
    * The value that the single column in the subquery evaluated to.
    */

@@ -7,12 +7,11 @@ import {
 } from './BucketDescription.js';
 import {
   BucketParameterQuerier,
-  ParameterLookup,
+  UnscopedParameterLookup,
   ParameterLookupSource,
   PendingQueriers
 } from './BucketParameterQuerier.js';
 import {
-  BucketParameterLookupSource,
   BucketParameterLookupSourceDefinition,
   BucketParameterQuerierSource,
   BucketParameterQuerierSourceDefinition,
@@ -20,7 +19,13 @@ import {
 } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
-import { BucketDataSource, GetQuerierOptions } from './index.js';
+import {
+  BucketDataSource,
+  GetQuerierOptions,
+  ScopedParameterLookup,
+  UnscopedEvaluatedParameters,
+  UnscopedEvaluatedParametersResult
+} from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
@@ -365,30 +370,19 @@ export class SqlParameterQuery
     };
   }
 
-  createParameterLookupSource(params: CreateSourceParams): BucketParameterLookupSource {
-    const hydrationState = params.hydrationState;
-    const lookupState = hydrationState.getParameterLookupScope(this);
-    return {
-      evaluateParameterRow: (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
-        if (this.tableSyncsParameters(sourceTable)) {
-          return this.evaluateParameterRow(lookupState, row);
-        } else {
-          return [];
-        }
-      }
-    };
-  }
-
   /**
    * Given a replicated row, results an array of bucket parameter rows to persist.
    */
-  evaluateParameterRow(scope: ParameterLookupScope, row: SqliteRow): EvaluatedParametersResult[] {
+  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
+    if (!this.tableSyncsParameters(sourceTable)) {
+      return [];
+    }
     const tables = {
       [this.table.nameInSchema]: row
     };
     try {
       const filterParameters = this.filter.filterRow(tables);
-      let result: EvaluatedParametersResult[] = [];
+      let result: UnscopedEvaluatedParametersResult[] = [];
       for (let filterParamSet of filterParameters) {
         let lookupValues: SqliteJsonValue[] = [];
         lookupValues.push(
@@ -399,9 +393,9 @@ export class SqlParameterQuery
 
         const data = this.transformRows(row);
 
-        const role: EvaluatedParameters = {
+        const role: UnscopedEvaluatedParameters = {
           bucketParameters: data.map((row) => filterJsonRow(row)),
-          lookup: ParameterLookup.normalized(scope, lookupValues)
+          lookup: UnscopedParameterLookup.normalized(lookupValues)
         };
         result.push(role);
       }
@@ -468,7 +462,7 @@ export class SqlParameterQuery
    *
    * Each lookup is [bucket definition name, parameter query index, ...lookup values]
    */
-  getLookups(scope: ParameterLookupScope, parameters: RequestParameters): ParameterLookup[] {
+  getLookups(parameters: RequestParameters): UnscopedParameterLookup[] {
     if (!this.expandedInputParameter) {
       let lookupValues: SqliteJsonValue[] = [];
 
@@ -489,7 +483,7 @@ export class SqlParameterQuery
       if (!valid) {
         return [];
       }
-      return [ParameterLookup.normalized(scope, lookupValues)];
+      return [UnscopedParameterLookup.normalized(lookupValues)];
     } else {
       const arrayString = this.expandedInputParameter.parametersToLookupValue(parameters);
 
@@ -533,9 +527,9 @@ export class SqlParameterQuery
             return null;
           }
 
-          return ParameterLookup.normalized(scope, lookupValues);
+          return UnscopedParameterLookup.normalized(lookupValues);
         })
-        .filter((lookup) => lookup != null) as ParameterLookup[];
+        .filter((lookup) => lookup != null) as UnscopedParameterLookup[];
     }
   }
 
@@ -545,7 +539,7 @@ export class SqlParameterQuery
     bucketDataScope: BucketDataScope,
     scope: ParameterLookupScope
   ): BucketParameterQuerier {
-    const lookups = this.getLookups(scope, requestParameters);
+    const lookups = this.getLookups(requestParameters).map((lookup) => ScopedParameterLookup.normalized(scope, lookup));
     if (lookups.length == 0) {
       // This typically happens when the query is pre-filtered using a where clause
       // on the parameters, and does not depend on the database state.

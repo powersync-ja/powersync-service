@@ -10,7 +10,7 @@ import {
 import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { TablePattern } from '../TablePattern.js';
-import { EvaluateRowOptions, SourceEvaluationResult, SourceSchema, TableRow } from '../types.js';
+import { EvaluateRowOptions, UnscopedEvaluationResult, SourceSchema, TableRow } from '../types.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {
@@ -100,7 +100,7 @@ export class SyncStreamDataSource implements BucketDataSource {
     result[this.data.table!.sqlName].push(r);
   }
 
-  evaluateRow(options: EvaluateRowOptions): SourceEvaluationResult[] {
+  evaluateRow(options: EvaluateRowOptions): UnscopedEvaluationResult[] {
     if (!this.data.applies(options.sourceTable)) {
       return [];
     }

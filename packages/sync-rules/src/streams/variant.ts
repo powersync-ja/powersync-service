@@ -1,5 +1,5 @@
 import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
-import { BucketParameterQuerier, ParameterLookup, PendingQueriers } from '../BucketParameterQuerier.js';
+import { BucketParameterQuerier, UnscopedParameterLookup, PendingQueriers } from '../BucketParameterQuerier.js';
 import {
   BucketDataSource,
   BucketParameterLookupSourceDefinition,
@@ -8,7 +8,7 @@ import {
   CreateSourceParams
 } from '../BucketSource.js';
 import { BucketDataScope } from '../HydrationState.js';
-import { GetQuerierOptions, RequestedStream } from '../index.js';
+import { GetQuerierOptions, RequestedStream, ScopedParameterLookup } from '../index.js';
 import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
 import { buildBucketName, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
@@ -145,7 +145,7 @@ export class StreamVariant {
 
     const dynamicRequestFilters: SubqueryRequestFilter[] = this.requestFilters.filter((f) => f.type == 'dynamic');
     const dynamicParameters: ResolvedDynamicParameter[] = [];
-    const subqueryToLookups = new Map<SubqueryEvaluator, ParameterLookup[]>();
+    const subqueryToLookups = new Map<SubqueryEvaluator, ScopedParameterLookup[]>();
 
     for (let i = 0; i < this.parameters.length; i++) {
       const parameter = this.parameters[i];
@@ -412,4 +412,4 @@ export class SyncStreamParameterQuerierSource implements BucketParameterQuerierS
   }
 }
 
-type HydratedSubqueries = Map<SubqueryEvaluator, (params: RequestParameters) => ParameterLookup[]>;
+type HydratedSubqueries = Map<SubqueryEvaluator, (params: RequestParameters) => ScopedParameterLookup[]>;
