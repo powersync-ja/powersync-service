@@ -362,11 +362,7 @@ WHERE  oid = $1::regclass`,
       params: [{ value: table.qualifiedName, type: 'varchar' }]
     });
     const row = results.rows[0];
-    if ((row?.[0] ?? -1n) == -1n) {
-      return -1;
-    } else {
-      return Number(row[0]);
-    }
+    return Number(row?.decodeWithoutCustomTypes(0) ?? -1n);
   }
 
   /**
@@ -500,7 +496,7 @@ WHERE  oid = $1::regclass`,
       // 2. Wait until logical replication has caught up with all the change between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
       const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-      tableLsnNotBefore = rs.rows[0][0];
+      tableLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
       const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
@@ -546,7 +542,7 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
-    let columns: { i: number; name: string }[] = [];
+    let columns: { i: number; name: string; typeOid: number }[] = [];
     let columnMap: Record<string, number> = {};
     let hasRemainingData = true;
     while (hasRemainingData) {
@@ -565,7 +561,7 @@ WHERE  oid = $1::regclass`,
           // all be the same.
           let i = 0;
           columns = chunk.payload.map((c) => {
-            return { i: i++, name: c.name };
+            return { i: i++, name: c.name, typeOid: c.typeOid };
           });
           for (let column of chunk.payload) {
             columnMap[column.name] = column.typeOid;
@@ -576,7 +572,7 @@ WHERE  oid = $1::regclass`,
         const rows = chunk.rows.map((row) => {
           let q: DatabaseInputRow = {};
           for (let c of columns) {
-            q[c.name] = row[c.i];
+            q[c.name] = pgwire.PgType.decode(row.raw[c.i], c.typeOid);
           }
           return q;
         });

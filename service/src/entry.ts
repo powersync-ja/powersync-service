@@ -6,6 +6,7 @@ import { startServer } from './runners/server.js';
 import { startStreamRunner } from './runners/stream-worker.js';
 import { startUnifiedRunner } from './runners/unified-runner.js';
 import { createSentryReporter } from './util/alerting.js';
+import { DYNAMIC_MODULES } from './util/modules.js';
 
 // Initialize framework components
 container.registerDefaults();
@@ -13,6 +14,7 @@ container.register(ContainerImplementation.REPORTER, createSentryReporter());
 
 const moduleManager = new core.modules.ModuleManager();
 moduleManager.register([new CoreModule()]);
+moduleManager.registerDynamicModules(DYNAMIC_MODULES);
 // This is a bit of a hack. Commands such as the teardown command or even migrations might
 // want access to the ModuleManager in order to use modules
 container.register(core.ModuleManager, moduleManager);

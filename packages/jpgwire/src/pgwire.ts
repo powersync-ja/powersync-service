@@ -2,11 +2,11 @@
 // This works around it, and provides a proper export.
 
 // mod.js (mod.d.ts) contains the types, but the implementation is for Deno.
-export * from 'pgwire/mod.js';
-import type * as pgwire from 'pgwire/mod.js';
-import './pgwire_node.js';
+export type * from './legacy_pgwire_types.js';
 
-export async function pgconnect(...options: pgwire.PgConnectOptions[]): Promise<pgwire.PgConnection> {
-  const pgwireImport = await import('pgwire/mod.js');
-  return await pgwireImport.pgconnect(...options);
-}
+import * as pgwire_untyped from './pgwire_node.js';
+import type * as pgwire_typed from './legacy_pgwire_types.js';
+
+export const pgconnect: typeof pgwire_typed.pgconnect = (pgwire_untyped as any).pgconnect;
+export const pgconnection: typeof pgwire_typed.pgconnection = (pgwire_untyped as any).pgconnection;
+export const pgpool: typeof pgwire_typed.pgpool = (pgwire_untyped as any).pgpool;

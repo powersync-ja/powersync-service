@@ -8,7 +8,12 @@ import {
   BucketSource,
   CreateSourceParams
 } from './BucketSource.js';
-import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
+import {
+  CompatibilityContext,
+  CompatibilityEdition,
+  CompatibilityOption,
+  TimeValuePrecision
+} from './compatibility.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
@@ -149,12 +154,17 @@ export class SqlSyncRules {
     if (declaredOptions != null) {
       const edition = (declaredOptions.get('edition') ?? CompatibilityEdition.LEGACY) as CompatibilityEdition;
       const options = new Map<CompatibilityOption, boolean>();
+      let maxTimeValuePrecision: TimeValuePrecision | undefined = undefined;
 
       for (const entry of declaredOptions.items) {
         const {
           key: { value: key },
           value: { value }
-        } = entry as { key: Scalar<string>; value: Scalar<boolean> };
+        } = entry as { key: Scalar<string>; value: Scalar<any> };
+
+        if (key == 'timestamp_max_precision') {
+          maxTimeValuePrecision = TimeValuePrecision.byName[value];
+        }
 
         const option = CompatibilityOption.byName[key];
         if (option) {
@@ -162,7 +172,13 @@ export class SqlSyncRules {
         }
       }
 
-      compatibility = new CompatibilityContext(edition, options);
+      compatibility = new CompatibilityContext({ edition, overrides: options, maxTimeValuePrecision });
+      if (maxTimeValuePrecision && !compatibility.isEnabled(CompatibilityOption.timestampsIso8601)) {
+        rules.errors.push(
+          new YamlError(new Error(`'timestamp_max_precision' requires 'timestamps_iso8601' to be enabled.`))
+        );
+      }
+
       rules.compatibility = compatibility;
     }
 

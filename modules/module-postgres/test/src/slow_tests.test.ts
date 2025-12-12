@@ -121,7 +121,7 @@ bucket_definitions:
           }
           const results = await pool.query(...statements);
           const ids = results.results.map((sub) => {
-            return sub.rows[0][0] as string;
+            return sub.rows[0].decodeWithoutCustomTypes(0) as string;
           });
           await new Promise((resolve) => setTimeout(resolve, Math.random() * 30));
 
@@ -372,7 +372,7 @@ bucket_definitions:
         }
         const results = await pool.query(...statements);
         const ids = results.results.map((sub) => {
-          return sub.rows[0][0] as string;
+          return sub.rows[0].decodeWithoutCustomTypes(0) as string;
         });
         await new Promise((resolve) => setTimeout(resolve, Math.random() * 30));
         const deleteStatements: pgwire.Statement[] = ids.map((id) => {

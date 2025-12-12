@@ -69,13 +69,11 @@ export abstract class AbstractPostgresConnection<Listener = {}> extends framewor
   }
 
   async *streamRows<T>(...args: pgwire.Statement[]): AsyncIterableIterator<T[]> {
-    let columns: Array<keyof T> = [];
+    let columns: Array<pgwire.ColumnDescription> = [];
 
     for await (const chunk of this.stream(...args)) {
       if (chunk.tag == 'RowDescription') {
-        columns = chunk.payload.map((c, index) => {
-          return c.name as keyof T;
-        });
+        columns = chunk.payload;
         continue;
       }
 
@@ -86,7 +84,7 @@ export abstract class AbstractPostgresConnection<Listener = {}> extends framewor
       yield chunk.rows.map((row) => {
         let q: Partial<T> = {};
         for (const [index, c] of columns.entries()) {
-          q[c] = row[index];
+          q[c.name as keyof T] = row.decodeWithoutCustomTypes(index);
         }
         return q as T;
       });

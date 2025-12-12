@@ -18,7 +18,7 @@ const POWERSYNC_SOCKET_CONNECT_TIMEOUT = 20_000;
 const POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY = 40_000;
 
 export interface ConnectOptions {
-  hostname: string;
+  host: string;
   port: number;
   tlsOptions?: tls.ConnectionOptions | false;
   lookup?: net.LookupFunction;
@@ -28,7 +28,7 @@ export class SocketAdapter {
   static async connect(options: ConnectOptions) {
     // Custom timeout handling
     const socket = net.connect({
-      host: options.hostname,
+      host: options.host,
       port: options.port,
       lookup: options.lookup,
 
@@ -44,7 +44,7 @@ export class SocketAdapter {
     });
     try {
       const timeout = setTimeout(() => {
-        socket.destroy(new Error(`Timeout while connecting to ${options.hostname}:${options.port}`));
+        socket.destroy(new Error(`Timeout while connecting to ${options.host}:${options.port}`));
       }, POWERSYNC_SOCKET_CONNECT_TIMEOUT);
       await once(socket, 'connect');
       clearTimeout(timeout);

@@ -1,4 +1,10 @@
-import { SQLITE_TRUE, SqliteInputRow } from '@powersync/service-sync-rules';
+import {
+  applyRowContext,
+  CompatibilityContext,
+  SQLITE_TRUE,
+  SqliteInputRow,
+  TimeValuePrecision
+} from '@powersync/service-sync-rules';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 import { clearTestDb, createUpperCaseUUID, TEST_CONNECTION_OPTIONS, waitForPendingCDCChanges } from './util.js';
 import { CDCToSqliteRow, toSqliteInputRow } from '@module/common/mssqls-to-sqlite.js';
@@ -43,10 +49,10 @@ describe('MSSQL Data Types Tests', () => {
         
         date_col DATE,
         datetime_col DATETIME,
-        datetime2_col DATETIME2(6),
+        datetime2_col DATETIME2(7),
         smalldatetime_col SMALLDATETIME,
         datetimeoffset_col DATETIMEOFFSET(3),
-        time_col TIME(6),
+        time_col TIME(7),
         
         char_col CHAR(10),
         varchar_col VARCHAR(255),
@@ -214,7 +220,14 @@ describe('MSSQL Data Types Tests', () => {
 
   test('Date types mappings', async () => {
     const beforeLSN = await getLatestLSN(connectionManager);
-    const testDate = new Date('2023-03-06T15:47:00.000Z');
+    const testDate = new Date('2023-03-06T15:47:00.123Z');
+    // This adds 0.4567 milliseconds to the JS date, see https://github.com/tediousjs/tedious/blob/0c256f186600d7230aec05553ebad209bed81acc/src/data-types/datetime2.ts#L74.
+    // Note that there's a typo in tedious there. When reading dates, the property is actually called nanosecondsDelta.
+    // This is only relevant when binding datetime values, so only in this test.
+    Object.defineProperty(testDate, 'nanosecondDelta', {
+      enumerable: false,
+      value: 0.0004567
+    });
     await connectionManager.query(
       `
       INSERT INTO ${escapeIdentifier(connectionManager.schema)}.test_data(
@@ -235,9 +248,9 @@ describe('MSSQL Data Types Tests', () => {
       [
         { name: 'date_col', type: sql.Date, value: testDate },
         { name: 'datetime_col', type: sql.DateTime, value: testDate },
-        { name: 'datetime2_col', type: sql.DateTime2(6), value: testDate },
+        { name: 'datetime2_col', type: sql.DateTime2(7), value: testDate },
         { name: 'smalldatetime_col', type: sql.SmallDateTime, value: testDate },
-        { name: 'time_col', type: sql.Time(6), value: testDate }
+        { name: 'time_col', type: sql.Time(7), value: testDate }
       ]
     );
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
@@ -246,14 +259,32 @@ describe('MSSQL Data Types Tests', () => {
     const replicatedRows = await getReplicatedRows(connectionManager, 'test_data');
     const expectedResult = {
       date_col: '2023-03-06',
-      datetime_col: '2023-03-06T15:47:00.000Z',
-      datetime2_col: '2023-03-06T15:47:00.000Z',
-      smalldatetime_col: '2023-03-06T15:47:00.000Z',
-      time_col: '15:47:00.000'
+      datetime_col: '2023-03-06T15:47:00.123000000Z',
+      datetime2_col: '2023-03-06T15:47:00.123456700Z',
+      smalldatetime_col: '2023-03-06T15:47:00.000000000Z',
+      time_col: '15:47:00.123456700'
     };
 
-    expect(databaseRows[0]).toMatchObject(expectedResult);
-    expect(replicatedRows[0]).toMatchObject(expectedResult);
+    expect(applyRowContext(databaseRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
+    expect(applyRowContext(replicatedRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
+
+    const restrictedPrecisionResult = {
+      date_col: '2023-03-06',
+      datetime_col: '2023-03-06T15:47:00.123000Z',
+      datetime2_col: '2023-03-06T15:47:00.123456Z',
+      smalldatetime_col: '2023-03-06T15:47:00.000000Z',
+      time_col: '15:47:00.123456'
+    };
+    const restrictedPrecision = new CompatibilityContext({
+      edition: 2,
+      maxTimeValuePrecision: TimeValuePrecision.microseconds
+    });
+    expect(applyRowContext(databaseRows[0], restrictedPrecision)).toMatchObject(restrictedPrecisionResult);
+    expect(applyRowContext(replicatedRows[0], restrictedPrecision)).toMatchObject(restrictedPrecisionResult);
   });
 
   test('Date types edge cases mappings', async () => {
@@ -277,18 +308,22 @@ describe('MSSQL Data Types Tests', () => {
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
     const expectedResults = [
-      { datetime2_col: '0001-01-01T00:00:00.000Z' },
-      { datetime2_col: '9999-12-31T23:59:59.999Z' },
-      { datetime_col: '1753-01-01T00:00:00.000Z' },
-      { datetime_col: '9999-12-31T23:59:59.997Z' }
+      { datetime2_col: '0001-01-01T00:00:00.000000000Z' },
+      { datetime2_col: '9999-12-31T23:59:59.999000000Z' },
+      { datetime_col: '1753-01-01T00:00:00.000000000Z' },
+      { datetime_col: '9999-12-31T23:59:59.997000000Z' }
     ];
 
     const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
     const replicatedRows = await getReplicatedRows(connectionManager, 'test_data');
 
     for (let i = 0; i < expectedResults.length; i++) {
-      expect(databaseRows[i]).toMatchObject(expectedResults[i]);
-      expect(replicatedRows[i]).toMatchObject(expectedResults[i]);
+      expect(applyRowContext(databaseRows[i], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+        expectedResults[i]
+      );
+      expect(applyRowContext(replicatedRows[i], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+        expectedResults[i]
+      );
     }
   });
 
@@ -302,15 +337,19 @@ describe('MSSQL Data Types Tests', () => {
     await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
     const expectedResult = {
-      datetimeoffset_col: '2023-03-06T10:47:00.000Z' // Converted to UTC
+      datetimeoffset_col: '2023-03-06T10:47:00.000000000Z' // Converted to UTC
     };
 
     const databaseRows = await getDatabaseRows(connectionManager, 'test_data');
     const replicatedRows = await getReplicatedRows(connectionManager, 'test_data');
 
     // Note: The driver converts DateTimeOffset to Date, which incorporates the timezone offset which is then represented in UTC.
-    expect(databaseRows[0]).toMatchObject(expectedResult);
-    expect(replicatedRows[0]).toMatchObject(expectedResult);
+    expect(applyRowContext(databaseRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
+    expect(applyRowContext(replicatedRows[0], CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)).toMatchObject(
+      expectedResult
+    );
   });
 
   test('UniqueIdentifier type mapping', async () => {

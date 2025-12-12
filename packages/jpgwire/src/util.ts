@@ -3,9 +3,9 @@ import * as net from 'node:net';
 import * as tls from 'node:tls';
 import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
-import { PgType } from './pgwire_types.js';
+import { PgType, postgresTimeOptions } from './pgwire_types.js';
 import { ConnectOptions } from './socket_adapter.js';
-import { DatabaseInputValue, DateTimeValue } from '@powersync/service-sync-rules';
+import { DateTimeValue } from '@powersync/service-sync-rules';
 
 // TODO this is duplicated, but maybe that is ok
 export interface NormalizedConnectionConfig {
@@ -97,7 +97,7 @@ export async function connectPgWire(
     application_name: options?.applicationName ?? 'powersync',
 
     // tlsOptions below contains the original hostname
-    hostname: config.resolved_ip ?? config.hostname,
+    host: config.resolved_ip ?? config.hostname,
     port: config.port,
     database: config.database,
 
@@ -109,45 +109,77 @@ export async function connectPgWire(
     connectionOptions.replication = 'database';
   }
 
-  let tlsOptions: tls.ConnectionOptions | false = false;
-
   if (config.sslmode != 'disable') {
     connectionOptions.sslmode = 'require';
-
-    tlsOptions = makeTlsOptions(config);
   } else {
     connectionOptions.sslmode = 'disable';
   }
+
   const connection = pgwire.pgconnection(connectionOptions as pgwire.PgConnectOptions);
+  patchConnection(connection, config);
 
-  // HACK: Not standard pgwire options
-  // Just the easiest way to pass on our config to SocketAdapter
-  const connectOptions = (connection as any)._connectOptions as ConnectOptions;
-  connectOptions.tlsOptions = tlsOptions;
-  connectOptions.lookup = config.lookup;
+  // To test the connection, send an empty query. This appears to be the only way to establish a connection, see e.g.
+  // this: https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L26.
+  try {
+    await connection.query();
+  } catch (e) {
+    await connection.end();
 
-  // HACK: Replace row decoding with our own implementation
-  (connection as any)._recvDataRow = _recvDataRow;
+    if (e instanceof Error && e.message == 'postgres query failed') {
+      // We didn't actually send a query, so we report the inner cause instead:
+      // https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L334
+      throw e.cause;
+    }
+    throw e;
+  }
 
-  await (connection as any).start();
   return connection;
 }
 
-function _recvDataRow(this: any, _message: any, row: (Uint8Array | DatabaseInputValue)[], batch: any) {
-  for (let i = 0; i < this._rowColumns.length; i++) {
-    const valbuf = row[i];
-    if (valbuf == null) {
-      continue;
+function patchConnection(connection: pgwire.PgConnection, config: PgWireConnectionOptions) {
+  // Just the easiest way to pass on our config to SocketAdapter
+  const connectOptions = (connection as any)._socketOptions as ConnectOptions;
+  connectOptions.tlsOptions = makeTlsOptions(config);
+  connectOptions.lookup = config.lookup;
+
+  // Hack for safety: We always want to be responsible for decoding values ourselves, and NEVER
+  // use the PgType.decode implementation from pgwire. We can use our own implementation by using
+  // row.raw, this ensures that forgetting to do that is an error instead of potentially corrupted
+  // data.
+  // Original definition: https://github.com/exe-dealer/pgwire/blob/24465b25768ef0d9048acee1fddc748cf1690a14/mod.js#L679-L701
+  (connection as any)._recvRowDescription = async function (this: any, m: any, columns: any) {
+    class RowImplementation implements pgwire.PgRow {
+      declare readonly columns: pgwire.ColumnDescription[];
+
+      constructor(readonly raw: (string | Uint8Array)[]) {}
+
+      get length() {
+        return this.raw.length;
+      }
+
+      decodeWithoutCustomTypes(index: number) {
+        return PgType.decode(this.raw[index], this.columns[index].typeOid);
+      }
     }
-    const { binary, typeOid } = this._rowColumns[i];
-    // TODO avoid this._clientTextDecoder.decode for bytea
-    row[i] = binary
-      ? // do not valbuf.slice() because nodejs Buffer .slice does not copy
-        // TODO but we not going to receive Buffer here ?
-        Uint8Array.prototype.slice.call(valbuf)
-      : PgType.decode(this._rowTextDecoder.decode(valbuf), typeOid);
-  }
-  batch.rows.push(row);
+
+    Object.defineProperties(RowImplementation.prototype, {
+      columns: { enumerable: true, value: columns }
+    });
+
+    for (const [i] of columns.entries()) {
+      Object.defineProperty(RowImplementation.prototype, i, {
+        enumerable: false,
+        get() {
+          throw new Error(
+            `Illegal call to PgRow[i]. Use decodeWithoutCustomTypes(i) instead, or use a custom type registry.`
+          );
+        }
+      });
+    }
+
+    this._rowCtor = RowImplementation;
+    await this._fwdBemsg(m);
+  };
 }
 
 export interface PgPoolOptions {
@@ -181,7 +213,7 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
     application_name: options?.applicationName ?? 'powersync',
 
     // tlsOptions below contains the original hostname
-    hostname: config.resolved_ip ?? config.hostname,
+    host: config.resolved_ip ?? config.hostname,
     port: config.port,
     database: config.database,
 
@@ -192,11 +224,8 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
     _poolIdleTimeout: idleTimeout
   };
 
-  let tlsOptions: tls.ConnectionOptions | false = false;
   if (config.sslmode != 'disable') {
     connectionOptions.sslmode = 'require';
-
-    tlsOptions = makeTlsOptions(config);
   } else {
     connectionOptions.sslmode = 'disable';
   }
@@ -205,13 +234,7 @@ export function connectPgWirePool(config: PgWireConnectionOptions, options?: PgP
   const originalGetConnection = (pool as any)._getConnection;
   (pool as any)._getConnection = function (this: any) {
     const con = originalGetConnection.call(this);
-
-    const connectOptions = (con as any)._connectOptions as ConnectOptions;
-    connectOptions.tlsOptions = tlsOptions;
-    connectOptions.lookup = config.lookup;
-
-    // HACK: Replace row decoding with our own implementation
-    (con as any)._recvDataRow = _recvDataRow;
+    patchConnection(con, config);
     return con;
   };
   return pool;
@@ -243,9 +266,9 @@ export function timestamptzToSqlite(source?: string): DateTimeValue | null {
   const match = timeRegex.exec(source);
   if (match == null) {
     if (source == 'infinity') {
-      return new DateTimeValue('9999-12-31T23:59:59Z');
+      return new DateTimeValue('9999-12-31T23:59:59Z', undefined, postgresTimeOptions);
     } else if (source == '-infinity') {
-      return new DateTimeValue('0000-01-01T00:00:00Z');
+      return new DateTimeValue('0000-01-01T00:00:00Z', undefined, postgresTimeOptions);
     } else {
       return null;
     }
@@ -262,13 +285,12 @@ export function timestamptzToSqlite(source?: string): DateTimeValue | null {
 
   const baseValue = parsed.toISOString().replace('.000', '').replace('Z', '');
 
-  // In the new format, we always use ISO 8601. Since Postgres drops zeroes from the fractional seconds, we also pad
-  // that back to the highest theoretical precision (microseconds). This ensures that sorting returned values as text
-  // returns them in order of the time value they represent.
-  //
   // In the old format, we keep the sub-second precision only if it's not `.000`.
-  const missingPrecision = precision?.padEnd(7, '0') ?? '.000000';
-  return new DateTimeValue(`${baseValue}${missingPrecision}Z`, `${baseValue.replace('T', ' ')}${precision ?? ''}Z`);
+  return new DateTimeValue(
+    `${baseValue}${precision ?? ''}Z`,
+    `${baseValue.replace('T', ' ')}${precision ?? ''}Z`,
+    postgresTimeOptions
+  );
 }
 
 /**
@@ -286,9 +308,9 @@ export function timestampToSqlite(source?: string): DateTimeValue | null {
   const match = timeRegex.exec(source);
   if (match == null) {
     if (source == 'infinity') {
-      return new DateTimeValue('9999-12-31T23:59:59');
+      return new DateTimeValue('9999-12-31T23:59:59', undefined, postgresTimeOptions);
     } else if (source == '-infinity') {
-      return new DateTimeValue('0000-01-01T00:00:00');
+      return new DateTimeValue('0000-01-01T00:00:00', undefined, postgresTimeOptions);
     } else {
       return null;
     }
@@ -297,7 +319,7 @@ export function timestampToSqlite(source?: string): DateTimeValue | null {
   const [_, date, time, precision, __] = match as any;
   const missingPrecision = precision?.padEnd(7, '0') ?? '.000000';
 
-  return new DateTimeValue(`${date}T${time}${missingPrecision}`, source);
+  return new DateTimeValue(`${date}T${time}${missingPrecision}`, source, postgresTimeOptions);
 }
 /**
  * For date, we keep it mostly as-is.
@@ -330,7 +352,8 @@ export function pgwireRows<T = Record<string, any>>(rs: pgwire.PgResult): T[] {
     let r: T = {} as any;
     for (let i = 0; i < columns.length; i++) {
       const c = columns[i];
-      (r as any)[c.name] = row[i];
+
+      (r as any)[c.name] = row.decodeWithoutCustomTypes(i);
     }
     return r;
   });
