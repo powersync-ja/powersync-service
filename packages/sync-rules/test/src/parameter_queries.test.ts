@@ -1,7 +1,19 @@
-import { describe, expect, test } from 'vitest';
-import { UnscopedParameterLookup, SqlParameterQuery, SourceTableInterface } from '../../src/index.js';
+import { beforeEach, describe, expect, test } from 'vitest';
+import {
+  UnscopedParameterLookup,
+  SqlParameterQuery,
+  SourceTableInterface,
+  debugHydratedMergedSource,
+  BucketParameterQuerier,
+  QuerierError,
+  GetQuerierOptions,
+  RequestParameters,
+  ScopedParameterLookup,
+  mergeParameterIndexLookupCreators
+} from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import { BASIC_SCHEMA, EMPTY_DATA_SOURCE, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
+import { HydrationState } from '../../src/HydrationState.js';
 
 describe('parameter queries', () => {
   const table = (name: string): SourceTableInterface => ({
@@ -853,6 +865,85 @@ describe('parameter queries', () => {
 
     const requestParams = normalizeTokenParameters({ user_id: 'user1' });
     expect(query.getLookups(requestParams)).toEqual([UnscopedParameterLookup.normalized(['user1'])]);
+  });
+
+  describe('custom hydrationState', function () {
+    const hydrationState: HydrationState = {
+      getBucketSourceScope(source) {
+        return { bucketPrefix: `${source.uniqueName}-test` };
+      },
+      getParameterIndexLookupScope(source) {
+        return {
+          lookupName: `${source.defaultLookupScope.lookupName}.test`,
+          queryId: `${source.defaultLookupScope.queryId}.test`
+        };
+      }
+    };
+
+    let query: SqlParameterQuery;
+
+    beforeEach(() => {
+      const sql = 'SELECT id as group_id FROM groups WHERE token_parameters.user_id IN groups.user_ids';
+      query = SqlParameterQuery.fromSql(
+        'mybucket',
+        sql,
+        PARSE_OPTIONS,
+        'myquery',
+        EMPTY_DATA_SOURCE
+      ) as SqlParameterQuery;
+
+      expect(query.errors).toEqual([]);
+    });
+
+    test('for lookups', function () {
+      const merged = mergeParameterIndexLookupCreators(hydrationState, [query]);
+      const result = merged.evaluateParameterRow(TABLE_GROUPS, {
+        id: 'group1',
+        user_ids: JSON.stringify(['test-user', 'other-user'])
+      });
+      expect(result).toEqual([
+        {
+          lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, ['test-user']),
+          bucketParameters: [{ group_id: 'group1' }]
+        },
+        {
+          lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, [
+            'other-user'
+          ]),
+          bucketParameters: [{ group_id: 'group1' }]
+        }
+      ]);
+    });
+
+    test('for queries', function () {
+      const hydrated = query.createParameterQuerierSource({ hydrationState });
+
+      const queriers: BucketParameterQuerier[] = [];
+      const errors: QuerierError[] = [];
+      const pending = { queriers, errors };
+
+      const querierOptions: GetQuerierOptions = {
+        hasDefaultStreams: true,
+        globalParameters: new RequestParameters(
+          {
+            sub: 'test-user'
+          },
+          {}
+        ),
+        streams: {}
+      };
+
+      hydrated.pushBucketParameterQueriers(pending, querierOptions);
+
+      expect(errors).toEqual([]);
+      expect(queriers.length).toBe(1);
+
+      const querier = queriers[0];
+
+      expect(querier.parameterQueryLookups).toEqual([
+        ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, ['test-user'])
+      ]);
+    });
   });
 
   test('invalid OR in parameter queries', () => {

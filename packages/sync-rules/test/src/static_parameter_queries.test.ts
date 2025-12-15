@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { BucketDataScope } from '../../src/HydrationState.js';
-import { RequestParameters, SqlParameterQuery } from '../../src/index.js';
+import { BucketDataScope, HydrationState } from '../../src/HydrationState.js';
+import {
+  BucketParameterQuerier,
+  GetQuerierOptions,
+  QuerierError,
+  RequestParameters,
+  ScopedParameterLookup,
+  SqlParameterQuery
+} from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import { EMPTY_DATA_SOURCE, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
 
@@ -364,5 +371,64 @@ describe('static parameter queries', () => {
     testDangerousQuery(
       "select request.parameters() ->> 'project_id' as project_id where request.jwt() ->> 'role' = 'authenticated'"
     );
+  });
+
+  test('custom hydrationState for buckets', function () {
+    const sql = 'SELECT token_parameters.user_id';
+    const query = SqlParameterQuery.fromSql(
+      'mybucket',
+      sql,
+      PARSE_OPTIONS,
+      '1',
+      EMPTY_DATA_SOURCE
+    ) as StaticSqlParameterQuery;
+
+    expect(query.errors).toEqual([]);
+
+    const hydrationState: HydrationState = {
+      getBucketSourceScope(source) {
+        return { bucketPrefix: `${source.uniqueName}-test` };
+      },
+      getParameterIndexLookupScope(source) {
+        return {
+          lookupName: `${source.defaultLookupScope.lookupName}.test`,
+          queryId: `${source.defaultLookupScope.queryId}.test`
+        };
+      }
+    };
+
+    // Internal API
+    const hydrated = query.createParameterQuerierSource({ hydrationState });
+
+    const queriers: BucketParameterQuerier[] = [];
+    const errors: QuerierError[] = [];
+    const pending = { queriers, errors };
+
+    const querierOptions: GetQuerierOptions = {
+      hasDefaultStreams: true,
+      globalParameters: new RequestParameters(
+        {
+          sub: 'test-user'
+        },
+        {}
+      ),
+      streams: {}
+    };
+
+    hydrated.pushBucketParameterQueriers(pending, querierOptions);
+
+    expect(errors).toEqual([]);
+    expect(queriers).toMatchObject([
+      {
+        staticBuckets: [
+          {
+            bucket: 'mybucket-test["test-user"]',
+            definition: 'mybucket',
+            inclusion_reasons: ['default'],
+            priority: 3
+          }
+        ]
+      }
+    ]);
   });
 });
