@@ -17,19 +17,16 @@ export interface ParameterLookupScope {
  * This is what keeps track of bucket name and parameter lookup mappings for hydration. This can be used
  * both to re-use mappings across hydrations of different sync rule versions, or to generate new mappings.
  */
-export interface HydrationState<
-  T extends BucketDataScope = BucketDataScope,
-  U extends ParameterLookupScope = ParameterLookupScope
-> {
+export interface HydrationState {
   /**
    * Given a bucket data source definition, get the bucket prefix to use for it.
    */
-  getBucketSourceScope(source: BucketDataSource): T;
+  getBucketSourceScope(source: BucketDataSource): BucketDataScope;
 
   /**
    * Given a bucket parameter lookup definition, get the persistence name to use.
    */
-  getParameterIndexLookupScope(source: ParameterIndexLookupCreator): U;
+  getParameterIndexLookupScope(source: ParameterIndexLookupCreator): ParameterLookupScope;
 }
 
 /**
