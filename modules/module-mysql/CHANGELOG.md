@@ -1,5 +1,16 @@
 # @powersync/service-module-mysql
 
+## 0.9.16
+
+### Patch Changes
+
+- bdfd287: Add the `timestamp_max_precision` option for sync rules. It can be set to `seconds`, `milliseconds` or `microseconds` to restrict the precision of synced datetime values.
+- Updated dependencies [8fdbf8d]
+- Updated dependencies [bdfd287]
+  - @powersync/service-core@1.18.2
+  - @powersync/service-sync-rules@0.29.10
+  - @powersync/lib-services-framework@0.7.14
+
 ## 0.9.15
 
 ### Patch Changes
