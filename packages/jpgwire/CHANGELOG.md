@@ -1,5 +1,14 @@
 # @powersync/service-jpgwire
 
+## 0.21.9
+
+### Patch Changes
+
+- bdfd287: Add the `timestamp_max_precision` option for sync rules. It can be set to `seconds`, `milliseconds` or `microseconds` to restrict the precision of synced datetime values.
+- c2da2be: Update `pgwire` to version `0.8.1`.
+- Updated dependencies [bdfd287]
+  - @powersync/service-sync-rules@0.29.10
+
 ## 0.21.8
 
 ### Patch Changes
