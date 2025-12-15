@@ -1,12 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import {
-  CreateSourceParams,
-  ScopedParameterLookup,
-  UnscopedParameterLookup,
-  SqlParameterQuery,
-  SqlSyncRules
-} from '../../src/index.js';
+import { CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
 
+import { DEFAULT_HYDRATION_STATE, HydrationState } from '../../src/HydrationState.js';
+import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
+import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import {
   ASSETS,
   BASIC_SCHEMA,
@@ -16,9 +13,6 @@ import {
   normalizeQuerierOptions,
   normalizeTokenParameters
 } from './util.js';
-import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
-import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { DEFAULT_HYDRATION_STATE } from '../../src/HydrationState.js';
 
 describe('sync rules', () => {
   const hydrationParams: CreateSourceParams = { hydrationState: DEFAULT_HYDRATION_STATE };
@@ -164,6 +158,76 @@ bucket_definitions:
         record: { id: 'asset1', description: 'test', user_id: 'user1', archived: 1, device_id: 'device1' }
       })
     ).toEqual([]);
+  });
+
+  test('bucket with parameters with custom hydrationState', () => {
+    // "end-to-end" test with custom hydrationState.
+    // We don't test complex details here, but do cover bucket names and parameter lookup scope.
+    const rules = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT token_parameters.user_id as user_id
+      - SELECT users.id as user_id FROM users WHERE users.id = token_parameters.user_id AND users.is_admin
+    data:
+      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND NOT assets.archived
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrationState: HydrationState = {
+      getBucketSourceScope(source) {
+        return { bucketPrefix: `${source.uniqueName}-test` };
+      },
+      getParameterIndexLookupScope(source) {
+        return {
+          lookupName: `${source.defaultLookupScope.lookupName}.test`,
+          queryId: `${source.defaultLookupScope.queryId}.test`
+        };
+      }
+    };
+    const hydrated = rules.hydrate({ hydrationState });
+    const querier = hydrated.getBucketParameterQuerier(
+      normalizeQuerierOptions({ user_id: 'user1' }, { device_id: 'device1' })
+    );
+    expect(querier.errors).toEqual([]);
+    expect(querier.querier.staticBuckets).toEqual([
+      {
+        bucket: 'mybucket-test["user1"]',
+        definition: 'mybucket',
+        inclusion_reasons: ['default'],
+        priority: 3
+      }
+    ]);
+    expect(querier.querier.parameterQueryLookups).toEqual([
+      ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+    ]);
+
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
+      {
+        bucketParameters: [{ user_id: 'user1' }],
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+      }
+    ]);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1', device_id: 'device1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket-test["user1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      }
+    ]);
   });
 
   test('parse bucket with parameters and OR condition', () => {
