@@ -61,7 +61,7 @@ function createTableId(schema: string, tableName: string): string {
 }
 
 export class BinLogStream {
-  private readonly syncRules: sync_rules.SqlSyncRules;
+  private readonly syncRules: sync_rules.HydratedSyncRules;
   private readonly groupId: number;
 
   private readonly storage: storage.SyncRulesBucketStorage;

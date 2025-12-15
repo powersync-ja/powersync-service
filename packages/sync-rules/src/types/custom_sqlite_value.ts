@@ -1,7 +1,7 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { CompatibilityContext } from '../compatibility.js';
-import { SqliteValue, EvaluatedRow, SqliteInputValue, DatabaseInputValue } from '../types.js';
 import { SqliteValueType } from '../ExpressionType.js';
+import { EvaluatedRow, SqliteValue } from '../types.js';
 
 /**
  * A value that decays into a {@link SqliteValue} in a context-specific way.

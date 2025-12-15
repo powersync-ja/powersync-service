@@ -29,6 +29,7 @@ import {
   SqliteRow,
   SqliteValue,
   SqlSyncRules,
+  HydratedSyncRules,
   TablePattern,
   ToastableSqliteRow,
   toSyncRulesRow,
@@ -111,7 +112,7 @@ export class MissingReplicationSlotError extends Error {
 }
 
 export class WalStream {
-  sync_rules: SqlSyncRules;
+  sync_rules: HydratedSyncRules;
   group_id: number;
 
   connection_id = 1;

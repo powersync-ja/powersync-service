@@ -177,7 +177,10 @@ export const validate = routeDefinition({
           sync_rules: SqlSyncRules.fromYaml(content, {
             ...apiHandler.getParseSyncRulesOptions(),
             schema
-          })
+          }),
+          hydratedSyncRules() {
+            return this.sync_rules.hydrate();
+          }
         };
       },
       sync_rules_content: content,

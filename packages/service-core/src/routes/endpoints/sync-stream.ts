@@ -92,10 +92,7 @@ export const syncStreamed = routeDefinition({
       const syncLines = sync.streamResponse({
         syncContext: syncContext,
         bucketStorage,
-        syncRules: {
-          syncRules,
-          version: bucketStorage.group_id
-        },
+        syncRules,
         params: payload.params,
         token: payload.context.token_payload!,
         tracker,

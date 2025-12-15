@@ -10,7 +10,6 @@ import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
-  CompactOptions,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
@@ -25,10 +24,11 @@ import {
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
@@ -37,7 +37,6 @@ import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: MongoChecksumOptions;
@@ -61,7 +60,7 @@ export class MongoSyncBucketStorage
   private readonly db: PowerSyncMongo;
   readonly checksums: MongoChecksums;
 
-  private parsedSyncRulesCache: { parsed: SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
 
   constructor(
@@ -101,14 +100,14 @@ export class MongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): SqlSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).sync_rules, options };
+      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -170,7 +169,7 @@ export class MongoSyncBucketStorage
     await using batch = new MongoBucketBatch({
       logger: options.logger,
       db: this.db,
-      syncRules: this.sync_rules.parsed(options).sync_rules,
+      syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
@@ -293,7 +292,10 @@ export class MongoSyncBucketStorage
     return result!;
   }
 
-  async getParameterSets(checkpoint: MongoReplicationCheckpoint, lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(
+    checkpoint: MongoReplicationCheckpoint,
+    lookups: ScopedParameterLookup[]
+  ): Promise<SqliteJsonRow[]> {
     return this.db.client.withSession({ snapshot: true }, async (session) => {
       // Set the session's snapshot time to the checkpoint's snapshot time.
       // An alternative would be to create the session when the checkpoint is created, but managing
@@ -1025,7 +1027,7 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     public snapshotTime: mongo.Timestamp
   ) {}
 
-  async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
     return this.storage.getParameterSets(this, lookups);
   }
 }
@@ -1034,7 +1036,7 @@ class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
   readonly checkpoint: InternalOpId = 0n;
   readonly lsn: string | null = null;
 
-  async getParameterSets(lookups: ParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
     return [];
   }
 }

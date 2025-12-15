@@ -1,5 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { ParameterLookup } from '@powersync/service-sync-rules';
+import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -40,7 +40,7 @@ bucket_definitions:
       await batch.commit('1/1');
     });
 
-    const lookup = ParameterLookup.normalized('test', '1', ['t1']);
+    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1' }, ['t1']);
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup]);
@@ -151,7 +151,7 @@ bucket_definitions:
         await batch.commit('3/1');
       });
 
-      const lookup = ParameterLookup.normalized('test', '1', ['u1']);
+      const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1' }, ['u1']);
 
       const checkpoint1 = await bucketStorage.getCheckpoint();
       const parameters1 = await checkpoint1.getParameterSets([lookup]);
