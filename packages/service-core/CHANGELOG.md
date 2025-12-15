@@ -1,5 +1,15 @@
 # @powersync/service-core
 
+## 1.18.2
+
+### Patch Changes
+
+- 8fdbf8d: - Rework dynamic module loading, fixing startup issues for migration and compact jobs in 1.18.0 / 1.18.1
+- Updated dependencies [bdfd287]
+  - @powersync/service-sync-rules@0.29.10
+  - @powersync/lib-services-framework@0.7.14
+  - @powersync/service-rsocket-router@0.2.11
+
 ## 1.18.1
 
 ### Patch Changes

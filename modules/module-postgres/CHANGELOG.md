@@ -1,5 +1,21 @@
 # @powersync/service-module-postgres
 
+## 0.16.16
+
+### Patch Changes
+
+- a4ead94: Fix decoding arrays of enums, fix decoding `box[]` columns during initial replication.
+- bdfd287: Add the `timestamp_max_precision` option for sync rules. It can be set to `seconds`, `milliseconds` or `microseconds` to restrict the precision of synced datetime values.
+- c2da2be: Update `pgwire` to version `0.8.1`.
+- Updated dependencies [8fdbf8d]
+- Updated dependencies [bdfd287]
+- Updated dependencies [c2da2be]
+  - @powersync/service-core@1.18.2
+  - @powersync/service-sync-rules@0.29.10
+  - @powersync/service-jpgwire@0.21.9
+  - @powersync/lib-services-framework@0.7.14
+  - @powersync/lib-service-postgres@0.4.18
+
 ## 0.16.15
 
 ### Patch Changes
