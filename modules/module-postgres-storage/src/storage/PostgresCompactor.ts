@@ -123,16 +123,16 @@ export class PostgresCompactor {
           bucket_data
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
-          AND bucket_name >= ${{ type: 'varchar', value: bucketLower }}
+          AND bucket_name >= ${{ type: 'varchar', value: bucketLower }} COLLATE "C"
           AND (
             (
-              bucket_name = ${{ type: 'varchar', value: bucketUpper }}
+              bucket_name = ${{ type: 'varchar', value: bucketUpper }} COLLATE "C"
               AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
             )
             OR bucket_name < ${{ type: 'varchar', value: bucketUpper }} COLLATE "C" -- Use binary comparison
           )
         ORDER BY
-          bucket_name DESC,
+          bucket_name COLLATE "C" DESC,
           op_id DESC
         LIMIT
           ${{ type: 'int4', value: this.moveBatchQueryLimit }}
