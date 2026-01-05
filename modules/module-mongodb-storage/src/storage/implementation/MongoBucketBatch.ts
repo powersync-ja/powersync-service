@@ -547,7 +547,7 @@ export class MongoBucketBatch
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key: SourceKey = { g: this.group_id, t: sourceTable.id as bson.ObjectId, k: afterId };
+      const after_key: SourceKey = { g: this.group_id, t: mongoTableId(sourceTable.id), k: afterId };
       batch.upsertCurrentData(after_key, {
         data: afterData,
         buckets: new_buckets,
