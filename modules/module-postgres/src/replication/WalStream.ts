@@ -22,17 +22,17 @@ import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyValueContext,
   CompatibilityContext,
-  DatabaseInputRow,
+  HydratedSyncRules,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
-  SqlSyncRules,
   TablePattern,
   ToastableSqliteRow,
-  toSyncRulesRow
+  toSyncRulesValue
 } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
+import { PostgresTypeResolver } from '../types/resolver.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
@@ -107,7 +107,7 @@ export class MissingReplicationSlotError extends Error {
 }
 
 export class WalStream {
-  sync_rules: SqlSyncRules;
+  sync_rules: HydratedSyncRules;
   group_id: number;
 
   connection_id = 1;
@@ -363,11 +363,7 @@ WHERE  oid = $1::regclass`,
       params: [{ value: table.qualifiedName, type: 'varchar' }]
     });
     const row = results.rows[0];
-    if ((row?.[0] ?? -1n) == -1n) {
-      return -1;
-    } else {
-      return Number(row[0]);
-    }
+    return Number(row?.decodeWithoutCustomTypes(0) ?? -1n);
   }
 
   /**
@@ -445,10 +441,10 @@ WHERE  oid = $1::regclass`,
         // in the case of snapshot retries.
         // We could alternatively commit at the replication slot LSN.
 
-        // Get the current LSN for hte snapshot.
-        // We could also use the LSN from the last table snapshto.
+        // Get the current LSN for the snapshot.
+        // We could also use the LSN from the last table snapshot.
         const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-        const noCommitBefore = rs.rows[0][0];
+        const noCommitBefore = rs.rows[0].decodeWithoutCustomTypes(0);
 
         await batch.markAllSnapshotDone(noCommitBefore);
         await batch.commit(ZERO_LSN);
@@ -475,11 +471,25 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
-    for (let row of results) {
-      yield toSyncRulesRow(row);
-    }
+  static decodeRow(row: pgwire.PgRow, types: PostgresTypeResolver): SqliteInputRow {
+    let result: SqliteInputRow = {};
+
+    row.raw.forEach((rawValue, i) => {
+      const column = row.columns[i];
+      let mappedValue: SqliteInputValue;
+
+      if (typeof rawValue == 'string') {
+        mappedValue = toSyncRulesValue(types.registry.decodeDatabaseValue(rawValue, column.typeOid), false, true);
+      } else {
+        // Binary format, expose as-is.
+        mappedValue = rawValue;
+      }
+
+      result[column.name] = mappedValue;
+    });
+    return result;
   }
+
   private async snapshotTableInTx(
     batch: storage.BucketStorageBatch,
     db: pgwire.PgConnection,
@@ -507,8 +517,7 @@ WHERE  oid = $1::regclass`,
       // 2. Wait until logical replication has caught up with all the change between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
       const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-      const tableLsnNotBefore = rs.rows[0][0];
-
+      const tableLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
       const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
@@ -554,8 +563,6 @@ WHERE  oid = $1::regclass`,
     }
     await q.initialize();
 
-    let columns: { i: number; name: string }[] = [];
-    let columnMap: Record<string, number> = {};
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -569,31 +576,16 @@ WHERE  oid = $1::regclass`,
       // There are typically 100-200 rows per chunk.
       for await (let chunk of cursor) {
         if (chunk.tag == 'RowDescription') {
-          // We get a RowDescription for each FETCH call, but they should
-          // all be the same.
-          let i = 0;
-          columns = chunk.payload.map((c) => {
-            return { i: i++, name: c.name };
-          });
-          for (let column of chunk.payload) {
-            columnMap[column.name] = column.typeOid;
-          }
           continue;
         }
 
-        const rows = chunk.rows.map((row) => {
-          let q: DatabaseInputRow = {};
-          for (let c of columns) {
-            q[c.name] = row[c.i];
-          }
-          return q;
-        });
-        if (rows.length > 0) {
+        if (chunk.rows.length > 0) {
           hasRemainingData = true;
         }
 
-        for (const inputRecord of WalStream.getQueryData(rows)) {
-          const record = this.syncRulesRecord(this.connections.types.constructRowRecord(columnMap, inputRecord));
+        for (const rawRow of chunk.rows) {
+          const record = this.sync_rules.applyRowContext<never>(WalStream.decodeRow(rawRow, this.connections.types));
+
           // This auto-flushes when the batch reaches its size limit
           await batch.save({
             tag: storage.SaveOperationTag.INSERT,
@@ -605,8 +597,8 @@ WHERE  oid = $1::regclass`,
           });
         }
 
-        at += rows.length;
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(rows.length);
+        at += chunk.rows.length;
+        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(chunk.rows.length);
 
         this.touch();
       }

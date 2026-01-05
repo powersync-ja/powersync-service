@@ -1,10 +1,14 @@
 import sql from 'mssql';
 import {
   DatabaseInputRow,
+  DateTimeSourceOptions,
+  DateTimeValue,
   ExpressionType,
   SQLITE_FALSE,
   SQLITE_TRUE,
   SqliteInputRow,
+  TimeValue,
+  TimeValuePrecision,
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
 import { MSSQLUserDefinedType } from '../types/mssql-data-types.js';
@@ -32,14 +36,25 @@ export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): Sqlite
           result[key] = toISODateString(row[key] as Date);
           break;
         case sql.TYPES.Time:
-          result[key] = toISOTimeString(row[key] as Date);
+          result[key] = toISOTimeValue(row[key] as DateWithNanosecondsDelta);
           break;
         case sql.TYPES.DateTime:
         case sql.TYPES.DateTime2:
         case sql.TYPES.SmallDateTime:
         case sql.TYPES.DateTimeOffset: // The offset is lost when the driver converts to Date. This needs to be handled in the sql query.
-          const date = row[key] as Date;
-          result[key] = isNaN(date.getTime()) ? null : date.toISOString();
+          const date = row[key] as DateWithNanosecondsDelta;
+          if (isNaN(date.getTime())) {
+            result[key] = null;
+            break;
+          }
+
+          const originalFormat = date.toISOString();
+          const withNanos =
+            originalFormat.substring(0, originalFormat.length - 1) + // Drop the trailing Z
+            subMillisecondSuffix(date) + // Expand the .xyz millisecond part to include nanoseconds
+            'Z';
+
+          result[key] = new DateTimeValue(withNanos, withNanos, msSqlTimeSourceOptions);
           break;
         case sql.TYPES.Binary:
         case sql.TYPES.VarBinary:
@@ -74,13 +89,33 @@ function toISODateString(date: Date): string | null {
   return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
 }
 
+// https://github.com/tediousjs/tedious/blob/0c256f186600d7230aec05553ebad209bed81acc/src/value-parser.ts#L668-L670
+interface DateWithNanosecondsDelta extends Date {
+  nanosecondsDelta?: number;
+}
+
 /**
  *  MSSQL time format is HH:mm:ss[.nnnnnnn]
- * @param date
- * @returns
  */
-function toISOTimeString(date: Date): string | null {
-  return isNaN(date.getTime()) ? null : date.toISOString().split('T')[1].replace('Z', '');
+function toISOTimeValue(date: DateWithNanosecondsDelta): TimeValue | null {
+  if (isNaN(date.getTime())) {
+    return null;
+  }
+
+  const withMillis = date.toISOString().split('T')[1].replace('Z', '') + subMillisecondSuffix(date);
+  return TimeValue.parse(withMillis, msSqlTimeSourceOptions);
+}
+
+function subMillisecondSuffix(value: DateWithNanosecondsDelta): string {
+  if (value.nanosecondsDelta != null) {
+    // nanosecondsDelta is actually measured in seconds. It will always be smaller than 1ms though, because that delta
+    // is stored on the datetime itself. We truncate here as a precaution.
+    const actualNanos = Math.round(value.nanosecondsDelta * Math.pow(10, 9)) % Math.pow(10, 6);
+
+    return actualNanos.toString().padStart(6, '0');
+  } else {
+    return '000000';
+  }
 }
 
 /**
@@ -156,3 +191,9 @@ export function CDCToSqliteRow(options: CDCRowToSqliteRowOptions): SqliteInputRo
   }
   return toSqliteInputRow(filteredRow, columns);
 }
+
+const msSqlTimeSourceOptions: DateTimeSourceOptions = {
+  // We actually only have 100ns precision (7 digits), but all the options are SI prefixes.
+  subSecondPrecision: TimeValuePrecision.nanoseconds,
+  defaultSubSecondPrecision: TimeValuePrecision.nanoseconds
+};

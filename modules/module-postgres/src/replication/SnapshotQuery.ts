@@ -127,19 +127,19 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
       if (this.key.typeId == null) {
         throw new Error(`typeId required for primary key ${this.key.name}`);
       }
-      let type: StatementParam['type'] = Number(this.key.typeId);
+      const type = Number(this.key.typeId);
       stream = this.connection.stream({
         statement: `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapedKeyName} > $1 ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`,
         params: [{ value: this.lastKey, type }]
       });
     }
     let primaryKeyIndex: number = -1;
+    let typeOid = 0;
 
     for await (let chunk of stream) {
       if (chunk.tag == 'RowDescription') {
         // We get a RowDescription for each FETCH call, but they should
         // all be the same.
-        let i = 0;
         const pk = chunk.payload.findIndex((c) => c.name == this.key.name);
         if (pk < 0) {
           throw new Error(
@@ -147,10 +147,14 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
           );
         }
         primaryKeyIndex = pk;
+        typeOid = chunk.payload[pk].typeOid;
       }
 
       if (chunk.rows.length > 0) {
-        this.lastKey = chunk.rows[chunk.rows.length - 1][primaryKeyIndex];
+        this.lastKey = PgType.decode(chunk.rows[chunk.rows.length - 1].raw[primaryKeyIndex], typeOid) as
+          | string
+          | bigint
+          | null;
       }
       yield chunk;
     }

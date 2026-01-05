@@ -32,8 +32,8 @@ export async function getPrimaryKeyColumns(
 
   return attrRows.rows.map((row) => {
     return {
-      name: row[0] as string,
-      typeId: row[1] as number
+      name: row.decodeWithoutCustomTypes(0) as string,
+      typeId: row.decodeWithoutCustomTypes(1) as number
     } satisfies storage.ColumnDescriptor;
   });
 }
@@ -50,8 +50,8 @@ export async function getAllColumns(db: pgwire.PgClient, relationId: number): Pr
   });
   return attrRows.rows.map((row) => {
     return {
-      name: row[0] as string,
-      typeId: row[1] as number
+      name: row.decodeWithoutCustomTypes(0) as string,
+      typeId: row.decodeWithoutCustomTypes(1) as number
     } satisfies storage.ColumnDescriptor;
   });
 }
@@ -71,7 +71,7 @@ FROM pg_class
 WHERE oid = $1::oid LIMIT 1`,
     params: [{ type: 'int8', value: relationId }]
   });
-  const idType: string = rows.rows[0]?.[0];
+  const idType: string = rows.rows[0]?.decodeWithoutCustomTypes(0);
   if (idType == 'nothing' || idType == null) {
     return { replicationIdentity: 'nothing', replicationColumns: [] };
   } else if (idType == 'full') {

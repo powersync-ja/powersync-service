@@ -1,5 +1,38 @@
 # @powersync/service-module-mongodb
 
+## 0.12.16
+
+### Patch Changes
+
+- bdfd287: Add the `timestamp_max_precision` option for sync rules. It can be set to `seconds`, `milliseconds` or `microseconds` to restrict the precision of synced datetime values.
+- Updated dependencies [8fdbf8d]
+- Updated dependencies [bdfd287]
+  - @powersync/service-core@1.18.2
+  - @powersync/service-sync-rules@0.29.10
+  - @powersync/lib-services-framework@0.7.14
+  - @powersync/lib-service-mongodb@0.6.16
+
+## 0.12.15
+
+### Patch Changes
+
+- Updated dependencies [21b3a41]
+  - @powersync/service-sync-rules@0.29.9
+  - @powersync/lib-services-framework@0.7.13
+  - @powersync/service-core@1.18.1
+  - @powersync/lib-service-mongodb@0.6.15
+
+## 0.12.14
+
+### Patch Changes
+
+- Updated dependencies [dc696b1]
+- Updated dependencies [b77bb2c]
+  - @powersync/service-core@1.18.0
+  - @powersync/service-types@0.13.3
+  - @powersync/lib-services-framework@0.7.12
+  - @powersync/lib-service-mongodb@0.6.14
+
 ## 0.12.13
 
 ### Patch Changes

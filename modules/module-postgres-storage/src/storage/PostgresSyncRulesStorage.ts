@@ -4,7 +4,6 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
-  CompactOptions,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -60,7 +59,9 @@ export class PostgresSyncRulesStorage
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
 
   //   TODO we might be able to share this in an abstract class
-  private parsedSyncRulesCache: { parsed: sync_rules.SqlSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncRulesCache:
+    | { parsed: sync_rules.HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | undefined;
   private _checksumCache: storage.ChecksumCache | undefined;
 
   constructor(protected options: PostgresSyncRulesStorageOptions) {
@@ -96,14 +97,14 @@ export class PostgresSyncRulesStorage
   }
 
   //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.SqlSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).sync_rules, options };
+      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -349,7 +350,7 @@ export class PostgresSyncRulesStorage
     const batch = new PostgresBucketBatch({
       logger: options.logger ?? framework.logger,
       db: this.db,
-      sync_rules: this.sync_rules.parsed(options).sync_rules,
+      sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
       group_id: this.group_id,
       slot_name: this.slot_name,
       last_checkpoint_lsn: checkpoint_lsn,
@@ -373,7 +374,7 @@ export class PostgresSyncRulesStorage
 
   async getParameterSets(
     checkpoint: ReplicationCheckpoint,
-    lookups: sync_rules.ParameterLookup[]
+    lookups: sync_rules.ScopedParameterLookup[]
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
       SELECT DISTINCT
@@ -878,7 +879,7 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     public readonly lsn: string | null
   ) {}
 
-  getParameterSets(lookups: sync_rules.ParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
+  getParameterSets(lookups: sync_rules.ScopedParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
     return this.storage.getParameterSets(this, lookups);
   }
 }

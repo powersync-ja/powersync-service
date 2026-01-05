@@ -117,7 +117,7 @@ export function toSQLiteRow(
         case mysql.Types.DATE:
           // Only parse the date part
           {
-            const date = row[key] as Date;
+            const date = new Date(row[key]);
             if (isNaN(date.getTime())) {
               // Invalid dates, such as 2024-00-00.
               // we can't do anything meaningful with this, so just use null.
@@ -132,13 +132,18 @@ export function toSQLiteRow(
         case mysql.Types.TIMESTAMP:
         case ADDITIONAL_MYSQL_TYPES.TIMESTAMP2:
           {
-            const date = row[key] as Date;
-            if (isNaN(date.getTime())) {
+            // Source format: "2023-03-06 15:47:00.000" (always in UTC). We:
+            //  1. Add the suffix so that `new Date` doesn't interpret the value in the local timezone.
+            //  2. Replace the space with `T` to make it a valid ISO format.
+            const formattedDate = `${(row[key] as string).replace(' ', 'T')}Z`;
+            const parsed = new Date(formattedDate);
+
+            if (isNaN(parsed.getTime())) {
               // Invalid dates, such as 2024-00-00.
               // we can't do anything meaningful with this, so just use null.
               result[key] = null;
             } else {
-              result[key] = date.toISOString();
+              result[key] = new sync_rules.DateTimeValue(formattedDate, parsed.toISOString(), mySqlDateTimeOptions);
             }
           }
           break;
@@ -241,3 +246,9 @@ export function toExpressionTypeFromMySQLType(mysqlType: string | undefined): Ex
       return ExpressionType.TEXT;
   }
 }
+
+// We can provide microsecond accuracy, but for backwards compatibility we only offer millisecond accuracy by default.
+const mySqlDateTimeOptions: sync_rules.DateTimeSourceOptions = {
+  subSecondPrecision: sync_rules.TimeValuePrecision.microseconds,
+  defaultSubSecondPrecision: sync_rules.TimeValuePrecision.milliseconds
+};

@@ -12,14 +12,9 @@ import {
   WatchFilterEvent
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import {
-  SqliteJsonRow,
-  ParameterLookup,
-  SqlSyncRules,
-  RequestJwtPayload,
-  BucketSource
-} from '@powersync/service-sync-rules';
-import { describe, expect, test, beforeEach } from 'vitest';
+import { RequestJwtPayload, ScopedParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
+import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { beforeEach, describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {
   // Single global[] bucket.
@@ -31,7 +26,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  );
+  ).hydrate({ hydrationState: versionedHydrationState(1) });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -44,7 +39,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  );
+  ).hydrate({ hydrationState: versionedHydrationState(2) });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -55,7 +50,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  );
+  ).hydrate({ hydrationState: versionedHydrationState(3) });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -75,10 +70,7 @@ bucket_definitions:
       syncContext,
       syncRequest,
       tokenPayload,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
@@ -148,10 +140,7 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'global[]', after: '1' }] },
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
@@ -189,10 +178,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 2
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -260,10 +246,7 @@ bucket_definitions:
       tokenPayload,
       // Client sets the initial state here
       syncRequest: { buckets: [{ name: 'something_here[]', after: '1' }] },
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
 
@@ -304,10 +287,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 1
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -360,10 +340,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 2
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -418,10 +395,7 @@ bucket_definitions:
       syncContext,
       tokenPayload,
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_GLOBAL_TWO,
-        version: 2
-      },
+      syncRules: SYNC_RULES_GLOBAL_TWO,
       bucketStorage: storage
     });
 
@@ -525,16 +499,13 @@ bucket_definitions:
       syncContext,
       tokenPayload: { sub: 'u1' },
       syncRequest,
-      syncRules: {
-        syncRules: SYNC_RULES_DYNAMIC,
-        version: 1
-      },
+      syncRules: SYNC_RULES_DYNAMIC,
       bucketStorage: storage
     });
 
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
-        expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
         return [{ id: 1 }, { id: 2 }];
       }),
       writeCheckpoint: null,
@@ -595,7 +566,7 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
-        expect(lookups).toEqual([ParameterLookup.normalized('by_project', '1', ['u1'])]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
       writeCheckpoint: null,
@@ -627,7 +598,6 @@ bucket_definitions:
   });
 
   describe('streams', () => {
-    let source: { -readonly [P in keyof BucketSource]: BucketSource[P] };
     let storage: MockBucketChecksumStateStorage;
 
     function checksumState(source: string | boolean, options?: Partial<BucketChecksumStateOptions>) {
@@ -645,13 +615,13 @@ config:
 
       const rules = SqlSyncRules.fromYaml(source, {
         defaultSchema: 'public'
-      });
+      }).hydrate({ hydrationState: versionedHydrationState(1) });
 
       return new BucketChecksumState({
         syncContext,
         syncRequest,
         tokenPayload,
-        syncRules: { syncRules: rules, version: 1 },
+        syncRules: rules,
         bucketStorage: storage,
         ...options
       });
@@ -884,12 +854,12 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
 
   makeCheckpoint(
     opId: InternalOpId,
-    parameters?: (lookups: ParameterLookup[]) => SqliteJsonRow[]
+    parameters?: (lookups: ScopedParameterLookup[]) => SqliteJsonRow[]
   ): ReplicationCheckpoint {
     return {
       checkpoint: opId,
       lsn: String(opId),
-      getParameterSets: async (lookups: ParameterLookup[]) => {
+      getParameterSets: async (lookups: ScopedParameterLookup[]) => {
         if (parameters == null) {
           throw new Error(`getParametersSets not defined for checkpoint ${opId}`);
         }

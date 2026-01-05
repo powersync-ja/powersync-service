@@ -1,14 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqlEventDescriptor, SqliteRow, SqliteValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
   BaseObserver,
   container,
+  logger as defaultLogger,
   ErrorCode,
   errors,
   Logger,
-  logger as defaultLogger,
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
@@ -23,13 +23,13 @@ import {
   utils
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
+import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 
 /**
  * 15MB
@@ -47,7 +47,7 @@ export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
 
 export interface MongoBucketBatchOptions {
   db: PowerSyncMongo;
-  syncRules: SqlSyncRules;
+  syncRules: HydratedSyncRules;
   groupId: number;
   slotName: string;
   lastCheckpointLsn: string | null;
@@ -73,7 +73,7 @@ export class MongoBucketBatch
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
-  private readonly sync_rules: SqlSyncRules;
+  private readonly sync_rules: HydratedSyncRules;
 
   private readonly group_id: number;
 
@@ -469,8 +469,7 @@ export class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.group_id}`)
+          sourceTable
         });
 
         for (let error of syncErrors) {

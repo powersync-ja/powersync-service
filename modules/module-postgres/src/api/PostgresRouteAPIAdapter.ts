@@ -108,7 +108,8 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
         results: {
           columns: result.columns.map((c) => c.name),
           rows: result.rows.map((row) => {
-            return row.map((value) => {
+            return row.raw.map((raw, i) => {
+              const value = pgwire.PgType.decode(raw, row.columns[i].typeOid);
               const sqlValue = sync_rules.applyValueContext(
                 sync_rules.toSyncRulesValue(value),
                 sync_rules.CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
@@ -252,7 +253,7 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
     // For those, we need to use pg_current_wal_lsn() instead.
     const { results } = await lib_postgres.retriedQuery(this.pool, `SELECT pg_current_wal_lsn() as lsn`);
 
-    const lsn = results[0].rows[0][0];
+    const lsn = results[0].rows[0].decodeWithoutCustomTypes(0);
     return String(lsn);
   }
 

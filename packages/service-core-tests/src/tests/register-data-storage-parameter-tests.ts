@@ -1,6 +1,6 @@
 import { storage } from '@powersync/service-core';
-import { ParameterLookup, RequestParameters } from '@powersync/service-sync-rules';
-import { SqlBucketDescriptor } from '@powersync/service-sync-rules/src/SqlBucketDescriptor.js';
+import { RequestParameters, ScopedParameterLookup } from '@powersync/service-sync-rules';
+import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -17,6 +17,7 @@ import * as test_utils from '../test-utils/test-utils-index.js';
 export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
   const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
+  const MYBUCKET_1: ParameterLookupScope = { lookupName: 'mybucket', queryId: '1' };
 
   test('save and load parameters', async () => {
     await using factory = await generateStorageFactory();
@@ -62,7 +63,7 @@ bucket_definitions:
     });
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
     expect(parameters).toEqual([
       {
         group_id: 'group1a'
@@ -111,7 +112,7 @@ bucket_definitions:
     });
     const checkpoint2 = await bucketStorage.getCheckpoint();
 
-    const parameters = await checkpoint2.getParameterSets([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    const parameters = await checkpoint2.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
     expect(parameters).toEqual([
       {
         group_id: 'group2'
@@ -119,7 +120,7 @@ bucket_definitions:
     ]);
 
     // Use the checkpoint to get older data if relevant
-    const parameters2 = await checkpoint1.getParameterSets([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    const parameters2 = await checkpoint1.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
     expect(parameters2).toEqual([
       {
         group_id: 'group1'
@@ -189,8 +190,8 @@ bucket_definitions:
     // association of `list1`::`todo2`
     const checkpoint = await bucketStorage.getCheckpoint();
     const parameters = await checkpoint.getParameterSets([
-      ParameterLookup.normalized('mybucket', '1', ['list1']),
-      ParameterLookup.normalized('mybucket', '1', ['list2'])
+      ScopedParameterLookup.direct(MYBUCKET_1, ['list1']),
+      ScopedParameterLookup.direct(MYBUCKET_1, ['list2'])
     ]);
 
     expect(parameters.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
@@ -239,16 +240,14 @@ bucket_definitions:
     const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters1 = await checkpoint.getParameterSets([
-      ParameterLookup.normalized('mybucket', '1', [314n, 314, 3.14])
+      ScopedParameterLookup.direct(MYBUCKET_1, [314n, 314, 3.14])
     ]);
     expect(parameters1).toEqual([TEST_PARAMS]);
     const parameters2 = await checkpoint.getParameterSets([
-      ParameterLookup.normalized('mybucket', '1', [314, 314n, 3.14])
+      ScopedParameterLookup.direct(MYBUCKET_1, [314, 314n, 3.14])
     ]);
     expect(parameters2).toEqual([TEST_PARAMS]);
-    const parameters3 = await checkpoint.getParameterSets([
-      ParameterLookup.normalized('mybucket', '1', [314n, 314, 3])
-    ]);
+    const parameters3 = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, [314n, 314, 3])]);
     expect(parameters3).toEqual([]);
   });
 
@@ -303,7 +302,7 @@ bucket_definitions:
     const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters1 = await checkpoint.getParameterSets([
-      ParameterLookup.normalized('mybucket', '1', [1152921504606846976n])
+      ScopedParameterLookup.direct(MYBUCKET_1, [1152921504606846976n])
     ]);
     expect(parameters1).toEqual([TEST_PARAMS]);
   });
@@ -322,7 +321,7 @@ bucket_definitions:
       data: []
     `
     });
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -342,21 +341,19 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
-    const q1 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[0];
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const lookups = q1.getLookups(parameters);
-    expect(lookups).toEqual([ParameterLookup.normalized('by_workspace', '1', ['u1'])]);
+    const lookups = querier.parameterQueryLookups;
+    expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1' }, ['u1'])]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
 
-    const buckets = await sync_rules
-      .getBucketParameterQuerier(test_utils.querierOptions(parameters))
-      .querier.queryDynamicBucketDescriptions({
-        getParameterSets(lookups) {
-          return checkpoint.getParameterSets(lookups);
-        }
-      });
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      getParameterSets(lookups) {
+        return checkpoint.getParameterSets(lookups);
+      }
+    });
     expect(buckets).toEqual([
       { bucket: 'by_workspace["workspace1"]', priority: 3, definition: 'by_workspace', inclusion_reasons: ['default'] }
     ]);
@@ -376,7 +373,7 @@ bucket_definitions:
       data: []
     `
     });
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -418,22 +415,20 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'unknown' }, {});
 
-    const q1 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[0];
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const lookups = q1.getLookups(parameters);
-    expect(lookups).toEqual([ParameterLookup.normalized('by_public_workspace', '1', [])]);
+    const lookups = querier.parameterQueryLookups;
+    expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_public_workspace', queryId: '1' }, [])]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
-    const buckets = await sync_rules
-      .getBucketParameterQuerier(test_utils.querierOptions(parameters))
-      .querier.queryDynamicBucketDescriptions({
-        getParameterSets(lookups) {
-          return checkpoint.getParameterSets(lookups);
-        }
-      });
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      getParameterSets(lookups) {
+        return checkpoint.getParameterSets(lookups);
+      }
+    });
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
       {
@@ -467,7 +462,7 @@ bucket_definitions:
       data: []
     `
     });
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).sync_rules;
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -522,31 +517,25 @@ bucket_definitions:
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
     // Test intermediate values - could be moved to sync_rules.test.ts
-    const q1 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[0];
-    const lookups1 = q1.getLookups(parameters);
-    expect(lookups1).toEqual([ParameterLookup.normalized('by_workspace', '1', [])]);
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const parameter_sets1 = await checkpoint.getParameterSets(lookups1);
-    parameter_sets1.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    expect(parameter_sets1).toEqual([{ workspace_id: 'workspace1' }]);
+    const lookups = querier.parameterQueryLookups;
+    expect(lookups).toEqual([
+      ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1' }, []),
+      ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '2' }, ['u1'])
+    ]);
 
-    const q2 = (sync_rules.bucketSources[0] as SqlBucketDescriptor).parameterQueries[1];
-    const lookups2 = q2.getLookups(parameters);
-    expect(lookups2).toEqual([ParameterLookup.normalized('by_workspace', '2', ['u1'])]);
-
-    const parameter_sets2 = await checkpoint.getParameterSets(lookups2);
-    parameter_sets2.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    expect(parameter_sets2).toEqual([{ workspace_id: 'workspace3' }]);
+    const parameter_sets = await checkpoint.getParameterSets(lookups);
+    parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
     // Test final values - the important part
     const buckets = (
-      await sync_rules
-        .getBucketParameterQuerier(test_utils.querierOptions(parameters))
-        .querier.queryDynamicBucketDescriptions({
-          getParameterSets(lookups) {
-            return checkpoint.getParameterSets(lookups);
-          }
-        })
+      await querier.queryDynamicBucketDescriptions({
+        getParameterSets(lookups) {
+          return checkpoint.getParameterSets(lookups);
+        }
+      })
     ).map((e) => e.bucket);
     buckets.sort();
     expect(buckets).toEqual(['by_workspace["workspace1"]', 'by_workspace["workspace3"]']);
@@ -584,7 +573,7 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = await checkpoint.getParameterSets([ParameterLookup.normalized('mybucket', '1', ['user1'])]);
+    const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
     expect(parameters).toEqual([]);
   });
 

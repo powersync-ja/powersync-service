@@ -316,8 +316,8 @@ importers:
         specifier: workspace:*
         version: link:../../libs/lib-services
       '@powersync/mysql-zongji':
-        specifier: ^0.5.0
-        version: 0.5.0
+        specifier: ^0.6.0
+        version: 0.6.0
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -391,24 +391,12 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
-      jose:
-        specifier: ^4.15.1
-        version: 4.15.9
-      p-defer:
-        specifier: ^4.0.1
-        version: 4.0.1
-      pgwire:
-        specifier: github:exe-dealer/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
-        version: https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
       semver:
         specifier: ^7.5.4
         version: 7.6.2
       ts-codec:
         specifier: ^1.3.0
         version: 1.3.0
-      uri-js:
-        specifier: ^4.4.1
-        version: 4.4.1
       uuid:
         specifier: ^11.1.0
         version: 11.1.0
@@ -484,8 +472,8 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       pgwire:
-        specifier: github:exe-dealer/pgwire#f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
-        version: https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87
+        specifier: ^0.8.1
+        version: 0.8.1
     devDependencies:
       vitest:
         specifier: ^3.2.4
@@ -1492,8 +1480,8 @@ packages:
     resolution: {integrity: sha512-UA91GwWPhFExt3IizW6bOeY/pQ0BkuNwKjk9iQW9KqxluGCrg4VenZ0/L+2Y0+ZOtme72EVvg6v0zo3AMQRCeA==}
     engines: {node: '>=12'}
 
-  '@powersync/mysql-zongji@0.5.0':
-    resolution: {integrity: sha512-wJfZFIsNK8aIyGYvTvz98wxNeo2tv7i05pSkPTEVOeOcsbEF8+CO0vRJpGOLr5or1+BzGDlpUkxJU21JbKFBzA==}
+  '@powersync/mysql-zongji@0.6.0':
+    resolution: {integrity: sha512-iLWHTqDtoSmZye3Zh4TpKohFL+teqzoi+MGeFlmE6AAN50LeGm3XhJ+aWTGbheOjv7ZLildt+7SXlH4o4idZaw==}
     engines: {node: '>=22.0.0'}
 
   '@prisma/instrumentation@6.13.0':
@@ -3461,10 +3449,9 @@ packages:
   pgsql-ast-parser@11.2.0:
     resolution: {integrity: sha512-/8KCcQjePoQDOtfZQuoV/4Y3WpmQVp7E+RFayAdjJpdBdu2dBnKnuQe9XU4g5Td5qC0G+i/fFK/DlNjvWwg+FA==}
 
-  pgwire@https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87:
-    resolution: {tarball: https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87}
-    version: 0.7.0
-    engines: {node: '>=14.18.0'}
+  pgwire@0.8.1:
+    resolution: {integrity: sha512-9Q1Mh5eR0IaeTrfZ+vovkj0zyEpxTijEbGizMezwUjo1vSbJnequf7Y+roSQph7POuJ7xOPDqjQJUMM2OQR+zw==}
+    engines: {node: '>=18.17.0'}
 
   picocolors@1.0.1:
     resolution: {integrity: sha512-anP1Z8qwhkbmu7MFP5iTt+wQKXgwzf7zTyGlcdzabySa9vd0Xt392U0rVmz9poOaBj0uHJKyyo9/upk0HrEQew==}
@@ -5347,7 +5334,7 @@ snapshots:
       '@pnpm/network.ca-file': 1.0.2
       config-chain: 1.1.13
 
-  '@powersync/mysql-zongji@0.5.0':
+  '@powersync/mysql-zongji@0.6.0':
     dependencies:
       '@vlasky/mysql': 2.18.6
       big-integer: 1.6.52
@@ -7402,7 +7389,7 @@ snapshots:
       moo: 0.5.2
       nearley: 2.20.1
 
-  pgwire@https://codeload.github.com/exe-dealer/pgwire/tar.gz/f1cb95f9a0f42a612bb5a6b67bb2eb793fc5fc87: {}
+  pgwire@0.8.1: {}
 
   picocolors@1.0.1: {}
 

@@ -10,7 +10,13 @@ import {
 } from '@powersync/lib-services-framework';
 import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
 
-import { SqliteInputRow, SqliteRow, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import {
+  SqliteInputRow,
+  SqliteRow,
+  SqlSyncRules,
+  HydratedSyncRules,
+  TablePattern
+} from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
 import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
@@ -82,7 +88,7 @@ export class CDCDataExpiredError extends DatabaseConnectionError {
 }
 
 export class CDCStream {
-  private readonly syncRules: SqlSyncRules;
+  private readonly syncRules: HydratedSyncRules;
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly connections: MSSQLConnectionManager;
   private readonly abortSignal: AbortSignal;
