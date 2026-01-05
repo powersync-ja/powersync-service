@@ -711,7 +711,7 @@ export class MongoBucketBatch
         { $literal: null },
         {
           $toString: {
-            $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }]
+            $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }, 0n]
           }
         }
       ]
@@ -721,7 +721,7 @@ export class MongoBucketBatch
       $cond: [
         can_checkpoint,
         {
-          $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }]
+          $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }, 0n]
         },
         '$last_checkpoint'
       ]

@@ -344,17 +344,19 @@ export class PostgresBucketBatch
             selected.*,
             CASE
               WHEN selected.can_checkpoint THEN GREATEST(
-                COALESCE(selected.last_checkpoint, 0),
-                COALESCE(${{ type: 'int8', value: persisted_op }}, 0),
-                COALESCE(selected.keepalive_op, 0)
+                selected.last_checkpoint,
+                ${{ type: 'int8', value: persisted_op }},
+                selected.keepalive_op,
+                0
               )
               ELSE selected.last_checkpoint
             END AS new_last_checkpoint,
             CASE
               WHEN selected.can_checkpoint THEN NULL
               ELSE GREATEST(
-                COALESCE(selected.keepalive_op, 0),
-                COALESCE(${{ type: 'int8', value: persisted_op }}, 0)
+                selected.keepalive_op,
+                ${{ type: 'int8', value: persisted_op }},
+                0
               )
             END AS new_keepalive_op
           FROM
