@@ -1,7 +1,8 @@
-import { Expr, NodeLocation, toSql } from 'pgsql-ast-parser';
+import { assignChanged, astMapper, Expr, NodeLocation, toSql } from 'pgsql-ast-parser';
 import { SourceResultSet } from './table.js';
 import { EqualsIgnoringResultSet, equalsIgnoringResultSetList } from './compatibility.js';
 import { StableHasher } from '../compiler/equality.js';
+import { expandNodeLocations } from '../errors.js';
 
 /**
  * An analyzed SQL expression tracking dependencies on non-static data (i.e. rows or connection sources).
@@ -48,6 +49,27 @@ export class SyncExpression implements EqualsIgnoringResultSet {
   assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
     hasher.addString(this.formattedSql);
     equalsIgnoringResultSetList.hash(hasher, this.instantiation);
+  }
+
+  /**
+   * Merges two sync expressions, automatically patching variable references to ensure they match the combined
+   * expression.
+   */
+  static compose(a: SyncExpression, b: SyncExpression, combine: (a: Expr, b: Expr) => Expr): SyncExpression {
+    const bExpr = astMapper((m) => ({
+      parameter: (st) => {
+        // All parameters are named ?<idx>, rename those in b to avoid collisions with a
+        const originalIndex = Number(st.name.substring(1));
+        const newIndex = a.instantiation.length + originalIndex;
+
+        return assignChanged(st, { name: `?${newIndex}` });
+      }
+    })).expr(b.sqlExpression)!;
+
+    const combined = combine(a.sqlExpression, bExpr);
+    combined._location = expandNodeLocations([a.sqlExpression, bExpr])!;
+
+    return new SyncExpression(combined, [...a.instantiation, ...b.instantiation]);
   }
 }
 
