@@ -1,4 +1,4 @@
-import { Expr, NodeLocation } from 'pgsql-ast-parser';
+import { Expr, NodeLocation, PGNode } from 'pgsql-ast-parser';
 import * as yaml from 'yaml';
 
 export interface ErrorLocation {
@@ -6,7 +6,23 @@ export interface ErrorLocation {
   end: number;
 }
 
-function getLocation(location?: NodeLocation | Expr): NodeLocation | undefined {
+export function expandNodeLocations(nodes: Iterable<PGNode | NodeLocation | undefined>): NodeLocation | undefined {
+  let location: NodeLocation | undefined = undefined;
+  for (const node of nodes) {
+    const nodeLocation = getLocation(node);
+    if (nodeLocation == null) continue;
+
+    if (location == null) {
+      location = nodeLocation;
+    } else {
+      location = { start: Math.min(location.start, nodeLocation.start), end: Math.max(location.end, nodeLocation.end) };
+    }
+  }
+
+  return location;
+}
+
+function getLocation(location?: NodeLocation | PGNode): NodeLocation | undefined {
   if (location != null && !isLocation(location)) {
     return location._location;
   } else if (isLocation(location)) {
@@ -16,7 +32,7 @@ function getLocation(location?: NodeLocation | Expr): NodeLocation | undefined {
   }
 }
 
-function isLocation(location?: NodeLocation | Expr): location is NodeLocation {
+function isLocation(location?: NodeLocation | PGNode): location is NodeLocation {
   return (
     location != null &&
     typeof (location as NodeLocation).start == 'number' &&
@@ -31,7 +47,7 @@ export class SqlRuleError extends Error {
   constructor(
     message: string,
     public sql: string,
-    location?: NodeLocation | Expr
+    location?: NodeLocation | PGNode
   ) {
     super(message);
 
