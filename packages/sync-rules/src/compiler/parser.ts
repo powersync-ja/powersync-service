@@ -2,8 +2,8 @@ import {
   astMapper,
   BinaryOperator,
   Expr,
-  ExprBinary,
   ExprParameter,
+  ExprRef,
   From,
   nil,
   NodeLocation,
@@ -33,6 +33,8 @@ import {
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
 import { intrinsicContains } from './sqlite.js';
+import { SqlScope } from './scope.js';
+import { ParsingErrorListener } from './compiler.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -71,49 +73,23 @@ interface ParsedStreamQuery {
   where: Or;
 }
 
-interface ParsingErrorListener {
-  report(message: string, location: NodeLocation | PGNode): void;
-}
-
-class SqlScope {
-  readonly parent?: SqlScope;
-  private readonly nameToResultSet = new Map<string, SyntacticResultSetSource>();
-
-  constructor(options: { parent?: SqlScope }) {
-    this.parent = options.parent;
-  }
-
-  get resultSets(): SyntacticResultSetSource[] {
-    return [...this.nameToResultSet.values()];
-  }
-
-  registerResultSet(errors: ParsingErrorListener, name: string, source: SyntacticResultSetSource) {
-    const lower = name.toLowerCase();
-    if (this.nameToResultSet.has(lower)) {
-      errors.report(`Table with name ${name} already exists in scope`, source.origin);
-      return;
-    } else {
-      this.nameToResultSet.set(lower, source);
-    }
-  }
-
-  resolveResultSetForReference(name: string): SyntacticResultSetSource | undefined {
-    return this.nameToResultSet.get(name.toLowerCase());
-  }
-}
-
 export class StreamQueryParser {
+  readonly errors: ParsingErrorListener;
+  private readonly statementScope: SqlScope;
   // Note: This is not the same as SqlScope since some result sets are inlined from CTEs or subqueries. These are not in
   // scope, but we still add them here to correctly track dependencies.
   private readonly resultSets = new Map<SyntacticResultSetSource, SourceResultSet>();
   private readonly resultColumns: ColumnSource[] = [];
-  private where: [SqlScope, Expr][] = [];
+  private where: Expr[] = [];
 
   /** The result set for which rows are synced. Set when analyzing result columns. */
   private primaryResultSet?: PhysicalSourceResultSet;
   private syntheticSubqueryCounter: number = 0;
 
-  constructor(readonly errors: ParsingErrorListener) {}
+  constructor(options: { errors: ParsingErrorListener; parentScope?: SqlScope }) {
+    this.errors = options.errors;
+    this.statementScope = new SqlScope({ parent: options.parentScope });
+  }
 
   parse(stmt: Statement): ParsedStreamQuery | null {
     if (this.processAst(stmt, { forSubquery: false })) {
@@ -151,21 +127,23 @@ export class StreamQueryParser {
    * Process the AST of a statement, returning whether it's close enough to a valid select statement to be supported for
    * sync streams (allowing us to process an invalid statement further to perhaps collect more errors).
    */
-  private processAst(node: Statement, options: { forSubquery: boolean; parentScope?: SqlScope }): boolean {
+  private processAst(node: Statement, options: { forSubquery: boolean }): boolean {
     if (node.type != 'select') {
       // TODO: Support with statements
       this.errors.report('Expected a SELECT statement', node);
       return false;
     }
 
-    const scope = new SqlScope({ parent: options.parentScope });
-    node.from?.forEach((f) => this.processFrom(scope, f));
+    // Create scope and bind to statement
+    this.statementScope.bindingVisitor(node).statement(node);
+
+    node.from?.forEach((f) => this.processFrom(f));
     if (node.where) {
-      this.where.push([scope, node.where]);
+      this.where.push(node.where);
     }
 
     if (!options.forSubquery && node.columns) {
-      this.processResultColumns(scope, node.columns);
+      this.processResultColumns(node.columns);
     }
 
     this.warnUnsupported(node.groupBy, 'GROUP BY');
@@ -178,7 +156,8 @@ export class StreamQueryParser {
     return true;
   }
 
-  private processFrom(scope: SqlScope, from: From) {
+  private processFrom(from: From) {
+    const scope = this.statementScope;
     let handled = false;
     if (from.type == 'table') {
       const source = new SyntacticResultSetSource(from.name);
@@ -209,7 +188,7 @@ export class StreamQueryParser {
       }
 
       if (join.on) {
-        this.where.push([scope, join.on]);
+        this.where.push(join.on);
       }
     }
 
@@ -218,7 +197,7 @@ export class StreamQueryParser {
     }
   }
 
-  private processResultColumns(scope: SqlScope, columns: SelectedColumn[]) {
+  private processResultColumns(columns: SelectedColumn[]) {
     const selectsFrom = (source: SourceResultSet, node: PGNode) => {
       if (source instanceof PhysicalSourceResultSet) {
         if (this.primaryResultSet == null) {
@@ -236,14 +215,14 @@ export class StreamQueryParser {
 
     for (const column of columns) {
       if (column.expr.type == 'ref' && column.expr.name == '*') {
-        const resolved = this.resolveTableName(scope, column.expr, column.expr.table?.name);
+        const resolved = this.resolveTableName(column.expr, column.expr.table?.name);
         if (resolved != null) {
           selectsFrom(resolved, column.expr);
         }
 
         this.resultColumns.push(StarColumnSource.instance);
       } else {
-        const expr = this.parseExpression(scope, column.expr, true);
+        const expr = this.parseExpression(column.expr, true);
 
         for (const dependency of expr.instantiation) {
           if (dependency instanceof ColumnInRow) {
@@ -269,15 +248,20 @@ export class StreamQueryParser {
     }
   }
 
-  private parseExpression(scope: SqlScope, source: Expr, desugar: boolean): SyncExpression {
+  private parseExpression(source: Expr, desugar: boolean): SyncExpression {
     if (desugar) {
-      source = this.desugarSubqueries(scope, source);
+      source = this.desugarSubqueries(source);
     }
 
-    return trackDependencies(this, scope, source);
+    return trackDependencies(this, source);
   }
 
-  resolveTableName(scope: SqlScope, node: PGNode, name: string | nil): SourceResultSet | null {
+  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | null {
+    const scope = SqlScope.readBoundScope(node);
+    if (scope == null) {
+      throw new Error('internal: Tried to resolve reference that has not been attached to a scope');
+    }
+
     if (name == null) {
       // For unqualified references, there must be a single table in scope. We don't allow unqualified references if
       // there are multiple tables because we don't know which column is available in which table with certainty (and
@@ -318,10 +302,10 @@ export class StreamQueryParser {
     }
   }
 
-  private compileFilterClause(terms: [SqlScope, Expr][]): Or {
+  private compileFilterClause(terms: Expr[]): Or {
     const andTerms: PendingFilterExpression[] = [];
-    for (const [scope, expr] of terms) {
-      andTerms.push(this.extractBooleanOperators(scope, this.desugarSubqueries(scope, expr)));
+    for (const expr of terms) {
+      andTerms.push(this.extractBooleanOperators(this.desugarSubqueries(expr)));
     }
 
     const pendingDnf = toDisjunctiveNormalForm({ type: 'and', inner: andTerms });
@@ -354,24 +338,29 @@ export class StreamQueryParser {
   }
 
   private mapBaseExpression(pending: PendingBaseTerm): BaseTerm {
+    let parsed: SyncExpression | null = null;
+
     if (pending.inner.type == 'binary') {
       if (pending.inner.op == '=') {
         // The expression is of the form A = B. This introduces a parameter, allow A and B to reference different
         // result sets.
-        const left = this.parseExpression(pending.scope, pending.inner.left, false);
-        const right = this.parseExpression(pending.scope, pending.inner.right, false);
+        const left = this.parseExpression(pending.inner.left, false);
+        const right = this.parseExpression(pending.inner.right, false);
 
         if (SingleDependencyExpression.extractSingleDependency([...left.instantiation, ...right.instantiation])) {
           // Special case: Left and right reference the same table (e.g. tbl.foo = tbl.bar). This is not a match clause,
           // we can merge that into a single expression.
-          throw 'todo';
+          parsed = SyncExpression.compose(left, right, (left, right) => ({ type: 'binary', left, right, op: '=' }));
+        } else {
+          return new EqualsClause(this.mustBeSingleDependency(left), this.mustBeSingleDependency(right));
         }
-
-        return new EqualsClause(this.mustBeSingleDependency(left), this.mustBeSingleDependency(right));
       }
     }
 
-    return this.mustBeSingleDependency(this.parseExpression(pending.scope, pending.inner, false));
+    if (parsed == null) {
+      parsed = this.parseExpression(pending.inner, false);
+    }
+    return this.mustBeSingleDependency(parsed);
   }
 
   /**
@@ -422,24 +411,24 @@ export class StreamQueryParser {
     }
   }
 
-  private extractBooleanOperators(scope: SqlScope, source: Expr): PendingFilterExpression {
+  private extractBooleanOperators(source: Expr): PendingFilterExpression {
     if (source.type == 'binary') {
       if (source.op == 'AND') {
         return {
           type: 'and',
-          inner: [this.extractBooleanOperators(scope, source.left), this.extractBooleanOperators(scope, source.right)]
+          inner: [this.extractBooleanOperators(source.left), this.extractBooleanOperators(source.right)]
         };
       } else if (source.op == 'OR') {
         return {
           type: 'or',
-          inner: [this.extractBooleanOperators(scope, source.left), this.extractBooleanOperators(scope, source.right)]
+          inner: [this.extractBooleanOperators(source.left), this.extractBooleanOperators(source.right)]
         };
       }
     } else if (source.type == 'unary' && source.op == 'NOT') {
-      return { type: 'not', inner: this.extractBooleanOperators(scope, source.operand) };
+      return { type: 'not', inner: this.extractBooleanOperators(source.operand) };
     }
 
-    return { type: 'base', scope, inner: source };
+    return { type: 'base', inner: source };
   }
 
   /**
@@ -448,7 +437,7 @@ export class StreamQueryParser {
    * In particular, this lowers `x IN (SELECT ...)` by adding the inner select statement as an `OUTER JOIN` and then
    * replacing the `IN` operator with `x = joinedTable.value`.
    */
-  desugarSubqueries(scope: SqlScope, source: Expr): Expr {
+  desugarSubqueries(source: Expr): Expr {
     const mapper = astMapper((map) => {
       // Desugar left IN ARRAY(...right) to "intrinsic:contains"(left, ...right). This will eventually get compiled to
       // the SQLite expression LEFT IN (...right), using row-values syntax.
@@ -463,8 +452,8 @@ export class StreamQueryParser {
 
       const desugarInSubquery = (negated: boolean, left: Expr, right: SelectFromStatement) => {
         // Independently analyze the inner query.
-        const parseInner = new StreamQueryParser(this.errors);
-        let success = parseInner.processAst(right, { forSubquery: true, parentScope: scope });
+        const parseInner = new StreamQueryParser({ errors: this.errors, parentScope: this.statementScope });
+        let success = parseInner.processAst(right, { forSubquery: true });
         let resultColumn: Expr | null = null;
         if (right.columns?.length == 1) {
           const column = right.columns[0].expr;
@@ -491,7 +480,7 @@ export class StreamQueryParser {
             return {
               type: 'binary',
               left: prev,
-              right: current[1],
+              right: current,
               op: 'AND'
             } satisfies Expr;
           }, replacement);
@@ -538,7 +527,7 @@ export class StreamQueryParser {
   }
 }
 
-function trackDependencies(parser: StreamQueryParser, scope: SqlScope, source: Expr): SyncExpression {
+function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpression {
   const instantiation: ExpressionInput[] = [];
   const mapper = astMapper((map) => {
     function createParameter(node: PGNode): ExprParameter {
@@ -555,7 +544,7 @@ function trackDependencies(parser: StreamQueryParser, scope: SqlScope, source: E
 
     return {
       ref: (val) => {
-        const resultSet = parser.resolveTableName(scope, val, val.table?.name);
+        const resultSet = parser.resolveTableName(val, val.table?.name);
         if (resultSet == null) {
           // resolveTableName will have logged an error, so transform with a bogus value to keep going.
           return { type: 'null', _location: val._location };
@@ -637,7 +626,7 @@ type PendingFilterExpression =
   | PendingOr
   | PendingBaseTerm;
 
-type PendingBaseTerm = { type: 'base'; scope: SqlScope; inner: Expr };
+type PendingBaseTerm = { type: 'base'; inner: Expr };
 type PendingOr = { type: 'or'; inner: PendingFilterExpression[] };
 
 function toDisjunctiveNormalForm(source: PendingFilterExpression): PendingOr {
@@ -678,7 +667,6 @@ function prepareToDNF(expr: PendingFilterExpression): PendingFilterExpression {
         case 'base':
           return {
             type: 'base',
-            scope: inner.scope,
             inner: {
               type: 'unary',
               op: 'NOT',
