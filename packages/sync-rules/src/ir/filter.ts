@@ -2,6 +2,8 @@ import { NodeLocation } from 'pgsql-ast-parser';
 import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
 import { SourceResultSet } from './table.js';
 import { expandNodeLocations } from '../errors.js';
+import { EqualsIgnoringResultSet } from './compatibility.js';
+import { StableHasher } from '../compiler/equality.js';
 
 export interface Or {
   terms: And[];
@@ -23,7 +25,7 @@ export type BaseTerm = SingleDependencyExpression | EqualsClause;
 /**
  * A {@link SyncExpression} that only depends on a single result set or connection data.
  */
-export class SingleDependencyExpression {
+export class SingleDependencyExpression implements EqualsIgnoringResultSet {
   /**
    * The single result set on which the expression depends on.
    *
@@ -44,6 +46,14 @@ export class SingleDependencyExpression {
 
     this.resultSet = checked[0];
     this.dependsOnConnection = checked[1];
+  }
+
+  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+    return other instanceof SingleDependencyExpression && other.expression == this.expression;
+  }
+
+  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
+    this.expression.assumingSameResultSetEqualityHashCode(hasher);
   }
 
   /**

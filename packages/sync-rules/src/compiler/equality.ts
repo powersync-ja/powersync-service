@@ -31,6 +31,12 @@ export class StableHasher {
     }
   }
 
+  add(...e: Equatable[]) {
+    for (const param of e) {
+      param.buildHash(this);
+    }
+  }
+
   buildHashCode(): number {
     let hash = this.hash;
     hash = 0x1fffffff & (hash + ((0x03ffffff & hash) << 3));
@@ -48,6 +54,17 @@ export class StableHasher {
   }
 
   private static readonly hasher = new StableHasher();
+
+  private static readonly defaultEquality: Equality<Equatable> = {
+    hash(hasher, value) {
+      value.buildHash(hasher);
+    },
+    equals(a, b) {
+      return a.equals(b);
+    }
+  };
+
+  static readonly defaultListEquality = listEquality(this.defaultEquality);
 }
 
 /**
@@ -68,6 +85,11 @@ export interface Equality<T> {
    * they must also generate the same hash. Two distinct values may also generate the same hashcode though.
    */
   hash(hasher: StableHasher, value: T): void;
+}
+
+export interface Equatable {
+  buildHash(hasher: StableHasher): void;
+  equals(other: unknown): boolean;
 }
 
 /**

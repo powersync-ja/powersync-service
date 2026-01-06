@@ -1,4 +1,7 @@
 import { PGNode } from 'pgsql-ast-parser';
+import { RequestExpression } from './filter.js';
+import { StableHasher } from '../compiler/equality.js';
+import { equalsIgnoringResultSetList } from './compatibility.js';
 
 /**
  * A result set that a query stream selects from.
@@ -48,9 +51,27 @@ export class PhysicalSourceResultSet extends BaseSourceResultSet {
  * A {@link SourceResultSet} applying a table-valued function with inputs that exclusively depend on request data.
  */
 export class RequestTableValuedResultSet extends BaseSourceResultSet {
-  // TODO: RequestTableValuedResultSet
+  constructor(
+    readonly tableValuedFunctionName: string,
+    readonly parameters: RequestExpression[],
+    source: SyntacticResultSetSource
+  ) {
+    super(source);
+  }
 
   get description(): string {
-    return 'todo';
+    return this.tableValuedFunctionName;
+  }
+
+  buildBehaviorHashCode(hasher: StableHasher) {
+    hasher.addString(this.tableValuedFunctionName);
+    equalsIgnoringResultSetList.hash(hasher, this.parameters);
+  }
+
+  behavesIdenticalTo(other: RequestTableValuedResultSet) {
+    return (
+      other.tableValuedFunctionName == this.tableValuedFunctionName &&
+      equalsIgnoringResultSetList.equals(other.parameters, this.parameters)
+    );
   }
 }
