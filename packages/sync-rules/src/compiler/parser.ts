@@ -2,12 +2,14 @@ import {
   astMapper,
   BinaryOperator,
   Expr,
+  ExprBinary,
   ExprParameter,
   From,
   nil,
   NodeLocation,
   PGNode,
   SelectedColumn,
+  SelectFromStatement,
   Statement
 } from 'pgsql-ast-parser';
 import { PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from '../ir/table.js';
@@ -30,6 +32,7 @@ import {
 } from '../ir/filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
+import { intrinsicContains } from './sqlite.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -108,6 +111,7 @@ export class StreamQueryParser {
 
   /** The result set for which rows are synced. Set when analyzing result columns. */
   private primaryResultSet?: PhysicalSourceResultSet;
+  private syntheticSubqueryCounter: number = 0;
 
   constructor(readonly errors: ParsingErrorListener) {}
 
@@ -267,7 +271,7 @@ export class StreamQueryParser {
 
   private parseExpression(scope: SqlScope, source: Expr, desugar: boolean): SyncExpression {
     if (desugar) {
-      source = desugarSubqueries(source);
+      source = this.desugarSubqueries(scope, source);
     }
 
     return trackDependencies(this, scope, source);
@@ -317,7 +321,7 @@ export class StreamQueryParser {
   private compileFilterClause(terms: [SqlScope, Expr][]): Or {
     const andTerms: PendingFilterExpression[] = [];
     for (const [scope, expr] of terms) {
-      andTerms.push(this.extractBooleanOperators(scope, desugarSubqueries(expr)));
+      andTerms.push(this.extractBooleanOperators(scope, this.desugarSubqueries(scope, expr)));
     }
 
     const pendingDnf = toDisjunctiveNormalForm({ type: 'and', inner: andTerms });
@@ -437,20 +441,101 @@ export class StreamQueryParser {
 
     return { type: 'base', scope, inner: source };
   }
-}
 
-function desugarSubqueries(source: Expr): Expr {
-  const mapper = astMapper((map) => ({
-    binary: (expr) => {
-      if (expr.op == 'IN' || expr.op == 'NOT IN') {
-        throw 'TODO: Desugar subqueries';
+  /**
+   * Desugars valid forms of subqueries in the source expression.
+   *
+   * In particular, this lowers `x IN (SELECT ...)` by adding the inner select statement as an `OUTER JOIN` and then
+   * replacing the `IN` operator with `x = joinedTable.value`.
+   */
+  desugarSubqueries(scope: SqlScope, source: Expr): Expr {
+    const mapper = astMapper((map) => {
+      // Desugar left IN ARRAY(...right) to "intrinsic:contains"(left, ...right). This will eventually get compiled to
+      // the SQLite expression LEFT IN (...right), using row-values syntax.
+      function desugarInValues(negated: boolean, left: Expr, right: Expr[]) {
+        const containsCall: Expr = { type: 'call', function: { name: intrinsicContains }, args: [left, ...right] };
+        if (negated) {
+          return map.super().expr({ type: 'unary', op: 'NOT', operand: containsCall });
+        } else {
+          return map.super().expr(containsCall);
+        }
       }
 
-      return map.super().binary(expr);
-    }
-  }));
+      const desugarInSubquery = (negated: boolean, left: Expr, right: SelectFromStatement) => {
+        // Independently analyze the inner query.
+        const parseInner = new StreamQueryParser(this.errors);
+        let success = parseInner.processAst(right, { forSubquery: true, parentScope: scope });
+        let resultColumn: Expr | null = null;
+        if (right.columns?.length == 1) {
+          const column = right.columns[0].expr;
+          // The result of a subquery must be a scalar expression
+          if (!(column.type == 'ref' && column.name == '*')) {
+            resultColumn = column;
+          }
+        }
 
-  return mapper.expr(source)!;
+        if (resultColumn == null) {
+          this.errors.report('Must return a single expression column', right);
+          success = false;
+        }
+        if (!success || resultColumn == null) {
+          return map.expr({ type: 'null', _location: right._location });
+        }
+
+        // Inline the subquery by adding all referenced tables to the main query, adding the filter and replacing
+        // `a IN (SELECT b FROM ...)` with `a = joined.b`.
+        parseInner.resultSets.forEach((v, k) => this.resultSets.set(k, v));
+        let replacement: Expr = { type: 'binary', op: '=', left: left, right: resultColumn };
+        if (parseInner.where != null) {
+          replacement = parseInner.where.reduce((prev, current) => {
+            return {
+              type: 'binary',
+              left: prev,
+              right: current[1],
+              op: 'AND'
+            } satisfies Expr;
+          }, replacement);
+        }
+
+        return replacement;
+      };
+
+      // Desugar left IN right, where right is a scalar expression. This is not valid SQL, but in PowerSync we interpret
+      // that as `left IN (SELECT value FROM json_each(right))`.
+      const desugarInScalar = (negated: boolean, left: Expr, right: Expr) => {
+        const counter = this.syntheticSubqueryCounter++;
+        const name = `synthetic:${counter}`;
+        return desugarInSubquery(negated, left, {
+          type: 'select',
+          columns: [{ expr: { type: 'ref', name: 'value', table: { name } } }],
+          from: [{ type: 'call', function: { name: 'json_each' }, args: [right], alias: { name } }]
+        });
+      };
+
+      return {
+        binary: (expr) => {
+          if (expr.op == 'IN' || expr.op == 'NOT IN') {
+            const right = expr.right;
+            const negated = expr.op == 'NOT IN';
+
+            if (right.type == 'select') {
+              return desugarInSubquery(negated, expr.left, right);
+            } else if (right.type == 'array') {
+              return desugarInValues(negated, expr.left, right.expressions);
+            } else if (right.type == 'call' && right.function.name.toLowerCase() == 'row') {
+              return desugarInValues(negated, expr.left, right.args);
+            } else {
+              return desugarInScalar(negated, expr.left, right);
+            }
+          }
+
+          return map.super().binary(expr);
+        }
+      };
+    });
+
+    return mapper.expr(source)!;
+  }
 }
 
 function trackDependencies(parser: StreamQueryParser, scope: SqlScope, source: Expr): SyncExpression {
