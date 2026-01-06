@@ -15,3 +15,4 @@ export const equalsIgnoringResultSet: Equality<EqualsIgnoringResultSet> = {
 };
 
 export const equalsIgnoringResultSetList = listEquality(equalsIgnoringResultSet);
+export const equalsIgnoringResultSetUnordered = listEquality(equalsIgnoringResultSet);
