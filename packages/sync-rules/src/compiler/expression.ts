@@ -16,60 +16,34 @@ import { expandNodeLocations } from '../errors.js';
  * clauses) and to evaluate expressions at runtime (by preparing them as a statement and binding external values).
  */
 export class SyncExpression implements EqualsIgnoringResultSet {
-  private cachedFormattedSqlExpression?: string;
-  readonly originalLocation: NodeLocation | undefined;
-
   constructor(
     /**
      * The original expression, where references to row or connection parameters have been replcated with SQL variables
      * that are tracked through {@link instantiation}.
      */
-    readonly sqlExpression: Expr,
+    readonly sql: string,
     /**
      * The values to instantiate parameters in {@link sqlExpression} with to retain original semantics of the
      * expression.
      */
-    readonly instantiation: ExpressionInput[]
-  ) {
-    this.originalLocation = sqlExpression._location;
-  }
-
-  get formattedSql(): string {
-    return (this.cachedFormattedSqlExpression ??= toSql.expr(this.sqlExpression));
-  }
+    readonly instantiation: ExpressionInput[],
+    /**
+     * The original location, used during compilation if errors need to be reported against this expression.
+     */
+    readonly originalLocation: NodeLocation | undefined
+  ) {}
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
     return (
       other instanceof SyncExpression &&
-      other.formattedSql == this.formattedSql &&
+      other.sql == this.sql &&
       equalsIgnoringResultSetList.equals(other.instantiation, this.instantiation)
     );
   }
 
   assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
-    hasher.addString(this.formattedSql);
+    hasher.addString(this.sql);
     equalsIgnoringResultSetList.hash(hasher, this.instantiation);
-  }
-
-  /**
-   * Merges two sync expressions, automatically patching variable references to ensure they match the combined
-   * expression.
-   */
-  static compose(a: SyncExpression, b: SyncExpression, combine: (a: Expr, b: Expr) => Expr): SyncExpression {
-    const bExpr = astMapper((m) => ({
-      parameter: (st) => {
-        // All parameters are named ?<idx>, rename those in b to avoid collisions with a
-        const originalIndex = Number(st.name.substring(1));
-        const newIndex = a.instantiation.length + originalIndex;
-
-        return assignChanged(st, { name: `?${newIndex}` });
-      }
-    })).expr(b.sqlExpression)!;
-
-    const combined = combine(a.sqlExpression, bExpr);
-    combined._location = expandNodeLocations([a.sqlExpression, bExpr])!;
-
-    return new SyncExpression(combined, [...a.instantiation, ...b.instantiation]);
   }
 }
 
