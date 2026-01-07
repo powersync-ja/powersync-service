@@ -1,4 +1,5 @@
 import {
+  assignChanged,
   astMapper,
   BinaryOperator,
   Expr,
@@ -32,7 +33,7 @@ import {
 } from './filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
-import { intrinsicContains } from './sqlite.js';
+import { intrinsicContains, PostgresToSqlite } from './sqlite.js';
 import { SqlScope } from './scope.js';
 import { ParsingErrorListener } from './compiler.js';
 
@@ -75,6 +76,7 @@ export interface ParsedStreamQuery {
 
 export class StreamQueryParser {
   readonly errors: ParsingErrorListener;
+  private readonly originalText: string;
   private readonly statementScope: SqlScope;
   // Note: This is not the same as SqlScope since some result sets are inlined from CTEs or subqueries. These are not in
   // scope, but we still add them here to correctly track dependencies.
@@ -86,7 +88,8 @@ export class StreamQueryParser {
   private primaryResultSet?: PhysicalSourceResultSet;
   private syntheticSubqueryCounter: number = 0;
 
-  constructor(options: { errors: ParsingErrorListener; parentScope?: SqlScope }) {
+  constructor(options: { originalText: string; errors: ParsingErrorListener; parentScope?: SqlScope }) {
+    this.originalText = options.originalText;
     this.errors = options.errors;
     this.statementScope = new SqlScope({ parent: options.parentScope });
   }
@@ -350,7 +353,26 @@ export class StreamQueryParser {
         if (SingleDependencyExpression.extractSingleDependency([...left.instantiation, ...right.instantiation])) {
           // Special case: Left and right reference the same table (e.g. tbl.foo = tbl.bar). This is not a match clause,
           // we can merge that into a single expression.
-          parsed = SyncExpression.compose(left, right, (left, right) => ({ type: 'binary', left, right, op: '=' }));
+          const transformedRight = astMapper((m) => ({
+            parameter: (st) => {
+              // All parameters are named ?<idx>, rename those in b to avoid collisions with a
+              const originalIndex = Number(st.name.substring(1));
+              const newIndex = left.instantiation.length + originalIndex;
+
+              return assignChanged(st, { name: `?${newIndex}` });
+            }
+          })).expr(pending.inner.right)!;
+
+          parsed = this.toSyncExpression(
+            {
+              type: 'binary',
+              op: '=',
+              left: pending.inner.left,
+              right: transformedRight,
+              _location: pending.inner._location
+            },
+            [...left.instantiation, ...right.instantiation]
+          );
         } else {
           return new EqualsClause(this.mustBeSingleDependency(left), this.mustBeSingleDependency(right));
         }
@@ -361,6 +383,13 @@ export class StreamQueryParser {
       parsed = this.parseExpression(pending.inner, false);
     }
     return this.mustBeSingleDependency(parsed);
+  }
+
+  toSyncExpression(source: Expr, instantiation: ExpressionInput[]): SyncExpression {
+    const toSqlite = new PostgresToSqlite(this.originalText, this.errors);
+    toSqlite.addExpression(source);
+
+    return new SyncExpression(toSqlite.sql, instantiation, source._location);
   }
 
   /**
@@ -405,7 +434,7 @@ export class StreamQueryParser {
 
     if (hadError) {
       // Return a bogus expression to keep going / potentially collect more errors.
-      return new SingleDependencyExpression(new SyncExpression({ type: 'null' }, []));
+      return new SingleDependencyExpression(new SyncExpression('NULL', [], inner.originalLocation));
     } else {
       return new SingleDependencyExpression(inner);
     }
@@ -452,7 +481,11 @@ export class StreamQueryParser {
 
       const desugarInSubquery = (negated: boolean, left: Expr, right: SelectFromStatement) => {
         // Independently analyze the inner query.
-        const parseInner = new StreamQueryParser({ errors: this.errors, parentScope: this.statementScope });
+        const parseInner = new StreamQueryParser({
+          originalText: this.originalText,
+          errors: this.errors,
+          parentScope: this.statementScope
+        });
         let success = parseInner.processAst(right, { forSubquery: true });
         let resultColumn: Expr | null = null;
         if (right.columns?.length == 1) {
@@ -611,7 +644,7 @@ function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpress
   });
 
   const transformed = mapper.expr(source)!;
-  return new SyncExpression(transformed, instantiation);
+  return parser.toSyncExpression(transformed, instantiation);
 }
 
 /**

@@ -53,7 +53,7 @@ abstract class BaseSourceRowProcessor {
   /**
    * Filters which all depend on {@link syntacticSource} exclusively.
    *
-   * This processor is only active on rows
+   * This processor is only active on rows matching these filters.
    */
   readonly filters: RowExpression[];
   readonly partitionBy: PartitionKey[];
