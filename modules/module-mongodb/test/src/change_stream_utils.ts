@@ -7,8 +7,10 @@ import {
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
+  settledPromise,
   SyncRulesBucketStorage,
-  TestStorageOptions
+  TestStorageOptions,
+  unsettledPromise
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
@@ -18,11 +20,12 @@ import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<PromiseSettledResult<void>>;
+  private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -66,7 +69,7 @@ export class ChangeStreamTestContext {
 
   async dispose() {
     this.abort();
-    await this.streamPromise?.catch((e) => e);
+    await this.settledReplicationPromise;
     await this.factory[Symbol.asyncDispose]();
     await this.connectionManager.end();
   }
@@ -125,7 +128,18 @@ export class ChangeStreamTestContext {
   }
 
   async replicateSnapshot() {
-    await this.streamer.initReplication();
+    // Use a settledPromise to avoid unhandled rejections
+    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
+    try {
+      await Promise.race([unsettledPromise(this.settledReplicationPromise), this.streamer.waitForInitialSnapshot()]);
+    } catch (e) {
+      if (e instanceof ReplicationAbortedError && e.cause != null) {
+        // Edge case for tests: replicate() can throw an error, but we'd receive the ReplicationAbortedError from
+        // waitForInitialSnapshot() first. In that case, prioritize the cause.
+        throw e.cause;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -143,21 +157,14 @@ export class ChangeStreamTestContext {
   }
 
   startStreaming() {
-    this.streamPromise = this.streamer
-      .streamChanges()
-      .then(() => ({ status: 'fulfilled', value: undefined }) satisfies PromiseFulfilledResult<void>)
-      .catch((reason) => ({ status: 'rejected', reason }) satisfies PromiseRejectedResult);
-    return this.streamPromise;
+    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
+    return this.settledReplicationPromise;
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
-      this.streamPromise?.then((e) => {
-        if (e.status == 'rejected') {
-          throw e.reason;
-        }
-      })
+      unsettledPromise(this.settledReplicationPromise!)
     ]);
     if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
