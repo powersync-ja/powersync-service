@@ -1,6 +1,6 @@
 import { PGNode } from 'pgsql-ast-parser';
 import { RequestExpression } from './filter.js';
-import { StableHasher } from '../compiler/equality.js';
+import { StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList } from './compatibility.js';
 
 /**

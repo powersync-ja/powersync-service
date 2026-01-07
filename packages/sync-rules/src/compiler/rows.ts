@@ -1,5 +1,5 @@
 import type { ParameterIndexLookupCreator, BucketDataSource } from '../BucketSource.js';
-import { StableHasher } from '../compiler/equality.js';
+import { StableHasher } from './equality.js';
 import {
   equalsIgnoringResultSet,
   EqualsIgnoringResultSet,

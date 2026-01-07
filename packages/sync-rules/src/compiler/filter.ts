@@ -3,7 +3,7 @@ import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
 import { SourceResultSet } from './table.js';
 import { expandNodeLocations } from '../errors.js';
 import { EqualsIgnoringResultSet } from './compatibility.js';
-import { StableHasher } from '../compiler/equality.js';
+import { StableHasher } from './equality.js';
 
 export interface Or {
   terms: And[];

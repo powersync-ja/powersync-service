@@ -1,5 +1,5 @@
 import { BucketPriority } from '../BucketDescription.js';
-import { Equatable, HashMap, HashSet, StableHasher } from '../compiler/equality.js';
+import { Equatable, HashSet, StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList, equalsIgnoringResultSetUnordered } from './compatibility.js';
 import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';

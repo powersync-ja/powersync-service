@@ -12,15 +12,15 @@ import {
   SelectFromStatement,
   Statement
 } from 'pgsql-ast-parser';
-import { PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from '../ir/table.js';
-import { ColumnSource, ExpressionColumnSource, StarColumnSource } from '../ir/rows.js';
+import { PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
+import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
 import {
   ColumnInRow,
   ConnectionParameter,
   ConnectionParameterSource,
   ExpressionInput,
   SyncExpression
-} from '../ir/expression.js';
+} from './expression.js';
 import {
   BaseTerm,
   EqualsClause,
@@ -29,7 +29,7 @@ import {
   And,
   RowExpression,
   SingleDependencyExpression
-} from '../ir/filter.js';
+} from './filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
 import { intrinsicContains } from './sqlite.js';
