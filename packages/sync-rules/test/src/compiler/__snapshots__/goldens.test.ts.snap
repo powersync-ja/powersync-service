@@ -1,0 +1,23 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`old streams test > without filter 1`] = `
+{
+  "data": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 412397227,
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "version": "unstable",
+}
+`;

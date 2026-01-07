@@ -1,8 +1,7 @@
-import { assignChanged, astMapper, Expr, NodeLocation, toSql } from 'pgsql-ast-parser';
+import { Expr, NodeLocation } from 'pgsql-ast-parser';
 import { SourceResultSet } from './table.js';
 import { EqualsIgnoringResultSet, equalsIgnoringResultSetList } from './compatibility.js';
 import { StableHasher } from './equality.js';
-import { expandNodeLocations } from '../errors.js';
 
 /**
  * An analyzed SQL expression tracking dependencies on non-static data (i.e. rows or connection sources).

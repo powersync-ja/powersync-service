@@ -2,6 +2,7 @@ import { NodeLocation, PGNode } from 'pgsql-ast-parser';
 import { HashSet } from './equality.js';
 import { PointLookup, RowEvaluator } from './rows.js';
 import { StreamResolver } from './bucket_resolver.js';
+import { SyncPlan } from '../sync_plan/plan.js';
 
 export interface ParsingErrorListener {
   report(message: string, location: NodeLocation | PGNode): void;
@@ -12,7 +13,7 @@ export class SyncStreamCompiler {
 }
 
 /**
- * A collection of resources (row evaluators, point lookups and stream resolvers) created for all streams in a
+ * A mutable collection of resources (row evaluators, point lookups and stream resolvers) created for all streams in a
  * definition file.
  */
 export class CompiledStreamQueries {
@@ -41,5 +42,12 @@ export class CompiledStreamQueries {
 
   canonicalizePointLookup(lookup: PointLookup): PointLookup {
     return this._pointLookups.getOrInsert(lookup)[0];
+  }
+
+  toSyncPlan(): SyncPlan {
+    return {
+      dataSources: this.evaluators.map((evaluator) => evaluator.toBucketSource()),
+      parameterIndexes: this.pointLookups.map((p) => p.toParameterIndexLookupCreator())
+    };
   }
 }

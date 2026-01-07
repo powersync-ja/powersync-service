@@ -2,6 +2,7 @@ import { PGNode } from 'pgsql-ast-parser';
 import { RequestExpression } from './filter.js';
 import { StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList } from './compatibility.js';
+import { TablePattern } from '../TablePattern.js';
 
 /**
  * A result set that a query stream selects from.
@@ -36,14 +37,14 @@ abstract class BaseSourceResultSet {
  */
 export class PhysicalSourceResultSet extends BaseSourceResultSet {
   constructor(
-    readonly tablePattern: string,
+    readonly tablePattern: TablePattern,
     source: SyntacticResultSetSource
   ) {
     super(source);
   }
 
   get description(): string {
-    return this.tablePattern;
+    return this.tablePattern.name;
   }
 }
 
