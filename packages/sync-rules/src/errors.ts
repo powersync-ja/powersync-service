@@ -22,7 +22,7 @@ export function expandNodeLocations(nodes: Iterable<PGNode | NodeLocation | unde
   return location;
 }
 
-function getLocation(location?: NodeLocation | PGNode): NodeLocation | undefined {
+export function getLocation(location?: NodeLocation | PGNode): NodeLocation | undefined {
   if (location != null && !isLocation(location)) {
     return location._location;
   } else if (isLocation(location)) {
