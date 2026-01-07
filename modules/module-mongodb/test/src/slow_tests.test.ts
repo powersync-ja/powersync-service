@@ -2,7 +2,7 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage } from '@powersync/service-core';
+import { settledPromise, storage, unsettledPromise } from '@powersync/service-core';
 
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
@@ -41,8 +41,7 @@ bucket_definitions:
     await collection1.bulkWrite(operations);
     await collection2.bulkWrite(operations);
 
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
     const checksum = await context.getChecksum('global[]');
     expect(checksum).toMatchObject({
       count: 20_000
@@ -71,7 +70,7 @@ bucket_definitions:
     }
     await collection.bulkWrite(operations);
 
-    const snapshotPromise = context.replicateSnapshot();
+    const snapshotPromise = settledPromise(context.initializeReplication());
 
     for (let i = 49; i >= 0; i--) {
       await collection.updateMany(
@@ -81,8 +80,7 @@ bucket_definitions:
       await setTimeout(20);
     }
 
-    await snapshotPromise;
-    context.startStreaming();
+    await unsettledPromise(snapshotPromise);
 
     const data = await context.getBucketData('global[]');
 
