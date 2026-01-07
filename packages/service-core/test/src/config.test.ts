@@ -69,4 +69,21 @@ describe('Config', () => {
 
     expect(config.api_parameters.max_buckets_per_connection).toBe(1);
   });
+  it('should throw YAML validation error for invalid base64 config', {}, async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: !env INVALID_VAR
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    await expect(
+      collector.collectConfig({
+        config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+      })
+    ).rejects.toThrow(/Could not parse YAML configuration file/);
+  });
 });
