@@ -198,6 +198,22 @@ export class HashMap<K, V> {
     return StableHasher.hashWith(this.equality, key);
   }
 
+  get isEmpty(): boolean {
+    return this.first == null;
+  }
+
+  get entries(): Iterable<[K, V]> {
+    return this.iterateEntries();
+  }
+
+  private *iterateEntries(): Iterable<[K, V]> {
+    let next = this.first;
+    while (next != null) {
+      yield [next.key, next.value];
+      next = next.next;
+    }
+  }
+
   get(key: K): V | undefined {
     const hashCode = this.computeHashCode(key);
     const bucket = this.map.get(hashCode);
@@ -221,7 +237,7 @@ export class HashMap<K, V> {
     this.addEntryInBucket(bucket, key, value);
   }
 
-  setOrUpdate(key: K, updater: (old: V | undefined) => V) {
+  setOrUpdate(key: K, updater: (old: V | undefined, oldKey: K | undefined) => V) {
     const hashCode = this.computeHashCode(key);
     let bucket = this.map.get(hashCode);
     if (!bucket) {
@@ -230,13 +246,25 @@ export class HashMap<K, V> {
     } else {
       for (const entry of bucket) {
         if (this.equality.equals(entry.key, key)) {
-          entry.value = updater(entry.value);
+          entry.value = updater(entry.value, entry.key);
           return;
         }
       }
     }
 
-    this.addEntryInBucket(bucket, key, updater(undefined));
+    this.addEntryInBucket(bucket, key, updater(undefined, undefined));
+  }
+
+  putIfAbsent(key: K, ifAbsent: () => V): V {
+    let result: V | undefined = undefined;
+    this.setOrUpdate(key, (old) => {
+      if (old == null) {
+        return (result = ifAbsent());
+      } else {
+        return (result = old);
+      }
+    });
+    return result!;
   }
 
   private addEntryInBucket(bucket: LinkedHashMapEntry<K, V>[], key: K, value: V) {
@@ -249,6 +277,48 @@ export class HashMap<K, V> {
       this.first = this.last = entry;
     }
   }
+}
+
+/**
+ * An insertion-order preserving hash set implementation based on {@link HashMap}.
+ */
+export class HashSet<K> implements Iterable<K> {
+  private readonly inner: HashMap<K, Object>;
+
+  constructor(equality: Equality<K>) {
+    this.inner = new HashMap(equality);
+  }
+
+  [Symbol.iterator](): Iterator<K> {
+    return this.entries()[Symbol.iterator]();
+  }
+
+  private *entries(): Iterable<K> {
+    for (const [k, _] of this.inner.entries) {
+      yield k;
+    }
+  }
+
+  add(element: K): boolean {
+    return this.getOrInsert(element)[1];
+  }
+
+  getOrInsert(element: K): [K, boolean] {
+    let result: [K, boolean] | null = null;
+    this.inner.setOrUpdate(element, (old, oldKey) => {
+      if (oldKey == null) {
+        result = [element, true];
+        return HashSet.sentinel;
+      } else {
+        result = [oldKey!, false];
+        return oldKey;
+      }
+    });
+
+    return result!;
+  }
+
+  private static readonly sentinel = new Object();
 }
 
 class LinkedHashMapEntry<K, V> {
