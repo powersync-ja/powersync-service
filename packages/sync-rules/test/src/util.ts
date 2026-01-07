@@ -1,13 +1,17 @@
 import {
+  BucketDataSource,
+  ColumnDefinition,
   CompatibilityContext,
-  BucketIdTransformer,
+  CreateSourceParams,
   DEFAULT_TAG,
   GetQuerierOptions,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
+  SourceSchema,
   SourceTableInterface,
-  StaticSchema
+  StaticSchema,
+  TablePattern
 } from '../../src/index.js';
 
 export class TestSourceTable implements SourceTableInterface {
@@ -69,18 +73,40 @@ export function normalizeTokenParameters(
 export function normalizeQuerierOptions(
   token_parameters: Record<string, any>,
   user_parameters?: Record<string, any>,
-  streams?: Record<string, RequestedStream[]>,
-  bucketIdTransformer?: BucketIdTransformer
+  streams?: Record<string, RequestedStream[]>
 ): GetQuerierOptions {
   const globalParameters = normalizeTokenParameters(token_parameters, user_parameters);
   return {
     globalParameters,
     hasDefaultStreams: true,
-    streams: streams ?? {},
-    bucketIdTransformer: bucketIdTransformer ?? identityBucketTransformer
+    streams: streams ?? {}
   };
 }
 
 export function identityBucketTransformer(id: string) {
   return id;
 }
+
+/**
+ * Empty data source that can be used for testing parameter queries, where most of the functionality here is not used.
+ */
+export const EMPTY_DATA_SOURCE: BucketDataSource = {
+  uniqueName: 'mybucket',
+  bucketParameters: [],
+  // These are not used in the tests.
+  getSourceTables: function (): Set<TablePattern> {
+    return new Set();
+  },
+  evaluateRow(options) {
+    throw new Error('Function not implemented.');
+  },
+  tableSyncsData: function (table: SourceTableInterface): boolean {
+    throw new Error('Function not implemented.');
+  },
+  resolveResultSets: function (schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
+    throw new Error('Function not implemented.');
+  },
+  debugWriteOutputTables: function (result: Record<string, { query: string }[]>): void {
+    throw new Error('Function not implemented.');
+  }
+};

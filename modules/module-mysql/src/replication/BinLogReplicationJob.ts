@@ -1,6 +1,6 @@
 import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { POWERSYNC_VERSION, replication } from '@powersync/service-core';
-import { BinlogConfigurationError, BinLogStream } from './BinLogStream.js';
+import { BinLogStream } from './BinLogStream.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
 
 export interface BinLogReplicationJobOptions extends replication.AbstractReplicationJobOptions {

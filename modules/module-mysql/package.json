@@ -2,7 +2,7 @@
   "name": "@powersync/service-module-mysql",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
-  "version": "0.9.13",
+  "version": "0.9.16",
   "license": "FSL-1.1-ALv2",
   "main": "dist/index.js",
   "type": "module",
@@ -33,7 +33,7 @@
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "@powersync/service-jsonbig": "workspace:*",
-    "@powersync/mysql-zongji": "^0.5.0",
+    "@powersync/mysql-zongji": "^0.6.0",
     "async": "^3.2.4",
     "mysql2": "^3.11.0",
     "node-sql-parser": "^5.3.9",
@@ -47,6 +47,6 @@
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@types/async": "^3.2.24",
-    "@types/semver": "^7.5.4"
+    "@types/semver": "^7.7.1"
   }
 }

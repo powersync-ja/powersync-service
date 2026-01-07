@@ -20,10 +20,10 @@ import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyValueContext,
   CompatibilityContext,
+  HydratedSyncRules,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
-  SqlSyncRules,
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 
@@ -89,7 +89,7 @@ export class MissingReplicationSlotError extends Error {
 }
 
 export class WalStream {
-  sync_rules: SqlSyncRules;
+  sync_rules: HydratedSyncRules;
   group_id: number;
 
   connection_id = 1;

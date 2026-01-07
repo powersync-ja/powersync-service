@@ -153,7 +153,7 @@ WHERE a.attnum > 0
   AND cn.nspname not in ('information_schema', 'pg_catalog', 'pg_toast')
     `;
 
-    const query = await this.pool.query({ statement: sql });
+    const query = await this.pool.query(sql);
     let ids: number[] = [];
     for (const row of pgwire.pgwireRows(query)) {
       ids.push(Number(row.type_oid));
@@ -186,26 +186,22 @@ WHERE a.attnum > 0
     return toSyncRulesRow(record);
   }
 
-  constructRowRecord(columnMap: Record<string, number>, tupleRaw: Record<string, any>): SqliteInputRow {
-    const record = this.decodeTupleForTable(columnMap, tupleRaw);
-    return toSyncRulesRow(record);
-  }
-
   /**
    * We need a high level of control over how values are decoded, to make sure there is no loss
    * of precision in the process.
    */
   decodeTuple(relation: pgwire.PgoutputRelation, tupleRaw: Record<string, any>): DatabaseInputRow {
     let result: Record<string, any> = {};
-    for (let columnName in tupleRaw) {
-      const rawval = tupleRaw[columnName];
-      const typeOid = (relation as any)._tupleDecoder._typeOids.get(columnName);
-      if (typeof rawval == 'string' && typeOid) {
-        result[columnName] = this.registry.decodeDatabaseValue(rawval, typeOid);
-      } else {
-        result[columnName] = rawval;
-      }
+    for (const column of relation.columns) {
+      const rawval = tupleRaw[column.name];
+      result[column.name] =
+        rawval == null
+          ? // We can't decode null values, but it's important that null and undefined stay distinct because undefined
+            // represents a TOASTed value.
+            rawval
+          : this.registry.decodeDatabaseValue(rawval, column.typeOid);
     }
+
     return result;
   }
 

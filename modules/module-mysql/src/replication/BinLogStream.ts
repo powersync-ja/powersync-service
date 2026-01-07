@@ -61,7 +61,7 @@ function createTableId(schema: string, tableName: string): string {
 }
 
 export class BinLogStream {
-  private readonly syncRules: sync_rules.SqlSyncRules;
+  private readonly syncRules: sync_rules.HydratedSyncRules;
   private readonly groupId: number;
 
   private readonly storage: storage.SyncRulesBucketStorage;
@@ -147,7 +147,7 @@ export class BinLogStream {
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
 
     if (shouldSnapshot) {
-      // Truncate this table, in case a previous snapshot was interrupted.
+      // Truncate this table in case a previous snapshot was interrupted.
       await batch.truncate([result.table]);
 
       let gtid: common.ReplicatedGTID;
@@ -189,7 +189,7 @@ export class BinLogStream {
     const matchedTables: string[] = await common.getTablesFromPattern(connection, tablePattern);
     connection.release();
 
-    let tables: storage.SourceTable[] = [];
+    const tables: storage.SourceTable[] = [];
     for (const matchedTable of matchedTables) {
       const replicaIdColumns = await this.getReplicaIdColumns(matchedTable, tablePattern.schema);
 

@@ -1,5 +1,67 @@
 # @powersync/service-image
 
+## 1.18.2
+
+### Patch Changes
+
+- 8fdbf8d: - Rework dynamic module loading, fixing startup issues for migration and compact jobs in 1.18.0 / 1.18.1
+- bdfd287: Add the `timestamp_max_precision` option for sync rules. It can be set to `seconds`, `milliseconds` or `microseconds` to restrict the precision of synced datetime values.
+- Updated dependencies [a4ead94]
+- Updated dependencies [8fdbf8d]
+- Updated dependencies [bdfd287]
+- Updated dependencies [c2da2be]
+  - @powersync/service-module-postgres@0.16.16
+  - @powersync/service-core@1.18.2
+  - @powersync/service-module-mongodb@0.12.16
+  - @powersync/service-module-mysql@0.9.16
+  - @powersync/service-module-mssql@0.1.2
+  - @powersync/service-module-core@0.2.16
+  - @powersync/service-module-mongodb-storage@0.12.16
+  - @powersync/service-module-postgres-storage@0.10.16
+  - @powersync/lib-services-framework@0.7.14
+  - @powersync/service-rsocket-router@0.2.11
+
+## 1.18.1
+
+### Patch Changes
+
+- Updated dependencies [21b3a41]
+  - @powersync/service-module-mssql@0.1.1
+  - @powersync/lib-services-framework@0.7.13
+  - @powersync/service-module-mongodb@0.12.15
+  - @powersync/service-module-mongodb-storage@0.12.15
+  - @powersync/service-module-mysql@0.9.15
+  - @powersync/service-module-postgres@0.16.15
+  - @powersync/service-module-postgres-storage@0.10.15
+  - @powersync/service-core@1.18.1
+  - @powersync/service-module-core@0.2.15
+  - @powersync/service-rsocket-router@0.2.10
+
+## 1.18.0
+
+### Minor Changes
+
+- 5b6a544: Dynamically load connection modules for reduced memory usage
+
+### Patch Changes
+
+- dc696b1: Clear replication errors when any replication progress has been made.
+- b77bb2c: - First iteration of MSSQL replication using Change Data Capture (CDC).
+  - Supports resumable snapshot replication
+  - Uses CDC polling for replication
+- Updated dependencies [dc696b1]
+- Updated dependencies [b77bb2c]
+  - @powersync/service-module-postgres-storage@0.10.14
+  - @powersync/service-module-mongodb-storage@0.12.14
+  - @powersync/service-core@1.18.0
+  - @powersync/service-module-mssql@0.1.0
+  - @powersync/service-module-postgres@0.16.14
+  - @powersync/service-module-mysql@0.9.14
+  - @powersync/service-module-mongodb@0.12.14
+  - @powersync/service-module-core@0.2.14
+  - @powersync/lib-services-framework@0.7.12
+  - @powersync/service-rsocket-router@0.2.9
+
 ## 1.17.0
 
 ### Patch Changes

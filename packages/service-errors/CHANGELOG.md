@@ -1,5 +1,13 @@
 # @powersync/service-errors
 
+## 0.3.6
+
+### Patch Changes
+
+- b77bb2c: - First iteration of MSSQL replication using Change Data Capture (CDC).
+  - Supports resumable snapshot replication
+  - Uses CDC polling for replication
+
 ## 0.3.5
 
 ### Patch Changes

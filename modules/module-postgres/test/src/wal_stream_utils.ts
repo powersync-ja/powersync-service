@@ -222,7 +222,7 @@ export async function withMaxWalSize(db: pgwire.PgClient, size: string) {
     await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '100MB'`);
     await db.query(`SELECT pg_reload_conf()`);
 
-    const oldSize = r1.results[0].rows[0][0];
+    const oldSize = r1.results[0].rows[0].decodeWithoutCustomTypes(0);
 
     return {
       [Symbol.asyncDispose]: async () => {

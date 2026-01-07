@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-image",
-  "version": "1.17.0",
+  "version": "1.18.2",
   "private": true,
   "license": "FSL-1.1-ALv2",
   "type": "module",
@@ -16,6 +16,7 @@
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@powersync/service-module-mongodb": "workspace:*",
     "@powersync/service-module-mongodb-storage": "workspace:*",
+    "@powersync/service-module-mssql": "workspace:*",
     "@powersync/service-module-mysql": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-module-core": "workspace:*",

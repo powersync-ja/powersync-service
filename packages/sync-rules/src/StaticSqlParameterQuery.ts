@@ -1,16 +1,16 @@
-import { SelectedColumn, SelectFromStatement } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
+import { SelectFromStatement } from 'pgsql-ast-parser';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
+import { BucketParameterQuerier, PendingQueriers } from './BucketParameterQuerier.js';
+import { CreateSourceParams } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
+import { BucketDataScope } from './HydrationState.js';
+import { BucketDataSource, BucketParameterQuerierSource, GetQuerierOptions } from './index.js';
+import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
-import { checkUnsupportedFeatures, isClauseError, isParameterValueClause, sqliteBool } from './sql_support.js';
-import {
-  BucketIdTransformer,
-  ParameterValueClause,
-  QueryParseOptions,
-  RequestParameters,
-  SqliteJsonValue
-} from './types.js';
-import { getBucketId, isJsonValue } from './utils.js';
+import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
+import { TablePattern } from './TablePattern.js';
+import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
+import { buildBucketName, isJsonValue, serializeBucketParameters } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface StaticSqlParameterQueryOptions {
@@ -21,6 +21,7 @@ export interface StaticSqlParameterQueryOptions {
   bucketParameters: string[];
   queryId: string;
   filter: ParameterValueClause | undefined;
+  querierDataSource: BucketDataSource;
   errors?: SqlRuleError[];
 }
 
@@ -36,7 +37,8 @@ export class StaticSqlParameterQuery {
     sql: string,
     q: SelectFromStatement,
     options: QueryParseOptions,
-    queryId: string
+    queryId: string,
+    querierDataSource: BucketDataSource
   ) {
     let errors: SqlRuleError[] = [];
 
@@ -93,6 +95,7 @@ export class StaticSqlParameterQuery {
       priority: priority ?? DEFAULT_BUCKET_PRIORITY,
       filter: isClauseError(filter) ? undefined : filter,
       queryId,
+      querierDataSource,
       errors
     });
     if (query.usesDangerousRequestParameters && !options?.accept_potentially_dangerous_queries) {
@@ -148,6 +151,8 @@ export class StaticSqlParameterQuery {
    */
   readonly filter: ParameterValueClause | undefined;
 
+  public readonly querierDataSource: BucketDataSource;
+
   readonly errors: SqlRuleError[];
 
   constructor(options: StaticSqlParameterQueryOptions) {
@@ -158,10 +163,46 @@ export class StaticSqlParameterQuery {
     this.bucketParameters = options.bucketParameters;
     this.queryId = options.queryId;
     this.filter = options.filter;
+    this.querierDataSource = options.querierDataSource;
     this.errors = options.errors ?? [];
   }
 
-  getStaticBucketDescriptions(parameters: RequestParameters, transformer: BucketIdTransformer): BucketDescription[] {
+  getSourceTables() {
+    return new Set<TablePattern>();
+  }
+
+  tableSyncsParameters(_table: SourceTableInterface): boolean {
+    return false;
+  }
+
+  createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
+    const hydrationState = params.hydrationState;
+    const bucketScope = hydrationState.getBucketSourceScope(this.querierDataSource);
+    return {
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
+        const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketScope).map((desc) => {
+          return {
+            ...desc,
+            definition: this.descriptorName,
+            inclusion_reasons: ['default']
+          } satisfies ResolvedBucket;
+        });
+
+        if (staticBuckets.length == 0) {
+          return;
+        }
+        const staticQuerier = {
+          staticBuckets,
+          hasDynamicBuckets: false,
+          parameterQueryLookups: [],
+          queryDynamicBucketDescriptions: async () => []
+        } satisfies BucketParameterQuerier;
+        result.queriers.push(staticQuerier);
+      }
+    };
+  }
+
+  getStaticBucketDescriptions(parameters: RequestParameters, bucketSourceScope: BucketDataScope): BucketDescription[] {
     if (this.filter == null) {
       // Error in filter clause
       return [];
@@ -183,9 +224,11 @@ export class StaticSqlParameterQuery {
       }
     }
 
+    const serializedParamters = serializeBucketParameters(this.bucketParameters, result);
+
     return [
       {
-        bucket: getBucketId(this.descriptorName, this.bucketParameters, result, transformer),
+        bucket: buildBucketName(bucketSourceScope, serializedParamters),
         priority: this.priority
       }
     ];

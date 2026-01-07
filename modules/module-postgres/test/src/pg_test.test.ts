@@ -1,18 +1,42 @@
+import { PostgresTypeResolver } from '@module/types/resolver.js';
+import * as dns from 'node:dns';
+import type { LookupFunction } from 'node:net';
+
+import { PostgresSnapshotter } from '@module/replication/PostgresSnapshotter.js';
 import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyRowContext,
   CompatibilityContext,
-  SqliteInputRow,
+  CompatibilityEdition,
   DateTimeValue,
+  SqliteInputRow,
   TimeValue,
-  CompatibilityEdition
+  TimeValuePrecision
 } from '@powersync/service-sync-rules';
-import { describe, expect, test } from 'vitest';
-import { clearTestDb, connectPgPool, connectPgWire, TEST_URI } from './util.js';
-import { WalStream } from '@module/replication/WalStream.js';
-import { PostgresTypeResolver } from '@module/types/resolver.js';
-import { CustomTypeRegistry } from '@module/types/registry.js';
-import { PostgresSnapshotter } from '@module/replication/PostgresSnapshotter.js';
+import { describe, expect, Mock, test, vi } from 'vitest';
+import { clearTestDb, connectPgPool, connectPgWire, TEST_CONNECTION_OPTIONS, TEST_URI } from './util.js';
+
+describe('connection options', () => {
+  test('uses custom lookup', async () => {
+    const lookup: Mock<LookupFunction> = vi.fn((hostname, options, cb) => {
+      expect(hostname).toStrictEqual('powersynctest.example.org');
+      dns.lookup('localhost', options, cb);
+    });
+
+    const db = await pgwire.connectPgWire({
+      ...TEST_CONNECTION_OPTIONS,
+      hostname: 'powersynctest.example.org',
+      lookup
+    });
+    expect(lookup).toHaveBeenCalled();
+
+    try {
+      await db.query('SELECT 1');
+    } finally {
+      await db.end();
+    }
+  });
+});
 
 describe('pg data types', () => {
   async function setupTable(db: pgwire.PgClient) {
@@ -167,9 +191,9 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[2]).toMatchObject({
       id: 3n,
       date: '2023-03-06',
-      time: new TimeValue('15:47:00'),
-      timestamp: new DateTimeValue('2023-03-06T15:47:00.000000', '2023-03-06 15:47:00'),
-      timestamptz: new DateTimeValue('2023-03-06T13:47:00.000000Z', '2023-03-06 13:47:00Z')
+      time: TimeValue.parse('15:47:00', pgwire.postgresTimeOptions),
+      timestamp: new DateTimeValue('2023-03-06T15:47:00.000000', '2023-03-06 15:47:00', pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('2023-03-06T13:47:00Z', '2023-03-06 13:47:00Z', pgwire.postgresTimeOptions)
     });
 
     expect(transformed[3]).toMatchObject({
@@ -184,26 +208,26 @@ VALUES(10, ARRAY['null']::TEXT[]);
     expect(transformed[4]).toMatchObject({
       id: 5n,
       date: '0000-01-01',
-      time: new TimeValue('00:00:00'),
-      timestamp: new DateTimeValue('0000-01-01T00:00:00'),
-      timestamptz: new DateTimeValue('0000-01-01T00:00:00Z')
+      time: TimeValue.parse('00:00:00', pgwire.postgresTimeOptions),
+      timestamp: new DateTimeValue('0000-01-01T00:00:00', undefined, pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('0000-01-01T00:00:00Z', undefined, pgwire.postgresTimeOptions)
     });
 
     expect(transformed[5]).toMatchObject({
       id: 6n,
-      timestamp: new DateTimeValue('1970-01-01T00:00:00.000000', '1970-01-01 00:00:00'),
-      timestamptz: new DateTimeValue('1970-01-01T00:00:00.000000Z', '1970-01-01 00:00:00Z')
+      timestamp: new DateTimeValue('1970-01-01T00:00:00.000000', '1970-01-01 00:00:00', pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('1970-01-01T00:00:00Z', '1970-01-01 00:00:00Z', pgwire.postgresTimeOptions)
     });
 
     expect(transformed[6]).toMatchObject({
       id: 7n,
-      timestamp: new DateTimeValue('9999-12-31T23:59:59'),
-      timestamptz: new DateTimeValue('9999-12-31T23:59:59Z')
+      timestamp: new DateTimeValue('9999-12-31T23:59:59', undefined, pgwire.postgresTimeOptions),
+      timestamptz: new DateTimeValue('9999-12-31T23:59:59Z', undefined, pgwire.postgresTimeOptions)
     });
 
     expect(transformed[7]).toMatchObject({
       id: 8n,
-      timestamptz: new DateTimeValue('0022-02-03T09:13:14.000000Z', '0022-02-03 09:13:14Z')
+      timestamptz: new DateTimeValue('0022-02-03T09:13:14Z', '0022-02-03 09:13:14Z', pgwire.postgresTimeOptions)
     });
 
     expect(transformed[8]).toMatchObject({
@@ -303,10 +327,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
       await insert(db);
 
-      const transformed = [
-        ...PostgresSnapshotter.getQueryData(pgwire.pgwireRows(await db.query(`SELECT * FROM test_data ORDER BY id`)))
-      ];
-
+      const transformed = await queryAll(db, `SELECT * FROM test_data ORDER BY id`);
       checkResults(transformed);
     } finally {
       await db.end();
@@ -322,17 +343,11 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
       await insert(db);
 
-      const transformed = [
-        ...PostgresSnapshotter.getQueryData(
-          pgwire.pgwireRows(
-            await db.query({
-              statement: `SELECT * FROM test_data WHERE $1 ORDER BY id`,
-              params: [{ type: 'bool', value: true }]
-            })
-          )
-        )
-      ];
-
+      const raw = await db.query({
+        statement: `SELECT * FROM test_data WHERE $1 ORDER BY id`,
+        params: [{ type: 'bool', value: true }]
+      });
+      const transformed = await interpretResults(db, raw);
       checkResults(transformed);
     } finally {
       await db.end();
@@ -346,11 +361,9 @@ VALUES(10, ARRAY['null']::TEXT[]);
 
       await insertArrays(db);
 
-      const transformed = [
-        ...PostgresSnapshotter.getQueryData(
-          pgwire.pgwireRows(await db.query(`SELECT * FROM test_data_arrays ORDER BY id`))
-        )
-      ].map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+      const transformed = (await queryAll(db, `SELECT * FROM test_data_arrays ORDER BY id`)).map((e) =>
+        applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY)
+      );
 
       checkResultArrays(transformed);
     } finally {
@@ -443,7 +456,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
   });
 
   test('date formats', async () => {
-    const db = await connectPgWire();
+    const db = await connectPgPool();
     try {
       await setupTable(db);
 
@@ -451,11 +464,7 @@ VALUES(10, ARRAY['null']::TEXT[]);
 INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12', '2023-03-06 15:47:12.4', '2023-03-06 15:47+02');
 `);
 
-      const [row] = [
-        ...PostgresSnapshotter.getQueryData(
-          pgwire.pgwireRows(await db.query(`SELECT time, timestamp, timestamptz FROM test_data`))
-        )
-      ];
+      const [row] = await queryAll(db, `SELECT time, timestamp, timestamptz FROM test_data`);
 
       const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
       expect(oldFormat).toMatchObject({
@@ -464,11 +473,24 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         timestamptz: '2023-03-06 13:47:00Z'
       });
 
-      const newFormat = applyRowContext(row, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
+      const newFormat = applyRowContext(row, new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }));
       expect(newFormat).toMatchObject({
         time: '17:42:01.120000',
         timestamp: '2023-03-06T15:47:12.400000',
         timestamptz: '2023-03-06T13:47:00.000000Z'
+      });
+
+      const reducedPrecisionFormat = applyRowContext(
+        row,
+        new CompatibilityContext({
+          edition: CompatibilityEdition.SYNC_STREAMS,
+          maxTimeValuePrecision: TimeValuePrecision.milliseconds
+        })
+      );
+      expect(reducedPrecisionFormat).toMatchObject({
+        time: '17:42:01.120',
+        timestamp: '2023-03-06T15:47:12.400',
+        timestamptz: '2023-03-06T13:47:00.000Z'
       });
     } finally {
       await db.end();
@@ -480,9 +502,9 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
     try {
       await clearTestDb(db);
       await db.query(`CREATE DOMAIN rating_value AS FLOAT CHECK (VALUE BETWEEN 0 AND 5);`);
-      await db.query(`CREATE TYPE composite AS (foo rating_value[], bar TEXT);`);
-      await db.query(`CREATE TYPE nested_composite AS (a BOOLEAN, b composite);`);
       await db.query(`CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')`);
+      await db.query(`CREATE TYPE composite AS (foo rating_value[], bar TEXT, mood mood);`);
+      await db.query(`CREATE TYPE nested_composite AS (a BOOLEAN, b composite);`);
 
       await db.query(`CREATE TABLE test_custom(
         id serial primary key,
@@ -490,7 +512,8 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
         composite composite,
         nested_composite nested_composite,
         boxes box[],
-        mood mood
+        mood mood,
+        moods mood[]
       );`);
 
       const slotName = 'test_slot';
@@ -507,13 +530,14 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
 
       await db.query(`
         INSERT INTO test_custom
-          (rating, composite, nested_composite, boxes, mood)
+          (rating, composite, nested_composite, boxes, mood, moods)
         VALUES (
           1,
-          (ARRAY[2,3], 'bar'),
-          (TRUE, (ARRAY[2,3], 'bar')),
+          (ARRAY[2,3], 'bar', 'sad'::mood),
+          (TRUE, (ARRAY[2,3], 'bar', 'sad'::mood)),
           ARRAY[box(point '(1,2)', point '(3,4)'), box(point '(5, 6)', point '(7,8)')],
-          'happy'
+          'happy',
+          ARRAY['sad'::mood, 'happy'::mood]
         );
       `);
 
@@ -527,24 +551,53 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
       });
 
       const [transformed] = await getReplicationTx(db, replicationStream);
+      const [queried] = await queryAll(db, `SELECT * FROM test_custom`);
       await pg.end();
 
-      const oldFormat = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-      expect(oldFormat).toMatchObject({
+      const oldFormatStreamed = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatStreamed).toMatchObject({
         rating: '1',
-        composite: '("{2,3}",bar)',
-        nested_composite: '(t,"(""{2,3}"",bar)")',
+        composite: '("{2,3}",bar,sad)',
+        nested_composite: '(t,"(""{2,3}"",bar,sad)")',
         boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]',
-        mood: 'happy'
+        mood: 'happy',
+        moods: '{sad,happy}'
       });
 
-      const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
-      expect(newFormat).toMatchObject({
+      const oldFormatQueried = applyRowContext(queried, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatQueried).toMatchObject({
         rating: 1,
-        composite: '{"foo":[2.0,3.0],"bar":"bar"}',
-        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar"}}',
+        composite: '("{2,3}",bar,sad)',
+        nested_composite: '(t,"(""{2,3}"",bar,sad)")',
+        boxes: '["(3","4)","(1","2);(7","8)","(5","6)"]',
+        mood: 'happy',
+        moods: '{sad,happy}'
+      });
+
+      const newFormatStreamed = applyRowContext(
+        transformed,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
+      expect(newFormatStreamed).toMatchObject({
+        rating: 1,
+        composite: '{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}',
+        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}}',
         boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)']),
-        mood: 'happy'
+        mood: 'happy',
+        moods: '["sad","happy"]'
+      });
+
+      const newFormatQueried = applyRowContext(
+        queried,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
+      expect(newFormatQueried).toMatchObject({
+        rating: 1,
+        composite: '{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}',
+        nested_composite: '{"a":1,"b":{"foo":[2.0,3.0],"bar":"bar","mood":"sad"}}',
+        boxes: JSON.stringify(['(3,4),(1,2)', '(7,8),(5,6)']),
+        mood: 'happy',
+        moods: '["sad","happy"]'
       });
     } finally {
       await db.end();
@@ -597,15 +650,36 @@ INSERT INTO test_data(id, time, timestamp, timestamptz) VALUES (1, '17:42:01.12'
       });
 
       const [transformed] = await getReplicationTx(db, replicationStream);
+      const [queried] = await queryAll(db, `SELECT ranges FROM test_custom`);
       await pg.end();
 
-      const oldFormat = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-      expect(oldFormat).toMatchObject({
+      const oldFormatStreamed = applyRowContext(transformed, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatStreamed).toMatchObject({
+        ranges: '{"{[2,4),[6,8)}"}'
+      });
+      const oldFormatQueried = applyRowContext(queried, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      expect(oldFormatQueried).toMatchObject({
         ranges: '{"{[2,4),[6,8)}"}'
       });
 
-      const newFormat = applyRowContext(transformed, new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS));
-      expect(newFormat).toMatchObject({
+      const newFormatStreamed = applyRowContext(
+        transformed,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
+      expect(newFormatStreamed).toMatchObject({
+        ranges: JSON.stringify([
+          [
+            { lower: 2, upper: 4, lower_exclusive: 0, upper_exclusive: 1 },
+            { lower: 6, upper: 8, lower_exclusive: 0, upper_exclusive: 1 }
+          ]
+        ])
+      });
+
+      const newFormatQueried = applyRowContext(
+        queried,
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      );
+      expect(newFormatQueried).toMatchObject({
         ranges: JSON.stringify([
           [
             { lower: 2, upper: 4, lower_exclusive: 0, upper_exclusive: 1 },
@@ -637,4 +711,19 @@ async function getReplicationTx(db: pgwire.PgClient, replicationStream: pgwire.R
     }
   }
   return transformed;
+}
+
+/**
+ * Simulates what WalStream does for initial snapshots.
+ */
+async function queryAll(db: pgwire.PgClient, sql: string) {
+  const raw = await db.query(sql);
+  return await interpretResults(db, raw);
+}
+
+async function interpretResults(db: pgwire.PgClient, results: pgwire.PgResult) {
+  const typeCache = new PostgresTypeResolver(db);
+  await typeCache.fetchTypesForSchema();
+
+  return results.rows.map((row) => PostgresSnapshotter.decodeRow(row, typeCache));
 }

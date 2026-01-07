@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { ParameterLookup, SqlSyncRules } from '../../src/index.js';
+import { CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
 
+import { DEFAULT_HYDRATION_STATE, HydrationState } from '../../src/HydrationState.js';
+import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
+import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import {
   ASSETS,
   BASIC_SCHEMA,
@@ -10,14 +13,14 @@ import {
   normalizeQuerierOptions,
   normalizeTokenParameters
 } from './util.js';
-import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
 
 describe('sync rules', () => {
-  const bucketIdTransformer = SqlSyncRules.versionedBucketIdTransformer('');
+  const hydrationParams: CreateSourceParams = { hydrationState: DEFAULT_HYDRATION_STATE };
 
   test('parse empty sync rules', () => {
     const rules = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
-    expect(rules.bucketSources).toEqual([]);
+    expect(rules.bucketParameterLookupSources).toEqual([]);
+    expect(rules.bucketDataSources).toEqual([]);
   });
 
   test('parse global sync rules', () => {
@@ -30,6 +33,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
     const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
     expect(bucket.name).toEqual('mybucket');
     expect(bucket.bucketParameters).toEqual([]);
@@ -37,9 +41,8 @@ bucket_definitions:
     expect(dataQuery.bucketParameters).toEqual([]);
     expect(dataQuery.columnOutputNames()).toEqual(['id', 'description']);
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test' }
       })
     ).toEqual([
@@ -53,8 +56,7 @@ bucket_definitions:
         bucket: 'mybucket[]'
       }
     ]);
-    expect(rules.hasDynamicBucketQueries()).toBe(false);
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
       hasDynamicBuckets: false
     });
@@ -70,23 +72,24 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
-    expect(bucket.bucketParameters).toEqual([]);
-    const param_query = bucket.globalParameterQueries[0];
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(rules.bucketParameterLookupSources).toEqual([]);
 
     // Internal API, subject to change
-    expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 1n }))).toEqual(1n);
-    expect(param_query.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 0n }))).toEqual(0n);
+    const parameterQuery = (rules.bucketSources[0] as SqlBucketDescriptor)
+      .globalParameterQueries[0] as StaticSqlParameterQuery;
+    expect(parameterQuery.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 1n }))).toEqual(1n);
+    expect(parameterQuery.filter!.lookupParameterValue(normalizeTokenParameters({ is_admin: 0n }))).toEqual(0n);
 
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ is_admin: true })).querier).toMatchObject({
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ is_admin: true })).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
       hasDynamicBuckets: false
     });
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ is_admin: false })).querier).toMatchObject({
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ is_admin: false })).querier).toMatchObject({
       staticBuckets: [],
       hasDynamicBuckets: false
     });
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
       staticBuckets: [],
       hasDynamicBuckets: false
     });
@@ -102,17 +105,14 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
-    expect(bucket.bucketParameters).toEqual([]);
-    const param_query = bucket.parameterQueries[0];
-    expect(param_query.bucketParameters).toEqual([]);
-    expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],
-        lookup: ParameterLookup.normalized('mybucket', '1', ['user1'])
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1' }, ['user1'])
       }
     ]);
-    expect(rules.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
   });
 
   test('parse bucket with parameters', () => {
@@ -126,23 +126,19 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
-    expect(bucket.bucketParameters).toEqual(['user_id', 'device_id']);
-    const param_query = bucket.globalParameterQueries[0];
-    expect(param_query.bucketParameters).toEqual(['user_id', 'device_id']);
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id', 'device_id']);
     expect(
-      rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' }, { device_id: 'device1' })).querier
-        .staticBuckets
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' }, { device_id: 'device1' }))
+        .querier.staticBuckets
     ).toEqual([
       { bucket: 'mybucket["user1","device1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }
     ]);
 
-    const data_query = bucket.dataQueries[0];
-    expect(data_query.bucketParameters).toEqual(['user_id', 'device_id']);
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1', device_id: 'device1' }
       })
     ).toEqual([
@@ -157,12 +153,81 @@ bucket_definitions:
       }
     ]);
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1', archived: 1, device_id: 'device1' }
       })
     ).toEqual([]);
+  });
+
+  test('bucket with parameters with custom hydrationState', () => {
+    // "end-to-end" test with custom hydrationState.
+    // We don't test complex details here, but do cover bucket names and parameter lookup scope.
+    const rules = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT token_parameters.user_id as user_id
+      - SELECT users.id as user_id FROM users WHERE users.id = token_parameters.user_id AND users.is_admin
+    data:
+      - SELECT id, description FROM assets WHERE assets.user_id = bucket.user_id AND NOT assets.archived
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrationState: HydrationState = {
+      getBucketSourceScope(source) {
+        return { bucketPrefix: `${source.uniqueName}-test` };
+      },
+      getParameterIndexLookupScope(source) {
+        return {
+          lookupName: `${source.defaultLookupScope.lookupName}.test`,
+          queryId: `${source.defaultLookupScope.queryId}.test`
+        };
+      }
+    };
+    const hydrated = rules.hydrate({ hydrationState });
+    const querier = hydrated.getBucketParameterQuerier(
+      normalizeQuerierOptions({ user_id: 'user1' }, { device_id: 'device1' })
+    );
+    expect(querier.errors).toEqual([]);
+    expect(querier.querier.staticBuckets).toEqual([
+      {
+        bucket: 'mybucket-test["user1"]',
+        definition: 'mybucket',
+        inclusion_reasons: ['default'],
+        priority: 3
+      }
+    ]);
+    expect(querier.querier.parameterQueryLookups).toEqual([
+      ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+    ]);
+
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
+      {
+        bucketParameters: [{ user_id: 'user1' }],
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+      }
+    ]);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', description: 'test', user_id: 'user1', device_id: 'device1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'mybucket-test["user1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1',
+          description: 'test'
+        },
+        table: 'assets'
+      }
+    ]);
   });
 
   test('parse bucket with parameters and OR condition', () => {
@@ -176,20 +241,16 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
-    expect(bucket.bucketParameters).toEqual(['user_id']);
-    const param_query = bucket.globalParameterQueries[0];
-    expect(param_query.bucketParameters).toEqual(['user_id']);
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id']);
     expect(
-      rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier.staticBuckets
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier.staticBuckets
     ).toEqual([{ bucket: 'mybucket["user1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }]);
 
-    const data_query = bucket.dataQueries[0];
-    expect(data_query.bucketParameters).toEqual(['user_id']);
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1' }
       })
     ).toEqual([
@@ -204,9 +265,8 @@ bucket_definitions:
       }
     ]);
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', owner_id: 'user1' }
       })
     ).toEqual([
@@ -322,17 +382,17 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
-    expect(bucket.bucketParameters).toEqual(['user_id']);
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id']);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
       hasDynamicBuckets: false
     });
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1' }
       })
     ).toEqual([
@@ -360,17 +420,17 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
-    expect(bucket.bucketParameters).toEqual(['user_id']);
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
+    const hydrated = rules.hydrate(hydrationParams);
+    const bucketData = rules.bucketDataSources[0];
+    expect(bucketData.bucketParameters).toEqual(['user_id']);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["USER1"]', priority: 3 }],
       hasDynamicBuckets: false
     });
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', user_id: 'user1' }
       })
     ).toEqual([
@@ -396,10 +456,10 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', data: JSON.stringify({ count: 5, bool: true }) }
       })
     ).toEqual([
@@ -430,11 +490,11 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: {
           id: 'asset1',
           description: 'test',
@@ -475,11 +535,11 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', role: 'admin' }
       })
     ).toEqual([
@@ -497,9 +557,8 @@ bucket_definitions:
     ]);
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset2', description: 'test', role: 'normal' }
       })
     ).toEqual([
@@ -538,9 +597,9 @@ bucket_definitions:
       }
     ]);
 
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ is_admin: true })).querier.staticBuckets).toEqual([
-      { bucket: 'mybucket[1]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }
-    ]);
+    expect(
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ is_admin: true })).querier.staticBuckets
+    ).toEqual([{ bucket: 'mybucket[1]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }]);
   });
 
   test('some math', () => {
@@ -553,8 +612,9 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
 
-    expect(rules.evaluateRow({ sourceTable: ASSETS, bucketIdTransformer, record: { id: 'asset1' } })).toEqual([
+    expect(hydrated.evaluateRow({ sourceTable: ASSETS, record: { id: 'asset1' } })).toEqual([
       {
         bucket: 'mybucket[]',
         id: 'asset1',
@@ -580,14 +640,14 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
     expect(
-      rules.getBucketParameterQuerier(normalizeQuerierOptions({ int1: 314, float1: 3.14, float2: 314 })).querier
+      hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ int1: 314, float1: 3.14, float2: 314 })).querier
     ).toMatchObject({ staticBuckets: [{ bucket: 'mybucket[314,3.14,314]', priority: 3 }] });
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', int1: 314n, float1: 3.14, float2: 314 }
       })
     ).toEqual([
@@ -613,7 +673,8 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     expect(rules.errors).toEqual([]);
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'test' })).querier).toMatchObject({
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'test' })).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["TEST"]', priority: 3 }],
       hasDynamicBuckets: false
     });
@@ -630,11 +691,11 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: new TestSourceTable('assets_123'),
-        bucketIdTransformer,
         record: { client_id: 'asset1', description: 'test', archived: 0n, other_id: 'other1' }
       })
     ).toEqual([
@@ -671,11 +732,11 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: new TestSourceTable('assets_123'),
-        bucketIdTransformer,
         record: { client_id: 'asset1', description: 'test', archived: 0n, other_id: 'other1' }
       })
     ).toEqual([
@@ -705,11 +766,11 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1', description: 'test', archived: 0n }
       })
     ).toEqual([
@@ -741,11 +802,11 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
+    const hydrated = rules.hydrate(hydrationParams);
 
     expect(
-      rules.evaluateRow({
+      hydrated.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer,
         record: { id: 'asset1' }
       })
     ).toEqual([
@@ -870,7 +931,8 @@ bucket_definitions:
 
     expect(rules.errors).toEqual([]);
 
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
       staticBuckets: [
         { bucket: 'highprio[]', priority: 0 },
         { bucket: 'defaultprio[]', priority: 3 }
@@ -895,7 +957,8 @@ bucket_definitions:
 
     expect(rules.errors).toEqual([]);
 
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
+    const hydrated = rules.hydrate(hydrationParams);
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
       staticBuckets: [
         { bucket: 'highprio[]', priority: 0 },
         { bucket: 'defaultprio[]', priority: 3 }
@@ -956,17 +1019,18 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    const bucket = rules.bucketSources[0] as SqlBucketDescriptor;
-    expect(bucket.bucketParameters).toEqual(['user_id']);
-    expect(rules.hasDynamicBucketQueries()).toBe(true);
+    const bucket1data = rules.bucketDataSources[0];
+    expect(bucket1data.bucketParameters).toEqual(['user_id']);
 
-    expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
+    const hydrated = rules.hydrate(hydrationParams);
+
+    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
       hasDynamicBuckets: true,
       parameterQueryLookups: [
-        ParameterLookup.normalized('mybucket', '2', ['user1']),
-        ParameterLookup.normalized('by_list', '1', ['user1']),
+        ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '2' }, ['user1']),
+        ScopedParameterLookup.direct({ lookupName: 'by_list', queryId: '1' }, ['user1']),
         // These are not filtered out yet, due to how the lookups are structured internally
-        ParameterLookup.normalized('admin_only', '1', [1])
+        ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
       ],
       staticBuckets: [
         {

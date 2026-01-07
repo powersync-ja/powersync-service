@@ -1,18 +1,12 @@
 import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
-import { BucketParameterQuerier, ParameterLookup } from '../BucketParameterQuerier.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
-import {
-  BucketIdTransformer,
-  EvaluatedParametersResult,
-  EvaluateRowOptions,
-  RequestParameters,
-  SqliteJsonValue,
-  SqliteRow,
-  TableRow
-} from '../types.js';
-import { isJsonValue, JSONBucketNameSerialize, normalizeParameterValue } from '../utils.js';
+import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
+import { BucketDataSource, BucketParameterQuerierSource, ParameterIndexLookupCreator } from '../BucketSource.js';
+import { BucketDataScope } from '../HydrationState.js';
+import { CreateSourceParams, GetQuerierOptions, RequestedStream, ScopedParameterLookup } from '../index.js';
+import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
+import { buildBucketName, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
-import { SyncStream } from './stream.js';
+import { SyncStream, SyncStreamDataSource } from './stream.js';
 import { cartesianProduct } from './utils.js';
 
 /**
@@ -65,11 +59,19 @@ export class StreamVariant {
     this.requestFilters = [];
   }
 
+  defaultBucketPrefix(streamName: string): string {
+    return `${streamName}|${this.id}`;
+  }
+
+  indexLookupCreators(): ParameterIndexLookupCreator[] {
+    return this.subqueries.flatMap((subquery) => subquery.indexLookupCreators());
+  }
+
   /**
    * Given a row in the table this stream selects from, returns all ids of buckets to which that row belongs to.
    */
-  bucketIdsForRow(streamName: string, options: TableRow, transformer: BucketIdTransformer): string[] {
-    return this.instantiationsForRow(options).map((values) => this.buildBucketId(streamName, values, transformer));
+  bucketParametersForRow(options: TableRow): string[] {
+    return this.instantiationsForRow(options).map((values) => this.serializeBucketParameters(values));
   }
 
   /**
@@ -114,15 +116,12 @@ export class StreamVariant {
     return [...cartesianProduct(...instantiations)];
   }
 
-  get hasDynamicBucketQueries(): boolean {
-    return this.requestFilters.some((f) => f.type == 'dynamic');
-  }
-
   querier(
     stream: SyncStream,
     reason: BucketInclusionReason,
     params: RequestParameters,
-    bucketIdTransformer: BucketIdTransformer
+    bucketScope: BucketDataScope,
+    hydratedSubqueries: HydratedSubqueries
   ): BucketParameterQuerier | null {
     const instantiation = this.partiallyEvaluateParameters(params);
     if (instantiation == null) {
@@ -136,7 +135,7 @@ export class StreamVariant {
 
     const dynamicRequestFilters: SubqueryRequestFilter[] = this.requestFilters.filter((f) => f.type == 'dynamic');
     const dynamicParameters: ResolvedDynamicParameter[] = [];
-    const subqueryToLookups = new Map<SubqueryEvaluator, ParameterLookup[]>();
+    const subqueryToLookups = new Map<SubqueryEvaluator, ScopedParameterLookup[]>();
 
     for (let i = 0; i < this.parameters.length; i++) {
       const parameter = this.parameters[i];
@@ -151,7 +150,11 @@ export class StreamVariant {
     }
 
     for (const subquery of this.subqueries) {
-      subqueryToLookups.set(subquery, subquery.lookupsForRequest(params));
+      const subqueryLookup = hydratedSubqueries.get(subquery);
+      if (subqueryLookup == null) {
+        throw new Error('Internal error, missing subquery lookup');
+      }
+      subqueryToLookups.set(subquery, subqueryLookup(params));
     }
 
     const staticBuckets: ResolvedBucket[] = [];
@@ -159,7 +162,7 @@ export class StreamVariant {
       // When we have no dynamic parameters, the partial evaluation is a full instantiation.
       const instantiations = this.cartesianProductOfParameterInstantiations(instantiation as SqliteJsonValue[][]);
       for (const instantiation of instantiations) {
-        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketIdTransformer));
+        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketScope));
       }
     }
 
@@ -204,7 +207,7 @@ export class StreamVariant {
           perParameterInstantiation as SqliteJsonValue[][]
         );
 
-        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketIdTransformer)));
+        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketScope)));
       }
     };
   }
@@ -218,41 +221,6 @@ export class StreamVariant {
       // This will be an array of values (i.e. a total evaluation) because there are no dynamic parameters.
       this.partiallyEvaluateParameters(params) as SqliteJsonValue[][]
     );
-  }
-
-  /**
-   * Creates lookup indices for dynamically-resolved parameters.
-   *
-   * Resolving dynamic parameters is a two-step process: First, for tables referenced in subqueries, we create an index
-   * to resolve which request parameters would match rows in subqueries. Then, when resolving bucket ids for a request,
-   * we compute subquery results by looking up results in that index.
-   *
-   * This implements the first step of that process.
-   *
-   * @param result The array into which evaluation results should be written to.
-   * @param sourceTable A table we depend on in a subquery.
-   * @param row Row data to index.
-   */
-  pushParameterRowEvaluation(result: EvaluatedParametersResult[], sourceTable: SourceTableInterface, row: SqliteRow) {
-    for (const subquery of this.subqueries) {
-      if (subquery.parameterTable.matches(sourceTable)) {
-        const lookups = subquery.lookupsForParameterRow(sourceTable, row);
-        if (lookups == null) {
-          continue;
-        }
-
-        // The row of the subquery. Since we only support subqueries with a single column, we unconditionally name the
-        // column `result` for simplicity.
-        const resultRow = { result: lookups.value };
-
-        result.push(
-          ...lookups.lookups.map((l) => ({
-            lookup: l,
-            bucketParameters: [resultRow]
-          }))
-        );
-      }
-    }
   }
 
   debugRepresentation(): any {
@@ -305,31 +273,104 @@ export class StreamVariant {
   /**
    * Builds a bucket id for an instantiation, like `stream|0[1,2,"foo"]`.
    *
-   * @param streamName The name of the stream, included in the bucket id
+   * @param bucketPrefix The name of the the bucket, excluding parameters
    * @param instantiation An instantiation for all parameters in this variant.
    * @param transformer A transformer adding version information to the inner id.
    * @returns The generated bucket id
    */
-  private buildBucketId(streamName: string, instantiation: SqliteJsonValue[], transformer: BucketIdTransformer) {
+  private serializeBucketParameters(instantiation: SqliteJsonValue[]) {
     if (instantiation.length != this.parameters.length) {
       throw Error('Internal error, instantiation length mismatch');
     }
 
-    return transformer(`${streamName}|${this.id}${JSONBucketNameSerialize.stringify(instantiation)}`);
+    return JSONBucketNameSerialize.stringify(instantiation);
   }
 
   private resolveBucket(
     stream: SyncStream,
     instantiation: SqliteJsonValue[],
     reason: BucketInclusionReason,
-    bucketIdTransformer: BucketIdTransformer
+    bucketScope: BucketDataScope
   ): ResolvedBucket {
     return {
       definition: stream.name,
       inclusion_reasons: [reason],
-      bucket: this.buildBucketId(stream.name, instantiation, bucketIdTransformer),
+      bucket: buildBucketName(bucketScope, this.serializeBucketParameters(instantiation)),
       priority: stream.priority
     };
+  }
+
+  createParameterQuerierSource(
+    params: CreateSourceParams,
+    stream: SyncStream,
+    querierDataSource: BucketDataSource
+  ): BucketParameterQuerierSource {
+    const hydrationState = params.hydrationState;
+    const bucketScope = hydrationState.getBucketSourceScope(querierDataSource);
+
+    const hydratedSubqueries: HydratedSubqueries = new Map(
+      this.subqueries.map((s) => [s, s.hydrateLookupsForRequest(hydrationState)])
+    );
+
+    return {
+      pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions): void => {
+        const subscriptions = options.streams[stream.name] ?? [];
+
+        if (!stream.subscribedToByDefault && !subscriptions.length) {
+          // The client is not subscribing to this stream, so don't query buckets related to it.
+          return;
+        }
+
+        let hasExplicitDefaultSubscription = false;
+        for (const subscription of subscriptions) {
+          let subscriptionParams = options.globalParameters;
+          if (subscription.parameters != null) {
+            subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
+          } else {
+            hasExplicitDefaultSubscription = true;
+          }
+
+          this.queriersForSubscription(
+            stream,
+            result,
+            subscription,
+            subscriptionParams,
+            bucketScope,
+            hydratedSubqueries
+          );
+        }
+
+        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
+        // subscription, also include the default querier.
+        if (stream.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+          this.queriersForSubscription(stream, result, null, options.globalParameters, bucketScope, hydratedSubqueries);
+        }
+      }
+    };
+  }
+
+  private queriersForSubscription(
+    stream: SyncStream,
+    result: PendingQueriers,
+    subscription: RequestedStream | null,
+    params: RequestParameters,
+    bucketScope: BucketDataScope,
+    hydratedSubqueries: HydratedSubqueries
+  ) {
+    const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
+
+    try {
+      const querier = this.querier(stream, reason, params, bucketScope, hydratedSubqueries);
+      if (querier) {
+        result.queriers.push(querier);
+      }
+    } catch (e) {
+      result.errors.push({
+        descriptor: stream.name,
+        message: `Error evaluating bucket ids: ${e.message}`,
+        subscription: subscription ?? undefined
+      });
+    }
   }
 }
 /**
@@ -356,3 +397,5 @@ export interface SubqueryRequestFilter {
   matches(params: RequestParameters, results: SqliteJsonValue[]): boolean;
 }
 export type RequestFilter = StaticRequestFilter | SubqueryRequestFilter;
+
+type HydratedSubqueries = Map<SubqueryEvaluator, (params: RequestParameters) => ScopedParameterLookup[]>;

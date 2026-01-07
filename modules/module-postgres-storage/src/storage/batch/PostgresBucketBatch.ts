@@ -25,7 +25,7 @@ import { bigint } from '../../types/codecs.js';
 export interface PostgresBucketBatchOptions {
   logger: Logger;
   db: lib_postgres.DatabaseClient;
-  sync_rules: sync_rules.SqlSyncRules;
+  sync_rules: sync_rules.HydratedSyncRules;
   group_id: number;
   slot_name: string;
   last_checkpoint_lsn: string | null;
@@ -83,7 +83,7 @@ export class PostgresBucketBatch
   protected persisted_op: InternalOpId | null;
 
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[];
-  protected readonly sync_rules: sync_rules.SqlSyncRules;
+  protected readonly sync_rules: sync_rules.HydratedSyncRules;
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
@@ -344,17 +344,19 @@ export class PostgresBucketBatch
             selected.*,
             CASE
               WHEN selected.can_checkpoint THEN GREATEST(
-                COALESCE(selected.last_checkpoint, 0),
-                COALESCE(${{ type: 'int8', value: persisted_op }}, 0),
-                COALESCE(selected.keepalive_op, 0)
+                selected.last_checkpoint,
+                ${{ type: 'int8', value: persisted_op }},
+                selected.keepalive_op,
+                0
               )
               ELSE selected.last_checkpoint
             END AS new_last_checkpoint,
             CASE
               WHEN selected.can_checkpoint THEN NULL
               ELSE GREATEST(
-                COALESCE(selected.keepalive_op, 0),
-                COALESCE(${{ type: 'int8', value: persisted_op }}, 0)
+                selected.keepalive_op,
+                ${{ type: 'int8', value: persisted_op }},
+                0
               )
             END AS new_keepalive_op
           FROM
@@ -445,9 +447,9 @@ export class PostgresBucketBatch
     }
 
     if (!result.can_checkpoint) {
-      if (Date.now() - this.lastWaitingLogThrottled > 5_000 || true) {
+      if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
         this.logger.info(
-          `Waiting before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}. Current state: ${JSON.stringify(
+          `Waiting before creating checkpoint, currently at ${lsn}. Last op: ${result.keepalive_op}. Current state: ${JSON.stringify(
             {
               snapshot_done: result.snapshot_done,
               last_checkpoint_lsn: result.last_checkpoint_lsn,
@@ -461,9 +463,7 @@ export class PostgresBucketBatch
     }
 
     if (result.created_checkpoint) {
-      this.logger.info(
-        `Created checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint} (${this.persisted_op}). keepalive: ${result.keepalive_op}`
-      );
+      this.logger.info(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
 
       await this.db.sql`
         DELETE FROM current_data
@@ -472,10 +472,6 @@ export class PostgresBucketBatch
           AND pending_delete IS NOT NULL
           AND pending_delete <= ${{ type: 'int8', value: result.last_checkpoint }}
       `.execute();
-    } else {
-      this.logger.info(
-        `Skipped empty checkpoint at ${lsn}. Persisted op: ${result.last_checkpoint}. keepalive: ${result.keepalive_op}`
-      );
     }
     await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, {
@@ -577,17 +573,8 @@ export class PostgresBucketBatch
       }
     });
     return tables.map((table) => {
-      const copy = new storage.SourceTable({
-        id: table.id,
-        connectionTag: table.connectionTag,
-        objectId: table.objectId,
-        schema: table.schema,
-        name: table.name,
-        replicaIdColumns: table.replicaIdColumns,
-        snapshotComplete: table.snapshotComplete
-      });
-      copy.syncData = table.syncData;
-      copy.syncParameters = table.syncParameters;
+      const copy = table.clone();
+      copy.snapshotComplete = true;
       return copy;
     });
   }
@@ -944,8 +931,7 @@ export class PostgresBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable,
-          bucketIdTransformer: sync_rules.SqlSyncRules.versionedBucketIdTransformer(`${this.group_id}`)
+          sourceTable
         });
 
         for (const error of syncErrors) {

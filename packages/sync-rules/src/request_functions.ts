@@ -1,5 +1,5 @@
 import { ExpressionType } from './ExpressionType.js';
-import { CompatibilityContext, CompatibilityEdition, CompatibilityOption } from './compatibility.js';
+import { CompatibilityContext, CompatibilityEdition } from './compatibility.js';
 import { generateSqlFunctions } from './sql_functions.js';
 import { CompiledClause, ParameterValueClause, ParameterValueSet, SqliteValue } from './types.js';
 
@@ -23,7 +23,7 @@ export interface SqlParameterFunction {
 }
 
 const jsonExtractFromRecord = generateSqlFunctions(
-  new CompatibilityContext(CompatibilityEdition.SYNC_STREAMS)
+  new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
 ).jsonExtractFromRecord;
 /**
  * Defines a `parameters` function and a `parameter` function.

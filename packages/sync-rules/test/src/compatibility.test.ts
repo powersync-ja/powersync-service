@@ -1,11 +1,15 @@
 import { describe, expect, test } from 'vitest';
-import { SqlSyncRules, DateTimeValue, toSyncRulesValue, SqliteInputRow } from '../../src/index.js';
+import { DateTimeValue, SqlSyncRules, TimeValuePrecision, toSyncRulesValue } from '../../src/index.js';
 
-import { ASSETS, identityBucketTransformer, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
+import { versionedHydrationState } from '../../src/HydrationState.js';
+import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
-    const value = new DateTimeValue('2025-08-19T09:21:00Z');
+    const value = new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+      subSecondPrecision: TimeValuePrecision.seconds,
+      defaultSubSecondPrecision: TimeValuePrecision.seconds
+    });
 
     test('uses old format by default', () => {
       const rules = SqlSyncRules.fromYaml(
@@ -16,12 +20,11 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: rules.applyRowContext<never>({
             id: 'id',
             description: value
@@ -44,12 +47,11 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(''),
           record: rules.applyRowContext<never>({
             id: 'id',
             description: value
@@ -72,11 +74,10 @@ config:
   edition: 2
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
         rules.evaluateRow({
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
           record: rules.applyRowContext<never>({
             id: 'id',
@@ -87,11 +88,7 @@ config:
         { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
 
-      expect(
-        rules.getBucketParameterQuerier(
-          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
-        ).querier.staticBuckets
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
           bucket: '1#stream|0[]',
           definition: 'stream',
@@ -115,11 +112,10 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
         rules.evaluateRow({
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           sourceTable: ASSETS,
           record: rules.applyRowContext<never>({
             id: 'id',
@@ -129,11 +125,7 @@ config:
       ).toStrictEqual([
         { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
-      expect(
-        rules.getBucketParameterQuerier(
-          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
-        ).querier.staticBuckets
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
           bucket: 'stream|0[]',
           definition: 'stream',
@@ -157,12 +149,11 @@ config:
   versioned_bucket_ids: true
     `,
       PARSE_OPTIONS
-    );
+    ).hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
         record: {
           id: 'id',
           description: 'desc'
@@ -182,15 +173,17 @@ config:
   edition: 2
     `,
       PARSE_OPTIONS
-    );
+    ).hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
       rules.evaluateRow({
         sourceTable: ASSETS,
-        bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
         record: rules.applyRowContext<never>({
           id: 'id',
-          description: new DateTimeValue('2025-08-19T09:21:00Z')
+          description: new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+            subSecondPrecision: TimeValuePrecision.seconds,
+            defaultSubSecondPrecision: TimeValuePrecision.seconds
+          })
         })
       })
     ).toStrictEqual([
@@ -210,7 +203,7 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
@@ -218,8 +211,7 @@ bucket_definitions:
           record: {
             id: 'id',
             description: description
-          },
-          bucketIdTransformer: identityBucketTransformer
+          }
         })
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: 'baz', id: 'id' }, id: 'id', table: 'assets' }]);
     });
@@ -235,7 +227,7 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      );
+      ).hydrate();
 
       expect(
         rules.evaluateRow({
@@ -243,8 +235,7 @@ config:
           record: {
             id: 'id',
             description: description
-          },
-          bucketIdTransformer: identityBucketTransformer
+          }
         })
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: null, id: 'id' }, id: 'id', table: 'assets' }]);
     });
@@ -268,7 +259,13 @@ config:
   });
 
   test('arrays', () => {
-    const data = toSyncRulesValue(['static value', new DateTimeValue('2025-08-19T09:21:00Z')]);
+    const data = toSyncRulesValue([
+      'static value',
+      new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+        subSecondPrecision: TimeValuePrecision.seconds,
+        defaultSubSecondPrecision: TimeValuePrecision.seconds
+      })
+    ]);
 
     for (const withFixedQuirk of [false, true]) {
       let syncRules = `
@@ -285,11 +282,12 @@ config:
         `;
       }
 
-      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS);
+      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).hydrate({
+        hydrationState: versionedHydrationState(1)
+      });
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer('1'),
           record: rules.applyRowContext<never>({
             id: 'id',
             description: data
@@ -309,11 +307,7 @@ config:
         }
       ]);
 
-      expect(
-        rules.getBucketParameterQuerier(
-          normalizeQuerierOptions({}, {}, {}, SqlSyncRules.versionedBucketIdTransformer('1'))
-        ).querier.staticBuckets
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
           bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
           definition: 'mybucket',
@@ -322,5 +316,49 @@ config:
         }
       ]);
     }
+  });
+
+  describe('max datetime precision', () => {
+    test('is not supported in edition 1', () => {
+      expect(() => {
+        SqlSyncRules.fromYaml(
+          `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets
+
+config:
+  timestamp_max_precision: seconds
+    `,
+          PARSE_OPTIONS
+        );
+      }).toThrow(`'timestamp_max_precision' requires 'timestamps_iso8601' to be enabled`);
+    });
+
+    test('can set max precision', () => {
+      const rules = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  mybucket:
+    data:
+      - SELECT id, description FROM assets
+
+config:
+  edition: 2
+  timestamp_max_precision: seconds
+    `,
+        PARSE_OPTIONS
+      );
+
+      expect(
+        rules.applyRowContext({
+          a: new DateTimeValue('2025-11-07T10:45:03.123Z', undefined, {
+            subSecondPrecision: TimeValuePrecision.microseconds,
+            defaultSubSecondPrecision: TimeValuePrecision.microseconds
+          })
+        })
+      ).toStrictEqual({ a: '2025-11-07T10:45:03Z' });
+    });
   });
 });

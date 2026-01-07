@@ -1,14 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqlEventDescriptor, SqliteRow, SqliteValue, SqlSyncRules } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
   BaseObserver,
   container,
+  logger as defaultLogger,
   ErrorCode,
   errors,
   Logger,
-  logger as defaultLogger,
   ReplicationAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
@@ -23,13 +23,13 @@ import {
   utils
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
+import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 
 /**
  * 15MB
@@ -47,7 +47,7 @@ export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
 
 export interface MongoBucketBatchOptions {
   db: PowerSyncMongo;
-  syncRules: SqlSyncRules;
+  syncRules: HydratedSyncRules;
   groupId: number;
   slotName: string;
   lastCheckpointLsn: string | null;
@@ -73,7 +73,7 @@ export class MongoBucketBatch
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
-  private readonly sync_rules: SqlSyncRules;
+  private readonly sync_rules: HydratedSyncRules;
 
   private readonly group_id: number;
 
@@ -469,8 +469,7 @@ export class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable,
-          bucketIdTransformer: SqlSyncRules.versionedBucketIdTransformer(`${this.group_id}`)
+          sourceTable
         });
 
         for (let error of syncErrors) {
@@ -547,7 +546,7 @@ export class MongoBucketBatch
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key: SourceKey = { g: this.group_id, t: sourceTable.id as bson.ObjectId, k: afterId };
+      const after_key: SourceKey = { g: this.group_id, t: mongoTableId(sourceTable.id), k: afterId };
       batch.upsertCurrentData(after_key, {
         data: afterData,
         buckets: new_buckets,
@@ -711,7 +710,7 @@ export class MongoBucketBatch
         { $literal: null },
         {
           $toString: {
-            $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }]
+            $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }, 0n]
           }
         }
       ]
@@ -721,7 +720,7 @@ export class MongoBucketBatch
       $cond: [
         can_checkpoint,
         {
-          $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }]
+          $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }, 0n]
         },
         '$last_checkpoint'
       ]
@@ -738,6 +737,11 @@ export class MongoBucketBatch
       };
     }
 
+    // For this query, we need to handle multiple cases, depending on the state:
+    // 1. Normal commit - advance last_checkpoint to this.persisted_op.
+    // 2. Commit delayed by no_checkpoint_before due to snapshot. In this case we only advance keepalive_op.
+    // 3. Commit with no new data - here may may set last_checkpoint = keepalive_op, if a delayed commit is relevant.
+    // We want to do as much as possible in a single atomic database operation, which makes this somewhat complex.
     let updateResult = await this.db.sync_rules.findOneAndUpdate(
       filter,
       [
@@ -781,37 +785,40 @@ export class MongoBucketBatch
         }
       }
     );
-    if (updateResult == null) {
-      const existing = await this.db.sync_rules.findOne(
-        { _id: this.group_id },
-        {
-          session: this.session,
-          projection: {
-            snapshot_done: 1,
-            last_checkpoint_lsn: 1,
-            no_checkpoint_before: 1,
-            keepalive_op: 1,
-            last_checkpoint: 1
-          }
-        }
-      );
-      if (existing == null) {
-        throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
-      }
-      // No-op update - reuse existing document for downstream logic.
-      // This can happen when last_checkpoint and keepalive_op would remain unchanged.
-      updateResult = existing;
-    }
     const checkpointCreated =
+      updateResult != null &&
       updateResult.snapshot_done === true &&
       updateResult.last_checkpoint_lsn === lsn &&
       updateResult.last_checkpoint != null;
 
-    if (!checkpointCreated) {
+    if (updateResult == null || !checkpointCreated) {
       // Failed on snapshot_done or no_checkpoint_before.
       if (Date.now() - this.lastWaitingLogThottled > 5_000) {
+        // This is for debug info only.
+        if (updateResult == null) {
+          const existing = await this.db.sync_rules.findOne(
+            { _id: this.group_id },
+            {
+              session: this.session,
+              projection: {
+                snapshot_done: 1,
+                last_checkpoint_lsn: 1,
+                no_checkpoint_before: 1,
+                keepalive_op: 1,
+                last_checkpoint: 1
+              }
+            }
+          );
+          if (existing == null) {
+            throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
+          }
+          // No-op update - reuse existing document for downstream logic.
+          // This can happen when last_checkpoint and keepalive_op would remain unchanged.
+          updateResult = existing;
+        }
+
         this.logger.info(
-          `Waiting before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}. Current state: ${JSON.stringify(
+          `Waiting before creating checkpoint, currently at ${lsn} / ${updateResult.keepalive_op}. Current state: ${JSON.stringify(
             {
               snapshot_done: updateResult.snapshot_done,
               last_checkpoint_lsn: updateResult.last_checkpoint_lsn,
@@ -822,7 +829,7 @@ export class MongoBucketBatch
         this.lastWaitingLogThottled = Date.now();
       }
     } else {
-      this.logger.info(`Created checkpoint at ${lsn}/${updateResult.last_checkpoint}`);
+      this.logger.info(`Created checkpoint at ${lsn} / ${updateResult.last_checkpoint}`);
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
@@ -899,7 +906,7 @@ export class MongoBucketBatch
   }
 
   async keepalive(lsn: string): Promise<boolean> {
-    return await this.commit(lsn);
+    return await this.commit(lsn, { createEmptyCheckpoints: true });
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
