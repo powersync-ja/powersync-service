@@ -1,7 +1,7 @@
 import { ChangeStreamInvalidatedError } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
-import { TestStorageConfig } from '@powersync/service-core';
+import { settledPromise, TestStorageConfig } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
@@ -25,8 +25,6 @@ function defineResumeTest(config: TestStorageConfig) {
             - SELECT _id as id, description, num FROM "test_data"`);
 
     await context.replicateSnapshot();
-
-    context.startStreaming();
 
     const collection = db.collection('test_data');
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
@@ -60,7 +58,7 @@ function defineResumeTest(config: TestStorageConfig) {
     context2.storage = factory.getInstance(activeContent!);
 
     // If this test times out, it likely didn't throw the expected error here.
-    const result = await context2.startStreaming();
+    const result = await settledPromise(context2.initializeReplication());
     // The ChangeStreamReplicationJob will detect this and throw a ChangeStreamInvalidatedError
     expect(result.status).toEqual('rejected');
     expect((result as PromiseRejectedResult).reason).toBeInstanceOf(ChangeStreamInvalidatedError);

@@ -267,7 +267,7 @@ export class MongoSnapshotter {
     }
   }
 
-  private async replicateTable(table: SourceTable) {
+  private async replicateTable(tableRequest: SourceTable) {
     const flushResults = await this.storage.startBatch(
       {
         logger: this.logger,
@@ -277,6 +277,11 @@ export class MongoSnapshotter {
         skipExistingRows: true
       },
       async (batch) => {
+        // Get fresh table info, in case it was updated while queuing
+        const table = await this.handleRelation(batch, tableRequest, { collectionInfo: undefined });
+        if (table.snapshotComplete) {
+          return;
+        }
         await this.snapshotTable(batch, table);
 
         const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);

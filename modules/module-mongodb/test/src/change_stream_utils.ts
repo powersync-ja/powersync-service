@@ -63,12 +63,12 @@ export class ChangeStreamTestContext {
   /**
    * Abort snapshot and/or replication, without actively closing connections.
    */
-  abort() {
-    this.abortController.abort();
+  abort(cause?: Error) {
+    this.abortController.abort(cause);
   }
 
   async dispose() {
-    this.abort();
+    this.abort(new Error('Disposing test context'));
     await this.settledReplicationPromise;
     await this.factory[Symbol.asyncDispose]();
     await this.connectionManager.end();
@@ -118,6 +118,7 @@ export class ChangeStreamTestContext {
       metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
       abort_signal: this.abortController.signal,
+      logger: this.streamOptions?.logger,
       // Specifically reduce this from the default for tests on MongoDB <= 6.0, otherwise it can take
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
@@ -127,6 +128,18 @@ export class ChangeStreamTestContext {
     return this._walStream!;
   }
 
+  /**
+   * Replicate a snapshot, start streaming, and wait for a consistent checkpoint.
+   */
+  async initializeReplication() {
+    await this.replicateSnapshot();
+    // Make sure we're up to date
+    await this.getCheckpoint();
+  }
+
+  /**
+   * Replicate the initial snapshot, and start streaming.
+   */
   async replicateSnapshot() {
     // Use a settledPromise to avoid unhandled rejections
     this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
@@ -154,11 +167,6 @@ export class ChangeStreamTestContext {
     await this.storage!.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.keepalive(checkpoint);
     });
-  }
-
-  startStreaming() {
-    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
-    return this.settledReplicationPromise;
   }
 
   async getCheckpoint(options?: { timeout?: number }) {

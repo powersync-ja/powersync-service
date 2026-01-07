@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
 import { describeWithStorage } from './util.js';
+import { logger } from '@powersync/lib-services-framework';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (config) {
@@ -35,7 +36,9 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   let startRowCount: number;
 
   {
-    await using context = await ChangeStreamTestContext.open(factory, { streamOptions: { snapshotChunkLength: 1000 } });
+    await using context = await ChangeStreamTestContext.open(factory, {
+      streamOptions: { snapshotChunkLength: 1000, logger: logger.child({ prefix: '[context1] ' }) }
+    });
 
     await context.updateSyncRules(`bucket_definitions:
   global:
@@ -87,7 +90,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     // Bypass the usual "clear db on factory open" step.
     await using context2 = await ChangeStreamTestContext.open(factory, {
       doNotClear: true,
-      streamOptions: { snapshotChunkLength: 1000 }
+      streamOptions: { snapshotChunkLength: 1000, logger: logger.child({ prefix: '[context2] ' }) }
     });
 
     const { db } = context2;
@@ -98,9 +101,8 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     await db.collection('test_data2').insertOne({ _id: 10001 as any, description: 'insert1' });
 
     await context2.loadNextSyncRules();
-    await context2.replicateSnapshot();
+    await context2.initializeReplication();
 
-    context2.startStreaming();
     const data = await context2.getBucketData('global[]', undefined, {});
 
     const deletedRowOps = data.filter((row) => row.object_type == 'test_data2' && row.object_id === '1');
@@ -122,26 +124,30 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     // We only test the final version.
     expect(JSON.parse(updatedRowOps[1].data as string).description).toEqual('update1');
 
-    expect(insertedRowOps.length).toEqual(2);
     expect(JSON.parse(insertedRowOps[0].data as string).description).toEqual('insert1');
-    expect(JSON.parse(insertedRowOps[1].data as string).description).toEqual('insert1');
+    if (insertedRowOps.length != 1) {
+      // Also valid
+      expect(insertedRowOps.length).toEqual(2);
+      expect(JSON.parse(insertedRowOps[1].data as string).description).toEqual('insert1');
+    }
 
     // 1000 of test_data1 during first replication attempt.
     // N >= 1000 of test_data2 during first replication attempt.
     // 10000 - N - 1 + 1 of test_data2 during second replication attempt.
     // An additional update during streaming replication (2x total for this row).
-    // An additional insert during streaming replication (2x total for this row).
+    // An additional insert during streaming replication (1x or 2x total for this row).
     // If the deleted row was part of the first replication batch, it's removed by streaming replication.
     // This adds 2 ops.
     // We expect this to be 11002 for stopAfter: 2000, and 11004 for stopAfter: 8000.
     // However, this is not deterministic.
-    const expectedCount = 11002 + deletedRowOps.length;
+    const expectedCount = 11000 + deletedRowOps.length + insertedRowOps.length;
     expect(data.length).toEqual(expectedCount);
 
     const replicatedCount =
       ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
 
-    // With resumable replication, there should be no need to re-replicate anything.
-    expect(replicatedCount).toEqual(expectedCount);
+    // With resumable replication, there should be no need to re-replicate anything, apart from the newly-inserted row
+    expect(replicatedCount).toBeGreaterThanOrEqual(expectedCount);
+    expect(replicatedCount).toBeLessThanOrEqual(expectedCount + 1);
   }
 }

@@ -1,5 +1,11 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { reduceBucket, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
+import {
+  reduceBucket,
+  settledPromise,
+  TestStorageConfig,
+  TestStorageFactory,
+  unsettledPromise
+} from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
@@ -116,7 +122,7 @@ function defineBatchTests(config: TestStorageConfig) {
 
     // 2. Replicate one batch of rows
     // Our "stopping point" here is not quite deterministic.
-    const p = context.replicateSnapshot();
+    const p = settledPromise(context.initializeReplication());
 
     const stopAfter = 100;
     const startRowCount = (await METRICS_HELPER.getMetricValueForTests('powersync_rows_replicated_total')) ?? 0;
@@ -146,9 +152,10 @@ function defineBatchTests(config: TestStorageConfig) {
     await db.collection('test_data').insertOne({ _id: idD, description: 'new' });
 
     // 4. Replicate the rest of the table.
-    await p;
+    await unsettledPromise(p);
 
-    context.startStreaming();
+    // FIXME: only start streaming at this point:
+    // context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     const reduced = reduceBucket(data);
