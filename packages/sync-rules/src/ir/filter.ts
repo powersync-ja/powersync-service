@@ -26,6 +26,8 @@ export type BaseTerm = SingleDependencyExpression | EqualsClause;
  * A {@link SyncExpression} that only depends on a single result set or connection data.
  */
 export class SingleDependencyExpression implements EqualsIgnoringResultSet {
+  readonly expression: SyncExpression;
+
   /**
    * The single result set on which the expression depends on.
    *
@@ -38,14 +40,21 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
    */
   readonly dependsOnConnection: boolean;
 
-  constructor(readonly expression: SyncExpression) {
-    const checked = SingleDependencyExpression.extractSingleDependency(expression.instantiation);
-    if (checked == null) {
-      throw new InvalidExpressionError('Expression with multiple dependencies passed to SingleDependencyExpression');
-    }
+  constructor(expression: SyncExpression | SingleDependencyExpression) {
+    if (expression instanceof SyncExpression) {
+      const checked = SingleDependencyExpression.extractSingleDependency(expression.instantiation);
+      if (checked == null) {
+        throw new InvalidExpressionError('Expression with multiple dependencies passed to SingleDependencyExpression');
+      }
 
-    this.resultSet = checked[0];
-    this.dependsOnConnection = checked[1];
+      this.expression = expression;
+      this.resultSet = checked[0];
+      this.dependsOnConnection = checked[1];
+    } else {
+      this.expression = expression.expression;
+      this.resultSet = expression.resultSet;
+      this.dependsOnConnection = expression.dependsOnConnection;
+    }
   }
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
@@ -91,7 +100,7 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
 export class RowExpression extends SingleDependencyExpression {
   declare readonly resultSet: SourceResultSet;
 
-  constructor(expression: SyncExpression) {
+  constructor(expression: SyncExpression | SingleDependencyExpression) {
     super(expression);
     if (this.resultSet == null) {
       throw new InvalidExpressionError('Does not depend on a single result set');
@@ -103,7 +112,7 @@ export class RowExpression extends SingleDependencyExpression {
  * A {@link SyncExpression} that only depends on connection data.
  */
 export class RequestExpression extends SingleDependencyExpression {
-  constructor(expression: SyncExpression) {
+  constructor(expression: SyncExpression | SingleDependencyExpression) {
     super(expression);
     if (!this.dependsOnConnection) {
       throw new InvalidExpressionError('Does not depend on connection data');

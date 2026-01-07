@@ -1,5 +1,5 @@
 import { BucketPriority } from '../BucketDescription.js';
-import { Equatable, HashMap, StableHasher } from '../compiler/equality.js';
+import { Equatable, HashMap, HashSet, StableHasher } from '../compiler/equality.js';
 import { equalsIgnoringResultSetList, equalsIgnoringResultSetUnordered } from './compatibility.js';
 import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
@@ -85,8 +85,8 @@ export class EvaluateTableValuedFunction implements Equatable {
   }
 }
 
-class ResolveBucket {
-  readonly evaluators = new HashMap<RowEvaluator, null>({
+export class ResolveBucket {
+  readonly evaluators = new HashSet<RowEvaluator>({
     hash: (hasher, value) => value.buildBehaviorHashCode(hasher),
     equals: (a, b) => a.behavesIdenticalTo(b)
   });
@@ -95,7 +95,7 @@ class ResolveBucket {
     evaluator: RowEvaluator,
     readonly instantiation: ParameterValue[]
   ) {
-    this.evaluators.set(evaluator, null);
+    this.evaluators.add(evaluator);
   }
 
   buildInstantiationHash(hasher: StableHasher) {

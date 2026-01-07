@@ -66,7 +66,7 @@ import { ParsingErrorListener } from './compiler.js';
  * WHERE tmp0.id = org.user AND org.id = (:auth_token) ->> '$.sub';
  * ```
  */
-interface ParsedStreamQuery {
+export interface ParsedStreamQuery {
   resultColumns: ColumnSource[];
   sourceTable: PhysicalSourceResultSet;
   joined: SourceResultSet[];
