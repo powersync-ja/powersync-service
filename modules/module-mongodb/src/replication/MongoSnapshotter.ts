@@ -252,6 +252,10 @@ export class MongoSnapshotter {
         // point before the data can be considered consistent.
         const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
         await batch.markAllSnapshotDone(checkpoint);
+        // KLUDGE: We need to create an extra checkpoint _after_ marking the snapshot done, to fix
+        // issues with order of processing commits(). This is picked up by tests on postgres storage,
+        // the issue may be specific to that storage engine.
+        await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
       }
     );
 
