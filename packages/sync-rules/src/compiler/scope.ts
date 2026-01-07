@@ -1,5 +1,5 @@
 import { astVisitor, ExprRef, PGNode } from 'pgsql-ast-parser';
-import { SyntacticResultSetSource } from '../ir/table.js';
+import { SyntacticResultSetSource } from './table.js';
 import { ParsingErrorListener } from './compiler.js';
 
 export class SqlScope {

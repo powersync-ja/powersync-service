@@ -1,7 +1,7 @@
 import { assignChanged, astMapper, Expr, NodeLocation, toSql } from 'pgsql-ast-parser';
 import { SourceResultSet } from './table.js';
 import { EqualsIgnoringResultSet, equalsIgnoringResultSetList } from './compatibility.js';
-import { StableHasher } from '../compiler/equality.js';
+import { StableHasher } from './equality.js';
 import { expandNodeLocations } from '../errors.js';
 
 /**

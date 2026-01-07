@@ -1,4 +1,4 @@
-import { Equality, listEquality, StableHasher } from '../compiler/equality.js';
+import { Equality, listEquality, StableHasher } from './equality.js';
 
 export interface EqualsIgnoringResultSet {
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean;

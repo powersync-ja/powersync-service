@@ -9,11 +9,11 @@ import {
   ResolveBucket,
   StreamOptions,
   StreamResolver
-} from '../ir/bucket_resolver.js';
-import { equalsIgnoringResultSet } from '../ir/compatibility.js';
-import { And, BaseTerm, RequestExpression, RowExpression, SingleDependencyExpression } from '../ir/filter.js';
-import { PartitionKey, PointLookup, RowEvaluator } from '../ir/rows.js';
-import { PhysicalSourceResultSet, RequestTableValuedResultSet, SourceResultSet } from '../ir/table.js';
+} from './bucket_resolver.js';
+import { equalsIgnoringResultSet } from './compatibility.js';
+import { And, BaseTerm, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
+import { PartitionKey, PointLookup, RowEvaluator } from './rows.js';
+import { PhysicalSourceResultSet, RequestTableValuedResultSet, SourceResultSet } from './table.js';
 import { ParsingErrorListener, SyncStreamCompiler } from './compiler.js';
 import { HashMap, HashSet } from './equality.js';
 import { ParsedStreamQuery } from './parser.js';

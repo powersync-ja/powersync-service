@@ -1,7 +1,7 @@
 import { NodeLocation, PGNode } from 'pgsql-ast-parser';
 import { HashSet } from './equality.js';
-import { PointLookup, RowEvaluator } from '../ir/rows.js';
-import { StreamResolver } from '../ir/bucket_resolver.js';
+import { PointLookup, RowEvaluator } from './rows.js';
+import { StreamResolver } from './bucket_resolver.js';
 
 export interface ParsingErrorListener {
   report(message: string, location: NodeLocation | PGNode): void;
