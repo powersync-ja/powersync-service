@@ -84,6 +84,6 @@ describe('Config', () => {
       collector.collectConfig({
         config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
       })
-    ).rejects.toThrow(/Could not parse YAML configuration file/);
+    ).rejects.toThrow(/YAML Error:[\s\S]*Attempting to substitute environment variable INVALID_VAR/);
   });
 });
