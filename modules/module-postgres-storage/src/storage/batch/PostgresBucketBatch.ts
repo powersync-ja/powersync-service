@@ -1115,7 +1115,7 @@ export class PostgresBucketBatch
             return await callback(db);
           });
         } catch (err) {
-          const code = err[Symbol.for('pg.ErrorCode')];
+          const code = err.cause?.code;
           if ((code == '40001' || code == '40P01') && Date.now() < lastTry) {
             // Serialization (lock) failure, retry
             this.logger.warn(`Serialization failure during replication transaction, retrying: ${err.message}`);
