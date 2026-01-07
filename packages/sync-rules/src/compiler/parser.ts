@@ -36,6 +36,7 @@ import { cartesianProduct } from '../streams/utils.js';
 import { intrinsicContains, PostgresToSqlite } from './sqlite.js';
 import { SqlScope } from './scope.js';
 import { ParsingErrorListener } from './compiler.js';
+import { TablePattern } from '../TablePattern.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -164,7 +165,7 @@ export class StreamQueryParser {
     let handled = false;
     if (from.type == 'table') {
       const source = new SyntacticResultSetSource(from.name);
-      const resultSet = new PhysicalSourceResultSet(from.name.name, source);
+      const resultSet = new PhysicalSourceResultSet(new TablePattern(from.name.schema ?? '', from.name.name), source);
       scope.registerResultSet(this.errors, from.name.alias ?? from.name.name, source);
       this.resultSets.set(source, resultSet);
       handled = true;

@@ -26,15 +26,16 @@ export class QuerierGraphBuilder {
 
   constructor(
     readonly compiler: SyncStreamCompiler,
-    readonly options: StreamOptions,
-    readonly errors: ParsingErrorListener
+    readonly options: StreamOptions
   ) {}
 
   /**
    * Adds a given query to the stream compiled by this builder.
    */
-  process(query: ParsedStreamQuery) {
+  process(query: ParsedStreamQuery, errors: ParsingErrorListener) {
     for (const variant of query.where.terms) {
+      const resolved = new PendingQuerierPath(this, query, errors, variant).resolvePrimaryInput();
+      this.resolvers.push(resolved);
     }
   }
 
@@ -101,6 +102,7 @@ class PendingQuerierPath {
   constructor(
     private readonly builder: QuerierGraphBuilder,
     private readonly query: ParsedStreamQuery,
+    private readonly errors: ParsingErrorListener,
     condition: And
   ) {
     this.pendingFactors.push(...condition.terms);
@@ -124,7 +126,7 @@ class PendingQuerierPath {
     for (const remaining of this.pendingFactors) {
       if (remaining instanceof SingleDependencyExpression) {
         if (remaining.resultSet != null) {
-          this.builder.errors.report(
+          this.errors.report(
             'Internal error: Filter remained after handling tables',
             remaining.expression.originalLocation!
           );
@@ -132,7 +134,7 @@ class PendingQuerierPath {
           requestConditions.push(new RequestExpression(remaining));
         }
       } else {
-        this.builder.errors.report('Unable to associate this filter with added tables', remaining.location!);
+        this.errors.report('Unable to associate this filter with added tables', remaining.location!);
       }
     }
 
@@ -172,7 +174,7 @@ class PendingQuerierPath {
     if (!resolved.partition.isEmpty) {
       // At the moment, inputs to a table-valued functions must be static or only depend on the request. We may lift
       // this restriction in the future.
-      this.builder.errors.report('Table-valued result sets cannot be partitioned', resultSet.source.origin);
+      this.errors.report('Table-valued result sets cannot be partitioned', resultSet.source.origin);
     }
 
     return new PendingExpandingLookup({ type: 'table_valued', resultSet, filters: resolved.filters });
