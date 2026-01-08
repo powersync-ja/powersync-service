@@ -8,13 +8,15 @@ import {
   ExpandingLookup,
   ParameterValue,
   StreamBucketDataSource,
+  StreamDataSource,
   StreamParameterIndexLookupCreator,
   StreamQuerier,
   SyncPlan
 } from './plan.js';
 
 export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
-  const dataSourceIndex = new Map<StreamBucketDataSource, number>();
+  const dataSourceIndex = new Map<StreamDataSource, number>();
+  const bucketIndex = new Map<StreamBucketDataSource, number>();
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
   const expandingLookups = new Map<ExpandingLookup, LookupReference>();
 
@@ -128,7 +130,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       stream: source.stream,
       requestFilters: source.requestFilters.map(serializeExpressionWithImpliedResultSet),
       lookupStages: stages,
-      dataSources: source.dataSources.map((s) => dataSourceIndex.get(s)!),
+      bucket: bucketIndex.get(source.bucket)!,
       sourceInstantiation: source.sourceInstantiation.map(serializeParameterValue)
     };
   }
@@ -136,6 +138,14 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   return {
     version: 'unstable', // TODO: Mature to 1 before storing in bucket storage
     data: serializeDataSources(),
+    buckets: plan.buckets.map((bkt, index) => {
+      bucketIndex.set(bkt, index);
+      return {
+        hash: bkt.hashCode,
+        uniqueName: bkt.uniqueName,
+        sources: bkt.sources.map((e) => dataSourceIndex.get(e)!)
+      };
+    }),
     parameterIndexes: serializeParameterIndexes(),
     queriers: plan.queriers.map(serializeStreamQuerier)
   };
@@ -144,8 +154,15 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 interface SerializedSyncPlanUnstable {
   version: 'unstable';
   data: SerializedDataSource[];
+  buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];
   queriers: SerializedStreamQuerier[];
+}
+
+interface SerializedBucketDataSource {
+  hash: number;
+  uniqueName: string;
+  sources: number[];
 }
 
 interface SerializedSyncExpression {
@@ -182,7 +199,7 @@ interface SerializedStreamQuerier {
   stream: StreamOptions;
   requestFilters: SerializedSyncExpression[];
   lookupStages: any[][];
-  dataSources: number[];
+  bucket: number;
   sourceInstantiation: SerializedParameterValue[];
 }
 
