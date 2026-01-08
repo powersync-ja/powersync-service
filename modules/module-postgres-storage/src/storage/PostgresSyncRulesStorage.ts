@@ -327,10 +327,7 @@ export class PostgresSyncRulesStorage
     });
   }
 
-  async startBatch(
-    options: storage.StartBatchOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
+  async createWriter(options: storage.StartBatchOptions): Promise<PostgresBucketBatch> {
     const syncRules = await this.db.sql`
       SELECT
         last_checkpoint_lsn,
@@ -362,6 +359,14 @@ export class PostgresSyncRulesStorage
       markRecordUnavailable: options.markRecordUnavailable
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
+    return batch;
+  }
+
+  async startBatch(
+    options: storage.StartBatchOptions,
+    callback: (batch: storage.BucketStorageBatch) => Promise<void>
+  ): Promise<storage.FlushedResult | null> {
+    const batch = await this.createWriter(options);
 
     await callback(batch);
     await batch.flush();
