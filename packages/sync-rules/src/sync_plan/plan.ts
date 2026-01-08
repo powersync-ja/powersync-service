@@ -22,7 +22,8 @@ import { UnscopedEvaluatedParameters } from '../types.js';
  * but we must never alter the semantics for existing serialized plans.
  */
 export interface SyncPlan {
-  dataSources: StreamBucketDataSource[];
+  dataSources: StreamDataSource[];
+  buckets: StreamBucketDataSource[];
   parameterIndexes: StreamParameterIndexLookupCreator[];
   queriers: StreamQuerier[];
 }
@@ -50,7 +51,7 @@ export interface TableProcessor {
 /**
  * A description for a data source that might be used by multiple streams.
  */
-export interface StreamBucketDataSource extends TableProcessor {
+export interface StreamDataSource extends TableProcessor {
   hashCode: number;
   // TODO: Unique name (hashCode might have collisions?)
 
@@ -58,6 +59,22 @@ export interface StreamBucketDataSource extends TableProcessor {
    * Output columns describing the row to store in buckets.
    */
   columns: ColumnSource[];
+}
+
+/**
+ * A mapping describing how {@link StreamDataSource}s are combined into buckets.
+ *
+ * One instance of this always describe a bucket data source.
+ */
+export interface StreamBucketDataSource {
+  hashCode: number;
+  uniqueName: string;
+
+  /**
+   * Note that all data sources must have the same amount of paremeters, since they would be instantiated to the same
+   * values by a {@link StreamQuerier}.
+   */
+  sources: StreamDataSource[];
 }
 
 /**
@@ -99,7 +116,7 @@ export interface StreamQuerier {
    * While a querier can have more than one source, it never uses more than one instantiation path. This means that all
    * sources must have compatible parameters.
    */
-  dataSources: StreamBucketDataSource[];
+  bucket: StreamBucketDataSource;
   sourceInstantiation: ParameterValue[];
 }
 

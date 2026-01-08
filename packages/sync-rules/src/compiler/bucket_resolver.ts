@@ -16,7 +16,8 @@ export class StreamResolver {
     readonly options: StreamOptions,
     readonly requestFilters: RequestExpression[],
     readonly lookupStages: ExpandingLookup[][],
-    readonly resolvedBucket: ResolveBucket
+    readonly resolvedBucket: ResolveBucket,
+    readonly uniqueName: string
   ) {}
 
   buildInstantiationHash(hasher: StableHasher) {

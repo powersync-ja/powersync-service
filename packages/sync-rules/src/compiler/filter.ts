@@ -73,7 +73,7 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
   }
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
-    return other instanceof SingleDependencyExpression && other.expression == this.expression;
+    return other instanceof SingleDependencyExpression && other.expression.equalsAssumingSameResultSet(this.expression);
   }
 
   assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
