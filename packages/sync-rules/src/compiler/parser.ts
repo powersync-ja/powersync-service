@@ -226,7 +226,7 @@ export class StreamQueryParser {
 
         this.resultColumns.push(StarColumnSource.instance);
       } else {
-        const expr = this.parseExpression(column.expr, true);
+        const { expr } = this.parseExpression(column.expr, true);
 
         for (const dependency of expr.instantiation) {
           if (dependency instanceof ColumnInRow) {
@@ -252,7 +252,7 @@ export class StreamQueryParser {
     }
   }
 
-  private parseExpression(source: Expr, desugar: boolean): SyncExpression {
+  private parseExpression(source: Expr, desugar: boolean): SyncExpressionWithAst {
     if (desugar) {
       source = this.desugarSubqueries(source);
     }
@@ -342,7 +342,7 @@ export class StreamQueryParser {
   }
 
   private mapBaseExpression(pending: PendingBaseTerm): BaseTerm {
-    let parsed: SyncExpression | null = null;
+    let parsed: SyncExpressionWithAst | null = null;
 
     if (pending.inner.type == 'binary') {
       if (pending.inner.op == '=') {
@@ -351,31 +351,33 @@ export class StreamQueryParser {
         const left = this.parseExpression(pending.inner.left, false);
         const right = this.parseExpression(pending.inner.right, false);
 
-        if (SingleDependencyExpression.extractSingleDependency([...left.instantiation, ...right.instantiation])) {
+        if (
+          SingleDependencyExpression.extractSingleDependency([...left.expr.instantiation, ...right.expr.instantiation])
+        ) {
           // Special case: Left and right reference the same table (e.g. tbl.foo = tbl.bar). This is not a match clause,
           // we can merge that into a single expression.
           const transformedRight = astMapper((m) => ({
             parameter: (st) => {
               // All parameters are named ?<idx>, rename those in b to avoid collisions with a
               const originalIndex = Number(st.name.substring(1));
-              const newIndex = left.instantiation.length + originalIndex;
+              const newIndex = left.expr.instantiation.length + originalIndex;
 
               return assignChanged(st, { name: `?${newIndex}` });
             }
-          })).expr(pending.inner.right)!;
+          })).expr(right.node)!;
 
           parsed = this.toSyncExpression(
             {
               type: 'binary',
               op: '=',
-              left: pending.inner.left,
+              left: left.node,
               right: transformedRight,
               _location: pending.inner._location
             },
-            [...left.instantiation, ...right.instantiation]
+            [...left.expr.instantiation, ...right.expr.instantiation]
           );
         } else {
-          return new EqualsClause(this.mustBeSingleDependency(left), this.mustBeSingleDependency(right));
+          return new EqualsClause(this.mustBeSingleDependency(left.expr), this.mustBeSingleDependency(right.expr));
         }
       }
     }
@@ -383,14 +385,14 @@ export class StreamQueryParser {
     if (parsed == null) {
       parsed = this.parseExpression(pending.inner, false);
     }
-    return this.mustBeSingleDependency(parsed);
+    return this.mustBeSingleDependency(parsed.expr);
   }
 
-  toSyncExpression(source: Expr, instantiation: ExpressionInput[]): SyncExpression {
+  toSyncExpression(source: Expr, instantiation: ExpressionInput[]): SyncExpressionWithAst {
     const toSqlite = new PostgresToSqlite(this.originalText, this.errors);
     toSqlite.addExpression(source);
 
-    return new SyncExpression(toSqlite.sql, instantiation, source._location);
+    return { expr: new SyncExpression(toSqlite.sql, instantiation, source._location), node: source };
   }
 
   /**
@@ -561,7 +563,7 @@ export class StreamQueryParser {
   }
 }
 
-function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpression {
+function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpressionWithAst {
   const instantiation: ExpressionInput[] = [];
   const mapper = astMapper((map) => {
     function createParameter(node: PGNode): ExprParameter {
@@ -647,6 +649,8 @@ function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpress
   const transformed = mapper.expr(source)!;
   return parser.toSyncExpression(transformed, instantiation);
 }
+
+type SyncExpressionWithAst = { node: Expr; expr: SyncExpression };
 
 /**
  * An arbitrary boolean expression we're about to transform to DNF.
@@ -753,9 +757,9 @@ function prepareToDNF(expr: PendingFilterExpression): PendingFilterExpression {
         } else {
           expanded.push(normalized);
         }
-
-        return { type: 'or', inner: expanded };
       }
+
+      return { type: 'or', inner: expanded };
     }
     case 'base':
       // There are no boolean operators to adopt.

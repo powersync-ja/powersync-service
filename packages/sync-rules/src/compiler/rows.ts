@@ -145,18 +145,6 @@ export class RowEvaluator extends BaseSourceRowProcessor {
   behavesIdenticalTo(other: RowEvaluator): boolean {
     return this.baseMatchesOther(other) && equalsIgnoringResultSetList.equals(other.columns, this.columns);
   }
-
-  toBucketSource(): StreamBucketDataSource {
-    const hasher = new StableHasher();
-    this.buildBehaviorHashCode(hasher);
-    return {
-      sourceTable: this.tablePattern,
-      hashCode: hasher.buildHashCode(),
-      columns: this.columns,
-      filters: this.filters.map((e) => e.expression),
-      parameters: this.partitionBy.map((e) => e.expression.expression)
-    };
-  }
 }
 
 /**
@@ -186,18 +174,6 @@ export class PointLookup extends BaseSourceRowProcessor {
 
   behavesIdenticalTo(other: PointLookup): boolean {
     return this.baseMatchesOther(other) && equalsIgnoringResultSetList.equals(other.result, this.result);
-  }
-
-  toParameterIndexLookupCreator(): StreamParameterIndexLookupCreator {
-    const hasher = new StableHasher();
-    this.buildBehaviorHashCode(hasher);
-    return {
-      sourceTable: this.tablePattern,
-      hashCode: hasher.buildHashCode(),
-      outputs: this.result.map((e) => e.expression),
-      filters: this.filters.map((e) => e.expression),
-      parameters: this.partitionBy.map((e) => e.expression.expression)
-    };
   }
 }
 

@@ -1,3 +1,4 @@
+import { StreamOptions } from '../compiler/bucket_resolver.js';
 import { SyncExpression } from '../compiler/expression.js';
 import { ColumnSource } from '../compiler/rows.js';
 import { TablePattern } from '../TablePattern.js';
@@ -23,6 +24,7 @@ import { UnscopedEvaluatedParameters } from '../types.js';
 export interface SyncPlan {
   dataSources: StreamBucketDataSource[];
   parameterIndexes: StreamParameterIndexLookupCreator[];
+  queriers: StreamQuerier[];
 }
 
 /**
@@ -75,3 +77,55 @@ export interface StreamParameterIndexLookupCreator extends TableProcessor {
    */
   outputs: SyncExpression[];
 }
+
+export interface StreamQuerier {
+  stream: StreamOptions;
+  /**
+   * Static filters on the subscription, connection or token.
+   *
+   * All of them must match for this querier to be considered for a subscription.
+   */
+  requestFilters: SyncExpression[];
+
+  /**
+   * Ordered lookups that need to be evaluated and expanded before we can evaluate {@link sourceInstantiation}.
+   *
+   * Each element of the outer array represents a stage of lookups that can run concurrently.
+   */
+  lookupStages: ExpandingLookup[][];
+  /**
+   * All data sources being resolved by this querier.
+   *
+   * While a querier can have more than one source, it never uses more than one instantiation path. This means that all
+   * sources must have compatible parameters.
+   */
+  dataSources: StreamBucketDataSource[];
+  sourceInstantiation: ParameterValue[];
+}
+
+/**
+ * A lookup returning multiple rows when instantiated.
+ */
+export type ExpandingLookup = ParameterLookup | EvaluateTableValuedFunction;
+
+export interface ParameterLookup {
+  type: 'parameter';
+  lookup: StreamParameterIndexLookupCreator;
+  /**
+   * Must have the same length as {@link TableProcessor.parameters} for {@link lookup}.
+   */
+  instantiation: ParameterValue[];
+}
+
+export interface EvaluateTableValuedFunction {
+  type: 'table_valued';
+  functionName: string;
+  functionInputs: SyncExpression[];
+  outputs: SyncExpression[];
+  filters: SyncExpression[];
+}
+
+export type ParameterValue =
+  | { type: 'request'; expr: SyncExpression }
+  | { type: 'lookup'; lookup: ExpandingLookup; resultIndex: number }
+  | { type: 'intersection'; values: ParameterValue[] };
