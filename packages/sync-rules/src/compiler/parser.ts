@@ -506,7 +506,7 @@ export class StreamQueryParser {
         // Inline the subquery by adding all referenced tables to the main query, adding the filter and replacing
         // `a IN (SELECT b FROM ...)` with `a = joined.b`.
         parseInner.resultSets.forEach((v, k) => this.resultSets.set(k, v));
-        let replacement: Expr = { type: 'binary', op: '=', left: left, right: resultColumn };
+        let replacement: Expr = { type: 'binary', op: negated ? '!=' : '=', left: left, right: resultColumn };
         if (parseInner.where != null) {
           replacement = parseInner.where.reduce((prev, current) => {
             return {
