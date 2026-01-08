@@ -373,7 +373,9 @@ const supportedBinaryOperators: Partial<Record<BinaryOperator, Precedence>> = {
   '*': Precedence.multiplication,
   '/': Precedence.multiplication,
   '%': Precedence.multiplication,
-  '||': Precedence.concat
+  '||': Precedence.concat,
+  ['->' as BinaryOperator]: Precedence.concat,
+  ['->>' as BinaryOperator]: Precedence.concat
 };
 
 const supportedUnaryOperators: Partial<Record<UnaryOperator, [boolean, Precedence]>> = {

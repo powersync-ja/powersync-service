@@ -1,43 +1,22 @@
+import { StreamOptions } from '../compiler/bucket_resolver.js';
 import { equalsIgnoringResultSet } from '../compiler/compatibility.js';
 import { StableHasher } from '../compiler/equality.js';
 import { ColumnInRow, ConnectionParameterSource, SyncExpression } from '../compiler/expression.js';
 import { ColumnSource, StarColumnSource } from '../compiler/rows.js';
 import { TablePattern } from '../TablePattern.js';
-import { StreamBucketDataSource, StreamParameterIndexLookupCreator, SyncPlan } from './plan.js';
+import {
+  ExpandingLookup,
+  ParameterValue,
+  StreamBucketDataSource,
+  StreamParameterIndexLookupCreator,
+  StreamQuerier,
+  SyncPlan
+} from './plan.js';
 
-interface SerializedSyncExpression {
-  hash: number;
-  sql: string;
-  instantiation: ({ column: string } | { connection: ConnectionParameterSource })[];
-}
-
-type SerializedColumnSource = 'star' | { expr: SerializedSyncExpression; alias: string | null };
-
-interface SerializedTablePattern {
-  connection: string;
-  schema: string;
-  table: string;
-}
-
-interface SerializedTableProcessor {
-  table: SerializedTablePattern;
-  hash: number;
-  columns: SerializedColumnSource[];
-  filters: SerializedSyncExpression[];
-  partition_by: SerializedSyncExpression[];
-}
-
-interface SerializedParameterIndexLookupCreator {
-  table: SerializedTablePattern;
-  hash: number;
-  output: SerializedSyncExpression[];
-  filters: SerializedSyncExpression[];
-  partition_by: SerializedSyncExpression[];
-}
-
-export function serializeSyncPlan(plan: SyncPlan): unknown {
+export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   const dataSourceIndex = new Map<StreamBucketDataSource, number>();
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
+  const expandingLookups = new Map<ExpandingLookup, LookupReference>();
 
   // Serialize an expression in a context that makes it obvious what result set ColumnInRow refers to.
   function serializeExpressionWithImpliedResultSet(expr: SyncExpression): SerializedSyncExpression {
@@ -73,7 +52,7 @@ export function serializeSyncPlan(plan: SyncPlan): unknown {
     };
   }
 
-  function serializeDataSources(): SerializedTableProcessor[] {
+  function serializeDataSources(): SerializedDataSource[] {
     return plan.dataSources.map((source, i) => {
       dataSourceIndex.set(source, i);
 
@@ -101,9 +80,132 @@ export function serializeSyncPlan(plan: SyncPlan): unknown {
     });
   }
 
+  function serializeParameterValue(value: ParameterValue): SerializedParameterValue {
+    if (value.type == 'request') {
+      return { type: 'request', expr: serializeExpressionWithImpliedResultSet(value.expr) };
+    } else if (value.type == 'lookup') {
+      return { type: 'lookup', lookup: expandingLookups.get(value.lookup)!, resultIndex: value.resultIndex };
+    } else {
+      return { type: 'intersection', values: value.values.map(serializeParameterValue) };
+    }
+  }
+
+  function serializeStreamQuerier(source: StreamQuerier): SerializedStreamQuerier {
+    const stages: SerializedExpandingLookup[][] = [];
+
+    source.lookupStages.map((stage, stageIndex) => {
+      stages.push(
+        stage.map((e, indexInStage) => {
+          const ref: LookupReference = {
+            stageId: stageIndex,
+            idInStage: indexInStage
+          };
+          let mapped: SerializedExpandingLookup;
+
+          if (e.type == 'parameter') {
+            mapped = {
+              type: 'parameter',
+              lookup: parameterIndex.get(e.lookup)!,
+              instantiation: e.instantiation.map(serializeParameterValue)
+            };
+          } else {
+            mapped = {
+              type: 'table_valued',
+              functionName: e.functionName,
+              functionInputs: e.functionInputs.map(serializeExpressionWithImpliedResultSet),
+              outputs: e.outputs.map(serializeExpressionWithImpliedResultSet),
+              filters: e.filters.map(serializeExpressionWithImpliedResultSet)
+            };
+          }
+
+          expandingLookups.set(e, ref);
+          return mapped;
+        })
+      );
+    });
+
+    return {
+      stream: source.stream,
+      requestFilters: source.requestFilters.map(serializeExpressionWithImpliedResultSet),
+      lookupStages: stages,
+      dataSources: source.dataSources.map((s) => dataSourceIndex.get(s)!),
+      sourceInstantiation: source.sourceInstantiation.map(serializeParameterValue)
+    };
+  }
+
   return {
     version: 'unstable', // TODO: Mature to 1 before storing in bucket storage
     data: serializeDataSources(),
-    parameterIndexes: serializeParameterIndexes()
+    parameterIndexes: serializeParameterIndexes(),
+    queriers: plan.queriers.map(serializeStreamQuerier)
   };
 }
+
+interface SerializedSyncPlanUnstable {
+  version: 'unstable';
+  data: SerializedDataSource[];
+  parameterIndexes: SerializedParameterIndexLookupCreator[];
+  queriers: SerializedStreamQuerier[];
+}
+
+interface SerializedSyncExpression {
+  hash: number;
+  sql: string;
+  instantiation: ({ column: string } | { connection: ConnectionParameterSource })[];
+}
+
+type SerializedColumnSource = 'star' | { expr: SerializedSyncExpression; alias: string | null };
+
+interface SerializedTablePattern {
+  connection: string;
+  schema: string;
+  table: string;
+}
+
+interface SerializedDataSource {
+  table: SerializedTablePattern;
+  hash: number;
+  columns: SerializedColumnSource[];
+  filters: SerializedSyncExpression[];
+  partition_by: SerializedSyncExpression[];
+}
+
+interface SerializedParameterIndexLookupCreator {
+  table: SerializedTablePattern;
+  hash: number;
+  output: SerializedSyncExpression[];
+  filters: SerializedSyncExpression[];
+  partition_by: SerializedSyncExpression[];
+}
+
+interface SerializedStreamQuerier {
+  stream: StreamOptions;
+  requestFilters: SerializedSyncExpression[];
+  lookupStages: any[][];
+  dataSources: number[];
+  sourceInstantiation: SerializedParameterValue[];
+}
+
+type SerializedExpandingLookup =
+  | {
+      type: 'parameter';
+      lookup: number;
+      instantiation: SerializedParameterValue[];
+    }
+  | {
+      type: 'table_valued';
+      functionName: string;
+      functionInputs: SerializedSyncExpression[];
+      outputs: SerializedSyncExpression[];
+      filters: SerializedSyncExpression[];
+    };
+
+interface LookupReference {
+  stageId: number;
+  idInStage: number;
+}
+
+type SerializedParameterValue =
+  | { type: 'request'; expr: SerializedSyncExpression }
+  | { type: 'lookup'; lookup: LookupReference; resultIndex: number }
+  | { type: 'intersection'; values: SerializedParameterValue[] };

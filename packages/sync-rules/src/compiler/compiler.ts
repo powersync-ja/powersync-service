@@ -3,6 +3,7 @@ import { HashSet } from './equality.js';
 import { PointLookup, RowEvaluator } from './rows.js';
 import { StreamResolver } from './bucket_resolver.js';
 import { SyncPlan } from '../sync_plan/plan.js';
+import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
 
 export interface ParsingErrorListener {
   report(message: string, location: NodeLocation | PGNode): void;
@@ -45,9 +46,7 @@ export class CompiledStreamQueries {
   }
 
   toSyncPlan(): SyncPlan {
-    return {
-      dataSources: this.evaluators.map((evaluator) => evaluator.toBucketSource()),
-      parameterIndexes: this.pointLookups.map((p) => p.toParameterIndexLookupCreator())
-    };
+    const translator = new CompilerModelToSyncPlan();
+    return translator.translate(this);
   }
 }

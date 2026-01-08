@@ -140,7 +140,7 @@ class PendingQuerierPath {
 
     return new StreamResolver(
       this.builder.options,
-      [],
+      requestConditions,
       this.materializeLookupStages(),
       new ResolveBucket(evaluator, partitionValues)
     );

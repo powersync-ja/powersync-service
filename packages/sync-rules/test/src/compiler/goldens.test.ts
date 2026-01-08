@@ -12,6 +12,56 @@ describe('old streams test', () => {
   test('without filter', () => {
     expect(compileSingleStreamAndSerialize('SELECT * FROM comments')).toMatchSnapshot();
   });
+
+  test('row condition', () => {
+    expect(compileSingleStreamAndSerialize('SELECT * FROM comments WHERE length(content) > 5')).toMatchSnapshot();
+  });
+
+  test('stream parameter', () => {
+    expect(
+      compileSingleStreamAndSerialize("SELECT * FROM comments WHERE issue_id = subscription.parameter('id')")
+    ).toMatchSnapshot();
+  });
+
+  test('row filter and stream parameter', () => {
+    expect(
+      compileSingleStreamAndSerialize(
+        "SELECT * FROM comments WHERE length(content) > 5 AND issue_id = subscription.parameter('id')"
+      )
+    ).toMatchSnapshot();
+  });
+
+  describe('or', () => {
+    test('parameter match or request condition', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          "SELECT * FROM issues WHERE owner_id = auth.user_id() OR auth.parameter('is_admin')"
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('parameter match or row condition', () => {
+      expect(
+        compileSingleStreamAndSerialize('SELECT * FROM issues WHERE owner_id = auth.user_id() OR LENGTH(name) = 3')
+      ).toMatchSnapshot();
+    });
+
+    test('row condition or parameter condition', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          "SELECT * FROM comments WHERE LENGTH(content) > 5 OR auth.parameter('is_admin')"
+        )
+      ).toMatchSnapshot();
+    });
+
+    test.skip('row condition or row condition', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          'SELECT * FROM comments WHERE LENGTH(content) > 5 OR json_array_length(tagged_users) > 1'
+        )
+      ).toMatchSnapshot();
+    });
+  });
 });
 
 // TODO: Replace with parsing from yaml once we support that
@@ -54,14 +104,10 @@ function compileToSyncPlan(inputs: SyncStreamInput[]): SyncPlan {
         }
       };
 
-      const [stmt] = parse(sql);
+      const [stmt] = parse(sql, { locationTracking: true });
       const parser = new StreamQueryParser({
         originalText: sql,
-        errors: {
-          report(message, location) {
-            console.log(message, location);
-          }
-        }
+        errors: listener
       });
       const query = parser.parse(stmt);
       if (query) {
