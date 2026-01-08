@@ -3,6 +3,7 @@ import {
   astMapper,
   BinaryOperator,
   Expr,
+  ExprCall,
   ExprParameter,
   ExprRef,
   From,
@@ -13,7 +14,12 @@ import {
   SelectFromStatement,
   Statement
 } from 'pgsql-ast-parser';
-import { PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
+import {
+  PhysicalSourceResultSet,
+  RequestTableValuedResultSet,
+  SourceResultSet,
+  SyntacticResultSetSource
+} from './table.js';
 import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
 import {
   ColumnInRow,
@@ -29,7 +35,8 @@ import {
   Or,
   And,
   RowExpression,
-  SingleDependencyExpression
+  SingleDependencyExpression,
+  RequestExpression
 } from './filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
@@ -170,9 +177,11 @@ export class StreamQueryParser {
       scope.registerResultSet(this.errors, from.name.alias ?? from.name.name, source);
       this.resultSets.set(source, resultSet);
       handled = true;
-      return;
     } else if (from.type == 'call') {
-      // TODO: Resolve table-valued functions
+      const source = new SyntacticResultSetSource(from);
+      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
+      this.resultSets.set(source, this.resolveTableValued(from, source));
+      handled = true;
     } else if (from.type == 'statement') {
       // TODO: We could technically allow selecting from subqueries once we support CTEs.
     }
@@ -202,6 +211,22 @@ export class StreamQueryParser {
     }
   }
 
+  private resolveTableValued(call: ExprCall, source: SyntacticResultSetSource): RequestTableValuedResultSet {
+    // Currently, inputs to table-valued functions must be derived from connection/subscription data only. We might
+    // revisit this in the future.
+    const resolvedArguments: RequestExpression[] = [];
+
+    for (const argument of call.args) {
+      const parsed = this.mustBeSingleDependency(this.parseExpression(argument, true));
+
+      if (parsed.resultSet != null) {
+        this.errors.report('Parameters to table-valued functions may not reference other tables', parsed.node);
+      }
+    }
+
+    return new RequestTableValuedResultSet(call.function.name, resolvedArguments, source);
+  }
+
   private processResultColumns(columns: SelectedColumn[]) {
     const selectsFrom = (source: SourceResultSet, node: PGNode) => {
       if (source instanceof PhysicalSourceResultSet) {
@@ -214,7 +239,7 @@ export class StreamQueryParser {
           );
         }
       } else {
-        this.errors.report('Sync streams can only selecting from actual tables', node);
+        this.errors.report('Sync streams can only select from actual tables', node);
       }
     };
 
@@ -552,7 +577,11 @@ function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpress
     return {
       ref: (val) => {
         const resultSet = parser.resolveTableName(val, val.table?.name);
-        if (resultSet == null) {
+        if (val.name == '*') {
+          parser.errors.report('* columns are not supported here', val);
+        }
+
+        if (resultSet == null || val.name == '*') {
           // resolveTableName will have logged an error, so transform with a bogus value to keep going.
           return { type: 'null', _location: val._location };
         }

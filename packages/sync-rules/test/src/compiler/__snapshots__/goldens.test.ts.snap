@@ -1,5 +1,699 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`old streams test > in > on parameter data 1`] = `
+{
+  "data": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 321263901,
+      "partition_by": [
+        {
+          "hash": 414001903,
+          "instantiation": [
+            {
+              "column": "issue_id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "queriers": [
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [
+        [
+          {
+            "filters": [],
+            "functionInputs": [],
+            "functionName": "json_each",
+            "outputs": [
+              {
+                "hash": 252102568,
+                "instantiation": [
+                  {
+                    "column": "value",
+                  },
+                ],
+                "sql": "?1",
+              },
+            ],
+            "type": "table_valued",
+          },
+        ],
+      ],
+      "requestFilters": [],
+      "sourceInstantiation": [
+        {
+          "lookup": {
+            "idInStage": 0,
+            "stageId": 0,
+          },
+          "resultIndex": 0,
+          "type": "lookup",
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > on parameter data and table 1`] = `
+{
+  "data": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 68963601,
+      "partition_by": [
+        {
+          "hash": 414001903,
+          "instantiation": [
+            {
+              "column": "issue_id",
+            },
+          ],
+          "sql": "?1",
+        },
+        {
+          "hash": 416316124,
+          "instantiation": [
+            {
+              "column": "label",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 48226101,
+      "output": [
+        {
+          "hash": 288876155,
+          "instantiation": [
+            {
+              "column": "id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "partition_by": [
+        {
+          "hash": 494640796,
+          "instantiation": [
+            {
+              "column": "owner_id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "issues",
+      },
+    },
+  ],
+  "queriers": [
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [
+        [
+          {
+            "instantiation": [
+              {
+                "expr": {
+                  "hash": 142781093,
+                  "instantiation": [
+                    {
+                      "connection": "auth",
+                    },
+                  ],
+                  "sql": "?1 ->> '$.sub'",
+                },
+                "type": "request",
+              },
+            ],
+            "lookup": 0,
+            "type": "parameter",
+          },
+          {
+            "filters": [],
+            "functionInputs": [],
+            "functionName": "json_each",
+            "outputs": [
+              {
+                "hash": 252102568,
+                "instantiation": [
+                  {
+                    "column": "value",
+                  },
+                ],
+                "sql": "?1",
+              },
+            ],
+            "type": "table_valued",
+          },
+        ],
+      ],
+      "requestFilters": [],
+      "sourceInstantiation": [
+        {
+          "lookup": {
+            "idInStage": 0,
+            "stageId": 0,
+          },
+          "resultIndex": 0,
+          "type": "lookup",
+        },
+        {
+          "lookup": {
+            "idInStage": 1,
+            "stageId": 0,
+          },
+          "resultIndex": 0,
+          "type": "lookup",
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > parameter and auth match on same column 1`] = `
+{
+  "data": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 321263901,
+      "partition_by": [
+        {
+          "hash": 414001903,
+          "instantiation": [
+            {
+              "column": "issue_id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "queriers": [
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [
+        [
+          {
+            "filters": [],
+            "functionInputs": [],
+            "functionName": "json_each",
+            "outputs": [
+              {
+                "hash": 252102568,
+                "instantiation": [
+                  {
+                    "column": "value",
+                  },
+                ],
+                "sql": "?1",
+              },
+            ],
+            "type": "table_valued",
+          },
+        ],
+      ],
+      "requestFilters": [],
+      "sourceInstantiation": [
+        {
+          "type": "intersection",
+          "values": [
+            {
+              "expr": {
+                "hash": 444402882,
+                "instantiation": [
+                  {
+                    "connection": "subscription",
+                  },
+                ],
+                "sql": "?1 ->> '$.' || 'issue'",
+              },
+              "type": "request",
+            },
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > parameter value in subquery 1`] = `
+{
+  "data": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 95751585,
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "issues",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [
+        {
+          "hash": 102968610,
+          "instantiation": [
+            {
+              "column": "is_admin",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "hash": 65299060,
+      "output": [],
+      "partition_by": [
+        {
+          "hash": 288876155,
+          "instantiation": [
+            {
+              "column": "id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "users",
+      },
+    },
+  ],
+  "queriers": [
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [
+        [
+          {
+            "instantiation": [
+              {
+                "expr": {
+                  "hash": 142781093,
+                  "instantiation": [
+                    {
+                      "connection": "auth",
+                    },
+                  ],
+                  "sql": "?1 ->> '$.sub'",
+                },
+                "type": "request",
+              },
+            ],
+            "lookup": 0,
+            "type": "parameter",
+          },
+        ],
+      ],
+      "requestFilters": [],
+      "sourceInstantiation": [],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > row value in subquery 1`] = `
+{
+  "data": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 321263901,
+      "partition_by": [
+        {
+          "hash": 414001903,
+          "instantiation": [
+            {
+              "column": "issue_id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 48226101,
+      "output": [
+        {
+          "hash": 288876155,
+          "instantiation": [
+            {
+              "column": "id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "partition_by": [
+        {
+          "hash": 494640796,
+          "instantiation": [
+            {
+              "column": "owner_id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "issues",
+      },
+    },
+  ],
+  "queriers": [
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [
+        [
+          {
+            "instantiation": [
+              {
+                "expr": {
+                  "hash": 142781093,
+                  "instantiation": [
+                    {
+                      "connection": "auth",
+                    },
+                  ],
+                  "sql": "?1 ->> '$.sub'",
+                },
+                "type": "request",
+              },
+            ],
+            "lookup": 0,
+            "type": "parameter",
+          },
+        ],
+      ],
+      "requestFilters": [],
+      "sourceInstantiation": [
+        {
+          "lookup": {
+            "idInStage": 0,
+            "stageId": 0,
+          },
+          "resultIndex": 0,
+          "type": "lookup",
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > two subqueries 1`] = `
+{
+  "data": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 206790411,
+      "partition_by": [
+        {
+          "hash": 288876155,
+          "instantiation": [
+            {
+              "column": "id",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "users",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 491315879,
+      "output": [
+        {
+          "hash": 376439996,
+          "instantiation": [
+            {
+              "column": "user_a",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "partition_by": [
+        {
+          "hash": 119268889,
+          "instantiation": [
+            {
+              "column": "user_b",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "friends",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 467843732,
+      "output": [
+        {
+          "hash": 119268889,
+          "instantiation": [
+            {
+              "column": "user_b",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "partition_by": [
+        {
+          "hash": 376439996,
+          "instantiation": [
+            {
+              "column": "user_a",
+            },
+          ],
+          "sql": "?1",
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "friends",
+      },
+    },
+  ],
+  "queriers": [
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [
+        [
+          {
+            "instantiation": [
+              {
+                "expr": {
+                  "hash": 142781093,
+                  "instantiation": [
+                    {
+                      "connection": "auth",
+                    },
+                  ],
+                  "sql": "?1 ->> '$.sub'",
+                },
+                "type": "request",
+              },
+            ],
+            "lookup": 0,
+            "type": "parameter",
+          },
+        ],
+      ],
+      "requestFilters": [],
+      "sourceInstantiation": [
+        {
+          "lookup": {
+            "idInStage": 0,
+            "stageId": 0,
+          },
+          "resultIndex": 0,
+          "type": "lookup",
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [
+        [
+          {
+            "instantiation": [
+              {
+                "expr": {
+                  "hash": 142781093,
+                  "instantiation": [
+                    {
+                      "connection": "auth",
+                    },
+                  ],
+                  "sql": "?1 ->> '$.sub'",
+                },
+                "type": "request",
+              },
+            ],
+            "lookup": 1,
+            "type": "parameter",
+          },
+        ],
+      ],
+      "requestFilters": [],
+      "sourceInstantiation": [
+        {
+          "lookup": {
+            "idInStage": 0,
+            "stageId": 0,
+          },
+          "resultIndex": 0,
+          "type": "lookup",
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
 exports[`old streams test > or > parameter match or request condition 1`] = `
 {
   "data": [
