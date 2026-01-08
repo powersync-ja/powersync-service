@@ -11,7 +11,7 @@ import {
   StreamResolver
 } from './bucket_resolver.js';
 import { equalsIgnoringResultSet } from './compatibility.js';
-import { And, BaseTerm, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
+import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
 import { PartitionKey, PointLookup, RowEvaluator } from './rows.js';
 import { PhysicalSourceResultSet, RequestTableValuedResultSet, SourceResultSet } from './table.js';
 import { ParsingErrorListener, SyncStreamCompiler } from './compiler.js';
@@ -119,9 +119,10 @@ class PendingQuerierPath {
         partitionBy: partitions
       })
     );
+    this.processExistsOperators();
 
-    // Resolving a result set removes its conditions from pendingFactors, so remaining conditions must be request
-    // conditions (like auth.parameter(...)).
+    // Resolving a result set removes its conditions from pendingFactors, so remaining conditions must be related to the
+    // request (e.g. where `auth.parameter('is_admin')`).
     const requestConditions: RequestExpression[] = [];
     for (const remaining of this.pendingFactors) {
       if (remaining instanceof SingleDependencyExpression) {
@@ -253,6 +254,35 @@ class PendingQuerierPath {
       throw new Error('internal error: resolve stack broken');
     }
     return state;
+  }
+
+  /**
+   * Handles `EXIST`-like subquery operators.
+   *
+   * Consider a filter like `WHERE auth.user_id() IN (SELECT id FROM users WHERE is_admin)`. This gets represented as an
+   * {@link EqualsClause}, but it doesn't introduce any bucket parameters.
+   *
+   * We handle these in a special way: The `auth.user_id()` equality is pushed into the subquery, effectively resulting
+   * in `WHERE EXISTS (SELECT id FROM users WHERE is_admin AND id = auth.user_id())`. This is implemented by pushing a
+   * parameter lookup that is never used, but still evaluated to skip connections where it doesn't match.
+   */
+  private processExistsOperators() {
+    for (const expression of [...this.pendingFactors]) {
+      if (expression instanceof EqualsClause) {
+        const process = (connection: SingleDependencyExpression, other: SingleDependencyExpression) => {
+          if (other.resultSet != null) {
+            // We just need to add the lookup to implement EXISTS semantics, it will never be used anywhere.
+            this.resolveExpandingLookup(other.resultSet);
+          }
+        };
+
+        if (expression.left.dependsOnConnection) {
+          process(expression.left, expression.right);
+        } else if (expression.right.dependsOnConnection) {
+          process(expression.right, expression.left);
+        }
+      }
+    }
   }
 
   private removePendingExpression(removed: BaseTerm) {
