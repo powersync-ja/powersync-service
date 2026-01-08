@@ -54,7 +54,7 @@ describe('old streams test', () => {
       ).toMatchSnapshot();
     });
 
-    test.skip('row condition or row condition', () => {
+    test('row condition or row condition', () => {
       expect(
         compileSingleStreamAndSerialize(
           'SELECT * FROM comments WHERE LENGTH(content) > 5 OR json_array_length(tagged_users) > 1'
