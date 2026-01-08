@@ -1,0 +1,48 @@
+import { describe, expect, test } from 'vitest';
+import { compilationErrorsForSingleStream } from './utils.js';
+
+describe('compilation errors', () => {
+  test('IN operator with static left clause', () => {
+    expect(
+      compilationErrorsForSingleStream("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
+    ).toStrictEqual([
+      {
+        message: 'This filter is unrelated to the request or the table being synced, and not supported.',
+        source: "'static' IN (SELECT id FROM users WHERE is_admin"
+      }
+    ]);
+  });
+
+  test('negated subquery', () => {
+    expect(
+      compilationErrorsForSingleStream(
+        'select * from comments where issue_id not in (select id from issues where owner_id = auth.user_id())'
+      )
+    ).toStrictEqual([
+      {
+        message:
+          "This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator.",
+        source: 'id'
+      }
+    ]);
+  });
+
+  test('negated subquery from outer not operator', () => {
+    expect(
+      compilationErrorsForSingleStream(
+        'select * from comments where not (issue_id in (select id from issues where owner_id = auth.user_id()))'
+      )
+    ).toStrictEqual([
+      {
+        message:
+          "This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator.",
+        source: 'id'
+      },
+      {
+        message:
+          "This expression already references row data, so it can't also reference connection parameters unless the two are compared with an equals operator.",
+        source: 'auth.user_id()'
+      }
+    ]);
+  });
+});

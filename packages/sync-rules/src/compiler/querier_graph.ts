@@ -128,7 +128,7 @@ class PendingQuerierPath {
       if (remaining instanceof SingleDependencyExpression) {
         if (remaining.resultSet != null) {
           this.errors.report(
-            'Internal error: Filter remained after handling tables',
+            'This filter is unrelated to the request or the table being synced, and not supported.',
             remaining.expression.originalLocation!
           );
         } else {

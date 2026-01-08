@@ -359,6 +359,7 @@ const supportedBinaryOperators: Partial<Record<BinaryOperator, Precedence>> = {
   OR: Precedence.or,
   AND: Precedence.and,
   '=': Precedence.equals,
+  '!=': Precedence.equals,
   LIKE: Precedence.equals,
   '<': Precedence.comparison,
   '>': Precedence.comparison,
