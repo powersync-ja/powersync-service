@@ -23,6 +23,11 @@ describe('compilation errors', () => {
         message:
           "This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator.",
         source: 'id'
+      },
+      {
+        message:
+          "This expression already references row data, so it can't also reference connection parameters unless the two are compared with an equals operator.",
+        source: 'auth.user_id()'
       }
     ]);
   });
@@ -43,6 +48,25 @@ describe('compilation errors', () => {
           "This expression already references row data, so it can't also reference connection parameters unless the two are compared with an equals operator.",
         source: 'auth.user_id()'
       }
+    ]);
+  });
+
+  test('subquery with two columns', () => {
+    expect(
+      compilationErrorsForSingleStream(
+        'select * from comments where issue_id in (select id, owner_id from issues where owner_id = auth.user_id())'
+      )
+    ).toStrictEqual([
+      {
+        message: 'Must return a single expression column',
+        source: 'select id, owner_id from issues where owner_id = auth.user_id()'
+      }
+    ]);
+  });
+
+  test('legacy request function', () => {
+    expect(compilationErrorsForSingleStream('select * from issues where owner_id = request.user_id()')).toStrictEqual([
+      { message: 'Invalid schema in function name', source: 'request.user_id' }
     ]);
   });
 });

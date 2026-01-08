@@ -135,18 +135,22 @@ export class PostgresToSqlite {
 
         if (expr.function.schema) {
           this.errors.report('Invalid schema in function name', expr.function);
+          return this.bogusExpression();
         }
         if (expr.distinct != null || expr.orderBy != null || expr.filter != null || expr.over != null) {
           this.errors.report('DISTINCT, ORDER BY, FILTER and OVER clauses are not supported', expr.function);
+          return this.bogusExpression();
         }
 
         const forbiddenReason = forbiddenFunctions[expr.function.name];
         if (forbiddenReason) {
           this.errors.report(`Forbidden call: ${forbiddenReason}`, expr.function);
+          return this.bogusExpression();
         }
         let allowedArgs = supportedFunctions[expr.function.name];
         if (allowedArgs == null) {
           this.errors.report('Unknown function', expr.function);
+          return this.bogusExpression();
         } else {
           if (typeof allowedArgs == 'number') {
             allowedArgs = { min: allowedArgs, max: allowedArgs };

@@ -7,10 +7,7 @@ import { expandNodeLocations } from '../errors.js';
 import { SourceResultSet } from './table.js';
 
 export class FilterConditionSimplifier {
-  constructor(
-    private readonly originalText: string,
-    private readonly errors: ParsingErrorListener
-  ) {}
+  constructor(private readonly originalText: string) {}
 
   simplifyOr(or: Or): Or {
     const andTerms: And[] = [];
@@ -148,7 +145,12 @@ export class FilterConditionSimplifier {
       }
     }
 
-    const toSqlite = new PostgresToSqlite(this.originalText, this.errors);
+    const toSqlite = new PostgresToSqlite(this.originalText, {
+      report() {
+        // We don't need to re-report errors when we shuffle expressions around, the mapper would have already reported
+        // these issues on the first round.
+      }
+    });
     toSqlite.addExpression(node!);
     return new SingleDependencyExpression(new SyncExpression(toSqlite.sql, instantiation, node!._location), node!);
   }
