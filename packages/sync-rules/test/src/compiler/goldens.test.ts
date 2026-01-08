@@ -61,6 +61,20 @@ describe('old streams test', () => {
         )
       ).toMatchSnapshot();
     });
+
+    test('request condition or request condition', () => {
+      expect(
+        compileSingleStreamAndSerialize("SELECT * FROM comments WHERE auth.parameter('a') OR auth.parameters() ->> 'b'")
+      ).toMatchSnapshot();
+    });
+
+    test('subquery or token parameter', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          "SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) OR auth.parameter('is_admin')"
+        )
+      ).toMatchSnapshot();
+    });
   });
 });
 
