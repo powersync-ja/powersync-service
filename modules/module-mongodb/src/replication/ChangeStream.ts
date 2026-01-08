@@ -331,7 +331,7 @@ export class ChangeStream {
     this.logger = options.logger ?? defaultLogger;
 
     const substream = new SubStream({
-      abortSignal: options.abort_signal,
+      abortSignal: this.abortSignal,
       checkpointStreamId: this.checkpointStreamId,
       connections: this.connections,
       storage: options.storage,
@@ -567,6 +567,11 @@ export class ChangeStream {
 
   private async streamChangesInternal() {
     const writers = await Promise.all(this.substreams.map((s) => s.createWriter()));
+    await using _ = {
+      [Symbol.asyncDispose]: async () => {
+        await Promise.all(writers.map((w) => w[Symbol.asyncDispose]()));
+      }
+    };
 
     // FIXME: Proper resumeFromLsn implementation for multiple writers
     // We should probably use the active sync rules for this, or alternatively the minimum from the writers.
