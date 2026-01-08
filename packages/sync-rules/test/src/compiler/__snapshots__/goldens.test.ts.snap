@@ -199,6 +199,19 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
       "columns": [
         "star",
       ],
+      "filters": [],
+      "hash": 412397227,
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "comments",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
       "filters": [
         {
           "hash": 426733954,
@@ -218,12 +231,72 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
         "table": "comments",
       },
     },
+  ],
+  "parameterIndexes": [],
+  "queriers": [
+    {
+      "dataSources": [
+        0,
+      ],
+      "lookupStages": [],
+      "requestFilters": [
+        {
+          "hash": 529186025,
+          "instantiation": [
+            {
+              "connection": "auth",
+            },
+          ],
+          "sql": "?1 ->> '$.' || 'is_admin'",
+        },
+      ],
+      "sourceInstantiation": [],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+    {
+      "dataSources": [
+        1,
+      ],
+      "lookupStages": [],
+      "requestFilters": [],
+      "sourceInstantiation": [],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > or > row condition or row condition 1`] = `
+{
+  "data": [
     {
       "columns": [
         "star",
       ],
-      "filters": [],
-      "hash": 412397227,
+      "filters": [
+        {
+          "hash": 241673101,
+          "instantiation": [
+            {
+              "column": "content",
+            },
+            {
+              "column": "tagged_users",
+            },
+          ],
+          "sql": ""length"(?1) > 5 OR "json_array_length"(?2) > 1",
+        },
+      ],
+      "hash": 43120379,
       "partition_by": [],
       "table": {
         "connection": "default",
@@ -240,29 +313,6 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
       ],
       "lookupStages": [],
       "requestFilters": [],
-      "sourceInstantiation": [],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "dataSources": [
-        1,
-      ],
-      "lookupStages": [],
-      "requestFilters": [
-        {
-          "hash": 529186025,
-          "instantiation": [
-            {
-              "connection": "auth",
-            },
-          ],
-          "sql": "?1 ->> '$.' || 'is_admin'",
-        },
-      ],
       "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,

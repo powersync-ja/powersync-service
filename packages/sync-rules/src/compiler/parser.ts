@@ -37,6 +37,7 @@ import { intrinsicContains, PostgresToSqlite } from './sqlite.js';
 import { SqlScope } from './scope.js';
 import { ParsingErrorListener } from './compiler.js';
 import { TablePattern } from '../TablePattern.js';
+import { FilterConditionSimplifier } from './filter_simplifier.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -226,7 +227,7 @@ export class StreamQueryParser {
 
         this.resultColumns.push(StarColumnSource.instance);
       } else {
-        const { expr } = this.parseExpression(column.expr, true);
+        const { expr, node } = this.parseExpression(column.expr, true);
 
         for (const dependency of expr.instantiation) {
           if (dependency instanceof ColumnInRow) {
@@ -240,7 +241,7 @@ export class StreamQueryParser {
         }
 
         try {
-          this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr), column.alias?.name));
+          this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr, node), column.alias?.name));
         } catch (e) {
           if (e instanceof InvalidExpressionError) {
             // Invalid dependencies, we've already logged errors for this. Ignore.
@@ -338,12 +339,10 @@ export class StreamQueryParser {
       };
     });
 
-    return { terms: mappedTerms };
+    return new FilterConditionSimplifier(this.originalText, this.errors).simplifyOr({ terms: mappedTerms });
   }
 
   private mapBaseExpression(pending: PendingBaseTerm): BaseTerm {
-    let parsed: SyncExpressionWithAst | null = null;
-
     if (pending.inner.type == 'binary') {
       if (pending.inner.op == '=') {
         // The expression is of the form A = B. This introduces a parameter, allow A and B to reference different
@@ -351,41 +350,11 @@ export class StreamQueryParser {
         const left = this.parseExpression(pending.inner.left, false);
         const right = this.parseExpression(pending.inner.right, false);
 
-        if (
-          SingleDependencyExpression.extractSingleDependency([...left.expr.instantiation, ...right.expr.instantiation])
-        ) {
-          // Special case: Left and right reference the same table (e.g. tbl.foo = tbl.bar). This is not a match clause,
-          // we can merge that into a single expression.
-          const transformedRight = astMapper((m) => ({
-            parameter: (st) => {
-              // All parameters are named ?<idx>, rename those in b to avoid collisions with a
-              const originalIndex = Number(st.name.substring(1));
-              const newIndex = left.expr.instantiation.length + originalIndex;
-
-              return assignChanged(st, { name: `?${newIndex}` });
-            }
-          })).expr(right.node)!;
-
-          parsed = this.toSyncExpression(
-            {
-              type: 'binary',
-              op: '=',
-              left: left.node,
-              right: transformedRight,
-              _location: pending.inner._location
-            },
-            [...left.expr.instantiation, ...right.expr.instantiation]
-          );
-        } else {
-          return new EqualsClause(this.mustBeSingleDependency(left.expr), this.mustBeSingleDependency(right.expr));
-        }
+        return new EqualsClause(this.mustBeSingleDependency(left), this.mustBeSingleDependency(right));
       }
     }
 
-    if (parsed == null) {
-      parsed = this.parseExpression(pending.inner, false);
-    }
-    return this.mustBeSingleDependency(parsed.expr);
+    return this.mustBeSingleDependency(this.parseExpression(pending.inner, false));
   }
 
   toSyncExpression(source: Expr, instantiation: ExpressionInput[]): SyncExpressionWithAst {
@@ -399,12 +368,12 @@ export class StreamQueryParser {
    * Emit diagnostics if the expression references data from more than one table, otherwise returns it as a
    * single-dependency expression.
    */
-  private mustBeSingleDependency(inner: SyncExpression): SingleDependencyExpression {
+  private mustBeSingleDependency(inner: SyncExpressionWithAst): SingleDependencyExpression {
     let referencingResultSet: [SourceResultSet, PGNode] | null = null;
     let referencingConnection: PGNode | null = null;
     let hadError = false;
 
-    for (const dependency of inner.instantiation) {
+    for (const dependency of inner.expr.instantiation) {
       if (dependency instanceof ColumnInRow) {
         if (referencingConnection != null) {
           this.errors.report(
@@ -437,9 +406,11 @@ export class StreamQueryParser {
 
     if (hadError) {
       // Return a bogus expression to keep going / potentially collect more errors.
-      return new SingleDependencyExpression(new SyncExpression('NULL', [], inner.originalLocation));
+      return new SingleDependencyExpression(new SyncExpression('NULL', [], inner.expr.originalLocation), {
+        type: 'null'
+      });
     } else {
-      return new SingleDependencyExpression(inner);
+      return new SingleDependencyExpression(inner.expr, inner.node);
     }
   }
 
