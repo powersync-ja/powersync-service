@@ -111,7 +111,7 @@ export class StreamQueryParser {
 
       let where: Or;
       if (this.where) {
-        where = this.compileFilterClause(this.where);
+        where = this.compileFilterClause();
       } else {
         const emptyAnd: And = { terms: [] };
         where = { terms: [emptyAnd] };
@@ -151,7 +151,7 @@ export class StreamQueryParser {
 
     node.from?.forEach((f) => this.processFrom(f));
     if (node.where) {
-      this.where.push(node.where);
+      this.addAndTermToWhereClause(node.where);
     }
 
     if (!options.forSubquery && node.columns) {
@@ -166,6 +166,10 @@ export class StreamQueryParser {
     this.warnUnsupported(node.skip, 'SKIP');
 
     return true;
+  }
+
+  private addAndTermToWhereClause(expr: Expr) {
+    this.where.push(this.desugarSubqueries(expr));
   }
 
   private processFrom(from: From) {
@@ -202,7 +206,7 @@ export class StreamQueryParser {
       }
 
       if (join.on) {
-        this.where.push(join.on);
+        this.addAndTermToWhereClause(join.on);
       }
     }
 
@@ -332,9 +336,9 @@ export class StreamQueryParser {
     }
   }
 
-  private compileFilterClause(terms: Expr[]): Or {
+  private compileFilterClause(): Or {
     const andTerms: PendingFilterExpression[] = [];
-    for (const expr of terms) {
+    for (const expr of this.where) {
       andTerms.push(this.extractBooleanOperators(this.desugarSubqueries(expr)));
     }
 
@@ -364,7 +368,7 @@ export class StreamQueryParser {
       };
     });
 
-    return new FilterConditionSimplifier(this.originalText, this.errors).simplifyOr({ terms: mappedTerms });
+    return new FilterConditionSimplifier(this.originalText).simplifyOr({ terms: mappedTerms });
   }
 
   private mapBaseExpression(pending: PendingBaseTerm): BaseTerm {
@@ -496,6 +500,8 @@ export class StreamQueryParser {
         }
 
         if (resultColumn == null) {
+          // TODO: We could reasonably support syntax of the form (a, b) IN (SELECT a, b FROM ...) by desugaring that
+          // into multiple equals operators? The rest of the compiler should already be able to handle that.
           this.errors.report('Must return a single expression column', right);
           success = false;
         }
@@ -506,7 +512,7 @@ export class StreamQueryParser {
         // Inline the subquery by adding all referenced tables to the main query, adding the filter and replacing
         // `a IN (SELECT b FROM ...)` with `a = joined.b`.
         parseInner.resultSets.forEach((v, k) => this.resultSets.set(k, v));
-        let replacement: Expr = { type: 'binary', op: negated ? '!=' : '=', left: left, right: resultColumn };
+        let replacement: Expr = { type: 'binary', op: '=', left: left, right: resultColumn };
         if (parseInner.where != null) {
           replacement = parseInner.where.reduce((prev, current) => {
             return {
@@ -518,6 +524,9 @@ export class StreamQueryParser {
           }, replacement);
         }
 
+        if (negated) {
+          replacement = { type: 'unary', op: 'NOT', operand: replacement };
+        }
         return replacement;
       };
 
@@ -698,10 +707,10 @@ function prepareToDNF(expr: PendingFilterExpression): PendingFilterExpression {
           return inner.inner; // Double negation, !x => x
         case 'and':
           // !(a AND b) => (!a) OR (!b)
-          return { type: 'or', inner: inner.inner.map((e) => prepareToDNF({ type: 'not', inner: e })) };
+          return prepareToDNF({ type: 'or', inner: inner.inner.map((e) => prepareToDNF({ type: 'not', inner: e })) });
         case 'or':
           // !(a OR b) => (!a) AND (!b)
-          return { type: 'or', inner: inner.inner.map((e) => prepareToDNF({ type: 'not', inner: e })) };
+          return prepareToDNF({ type: 'and', inner: inner.inner.map((e) => prepareToDNF({ type: 'not', inner: e })) });
         case 'base':
           return {
             type: 'base',
