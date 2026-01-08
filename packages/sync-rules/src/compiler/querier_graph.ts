@@ -210,19 +210,18 @@ class PendingQuerierPath {
     }
     this.resolveStack.push(source);
     const state = new ResolvedResultSet();
-    const handledExpression: BaseTerm[] = [];
 
-    for (const expression of this.pendingFactors) {
+    for (const expression of [...this.pendingFactors]) {
       if (expression instanceof SingleDependencyExpression) {
         if (expression.resultSet === source) {
           // This expression only depends on the table, so we add it as a filter for the row or parameter evaluator.
           state.filters.push(new RowExpression(expression));
-          handledExpression.push(expression);
+          this.removePendingExpression(expression);
         }
       } else {
         // Must be a match term.
         const partitionBy = (thisRow: SingleDependencyExpression, otherRow: SingleDependencyExpression) => {
-          handledExpression.push(expression);
+          this.removePendingExpression(expression);
           const key = new PartitionKey(new RowExpression(thisRow));
           const values = state.partition.putIfAbsent(key, () => []);
 
@@ -249,16 +248,16 @@ class PendingQuerierPath {
       }
     }
 
-    for (const removed of handledExpression) {
-      const index = this.pendingFactors.indexOf(removed);
-      this.pendingFactors.splice(index, 1);
-    }
-
     const popped = this.resolveStack.pop();
     if (popped !== source) {
       throw new Error('internal error: resolve stack broken');
     }
     return state;
+  }
+
+  private removePendingExpression(removed: BaseTerm) {
+    const index = this.pendingFactors.indexOf(removed);
+    this.pendingFactors.splice(index, 1);
   }
 
   private materializeLookupStages(): ExpandingLookup[][] {

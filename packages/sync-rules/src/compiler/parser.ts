@@ -713,7 +713,7 @@ function prepareToDNF(expr: PendingFilterExpression): PendingFilterExpression {
       // Then, combine those with the inner AND to turn `A & (B | C) & D` into `(B & A & D) | (C & A & D)`.
       const finalFactors: PendingFilterExpression[] = [];
       for (const distributedTerms of multiplied) {
-        finalFactors.push({ type: 'and', inner: [...distributedTerms, ...baseFactors] });
+        finalFactors.push(prepareToDNF({ type: 'and', inner: [...distributedTerms, ...baseFactors] }));
       }
       return { type: 'or', inner: finalFactors };
     }
