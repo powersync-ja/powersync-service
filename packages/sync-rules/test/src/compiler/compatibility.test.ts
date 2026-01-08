@@ -71,6 +71,45 @@ describe('old streams test', () => {
     });
   });
 
+  describe('normalization', () => {
+    test('double negation', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          'select * from comments where NOT (issue_id not in (select id from issues where owner_id = auth.user_id()))'
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('negated or', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          'select * from comments where not (length(content) = 5 OR issue_id not in (select id from issues where owner_id = auth.user_id()))'
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('negated and', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          'select * from comments where not (length(content) = 5 AND issue_id not in (select id from issues where owner_id = auth.user_id()))'
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('distribute and', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          `select * from comments where 
+          (issue_id in (select id from issues where owner_id = auth.user_id())
+            OR auth.parameter('is_admin'))
+          AND
+          LENGTH(content) > 2
+        `
+        )
+      ).toMatchSnapshot();
+    });
+  });
+
   describe('in', () => {
     test('row value in subquery', () => {
       expect(
@@ -121,5 +160,31 @@ describe('old streams test', () => {
         )
       ).toMatchSnapshot();
     });
+  });
+
+  test('OR in subquery', () => {
+    // This used to be an error with the old sync streams compiler, but is supported now
+    expect(
+      compileSingleStreamAndSerialize(
+        `select * from comments where issue_id in (select id from issues where owner_id = auth.user_id() or name = 'test')`
+      )
+    ).toMatchSnapshot();
+  });
+
+  test('nested subqueries', () => {
+    // This used to be an error with the old sync streams compiler, but is supported now
+    expect(
+      compileSingleStreamAndSerialize(
+        `select * from comments where issue_id in (select id from issues where owner_id in (select id from users where is_admin))`
+      )
+    ).toMatchSnapshot();
+  });
+
+  test('table alias', () => {
+    expect(
+      compileSingleStreamAndSerialize(
+        'select * from account_member as "outer" where account_id in (select "inner".account_id from account_member as "inner" where "inner".id = auth.user_id())'
+      )
+    ).toMatchSnapshot();
   });
 });
