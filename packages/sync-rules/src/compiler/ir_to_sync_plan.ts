@@ -1,11 +1,40 @@
 import * as plan from '../sync_plan/plan.js';
 import * as resolver from './bucket_resolver.js';
 import { CompiledStreamQueries } from './compiler.js';
-import { StableHasher } from './equality.js';
+import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
 import * as rows from './rows.js';
 
 export class CompilerModelToSyncPlan {
+  private static readonly evaluatorHash: Equality<rows.RowEvaluator[]> = unorderedEquality({
+    hash: (hasher, value) => value.buildBehaviorHashCode(hasher),
+    equals: (a, b) => a.behavesIdenticalTo(b)
+  });
+
   private mappedObjects = new Map<object, any>();
+  private buckets: plan.StreamBucketDataSource[] = [];
+
+  /**
+   * Mapping of row evaluators to buckets.
+   *
+   * One might expect one stream to result in one bucket, but that is not generally the case. First, a stream might
+   * define multiple buckets. For instance, `SELECT * FROM notes WHERE notes.is_public OR auth.parameter('admin')`
+   * requires two buckets since there are different ways a row in `notes` might be synced (we have one bucket with
+   * public notes and one bucket of all notes, and then decide which ones a given user has access to by inspecting the
+   * token).
+   *
+   * Further, a stream might have multiple evaluators but only a single bucket. A stream with queries
+   * `SELECT * FROM foo` and `SELECT * FROM bar` is an example for that, we want to merge `foo` and `bar` into the same
+   * bucket in this case. This is represented by a {@link resolver.StreamResolver} having multiple evaluators attached
+   * to it.
+   *
+   * Finally, we may even be able to re-use buckets between streams. This is not possible in many cases, but can be done
+   * if e.g. one stream is `SELECT * FROM profiles WHERE user = auth.user_id()` and another one is
+   * `SELECT * FROM profiles WHERE user IN (SELECT member FROM orgs WHERE id = auth.parameter('org'))`. Because the
+   * partitioning on `profiles` is the same in both cases, it doesn't matter how the buckets are instantiated.
+   */
+  private evaluatorsToBuckets = new HashMap<rows.RowEvaluator[], plan.StreamBucketDataSource>(
+    CompilerModelToSyncPlan.evaluatorHash
+  );
 
   private translateStatefulObject<S extends object, T>(source: S, map: () => T): T {
     const mapped = map();
@@ -19,11 +48,26 @@ export class CompilerModelToSyncPlan {
       parameterIndexes: source.pointLookups.map((p) => this.translatePointLookup(p)),
       // Note: data sources and parameter indexes must be translated first because we reference them in stream
       // resolvers.
-      queriers: source.resolvers.map((e) => this.translateStreamResolver(e))
+      queriers: source.resolvers.map((e) => this.translateStreamResolver(e)),
+      buckets: this.buckets
     };
   }
 
-  private translateRowEvaluator(value: rows.RowEvaluator): plan.StreamBucketDataSource {
+  private createBucketSource(evaluators: rows.RowEvaluator[], uniqueName: string): plan.StreamBucketDataSource {
+    return this.evaluatorsToBuckets.putIfAbsent(evaluators, () => {
+      const hash = StableHasher.hashWith(CompilerModelToSyncPlan.evaluatorHash, evaluators);
+
+      const source = {
+        hashCode: hash,
+        sources: evaluators.map((e) => this.mappedObjects.get(e)!),
+        uniqueName
+      };
+      this.buckets.push(source);
+      return source;
+    });
+  }
+
+  private translateRowEvaluator(value: rows.RowEvaluator): plan.StreamDataSource {
     return this.translateStatefulObject(value, () => {
       const hasher = new StableHasher();
       value.buildBehaviorHashCode(hasher);
@@ -53,18 +97,13 @@ export class CompilerModelToSyncPlan {
   }
 
   private translateStreamResolver(value: resolver.StreamResolver): plan.StreamQuerier {
-    const dataSources: plan.StreamBucketDataSource[] = [];
-    for (const source of value.resolvedBucket.evaluators) {
-      dataSources.push(this.mappedObjects.get(source)!);
-    }
-
     return {
       stream: value.options,
       requestFilters: value.requestFilters.map((e) => e.expression),
       lookupStages: value.lookupStages.map((stage) => {
         return stage.map((e) => this.translateExpandingLookup(e));
       }),
-      dataSources,
+      bucket: this.createBucketSource([...value.resolvedBucket.evaluators], value.uniqueName),
       sourceInstantiation: value.resolvedBucket.instantiation.map((e) => this.translateParameterValue(e))
     };
   }

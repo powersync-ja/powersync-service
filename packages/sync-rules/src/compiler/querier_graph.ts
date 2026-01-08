@@ -23,11 +23,14 @@ import { ParsedStreamQuery } from './parser.js';
  */
 export class QuerierGraphBuilder {
   private readonly resolvers: StreamResolver[] = [];
+  readonly counter: UniqueCounter;
 
   constructor(
     readonly compiler: SyncStreamCompiler,
     readonly options: StreamOptions
-  ) {}
+  ) {
+    this.counter = new UniqueCounter();
+  }
 
   /**
    * Adds a given query to the stream compiled by this builder.
@@ -143,7 +146,8 @@ class PendingQuerierPath {
       this.builder.options,
       requestConditions,
       this.materializeLookupStages(),
-      new ResolveBucket(evaluator, partitionValues)
+      new ResolveBucket(evaluator, partitionValues),
+      this.builder.counter.use(this.builder.options.name)
     );
   }
 
@@ -390,4 +394,16 @@ interface PendingTableValuedFunctionLookup {
 interface PendingStage {
   parent?: PendingStage;
   lookups: PendingExpandingLookup[];
+}
+class UniqueCounter {
+  current: number;
+
+  constructor() {
+    this.current = 0;
+  }
+
+  use(prefix: string) {
+    const value = this.current++;
+    return `${prefix}|${value}`;
+  }
 }
