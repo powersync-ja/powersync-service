@@ -16,11 +16,12 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { DatabaseInputRow, SqliteInputRow, SqliteRow, HydratedSyncRules } from '@powersync/service-sync-rules';
+import { DatabaseInputRow, HydratedSyncRules, SqliteInputRow, SqliteRow } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { ChangeStreamInvalidatedError, mapChangeStreamError } from './ChangeStreamErrors.js';
 import { MongoManager } from './MongoManager.js';
 import {
   constructAfterRecord,
@@ -29,10 +30,8 @@ import {
   getMongoRelation,
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
-import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
-import { ChangeStreamInvalidatedError, mapChangeStreamError } from './ChangeStreamErrors.js';
 import { MongoSnapshotter } from './MongoSnapshotter.js';
-import { MongoBucketBatch } from '../../../module-mongodb-storage/src/index.js';
+import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;

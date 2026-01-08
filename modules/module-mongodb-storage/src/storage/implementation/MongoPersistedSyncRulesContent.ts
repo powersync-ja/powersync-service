@@ -45,8 +45,8 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     );
   }
 
-  async lock() {
-    const lock = await MongoSyncRulesLock.createLock(this.db, this);
+  async lock(session: mongo.ClientSession | undefined = undefined): Promise<storage.ReplicationLock> {
+    const lock = await MongoSyncRulesLock.createLock(this.db, this, session);
     this.current_lock = lock;
     return lock;
   }
