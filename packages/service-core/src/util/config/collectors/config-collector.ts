@@ -80,7 +80,8 @@ export abstract class ConfigCollector {
           return this.parseJSON(content);
         } catch (ex) {
           throw new Error(
-            `Could not parse PowerSync config file content as JSON or YAML: ${ex}${yamlError ? `\nYAML Error: ${yamlError}` : ''
+            `Could not parse PowerSync config file content as JSON or YAML: JSON Error: ${ex}${
+              yamlError ? `\nYAML Error: ${yamlError}` : ''
             }`
           );
         }
