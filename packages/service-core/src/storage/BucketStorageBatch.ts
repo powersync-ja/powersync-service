@@ -13,6 +13,11 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
 
 export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
   /**
+   * Alias for [Symbol.asyncDispose]
+   */
+  dispose(): Promise<void>;
+
+  /**
    * Save an op, and potentially flush.
    *
    * This can be an insert, update or delete op.

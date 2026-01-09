@@ -114,7 +114,7 @@ export class ChangeStreamTestContext {
       return this._walStream;
     }
     const options: ChangeStreamOptions = {
-      storage: this.storage,
+      streams: [{ storage: this.storage }],
       metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
       abort_signal: this.abortController.signal,

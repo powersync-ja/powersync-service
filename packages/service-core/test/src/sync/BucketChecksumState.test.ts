@@ -13,7 +13,7 @@ import {
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestJwtPayload, ScopedParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { versionedHydrationState } from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {

@@ -26,11 +26,23 @@ export interface SyncRulesBucketStorage
 
   /**
    * Use this to get access to update storage data.
+   *
+   * @deprecated Use `createWriter` instead.
    */
   startBatch(
     options: StartBatchOptions,
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
+
+  /**
+   * Create a new writer - an alternative to `startBatch`.
+   *
+   * The writer is stateful. It is not safe to use the same writer concurrently from multiple places,
+   * but different writers can be used concurrently.
+   *
+   * The writer must be flushed and disposed when done.
+   */
+  createWriter(options: StartBatchOptions): Promise<BucketStorageBatch>;
 
   getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
 

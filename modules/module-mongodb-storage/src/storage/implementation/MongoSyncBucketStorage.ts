@@ -154,10 +154,7 @@ export class MongoSyncBucketStorage
     });
   }
 
-  async startBatch(
-    options: storage.StartBatchOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
+  async createWriter(options: storage.StartBatchOptions): Promise<MongoBucketBatch> {
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id
@@ -166,7 +163,7 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    await using batch = new MongoBucketBatch({
+    const batch = new MongoBucketBatch({
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
@@ -180,6 +177,14 @@ export class MongoSyncBucketStorage
       markRecordUnavailable: options.markRecordUnavailable
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
+    return batch;
+  }
+
+  async startBatch(
+    options: storage.StartBatchOptions,
+    callback: (batch: storage.BucketStorageBatch) => Promise<void>
+  ): Promise<storage.FlushedResult | null> {
+    await using batch = await this.createWriter(options);
 
     await callback(batch);
     await batch.flush();

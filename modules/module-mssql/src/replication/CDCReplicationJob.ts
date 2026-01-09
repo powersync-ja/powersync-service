@@ -21,6 +21,10 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
     this.cdcReplicationJobOptions = options;
   }
 
+  public get storage() {
+    return this.options.storage;
+  }
+
   async keepAlive() {
     // TODO Might need to leverage checkpoints table as a keepAlive
   }

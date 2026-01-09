@@ -112,6 +112,10 @@ export class PostgresBucketBatch
   }
 
   async [Symbol.asyncDispose]() {
+    await this.dispose();
+  }
+
+  async dispose(): Promise<void> {
     super.clearListeners();
   }
 

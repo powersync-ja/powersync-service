@@ -225,7 +225,7 @@ export class MongoBucketStorage
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);
       if (options.lock) {
-        const lock = await rules.lock();
+        await rules.lock(this.session);
       }
     });
 

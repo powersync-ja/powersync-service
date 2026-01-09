@@ -1,6 +1,6 @@
 import { storage, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { versionedHydrationState } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
