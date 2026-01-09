@@ -44,6 +44,9 @@ export class StableHasher {
     return 0x1fffffff & (hash + ((0x00003fff & hash) << 15));
   }
 
+  /**
+   * Hashes a value under the given equality implementation.
+   */
   static hashWith<T>(equality: Equality<T>, value: T): number {
     const saved = this.hasher.reset();
     equality.hash(this.hasher, value);
@@ -55,6 +58,9 @@ export class StableHasher {
 
   private static readonly hasher = new StableHasher();
 
+  /**
+   * The default equality for {@link Equatable} types.
+   */
   private static readonly defaultEquality: Equality<Equatable> = {
     hash(hasher, value) {
       value.buildHash(hasher);
@@ -87,6 +93,9 @@ export interface Equality<T> {
   hash(hasher: StableHasher, value: T): void;
 }
 
+/**
+ * Interface for objects that have a logical default equality.
+ */
 export interface Equatable {
   buildHash(hasher: StableHasher): void;
   equals(other: unknown): boolean;

@@ -1,12 +1,10 @@
 import { StreamOptions } from '../compiler/bucket_resolver.js';
-import { equalsIgnoringResultSet } from '../compiler/compatibility.js';
-import { StableHasher } from '../compiler/equality.js';
-import { ColumnInRow, ConnectionParameterSource, SyncExpression } from '../compiler/expression.js';
 import { ColumnSource, StarColumnSource } from '../compiler/rows.js';
 import { TablePattern } from '../TablePattern.js';
 import {
   ExpandingLookup,
   ParameterValue,
+  SqlExpression,
   StreamBucketDataSource,
   StreamDataSource,
   StreamParameterIndexLookupCreator,
@@ -19,32 +17,6 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   const bucketIndex = new Map<StreamBucketDataSource, number>();
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
   const expandingLookups = new Map<ExpandingLookup, LookupReference>();
-
-  // Serialize an expression in a context that makes it obvious what result set ColumnInRow refers to.
-  function serializeExpressionWithImpliedResultSet(expr: SyncExpression): SerializedSyncExpression {
-    return {
-      hash: StableHasher.hashWith(equalsIgnoringResultSet, expr),
-      sql: expr.sql,
-      instantiation: expr.instantiation.map((e) => {
-        if (e instanceof ColumnInRow) {
-          return { column: e.column };
-        } else {
-          return { connection: e.source };
-        }
-      })
-    };
-  }
-
-  function serializeColumnSource(source: ColumnSource): SerializedColumnSource {
-    if (source instanceof StarColumnSource) {
-      return 'star';
-    } else {
-      return {
-        expr: serializeExpressionWithImpliedResultSet(source.expression.expression),
-        alias: source.alias ?? null
-      };
-    }
-  }
 
   function serializeTablePattern(pattern: TablePattern): SerializedTablePattern {
     return {
@@ -61,9 +33,9 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       return {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
-        filters: source.filters.map(serializeExpressionWithImpliedResultSet),
-        partition_by: source.parameters.map(serializeExpressionWithImpliedResultSet),
-        columns: source.columns.map(serializeColumnSource)
+        filters: source.filters,
+        partition_by: source.parameters,
+        columns: source.columns
       };
     });
   }
@@ -75,16 +47,16 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       return {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
-        filters: source.filters.map(serializeExpressionWithImpliedResultSet),
-        partition_by: source.parameters.map(serializeExpressionWithImpliedResultSet),
-        output: source.outputs.map(serializeExpressionWithImpliedResultSet)
+        filters: source.filters,
+        partition_by: source.parameters,
+        output: source.outputs
       };
     });
   }
 
   function serializeParameterValue(value: ParameterValue): SerializedParameterValue {
     if (value.type == 'request') {
-      return { type: 'request', expr: serializeExpressionWithImpliedResultSet(value.expr) };
+      return { type: 'request', expr: value.expr };
     } else if (value.type == 'lookup') {
       return { type: 'lookup', lookup: expandingLookups.get(value.lookup)!, resultIndex: value.resultIndex };
     } else {
@@ -114,9 +86,9 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
             mapped = {
               type: 'table_valued',
               functionName: e.functionName,
-              functionInputs: e.functionInputs.map(serializeExpressionWithImpliedResultSet),
-              outputs: e.outputs.map(serializeExpressionWithImpliedResultSet),
-              filters: e.filters.map(serializeExpressionWithImpliedResultSet)
+              functionInputs: e.functionInputs,
+              outputs: e.outputs,
+              filters: e.filters
             };
           }
 
@@ -128,7 +100,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 
     return {
       stream: source.stream,
-      requestFilters: source.requestFilters.map(serializeExpressionWithImpliedResultSet),
+      requestFilters: source.requestFilters,
       lookupStages: stages,
       bucket: bucketIndex.get(source.bucket)!,
       sourceInstantiation: source.sourceInstantiation.map(serializeParameterValue)
@@ -165,11 +137,7 @@ interface SerializedBucketDataSource {
   sources: number[];
 }
 
-interface SerializedSyncExpression {
-  hash: number;
-  sql: string;
-  instantiation: ({ column: string } | { connection: ConnectionParameterSource })[];
-}
+type SerializedSyncExpression = SqlExpression;
 
 type SerializedColumnSource = 'star' | { expr: SerializedSyncExpression; alias: string | null };
 

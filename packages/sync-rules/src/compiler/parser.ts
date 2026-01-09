@@ -224,7 +224,10 @@ export class StreamQueryParser {
       const parsed = this.mustBeSingleDependency(this.parseExpression(argument, true));
 
       if (parsed.resultSet != null) {
-        this.errors.report('Parameters to table-valued functions may not reference other tables', parsed.node);
+        this.errors.report(
+          'Parameters to table-valued functions may not reference other tables',
+          parsed.expression.node
+        );
       }
     }
 
@@ -256,7 +259,7 @@ export class StreamQueryParser {
 
         this.resultColumns.push(StarColumnSource.instance);
       } else {
-        const { expr, node } = this.parseExpression(column.expr, true);
+        const expr = this.parseExpression(column.expr, true);
 
         for (const dependency of expr.instantiation) {
           if (dependency instanceof ColumnInRow) {
@@ -270,7 +273,7 @@ export class StreamQueryParser {
         }
 
         try {
-          this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr, node), column.alias?.name));
+          this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr), column.alias?.name));
         } catch (e) {
           if (e instanceof InvalidExpressionError) {
             // Invalid dependencies, we've already logged errors for this. Ignore.
@@ -282,7 +285,7 @@ export class StreamQueryParser {
     }
   }
 
-  private parseExpression(source: Expr, desugar: boolean): SyncExpressionWithAst {
+  private parseExpression(source: Expr, desugar: boolean): SyncExpression {
     if (desugar) {
       source = this.desugarSubqueries(source);
     }
@@ -386,23 +389,23 @@ export class StreamQueryParser {
     return this.mustBeSingleDependency(this.parseExpression(pending.inner, false));
   }
 
-  toSyncExpression(source: Expr, instantiation: ExpressionInput[]): SyncExpressionWithAst {
+  toSyncExpression(source: Expr, instantiation: ExpressionInput[]): SyncExpression {
     const toSqlite = new PostgresToSqlite(this.originalText, this.errors);
     toSqlite.addExpression(source);
 
-    return { expr: new SyncExpression(toSqlite.sql, instantiation, source._location), node: source };
+    return new SyncExpression(toSqlite.sql, source, instantiation);
   }
 
   /**
    * Emit diagnostics if the expression references data from more than one table, otherwise returns it as a
    * single-dependency expression.
    */
-  private mustBeSingleDependency(inner: SyncExpressionWithAst): SingleDependencyExpression {
+  private mustBeSingleDependency(inner: SyncExpression): SingleDependencyExpression {
     let referencingResultSet: [SourceResultSet, PGNode] | null = null;
     let referencingConnection: PGNode | null = null;
     let hadError = false;
 
-    for (const dependency of inner.expr.instantiation) {
+    for (const dependency of inner.instantiation) {
       if (dependency instanceof ColumnInRow) {
         if (referencingConnection != null) {
           this.errors.report(
@@ -435,11 +438,17 @@ export class StreamQueryParser {
 
     if (hadError) {
       // Return a bogus expression to keep going / potentially collect more errors.
-      return new SingleDependencyExpression(new SyncExpression('NULL', [], inner.expr.originalLocation), {
-        type: 'null'
-      });
+      return new SingleDependencyExpression(
+        new SyncExpression(
+          'NULL',
+          {
+            type: 'null'
+          },
+          []
+        )
+      );
     } else {
-      return new SingleDependencyExpression(inner.expr, inner.node);
+      return new SingleDependencyExpression(inner);
     }
   }
 
@@ -568,7 +577,7 @@ export class StreamQueryParser {
   }
 }
 
-function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpressionWithAst {
+function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpression {
   const instantiation: ExpressionInput[] = [];
   const mapper = astMapper((map) => {
     function createParameter(node: PGNode): ExprParameter {
@@ -658,8 +667,6 @@ function trackDependencies(parser: StreamQueryParser, source: Expr): SyncExpress
   const transformed = mapper.expr(source)!;
   return parser.toSyncExpression(transformed, instantiation);
 }
-
-type SyncExpressionWithAst = { node: Expr; expr: SyncExpression };
 
 /**
  * An arbitrary boolean expression we're about to transform to DNF.

@@ -32,13 +32,6 @@ export function isBaseTerm(value: unknown): value is BaseTerm {
 export class SingleDependencyExpression implements EqualsIgnoringResultSet {
   readonly expression: SyncExpression;
   /**
-   * The AST node backing {@link expression}.
-   *
-   * We use this to be able to compose expressions, e.g. to possibly merge them.
-   */
-  readonly node: Expr;
-
-  /**
    * The single result set on which the expression depends on.
    *
    * If null, the expression is allowed to depend on subscription parameters instead.
@@ -50,7 +43,7 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
    */
   readonly dependsOnConnection: boolean;
 
-  constructor(expression: SyncExpression | SingleDependencyExpression, node?: Expr) {
+  constructor(expression: SyncExpression | SingleDependencyExpression) {
     if (expression instanceof SyncExpression) {
       const checked = SingleDependencyExpression.extractSingleDependency(expression.instantiation);
       if (checked == null) {
@@ -58,16 +51,11 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
       }
 
       this.expression = expression;
-      if (node == null) {
-        throw new Error('Missing AST node for expression');
-      }
-      this.node = node;
       this.resultSet = checked[0];
       this.dependsOnConnection = checked[1];
     } else {
       this.expression = expression.expression;
       this.resultSet = expression.resultSet;
-      this.node = expression.node;
       this.dependsOnConnection = expression.dependsOnConnection;
     }
   }
@@ -115,8 +103,8 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
 export class RowExpression extends SingleDependencyExpression {
   declare readonly resultSet: SourceResultSet;
 
-  constructor(expression: SyncExpression | SingleDependencyExpression, expr?: Expr) {
-    super(expression, expr);
+  constructor(expression: SyncExpression | SingleDependencyExpression) {
+    super(expression);
     if (this.resultSet == null) {
       throw new InvalidExpressionError('Does not depend on a single result set');
     }
@@ -127,8 +115,8 @@ export class RowExpression extends SingleDependencyExpression {
  * A {@link SyncExpression} that only depends on connection data.
  */
 export class RequestExpression extends SingleDependencyExpression {
-  constructor(expression: SyncExpression | SingleDependencyExpression, expr?: Expr) {
-    super(expression, expr);
+  constructor(expression: SyncExpression | SingleDependencyExpression) {
+    super(expression);
     if (this.resultSet != null) {
       throw new InvalidExpressionError('Does not depend on connection data');
     }
@@ -145,7 +133,7 @@ export class EqualsClause {
   ) {}
 
   get location(): NodeLocation | undefined {
-    return expandNodeLocations([this.left.expression.originalLocation, this.right.expression.originalLocation]);
+    return expandNodeLocations([this.left.expression.node, this.right.expression.node]);
   }
 }
 

@@ -1,7 +1,9 @@
 import * as plan from '../sync_plan/plan.js';
 import * as resolver from './bucket_resolver.js';
+import { equalsIgnoringResultSet } from './compatibility.js';
 import { CompiledStreamQueries } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
+import { ColumnInRow, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
 
 export class CompilerModelToSyncPlan {
@@ -74,9 +76,15 @@ export class CompilerModelToSyncPlan {
       const mapped = {
         sourceTable: value.tablePattern,
         hashCode: hasher.buildHashCode(),
-        columns: value.columns,
-        filters: value.filters.map((e) => e.expression),
-        parameters: value.partitionBy.map((e) => e.expression.expression)
+        columns: value.columns.map((e) => {
+          if (e instanceof rows.StarColumnSource) {
+            return 'star';
+          } else {
+            return { expr: this.translateExpression(e.expression.expression), alias: e.alias ?? null };
+          }
+        }),
+        filters: value.filters.map((e) => this.translateExpression(e.expression)),
+        parameters: value.partitionBy.map((e) => this.translateExpression(e.expression.expression))
       };
       return mapped;
     });
@@ -89,17 +97,33 @@ export class CompilerModelToSyncPlan {
       return {
         sourceTable: value.tablePattern,
         hashCode: hasher.buildHashCode(),
-        outputs: value.result.map((e) => e.expression),
-        filters: value.filters.map((e) => e.expression),
-        parameters: value.partitionBy.map((e) => e.expression.expression)
+        outputs: value.result.map((e) => this.translateExpression(e.expression)),
+        filters: value.filters.map((e) => this.translateExpression(e.expression)),
+        parameters: value.partitionBy.map((e) => this.translateExpression(e.expression.expression))
       };
     });
+  }
+
+  private translateExpression(expression: SyncExpression): plan.SqlExpression {
+    const hash = StableHasher.hashWith(equalsIgnoringResultSet, expression);
+
+    return {
+      hash,
+      sql: expression.sql,
+      instantiation: expression.instantiation.map((e) => {
+        if (e instanceof ColumnInRow) {
+          return { column: e.column };
+        } else {
+          return { connection: e.source };
+        }
+      })
+    };
   }
 
   private translateStreamResolver(value: resolver.StreamResolver): plan.StreamQuerier {
     return {
       stream: value.options,
-      requestFilters: value.requestFilters.map((e) => e.expression),
+      requestFilters: value.requestFilters.map((e) => this.translateExpression(e.expression)),
       lookupStages: value.lookupStages.map((stage) => {
         return stage.map((e) => this.translateExpandingLookup(e));
       }),
@@ -120,9 +144,9 @@ export class CompilerModelToSyncPlan {
         return {
           type: 'table_valued',
           functionName: value.tableValuedFunction.tableValuedFunctionName,
-          functionInputs: value.tableValuedFunction.parameters.map((e) => e.expression),
-          outputs: value.outputs.map((e) => e.expression),
-          filters: value.filters.map((e) => e.expression)
+          functionInputs: value.tableValuedFunction.parameters.map((e) => this.translateExpression(e.expression)),
+          outputs: value.outputs.map((e) => this.translateExpression(e.expression)),
+          filters: value.filters.map((e) => this.translateExpression(e.expression))
         };
       }
     });
@@ -130,7 +154,7 @@ export class CompilerModelToSyncPlan {
 
   private translateParameterValue(value: resolver.ParameterValue): plan.ParameterValue {
     if (value instanceof resolver.RequestParameterValue) {
-      return { type: 'request', expr: value.expression.expression };
+      return { type: 'request', expr: this.translateExpression(value.expression.expression) };
     } else if (value instanceof resolver.LookupResultParameterValue) {
       return { type: 'lookup', resultIndex: value.resultIndex, lookup: this.mappedObjects.get(value.lookup!)! };
     } else {
