@@ -1,6 +1,5 @@
 import { StreamOptions } from '../compiler/bucket_resolver.js';
-import { SyncExpression } from '../compiler/expression.js';
-import { ColumnSource } from '../compiler/rows.js';
+import { ConnectionParameterSource } from '../compiler/expression.js';
 import { TablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 
@@ -41,11 +40,11 @@ export interface TableProcessor {
    *
    * ALl of the filters must evaluate to a "true-ish" value for the row to be processed.
    */
-  filters: SyncExpression[];
+  filters: SqlExpression[];
   /**
    * The parameter instantiation when assigning rows to buckets.
    */
-  parameters: SyncExpression[];
+  parameters: SqlExpression[];
 }
 
 /**
@@ -60,6 +59,8 @@ export interface StreamDataSource extends TableProcessor {
    */
   columns: ColumnSource[];
 }
+
+export type ColumnSource = 'star' | { expr: SqlExpression; alias: string | null };
 
 /**
  * A mapping describing how {@link StreamDataSource}s are combined into buckets.
@@ -92,7 +93,7 @@ export interface StreamParameterIndexLookupCreator extends TableProcessor {
    * streams because the output of parameters might be passed through additional stages or transformed by the querier
    * before becoming a parameter value.
    */
-  outputs: SyncExpression[];
+  outputs: SqlExpression[];
 }
 
 export interface StreamQuerier {
@@ -102,7 +103,7 @@ export interface StreamQuerier {
    *
    * All of them must match for this querier to be considered for a subscription.
    */
-  requestFilters: SyncExpression[];
+  requestFilters: SqlExpression[];
 
   /**
    * Ordered lookups that need to be evaluated and expanded before we can evaluate {@link sourceInstantiation}.
@@ -118,6 +119,12 @@ export interface StreamQuerier {
    */
   bucket: StreamBucketDataSource;
   sourceInstantiation: ParameterValue[];
+}
+
+export interface SqlExpression {
+  hash: number;
+  sql: string;
+  instantiation: ({ column: string } | { connection: ConnectionParameterSource })[];
 }
 
 /**
@@ -137,12 +144,12 @@ export interface ParameterLookup {
 export interface EvaluateTableValuedFunction {
   type: 'table_valued';
   functionName: string;
-  functionInputs: SyncExpression[];
-  outputs: SyncExpression[];
-  filters: SyncExpression[];
+  functionInputs: SqlExpression[];
+  outputs: SqlExpression[];
+  filters: SqlExpression[];
 }
 
 export type ParameterValue =
-  | { type: 'request'; expr: SyncExpression }
+  | { type: 'request'; expr: SqlExpression }
   | { type: 'lookup'; lookup: ExpandingLookup; resultIndex: number }
   | { type: 'intersection'; values: ParameterValue[] };

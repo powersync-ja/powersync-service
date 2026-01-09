@@ -1,4 +1,4 @@
-import { Expr, NodeLocation } from 'pgsql-ast-parser';
+import { Expr } from 'pgsql-ast-parser';
 import { SourceResultSet } from './table.js';
 import { EqualsIgnoringResultSet, equalsIgnoringResultSetList } from './compatibility.js';
 import { StableHasher } from './equality.js';
@@ -17,19 +17,21 @@ import { StableHasher } from './equality.js';
 export class SyncExpression implements EqualsIgnoringResultSet {
   constructor(
     /**
-     * The original expression, where references to row or connection parameters have been replcated with SQL variables
+     * The original expression, where references to row or connection parameters have been replaced with SQL variables
      * that are tracked through {@link instantiation}.
      */
     readonly sql: string,
     /**
+     * The AST node backing {@link expression}.
+     *
+     * We use this to be able to compose expressions, e.g. to possibly merge them.
+     */
+    readonly node: Expr,
+    /**
      * The values to instantiate parameters in {@link sqlExpression} with to retain original semantics of the
      * expression.
      */
-    readonly instantiation: ExpressionInput[],
-    /**
-     * The original location, used during compilation if errors need to be reported against this expression.
-     */
-    readonly originalLocation: NodeLocation | undefined
+    readonly instantiation: ExpressionInput[]
   ) {}
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {

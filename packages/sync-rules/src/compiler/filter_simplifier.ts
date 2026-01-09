@@ -129,10 +129,10 @@ export class FilterConditionSimplifier {
 
     for (const element of terms) {
       if (node == null) {
-        node = element.node;
+        node = element.expression.node;
         instantiation.push(...element.expression.instantiation);
       } else {
-        const transformed = transformer.expr(element.node)!;
+        const transformed = transformer.expr(element.expression.node)!;
         instantiation.push(...element.expression.instantiation);
 
         node = {
@@ -152,6 +152,6 @@ export class FilterConditionSimplifier {
       }
     });
     toSqlite.addExpression(node!);
-    return new SingleDependencyExpression(new SyncExpression(toSqlite.sql, instantiation, node!._location), node!);
+    return new SingleDependencyExpression(new SyncExpression(toSqlite.sql, node!, instantiation));
   }
 }
