@@ -36,7 +36,7 @@ import { ReplicationStreamConfig } from './ChangeStreamReplicationJob.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
-  streams: ReplicationStreamConfig[];
+  streams: Pick<ReplicationStreamConfig, 'storage'>[];
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
   /**
@@ -336,7 +336,7 @@ export class ChangeStream {
         checkpointStreamId: this.checkpointStreamId,
         connections: this.connections,
         storage: config.storage,
-        logger: this.logger.child({ prefix: `[powersync_${config.lock.sync_rules_id}] ` }),
+        logger: this.logger.child({ prefix: `[powersync_${config.storage.group_id}] ` }),
         snapshotChunkLength: options.snapshotChunkLength,
         maxAwaitTimeMS: this.maxAwaitTimeMS,
         metrics: this.metrics
