@@ -1,7 +1,7 @@
 import { SqlSyncRules, HydratedSyncRules } from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { versionedHydrationState } from '@powersync/service-sync-rules';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly slot_name: string;

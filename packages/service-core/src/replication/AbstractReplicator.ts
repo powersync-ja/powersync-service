@@ -159,6 +159,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       await container.probes.touch();
       try {
         await this.refresh({ configured_lock: configuredLock });
+        await this.refreshCleanupJobs();
+
         // The lock is only valid on the first refresh.
         configuredLock = undefined;
 
@@ -181,7 +183,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     }
   }
 
-  private async refresh(options?: { configured_lock?: storage.ReplicationLock }) {
+  protected async refresh(options?: { configured_lock?: storage.ReplicationLock }) {
     if (this.stopped) {
       return;
     }
@@ -239,17 +241,19 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     this.activeReplicationJob = activeJob;
 
     // Stop any orphaned jobs that no longer have sync rules.
-    // Termination happens below
+    // Termination happens in refreshCleanupJobs()
     for (let job of existingJobs.values()) {
       // Old - stop and clean up
       try {
         await job.stop();
       } catch (e) {
         // This will be retried
-        this.logger.warn('Failed to stop old replication job}', e);
+        this.logger.warn('Failed to stop old replication job', e);
       }
     }
+  }
 
+  protected async refreshCleanupJobs() {
     // Sync rules stopped previously, including by a different process.
     const stopped = await this.storage.getStoppedSyncRules();
     for (let syncRules of stopped) {

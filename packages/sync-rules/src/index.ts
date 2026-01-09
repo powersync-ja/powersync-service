@@ -28,3 +28,4 @@ export * from './types/custom_sqlite_value.js';
 export * from './types/time.js';
 export * from './utils.js';
 export * from './HydratedSyncRules.js';
+export * from './HydrationState.js';

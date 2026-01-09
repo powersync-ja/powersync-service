@@ -32,10 +32,11 @@ import {
 } from './MongoRelation.js';
 import { MongoSnapshotter } from './MongoSnapshotter.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { ReplicationStreamConfig } from './ChangeStreamReplicationJob.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
-  storage: storage.SyncRulesBucketStorage;
+  streams: ReplicationStreamConfig[];
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
   /**
@@ -92,7 +93,7 @@ class SubStream {
       checkpointStreamId: options.checkpointStreamId,
       connections: this.connections,
       storage: this.storage,
-      logger: this.logger,
+      logger: this.logger.child({ prefix: `[powersync_${this.storage.group_id}_snapshot] ` }),
       snapshotChunkLength: options.snapshotChunkLength,
       metrics: options.metrics,
       maxAwaitTimeMS: options.maxAwaitTimeMS
@@ -329,17 +330,18 @@ export class ChangeStream {
 
     this.logger = options.logger ?? defaultLogger;
 
-    const substream = new SubStream({
-      abortSignal: this.abortSignal,
-      checkpointStreamId: this.checkpointStreamId,
-      connections: this.connections,
-      storage: options.storage,
-      logger: this.logger,
-      snapshotChunkLength: options.snapshotChunkLength,
-      maxAwaitTimeMS: this.maxAwaitTimeMS,
-      metrics: this.metrics
+    this.substreams = options.streams.map((config) => {
+      return new SubStream({
+        abortSignal: this.abortSignal,
+        checkpointStreamId: this.checkpointStreamId,
+        connections: this.connections,
+        storage: config.storage,
+        logger: this.logger.child({ prefix: `[powersync_${config.lock.sync_rules_id}] ` }),
+        snapshotChunkLength: options.snapshotChunkLength,
+        maxAwaitTimeMS: this.maxAwaitTimeMS,
+        metrics: this.metrics
+      });
     });
-    this.substreams.push(substream);
 
     // We wrap in our own abort controller so we can trigger abort internally.
     options.abort_signal.addEventListener('abort', () => {
@@ -772,7 +774,8 @@ export class ChangeStream {
         }
         let didCommit = false;
         for (let batch of writers) {
-          didCommit ||= await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+          const didWriterCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+          didCommit ||= didWriterCommit;
         }
 
         if (didCommit) {
