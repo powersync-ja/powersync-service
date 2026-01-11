@@ -18,7 +18,9 @@ describe('BinLogStream tests', () => {
   describeWithStorage({ timeout: 20_000 }, defineBinlogStreamTests);
 });
 
-function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
+function defineBinlogStreamTests(config: storage.TestStorageConfig) {
+  const factory = config.factory;
+
   test('Replicate basic values', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
     const { connectionManager } = context;

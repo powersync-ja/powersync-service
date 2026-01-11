@@ -151,11 +151,13 @@ export class ServiceAssertionError extends ServiceError {
 export class ReplicationAbortedError extends ServiceError {
   static readonly CODE = ErrorCode.PSYNC_S1103;
 
-  constructor(description?: string) {
+  constructor(description?: string, cause?: any) {
     super({
       code: ReplicationAbortedError.CODE,
       description: description ?? 'Replication aborted'
     });
+
+    this.cause = cause;
   }
 }
 

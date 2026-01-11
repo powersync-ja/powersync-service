@@ -2,4 +2,4 @@
 
 exports[`schema changes > mongodb storage > add to publication (not in sync rules) 1`] = `0`;
 
-exports[`schema changes > postgres storage > add to publication (not in sync rules) 1`] = `16384`;
+exports[`schema changes > postgres storage > add to publication (not in sync rules) 1`] = `24576`;

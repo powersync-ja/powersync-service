@@ -1,10 +1,11 @@
 import { storage } from '@powersync/service-core';
-import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 describe('sync - mongodb', () => {
   register.registerSyncTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
@@ -19,7 +20,7 @@ describe('sync - mongodb', () => {
           - SELECT id, description FROM "%"
     `
     );
-    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY();
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const bucketStorage = factory.getInstance(sync_rules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
