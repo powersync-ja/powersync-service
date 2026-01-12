@@ -566,33 +566,9 @@ export class MongoSyncBucketStorage
   }
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
-    while (true) {
-      if (options?.signal?.aborted) {
-        throw new ReplicationAbortedError('Aborted clearing data', options.signal.reason);
-      }
-      try {
-        await this.clearIteration();
+    const signal = options?.signal ?? new AbortController().signal;
 
-        logger.info(`${this.slot_name} Done clearing data`);
-        return;
-      } catch (e: unknown) {
-        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-          logger.info(
-            `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-          );
-          await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
-        } else {
-          throw e;
-        }
-      }
-    }
-  }
-
-  private async clearIteration(): Promise<void> {
-    // Individual operations here may time out with the maxTimeMS option.
-    // It is expected to still make progress, and continue on the next try.
-
-    await this.db.sync_rules.updateOne(
+    const doc = await this.db.sync_rules.findOneAndUpdate(
       {
         _id: this.group_id
       },
@@ -608,41 +584,110 @@ export class MongoSyncBucketStorage
           snapshot_lsn: 1
         }
       },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
-    await this.db.bucket_data.deleteMany(
-      {
-        _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
-    await this.db.bucket_parameters.deleteMany(
-      {
-        'key.g': this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS, returnDocument: 'after' }
     );
 
-    await this.db.current_data.deleteMany(
-      {
-        _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    if (doc?.rule_mapping != null) {
+      for (let [name, id] of Object.entries(doc.rule_mapping.definitions)) {
+        await this.retriedDelete(`deleting bucket data for ${name}`, signal, () =>
+          this.db.bucket_data.deleteMany(
+            {
+              _id: idPrefixFilter<BucketDataKey>({ g: id }, ['b', 'o'])
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          )
+        );
+      }
+
+      for (let [name, id] of Object.entries(doc.rule_mapping.parameter_lookups)) {
+        await this.retriedDelete(`deleting parameter lookup data for ${name}`, signal, () =>
+          this.db.bucket_parameters.deleteMany(
+            {
+              'key.g': id
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          )
+        );
+      }
+    }
+
+    await this.retriedDelete('deleting bucket data', signal, () =>
+      this.db.bucket_data.deleteMany(
+        {
+          _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
+    );
+    await this.retriedDelete('deleting bucket parameter lookup values', signal, () =>
+      this.db.bucket_parameters.deleteMany(
+        {
+          'key.g': this.group_id
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
     );
 
-    await this.db.bucket_state.deleteMany(
-      {
-        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    // FIXME: handle refactored current_data structure
+    await this.retriedDelete('deleting current data records', signal, () =>
+      this.db.current_data.deleteMany(
+        {
+          _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
     );
 
-    await this.db.source_tables.deleteMany(
-      {
-        group_id: this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    await this.retriedDelete('deleting bucket state records', signal, () =>
+      this.db.bucket_state.deleteMany(
+        {
+          _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
     );
+
+    // First remove the reference
+    this.db.source_tables.updateMany({ sync_rules_ids: this.group_id }, { $pull: { sync_rules_ids: this.group_id } });
+
+    // Then delete any source tables no longer referenced
+    await this.retriedDelete('deleting source table records', signal, () =>
+      this.db.source_tables.deleteMany(
+        {
+          sync_rules_ids: []
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
+    );
+  }
+
+  private async retriedDelete(
+    message: string,
+    signal: AbortSignal,
+    deleteFunc: () => Promise<mongo.DeleteResult>
+  ): Promise<void> {
+    // Individual operations here may time out with the maxTimeMS option.
+    // It is expected to still make progress, and continue on the next try.
+
+    let i = 0;
+    while (!signal.aborted) {
+      try {
+        const result = await deleteFunc();
+        if (result.deletedCount > 0) {
+          logger.info(`${this.slot_name} ${message} - done`);
+        }
+        return;
+      } catch (e: unknown) {
+        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
+          i += 1;
+          logger.info(`${this.slot_name} ${message} iteration ${i}, continuing...`);
+          await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
+        } else {
+          throw e;
+        }
+      }
+    }
+    throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
   }
 
   async reportError(e: any): Promise<void> {
