@@ -24,6 +24,20 @@ describe('can reuse elements', () => {
     expect(compiled.buckets).toHaveLength(1);
   });
 
+  test('between streams with different outputs', () => {
+    const compiled = compileToSyncPlanWithoutErrors([
+      { name: 'a', queries: ['SELECT id, foo FROM profiles WHERE "user" = auth.user_id()'] },
+      {
+        name: 'b',
+        queries: [
+          `SELECT id, bar FROM profiles WHERE "user" IN (SELECT member FROM orgs WHERE id = auth.parameter('org'))`
+        ]
+      }
+    ]);
+
+    expect(compiled.buckets).toHaveLength(2);
+  });
+
   test('no reuse on streams with different sources', () => {
     const compiled = compileToSyncPlanWithoutErrors([
       { name: 'a', queries: ['SELECT * FROM products'] },

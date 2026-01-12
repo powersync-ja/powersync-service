@@ -107,14 +107,7 @@ export class StreamQueryParser {
         return null;
       }
 
-      let where: Or;
-      if (this.where) {
-        where = this.compileFilterClause();
-      } else {
-        const emptyAnd: And = { terms: [] };
-        where = { terms: [emptyAnd] };
-      }
-
+      const where = this.compileFilterClause();
       const joined: SourceResultSet[] = [];
       for (const source of this.resultSets.values()) {
         if (source != this.primaryResultSet) {
@@ -153,7 +146,7 @@ export class StreamQueryParser {
     }
 
     if (!options.forSubquery && node.columns) {
-      this.processResultColumns(node.columns);
+      this.processResultColumns(node, node.columns);
     }
 
     this.warnUnsupported(node.groupBy, 'GROUP BY');
@@ -232,14 +225,14 @@ export class StreamQueryParser {
     return new RequestTableValuedResultSet(call.function.name, resolvedArguments, source);
   }
 
-  private processResultColumns(columns: SelectedColumn[]) {
+  private processResultColumns(stmt: PGNode, columns: SelectedColumn[]) {
     const selectsFrom = (source: SourceResultSet, node: PGNode) => {
       if (source instanceof PhysicalSourceResultSet) {
         if (this.primaryResultSet == null) {
           this.primaryResultSet = source;
         } else if (this.primaryResultSet !== source) {
           this.errors.report(
-            `Sync streams can only select from a single table, and this one already selects from '${this.primaryResultSet.tablePattern}'.`,
+            `Sync streams can only select from a single table, and this one already selects from '${this.primaryResultSet.tablePattern.name}'.`,
             node
           );
         }
@@ -281,6 +274,10 @@ export class StreamQueryParser {
         }
       }
     }
+
+    if (this.primaryResultSet == null) {
+      this.errors.report('Must have a result column selecting from a table', stmt);
+    }
   }
 
   private parseExpression(source: Expr, desugar: boolean): SyncExpression {
@@ -312,7 +309,7 @@ export class StreamQueryParser {
     } else {
       const result = scope.resolveResultSetForReference(name);
       if (result == null) {
-        this.errors.report(`Table '${name}'has not been added in a FROM clause here.`, node);
+        this.errors.report(`Table '${name}' has not been added in a FROM clause here.`, node);
         return null;
       }
 

@@ -1,5 +1,62 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`new sync stream features > in array 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 270609616,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": "? IN ('public', 'archived')",
+          "values": [
+            {
+              "column": "state",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 104743926,
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "notes",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "queriers": [
+    {
+      "bucket": 0,
+      "lookupStages": [],
+      "requestFilters": [],
+      "sourceInstantiation": [],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
 exports[`new sync stream features > joins feedback > response 1 1`] = `
 {
   "buckets": [
