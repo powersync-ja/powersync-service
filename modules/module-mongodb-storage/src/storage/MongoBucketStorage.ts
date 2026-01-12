@@ -275,6 +275,8 @@ export class MongoBucketStorage
       .find({
         state: { $in: [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE] }
       })
+      // Prioritize "ACTIVE" first
+      .sort({ state: 1, _id: 1 })
       .toArray();
 
     return docs.map((doc) => {
