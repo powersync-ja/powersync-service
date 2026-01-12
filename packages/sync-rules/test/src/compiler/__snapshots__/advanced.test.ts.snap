@@ -1,0 +1,148 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`new sync stream features > order-independent parameters 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 99391269,
+      "sources": [
+        0,
+        1,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 91707233,
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "region",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "org",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "stores",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 146825904,
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "region",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "org",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "",
+        "table": "products",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "queriers": [
+    {
+      "bucket": 0,
+      "lookupStages": [],
+      "requestFilters": [],
+      "sourceInstantiation": [
+        {
+          "expr": {
+            "sql": "? ->> '$.' || 'region'",
+            "values": [
+              {
+                "request": "subscription",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+          "type": "request",
+        },
+        {
+          "expr": {
+            "sql": "? ->> '$.' || 'org'",
+            "values": [
+              {
+                "request": "auth",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+          "type": "request",
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;

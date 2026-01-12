@@ -14,7 +14,7 @@ import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDe
 import { PartitionKey, PointLookup, RowEvaluator } from './rows.js';
 import { PhysicalSourceResultSet, RequestTableValuedResultSet, SourceResultSet } from './table.js';
 import { ParsingErrorListener, SyncStreamCompiler } from './compiler.js';
-import { HashMap, HashSet } from './equality.js';
+import { HashMap, HashSet, StableHasher } from './equality.js';
 import { ParsedStreamQuery } from './parser.js';
 import { StreamOptions } from '../sync_plan/plan.js';
 
@@ -341,19 +341,31 @@ class ResolvedResultSet {
   readonly partition = new HashMap<PartitionKey, ParameterValue[]>(equalsIgnoringResultSet);
 
   resolvePartitions(): [PartitionKey[], ParameterValue[]] {
-    const keys: PartitionKey[] = [];
-    const instantiation: ParameterValue[] = [];
-
+    const entries: [PartitionKey, ParameterValue][] = [];
     for (const [key, values] of this.partition.entries) {
-      keys.push(key);
       if (values.length == 1) {
-        instantiation.push(values[0]);
+        entries.push([key, values[0]]);
       } else {
-        instantiation.push(new IntersectionParameterValue(values));
+        entries.push([key, new IntersectionParameterValue(values)]);
       }
     }
 
-    return [keys, instantiation];
+    // The order of partition keys is arbitrary (and typically depends on their order in syntax). Semantically though,
+    // partition keys should be unordered: Instantiating a bucket is a `Map<Parameter, Value>` that just happens to be
+    // encoded as `Value[]` since parameters are known from context.
+    // To make it easier to merge buckets, we sort parameters by some stable hash.
+    entries.sort(
+      (a, b) =>
+        StableHasher.hashWith(equalsIgnoringResultSet, a[0]) - StableHasher.hashWith(equalsIgnoringResultSet, b[0])
+    );
+
+    const keys: PartitionKey[] = [];
+    const values: ParameterValue[] = [];
+    for (const [key, value] of entries) {
+      keys.push(key);
+      values.push(value);
+    }
+    return [keys, values];
   }
 }
 
