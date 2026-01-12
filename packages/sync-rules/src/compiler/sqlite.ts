@@ -1,7 +1,7 @@
 import { BinaryOperator, Expr, ExprCall, UnaryOperator } from 'pgsql-ast-parser';
 import { ParsingErrorListener } from './compiler.js';
 import { CAST_TYPES } from '../sql_functions.js';
-import { ExpressionInput, ExpressionInputWithSpan, SyncExpression } from './expression.js';
+import { ExpressionInput, ExpressionInputWithSpan } from './expression.js';
 
 export const intrinsicContains = 'intrinsic:contains';
 

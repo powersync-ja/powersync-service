@@ -1,14 +1,12 @@
 import type { ParameterIndexLookupCreator, BucketDataSource } from '../BucketSource.js';
 import { StableHasher } from './equality.js';
 import {
-  equalsIgnoringResultSet,
   EqualsIgnoringResultSet,
   equalsIgnoringResultSetList,
   equalsIgnoringResultSetUnordered
 } from './compatibility.js';
 import { RowExpression } from './filter.js';
 import { PhysicalSourceResultSet } from './table.js';
-import { StreamBucketDataSource, StreamParameterIndexLookupCreator, TableProcessor } from '../sync_plan/plan.js';
 import { TablePattern } from '../TablePattern.js';
 
 /**
@@ -64,9 +62,6 @@ abstract class BaseSourceRowProcessor {
     this.syntacticSource = options.syntacticSource;
     this.filters = options.filters;
     this.partitionBy = options.partitionBy;
-    options.partitionBy.sort(
-      (a, b) => StableHasher.hashWith(equalsIgnoringResultSet, a) - StableHasher.hashWith(equalsIgnoringResultSet, b)
-    );
   }
 
   /**

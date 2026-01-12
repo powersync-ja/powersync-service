@@ -2,6 +2,11 @@ import { astVisitor, ExprRef, PGNode } from 'pgsql-ast-parser';
 import { SyntacticResultSetSource } from './table.js';
 import { ParsingErrorListener } from './compiler.js';
 
+/**
+ * Utilities for resolving references in SQL statements where multiple tables are in scope.
+ *
+ * Tables are added to the scope when processing `FROM` clauses.
+ */
 export class SqlScope {
   readonly parent?: SqlScope;
   private readonly nameToResultSet = new Map<string, SyntacticResultSetSource>();
@@ -28,6 +33,13 @@ export class SqlScope {
     return this.nameToResultSet.get(name.toLowerCase()) ?? this.parent?.resolveResultSetForReference(name);
   }
 
+  /**
+   * Returns a visitor binding references in AST nodes it runs on to this scope.
+   *
+   * This is used to preserve scopes when smuggling references out of subqueries. The parser transforms subqueries from
+   * `WHERE outer = (SELECT inner FROM a ...)` to `JOIN a ON ... AND outer = inner`. In the transformed form, we need
+   * to preserve original scopes for `outer` and `inner`.
+   */
   bindingVisitor(root: PGNode) {
     return astVisitor((v) => ({
       ref: (expr) => {
