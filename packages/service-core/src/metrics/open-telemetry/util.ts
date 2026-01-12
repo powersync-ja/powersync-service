@@ -51,7 +51,7 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
         const instanceId = await bucketStorage.getPowerSyncInstanceId();
         resolvedInstanceId(instanceId);
       } catch (err) {
-        resolvedInstanceId('Unknown');
+        resolvedInstanceId('unknown');
       }
     }
   });
@@ -59,6 +59,8 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
   const resource = resourceFromAttributes({
     ['service']: 'PowerSync',
     ['service.version']: pkg.version,
+    ['source_type']: configuration.connections?.[0]?.type ?? 'unknown',
+    ['storage_type']: configuration.storage.type ?? 'unknown',
     ['instance_id']: instanceIdPromise
   });
 
