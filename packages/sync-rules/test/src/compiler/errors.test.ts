@@ -2,6 +2,15 @@ import { describe, expect, test } from 'vitest';
 import { compilationErrorsForSingleStream } from './utils.js';
 
 describe('compilation errors', () => {
+  test('not a select statement', () => {
+    expect(compilationErrorsForSingleStream("INSERT INTO users (id) VALUES ('foo')")).toStrictEqual([
+      {
+        message: 'Expected a SELECT statement',
+        source: "INSERT INTO users (id) VALUES ('foo'"
+      }
+    ]);
+  });
+
   test('IN operator with static left clause', () => {
     expect(
       compilationErrorsForSingleStream("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")

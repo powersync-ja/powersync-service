@@ -88,6 +88,31 @@ export class QuerierGraphBuilder {
  * This works by first processing subterms related to the source set selected from. If the subterm is a row expression,
  * we add it as a filter to the row processor or parameter lookup. If it is a match expression, we create a partition
  * key and obtain the value by recursively applying this algorithm to resolve the other side.
+ *
+ * To visualize this algorithm, consider the following example query:
+ *
+ * ```SQL
+ * SELECT * FROM comments c, issues i, users u
+ *  WHERE u.user_id = auth.user_id() AND c.issue_id = i.id AND u.id = i.owner_id AND u.is_admin
+ * ```
+ *
+ * First, {@link resolvePrimaryInput} is called, which calls {@link resolveResultSet} on `comments c`. While resolving a
+ * result set, we extract conditions mentioning that result set. In this case, the only such expression is
+ * `c.issue_id = i.id`. Because this is an {@link EqualsClause}, we know we need to introduce a parameter (in this case,
+ * `c.issue_id` because that's the half depending on the current result set). We then look at the other half and
+ * recursively resolve `issues i` (via {@link resolvePointLookup}). When we're done resolving that, we add `i.id` as to
+ * {@link PendingExpandingLookup.usedOutputs}.
+ *
+ * To resolve `issues i`, we extract the only remaining expression mentioning it, `u.id = i.owner_id`. We once again
+ * recursve to resolve `users u` and will add `u.id` as a used output.
+ *
+ * Finally, we find `u.user_id = auth.user_id()` and `u.is_admin`. The first expression creates a parameter, but doesn't
+ * need to resolve any further result sets since the input depends on connection data. The second expression only
+ * depends on the row itself, so we add it as a static condition to only create parameter lookups for rows matching that
+ * condition.
+ *
+ * This algorithm gives us the bucket creator as well as parameter lookups with their partition keys and values, which
+ * is the sync plan.
  */
 class PendingQuerierPath {
   // Terms in the And that have not yet been handled.

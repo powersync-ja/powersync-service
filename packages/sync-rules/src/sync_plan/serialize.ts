@@ -15,6 +15,13 @@ import {
   SyncPlan
 } from './plan.js';
 
+/**
+ * Serializes a sync plan into a simple JSON object.
+ *
+ * While {@link SyncPlan}s are already serializable for the most part, it contains a graph of references from e.g.
+ * queriers to bucket creators. To represent this efficiently, we assign numbers to referenced elements while
+ * serializing instead of duplicating definitions.
+ */
 export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   const dataSourceIndex = new Map<StreamDataSource, number>();
   const bucketIndex = new Map<StreamBucketDataSource, number>();

@@ -5,6 +5,9 @@ import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
 import { RequestTableValuedResultSet } from './table.js';
 import { StreamOptions } from '../sync_plan/plan.js';
 
+/**
+ * Describes how to resolve a subscription to buckets.
+ */
 export class StreamResolver {
   constructor(
     readonly options: StreamOptions,

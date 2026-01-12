@@ -1,6 +1,5 @@
 import * as plan from '../sync_plan/plan.js';
 import * as resolver from './bucket_resolver.js';
-import { equalsIgnoringResultSet } from './compatibility.js';
 import { CompiledStreamQueries } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
 import { ColumnInRow, SyncExpression } from './expression.js';

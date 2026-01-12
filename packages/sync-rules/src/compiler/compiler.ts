@@ -1,5 +1,5 @@
 import { NodeLocation, parse, PGNode } from 'pgsql-ast-parser';
-import { HashSet, StableHasher } from './equality.js';
+import { HashSet } from './equality.js';
 import { PointLookup, RowEvaluator } from './rows.js';
 import { StreamResolver } from './bucket_resolver.js';
 import { StreamOptions, SyncPlan } from '../sync_plan/plan.js';
@@ -9,6 +9,16 @@ import { StreamQueryParser } from './parser.js';
 
 /**
  * State for compiling sync streams.
+ *
+ * The output of compiling all sync streams is a {@link SyncPlan}, a declarative description of the sync process that
+ * can be serialized to bucket storage. The compiler stores a mutable intermediate representation that is essentially a
+ * copy of the sync plan, except that we're using JavaScript classes with methods to compute hash codes and equality
+ * relations. This allows the compiler to efficiently de-duplicate parameters and buckets.
+ *
+ * Overall, the compilation process is as follows: Each data query for a stream is first parsed by
+ * {@link StreamQueryParser} into a canonicalized intermediate representation (see that class for details).
+ * Then, {@link QuerierGraphBuilder} analyzes a chain of `AND` expressions to identify parameters (as partition keys)
+ * and their instantiation, as well as static filters that need to be added to reach row.
  */
 export class SyncStreamsCompiler {
   readonly output = new CompiledStreamQueries();
