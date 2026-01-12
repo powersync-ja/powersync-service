@@ -29,3 +29,7 @@ export * from './types/time.js';
 export * from './utils.js';
 export { versionedHydrationState } from './HydrationState.js';
 export * from './HydratedSyncRules.js';
+
+export * from './compiler/compiler.js';
+export * from './sync_plan/plan.js';
+export { serializeSyncPlan } from './sync_plan/serialize.js';

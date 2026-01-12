@@ -13,7 +13,7 @@ import { equalsIgnoringResultSet } from './compatibility.js';
 import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
 import { PartitionKey, PointLookup, RowEvaluator } from './rows.js';
 import { PhysicalSourceResultSet, RequestTableValuedResultSet, SourceResultSet } from './table.js';
-import { ParsingErrorListener, SyncStreamCompiler } from './compiler.js';
+import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { HashMap, HashSet, StableHasher } from './equality.js';
 import { ParsedStreamQuery } from './parser.js';
 import { StreamOptions } from '../sync_plan/plan.js';
@@ -26,7 +26,7 @@ export class QuerierGraphBuilder {
   readonly counter: UniqueCounter;
 
   constructor(
-    readonly compiler: SyncStreamCompiler,
+    readonly compiler: SyncStreamsCompiler,
     readonly options: StreamOptions
   ) {
     this.counter = new UniqueCounter();

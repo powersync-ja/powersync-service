@@ -75,6 +75,9 @@ export interface ParsedStreamQuery {
   resultColumns: ColumnSource[];
   sourceTable: PhysicalSourceResultSet;
   joined: SourceResultSet[];
+  /**
+   * All filters, in disjunctive normal form (an OR of ANDs).
+   */
   where: Or;
 }
 
@@ -256,13 +259,13 @@ export class StreamQueryParser {
       } else {
         const expr = this.parseExpression(column.expr, true);
 
-        for (const dependency of expr.instantiation) {
+        for (const dependency of expr.instantiationValues()) {
           if (dependency instanceof ColumnInRow) {
             selectsFrom(dependency.resultSet, dependency.syntacticOrigin);
           } else {
             this.errors.report(
               'This attempts to sync a connection parameter. Only values from the source database can be synced.',
-              dependency.value.syntacticOrigin
+              dependency.syntacticOrigin
             );
           }
         }

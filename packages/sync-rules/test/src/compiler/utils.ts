@@ -1,11 +1,11 @@
-import { parse } from 'pgsql-ast-parser';
-import { ParsingErrorListener, SyncStreamCompiler } from '../../../src/compiler/compiler.js';
-import { StreamQueryParser } from '../../../src/compiler/parser.js';
-import { QuerierGraphBuilder } from '../../../src/compiler/querier_graph.js';
-import { getLocation } from '../../../src/errors.js';
-import { SyncPlan } from '../../../src/sync_plan/plan.js';
-import { serializeSyncPlan } from '../../../src/sync_plan/serialize.js';
 import { expect } from 'vitest';
+import {
+  getLocation,
+  ParsingErrorListener,
+  serializeSyncPlan,
+  SyncPlan,
+  SyncStreamsCompiler
+} from '../../../src/index.js';
 
 // TODO: Replace with parsing from yaml once we support that
 interface SyncStreamInput {
@@ -52,11 +52,11 @@ export function compilationErrors(inputs: SyncStreamInput[]): TranslationError[]
 }
 
 export function compileToSyncPlan(inputs: SyncStreamInput[]): [TranslationError[], SyncPlan] {
-  const compiler = new SyncStreamCompiler();
+  const compiler = new SyncStreamsCompiler();
   const errors: TranslationError[] = [];
 
   for (const input of inputs) {
-    const builder = new QuerierGraphBuilder(compiler, { name: input.name, isSubscribedByDefault: true, priority: 3 });
+    const builder = compiler.stream({ name: input.name, isSubscribedByDefault: true, priority: 3 });
 
     for (const sql of input.queries) {
       const listener: ParsingErrorListener = {
@@ -66,15 +66,7 @@ export function compileToSyncPlan(inputs: SyncStreamInput[]): [TranslationError[
         }
       };
 
-      const [stmt] = parse(sql, { locationTracking: true });
-      const parser = new StreamQueryParser({
-        originalText: sql,
-        errors: listener
-      });
-      const query = parser.parse(stmt);
-      if (query) {
-        builder.process(query, listener);
-      }
+      builder.addQuery(sql, listener);
     }
 
     builder.finish();

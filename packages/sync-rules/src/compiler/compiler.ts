@@ -1,16 +1,72 @@
-import { NodeLocation, PGNode } from 'pgsql-ast-parser';
-import { HashSet } from './equality.js';
+import { NodeLocation, parse, PGNode } from 'pgsql-ast-parser';
+import { HashSet, StableHasher } from './equality.js';
 import { PointLookup, RowEvaluator } from './rows.js';
 import { StreamResolver } from './bucket_resolver.js';
-import { SyncPlan } from '../sync_plan/plan.js';
+import { StreamOptions, SyncPlan } from '../sync_plan/plan.js';
 import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
+import { QuerierGraphBuilder } from './querier_graph.js';
+import { StreamQueryParser } from './parser.js';
 
-export interface ParsingErrorListener {
-  report(message: string, location: NodeLocation | PGNode): void;
+/**
+ * State for compiling sync streams.
+ */
+export class SyncStreamsCompiler {
+  readonly output = new CompiledStreamQueries();
+
+  /**
+   * Utility for compiling a sync stream.
+   *
+   * @param options Name, priority and `auto_subscribe` state for the stream.
+   */
+  stream(options: StreamOptions): IndividualSyncStreamCompiler {
+    const builder = new QuerierGraphBuilder(this, options);
+
+    return {
+      addQuery: (sql: string, errors: ParsingErrorListener) => {
+        const [stmt] = parse(sql, { locationTracking: true });
+        const parser = new StreamQueryParser({
+          originalText: sql,
+          errors
+        });
+        const query = parser.parse(stmt);
+        if (query) {
+          builder.process(query, errors);
+        }
+      },
+      finish: () => builder.finish()
+    };
+  }
 }
 
-export class SyncStreamCompiler {
-  readonly output = new CompiledStreamQueries();
+/**
+ * Utility for compiling a single sync stream.
+ */
+export interface IndividualSyncStreamCompiler {
+  /**
+   * Validates and adds a parameter query to this stream.
+   *
+   * @param sql The SQL query to add.
+   * @param errors An error reporter associating source positions with the current SQL source.
+   */
+  addQuery(sql: string, errors: ParsingErrorListener): void;
+
+  /**
+   * Merges added queries into compatible bucket groups and adds them to the compiled sync plan.
+   */
+  finish(): void;
+}
+
+/**
+ * Something reporting errors.
+ *
+ * While sync streams can be made up of multiple SQL statements from different YAML strings, we want to be able to
+ * accurately describe the source of an error in YAML when we report it.
+ *
+ * So, every transformation that might need to report errors receives an instance of this interface which implicitly
+ * binds errors to one specific SQL string.
+ */
+export interface ParsingErrorListener {
+  report(message: string, location: NodeLocation | PGNode): void;
 }
 
 /**
@@ -45,6 +101,9 @@ export class CompiledStreamQueries {
     return this._pointLookups.getOrInsert(lookup)[0];
   }
 
+  /**
+   * @returns A sync plan representing an immutable snapshot of this intermediate representation.
+   */
   toSyncPlan(): SyncPlan {
     const translator = new CompilerModelToSyncPlan();
     return translator.translate(this);
