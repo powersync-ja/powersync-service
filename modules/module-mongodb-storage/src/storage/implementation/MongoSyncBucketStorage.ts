@@ -208,8 +208,8 @@ export class MongoSyncBucketStorage
     let result: storage.ResolveTableResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
-      let filter: Partial<SourceTableDocument> = {
-        group_id: group_id,
+      let filter: mongo.Filter<SourceTableDocument> = {
+        sync_rules_ids: group_id,
         connection_id: connection_id,
         schema_name: schema,
         table_name: name,
@@ -222,7 +222,7 @@ export class MongoSyncBucketStorage
       if (doc == null) {
         doc = {
           _id: new bson.ObjectId(),
-          group_id: group_id,
+          sync_rules_ids: [group_id],
           connection_id: connection_id,
           relation_id: objectId,
           schema_name: schema,

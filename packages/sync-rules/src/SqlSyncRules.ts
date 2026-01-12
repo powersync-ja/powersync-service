@@ -400,7 +400,8 @@ export class SqlSyncRules {
    */
   hydrate(params?: CreateSourceParams): HydratedSyncRules {
     let hydrationState = params?.hydrationState;
-    if (hydrationState == null || !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+    // FIXME: Check logic for this: !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+    if (hydrationState == null) {
       hydrationState = DEFAULT_HYDRATION_STATE;
     }
     const resolvedParams = { hydrationState };

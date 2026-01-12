@@ -205,6 +205,37 @@ export class MongoBucketStorage
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
+      const syncRules = SqlSyncRules.fromYaml(options.content, {
+        // No schema-based validation at this point
+        schema: undefined,
+        defaultSchema: 'not_applicable', // Not needed for validation
+        throwOnError: false
+      });
+      let bucketDefinitionMapping: Record<string, number> = {};
+      let parameterDefinitionMapping: Record<string, number> = {};
+      let bucketDefinitionId = (id << 16) + 1;
+      let parameterDefinitionId = (id << 17) + 1;
+
+      syncRules.hydrate({
+        hydrationState: {
+          getBucketSourceScope(source) {
+            bucketDefinitionMapping[source.uniqueName] = bucketDefinitionId;
+            bucketDefinitionId += 1;
+            return {
+              // N/A
+              bucketPrefix: ''
+            };
+          },
+          getParameterIndexLookupScope(source) {
+            const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
+            parameterDefinitionMapping[key] = parameterDefinitionId;
+            parameterDefinitionId += 1;
+            // N/A
+            return source.defaultLookupScope;
+          }
+        }
+      });
+
       const doc: SyncRuleDocument = {
         _id: id,
         content: options.content,
@@ -219,7 +250,11 @@ export class MongoBucketStorage
         last_checkpoint_ts: null,
         last_fatal_error: null,
         last_fatal_error_ts: null,
-        last_keepalive_ts: null
+        last_keepalive_ts: null,
+        rule_mapping: {
+          definitions: bucketDefinitionMapping,
+          parameter_lookups: parameterDefinitionMapping
+        }
       };
       await this.db.sync_rules.insertOne(doc);
       await this.db.notifyCheckpoint();

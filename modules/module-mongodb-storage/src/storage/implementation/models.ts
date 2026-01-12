@@ -72,7 +72,7 @@ export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
 
 export interface SourceTableDocument {
   _id: bson.ObjectId;
-  group_id: number;
+  sync_rules_ids: number[];
   connection_id: number;
   relation_id: number | string | undefined;
   schema_name: string;
@@ -210,6 +210,11 @@ export interface SyncRuleDocument {
     id: string;
     expires_at: Date;
   } | null;
+
+  rule_mapping: {
+    definitions: Record<string, number>;
+    parameter_lookups: Record<string, number>;
+  };
 }
 
 export interface CheckpointEventDocument {

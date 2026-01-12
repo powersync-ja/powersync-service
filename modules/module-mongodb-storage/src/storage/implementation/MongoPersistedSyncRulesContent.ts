@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
-import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
+import { MongoPersistedSyncRules, SyncDefinitionMapping } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
 import { SyncRuleDocument } from './models.js';
@@ -17,6 +17,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
   public readonly active: boolean;
+  private readonly rules_mapping: SyncDefinitionMapping | null = null;
 
   public current_lock: MongoSyncRulesLock | null = null;
 
@@ -33,6 +34,9 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     this.last_fatal_error_ts = doc.last_fatal_error_ts;
     this.last_checkpoint_ts = doc.last_checkpoint_ts;
     this.last_keepalive_ts = doc.last_keepalive_ts;
+    this.rules_mapping = doc.rule_mapping
+      ? { definitions: doc.rule_mapping.definitions, parameterLookups: doc.rule_mapping.parameter_lookups }
+      : null;
     this.active = doc.state == 'ACTIVE';
   }
 
@@ -41,7 +45,8 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
       this.id,
       SqlSyncRules.fromYaml(this.sync_rules_content, options),
       this.last_checkpoint_lsn,
-      this.slot_name
+      this.slot_name,
+      this.rules_mapping
     );
   }
 
