@@ -176,4 +176,10 @@ where uas.user_id = auth.user_id()
       expect(compileSingleStreamAndSerialize(stream)).toMatchSnapshot();
     });
   });
+
+  test('in array', () => {
+    expect(
+      compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state IN ARRAY['public', 'archived']`)
+    ).toMatchSnapshot();
+  });
 });

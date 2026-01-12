@@ -55,6 +55,11 @@ describe('sqlite conversion', () => {
     expectNoErrors("1 -> '$.foo'", "1 -> '$.foo'");
   });
 
+  test('unary', () => {
+    expectNoErrors('1 IS NOT NULL', '1 IS NOT NULL');
+    expectNoErrors('NOT 1', 'NOT 1');
+  });
+
   describe('errors', () => {
     describe('function', () => {
       test('too few args', () => {
@@ -92,6 +97,33 @@ describe('sqlite conversion', () => {
           }
         ]);
       });
+
+      test('unsupported feature', () => {
+        expect(translate('upper(DISTINCT 1)')[1]).toStrictEqual([
+          {
+            message: 'DISTINCT, ORDER BY, FILTER and OVER clauses are not supported',
+            source: 'upper'
+          }
+        ]);
+      });
+
+      test('unknown function', () => {
+        expect(translate('unknown_function()')[1]).toStrictEqual([
+          {
+            message: 'Unknown function',
+            source: 'unknown_function'
+          }
+        ]);
+      });
+
+      test('explicitly forbidden function', () => {
+        expect(translate('random()')[1]).toStrictEqual([
+          {
+            message: 'Forbidden call: Sync definitions must be deterministic.',
+            source: 'random'
+          }
+        ]);
+      });
     });
 
     test('binary', () => {
@@ -117,6 +149,15 @@ describe('sqlite conversion', () => {
         {
           message: 'Invalid SQLite cast',
           source: 'invalidtype'
+        }
+      ]);
+    });
+
+    test('unknown expression', () => {
+      expect(translate('ARRAY[1,2,3]')[1]).toStrictEqual([
+        {
+          message: 'This expression is not supported by PowerSync',
+          source: 'ARRAY[1,2,3]'
         }
       ]);
     });

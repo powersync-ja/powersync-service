@@ -202,13 +202,8 @@ export class PostgresToSqlite {
         break;
       }
       case 'unary': {
-        const supported = supportedUnaryOperators[expr.op];
-        if (supported == null) {
-          this.errors.report('Unsupported unary operator', expr);
-          return this.bogusExpression();
-        }
+        const [isSuffix, precedence] = supportedUnaryOperators[expr.op];
 
-        const [isSuffix, precedence] = supported;
         this.maybeParenthesis(outerPrecedence, precedence, () => {
           if (!isSuffix) this.addLexeme(expr.op);
           this.addExpression(expr.operand, precedence);
@@ -282,6 +277,7 @@ export class PostgresToSqlite {
         this.errors.report('Invalid position for subqueries. Subqueries are only supported in WHERE clauses.', expr);
         break;
       default:
+        expr.type;
         this.bogusExpression();
         this.errors.report('This expression is not supported by PowerSync', expr);
     }
@@ -396,7 +392,7 @@ const supportedBinaryOperators: Partial<Record<BinaryOperator, Precedence>> = {
   ['->>' as BinaryOperator]: Precedence.concat
 };
 
-const supportedUnaryOperators: Partial<Record<UnaryOperator, [boolean, Precedence]>> = {
+const supportedUnaryOperators: Record<UnaryOperator, [boolean, Precedence]> = {
   NOT: [false, Precedence.not],
   'IS NULL': [true, Precedence.equals],
   'IS NOT NULL': [true, Precedence.equals],
