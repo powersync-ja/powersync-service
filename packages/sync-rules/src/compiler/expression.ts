@@ -2,6 +2,7 @@ import { Expr } from 'pgsql-ast-parser';
 import { SourceResultSet } from './table.js';
 import { EqualsIgnoringResultSet, equalsIgnoringResultSetList } from './compatibility.js';
 import { StableHasher } from './equality.js';
+import { ConnectionParameterSource } from '../sync_plan/plan.js';
 
 /**
  * An analyzed SQL expression tracking dependencies on non-static data (i.e. rows or connection sources).
@@ -22,7 +23,7 @@ export class SyncExpression implements EqualsIgnoringResultSet {
      */
     readonly sql: string,
     /**
-     * The AST node backing {@link expression}.
+     * The AST node backing {@link sql}.
      *
      * We use this to be able to compose expressions, e.g. to possibly merge them.
      */
@@ -31,7 +32,7 @@ export class SyncExpression implements EqualsIgnoringResultSet {
      * The values to instantiate parameters in {@link sqlExpression} with to retain original semantics of the
      * expression.
      */
-    readonly instantiation: ExpressionInput[]
+    readonly instantiation: ExpressionInputWithSpan[]
   ) {}
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
@@ -46,9 +47,31 @@ export class SyncExpression implements EqualsIgnoringResultSet {
     hasher.addString(this.sql);
     equalsIgnoringResultSetList.hash(hasher, this.instantiation);
   }
+
+  *instantiationValues() {
+    for (const instantiation of this.instantiation) {
+      yield instantiation.value;
+    }
+  }
 }
 
 export type ExpressionInput = ColumnInRow | ConnectionParameter;
+
+export class ExpressionInputWithSpan implements EqualsIgnoringResultSet {
+  constructor(
+    readonly value: ExpressionInput,
+    readonly startOffset: number,
+    readonly length: number
+  ) {}
+
+  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+    return other instanceof ExpressionInputWithSpan && other.value.equalsAssumingSameResultSet(this.value);
+  }
+
+  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
+    return this.value.assumingSameResultSetEqualityHashCode(hasher);
+  }
+}
 
 export class ColumnInRow implements EqualsIgnoringResultSet {
   constructor(
@@ -65,8 +88,6 @@ export class ColumnInRow implements EqualsIgnoringResultSet {
     hasher.addString(this.column);
   }
 }
-
-export type ConnectionParameterSource = 'auth' | 'subscription' | 'connection';
 
 export class ConnectionParameter implements EqualsIgnoringResultSet {
   constructor(

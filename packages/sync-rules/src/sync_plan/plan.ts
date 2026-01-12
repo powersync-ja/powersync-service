@@ -1,5 +1,5 @@
-import { StreamOptions } from '../compiler/bucket_resolver.js';
-import { ConnectionParameterSource } from '../compiler/expression.js';
+import { BucketPriority } from '../BucketDescription.js';
+import { ParameterLookupScope } from '../HydrationState.js';
 import { TablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 
@@ -28,39 +28,55 @@ export interface SyncPlan {
 }
 
 /**
- * Something that processes a source row with if it matches filters.
+ * Something that processes a source row if it matches filters.
  */
 export interface TableProcessor {
   /**
-   * The source table to replicate.
+   * A hash code describing the structure of this processor.
+   *
+   * While these processors are plain JavaScript objects that can be compared by deep equality, this hash code may
+   * improve performance when many such sources need to be compared. Two equal data sources will always have the same
+   * hash code.
+   */
+  hashCode: number;
+  /**
+   * The source table to process into buckets or parameter lookups.
    */
   sourceTable: TablePattern;
   /**
    * All of these expressions exclusively depend on the {@link sourceTable}.
    *
-   * ALl of the filters must evaluate to a "true-ish" value for the row to be processed.
+   * All of the filters must evaluate to a "true-ish" value for the row to be processed.
    */
-  filters: SqlExpression[];
+  filters: SqlExpression<ColumnSqlParameterValue>[];
   /**
-   * The parameter instantiation when assigning rows to buckets.
+   * How to partition rows.
+   *
+   * For data sources, this describes parameter of the bucket being created. For parameter lookups, these form
+   * input values for the lookup.
    */
-  parameters: SqlExpression[];
+  parameters: PartitionKey[];
+}
+
+export interface PartitionKey {
+  expr: SqlExpression<ColumnSqlParameterValue>;
 }
 
 /**
- * A description for a data source that might be used by multiple streams.
+ * A description for a data source processing rows to replicate.
+ *
+ * A single data source might be used in multiple buckets ({@link StreamBucketDataSource}). In those cases, we'd store
+ * duplicate bucket data but can still share the actual processing logic between multiple streams (to avoid evaluating
+ * the same filters and expressions multiple times).
  */
 export interface StreamDataSource extends TableProcessor {
-  hashCode: number;
-  // TODO: Unique name (hashCode might have collisions?)
-
   /**
    * Output columns describing the row to store in buckets.
    */
   columns: ColumnSource[];
 }
 
-export type ColumnSource = 'star' | { expr: SqlExpression; alias: string | null };
+export type ColumnSource = 'star' | { expr: SqlExpression<ColumnSqlParameterValue>; alias: string | null };
 
 /**
  * A mapping describing how {@link StreamDataSource}s are combined into buckets.
@@ -69,9 +85,15 @@ export type ColumnSource = 'star' | { expr: SqlExpression; alias: string | null 
  */
 export interface StreamBucketDataSource {
   hashCode: number;
+
+  /**
+   * A unique name of this source in all streams compiled from a sync rules file.
+   */
   uniqueName: string;
 
   /**
+   * All data sources to put into this bucket.
+   *
    * Note that all data sources must have the same amount of paremeters, since they would be instantiated to the same
    * values by a {@link StreamQuerier}.
    */
@@ -84,7 +106,7 @@ export interface StreamBucketDataSource {
  */
 export interface StreamParameterIndexLookupCreator extends TableProcessor {
   hashCode: number;
-  // TODO: default lookup scope (hashCode might have collisions?)
+  defaultLookupScope: ParameterLookupScope;
 
   /**
    * Outputs to persist in the lookup.
@@ -93,7 +115,13 @@ export interface StreamParameterIndexLookupCreator extends TableProcessor {
    * streams because the output of parameters might be passed through additional stages or transformed by the querier
    * before becoming a parameter value.
    */
-  outputs: SqlExpression[];
+  outputs: SqlExpression<ColumnSqlParameterValue>[];
+}
+
+export interface StreamOptions {
+  name: string;
+  isSubscribedByDefault: boolean;
+  priority: BucketPriority;
 }
 
 export interface StreamQuerier {
@@ -103,7 +131,7 @@ export interface StreamQuerier {
    *
    * All of them must match for this querier to be considered for a subscription.
    */
-  requestFilters: SqlExpression[];
+  requestFilters: SqlExpression<RequestSqlParameterValue>[];
 
   /**
    * Ordered lookups that need to be evaluated and expanded before we can evaluate {@link sourceInstantiation}.
@@ -112,19 +140,58 @@ export interface StreamQuerier {
    */
   lookupStages: ExpandingLookup[][];
   /**
-   * All data sources being resolved by this querier.
+   * The bucket being resolved by this querier.
    *
    * While a querier can have more than one source, it never uses more than one instantiation path. This means that all
-   * sources must have compatible parameters.
+   * sources in {@link StreamBucketDataSource.sources} must have compatible parameters.
    */
   bucket: StreamBucketDataSource;
   sourceInstantiation: ParameterValue[];
 }
 
-export interface SqlExpression {
-  hash: number;
+/**
+ * An expression that can be evaluated by SQLite.
+ *
+ * The type parameter `T` describes which values this expression uses. For instance, an expression in a
+ * {@link TableProcessor} would only use {@link ColumnSqlParameterValue}s since no request is available in that context.
+ */
+export interface SqlExpression<T extends SqlParameterValue> {
+  /**
+   * To SQL expression to evaluate.
+   *
+   * The expression is guaranteed to not contain any column references. All dependencies to row data are encoded as SQL
+   * parameters that have an instantiation in {@link instantiation}.
+   *
+   * For instance, the stream `SELECT UPPER(name) FROM users;` would have `UPPER(?1)` as SQL and a
+   */
   sql: string;
-  instantiation: ({ column: string } | { connection: ConnectionParameterSource })[];
+  values: T[];
+}
+
+export interface SqlParameterValue {
+  /**
+   * The start index and length of the parameter in {@link SqlExpression.sql} that this parameter is instantiating.
+   *
+   * This allows merging equal parameters, which is useful to compose SQL expressions.
+   */
+  sqlPosition: [number, number];
+}
+
+/**
+ * A value that resolves to a given column in a row being processed.
+ */
+export interface ColumnSqlParameterValue extends SqlParameterValue {
+  column: string;
+}
+
+export type ConnectionParameterSource = 'auth' | 'subscription' | 'connection';
+
+/**
+ * A value that resolves to either the current subscription parameters, the JWT of the connecting user or global
+ * request parameters.
+ */
+export interface RequestSqlParameterValue extends SqlParameterValue {
+  request: ConnectionParameterSource;
 }
 
 /**
@@ -144,12 +211,12 @@ export interface ParameterLookup {
 export interface EvaluateTableValuedFunction {
   type: 'table_valued';
   functionName: string;
-  functionInputs: SqlExpression[];
-  outputs: SqlExpression[];
-  filters: SqlExpression[];
+  functionInputs: SqlExpression<RequestSqlParameterValue>[];
+  outputs: SqlExpression<ColumnSqlParameterValue>[];
+  filters: SqlExpression<ColumnSqlParameterValue>[];
 }
 
 export type ParameterValue =
-  | { type: 'request'; expr: SqlExpression }
+  | { type: 'request'; expr: SqlExpression<RequestSqlParameterValue> }
   | { type: 'lookup'; lookup: ExpandingLookup; resultIndex: number }
   | { type: 'intersection'; values: ParameterValue[] };

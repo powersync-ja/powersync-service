@@ -21,13 +21,7 @@ import {
   SyntacticResultSetSource
 } from './table.js';
 import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
-import {
-  ColumnInRow,
-  ConnectionParameter,
-  ConnectionParameterSource,
-  ExpressionInput,
-  SyncExpression
-} from './expression.js';
+import { ColumnInRow, ConnectionParameter, ExpressionInput, SyncExpression } from './expression.js';
 import {
   BaseTerm,
   EqualsClause,
@@ -45,6 +39,7 @@ import { SqlScope } from './scope.js';
 import { ParsingErrorListener } from './compiler.js';
 import { TablePattern } from '../TablePattern.js';
 import { FilterConditionSimplifier } from './filter_simplifier.js';
+import { ConnectionParameterSource } from '../sync_plan/plan.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -267,7 +262,7 @@ export class StreamQueryParser {
           } else {
             this.errors.report(
               'This attempts to sync a connection parameter. Only values from the source database can be synced.',
-              dependency.syntacticOrigin
+              dependency.value.syntacticOrigin
             );
           }
         }
@@ -390,10 +385,10 @@ export class StreamQueryParser {
   }
 
   toSyncExpression(source: Expr, instantiation: ExpressionInput[]): SyncExpression {
-    const toSqlite = new PostgresToSqlite(this.originalText, this.errors);
+    const toSqlite = new PostgresToSqlite(this.originalText, this.errors, instantiation);
     toSqlite.addExpression(source);
 
-    return new SyncExpression(toSqlite.sql, source, instantiation);
+    return new SyncExpression(toSqlite.sql, source, toSqlite.inputs);
   }
 
   /**
@@ -405,7 +400,7 @@ export class StreamQueryParser {
     let referencingConnection: PGNode | null = null;
     let hadError = false;
 
-    for (const dependency of inner.instantiation) {
+    for (const dependency of inner.instantiationValues()) {
       if (dependency instanceof ColumnInRow) {
         if (referencingConnection != null) {
           this.errors.report(

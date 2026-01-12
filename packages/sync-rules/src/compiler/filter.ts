@@ -45,7 +45,7 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
 
   constructor(expression: SyncExpression | SingleDependencyExpression) {
     if (expression instanceof SyncExpression) {
-      const checked = SingleDependencyExpression.extractSingleDependency(expression.instantiation);
+      const checked = SingleDependencyExpression.extractSingleDependency(expression.instantiationValues());
       if (checked == null) {
         throw new InvalidExpressionError('Expression with multiple dependencies passed to SingleDependencyExpression');
       }

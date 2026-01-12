@@ -93,8 +93,8 @@ export class FilterConditionSimplifier {
       // must be a row condition since it can't be represented as parameters that could be instantiated.
       if (
         SingleDependencyExpression.extractSingleDependency([
-          ...base.left.expression.instantiation,
-          ...base.right.expression.instantiation
+          ...base.left.expression.instantiationValues(),
+          ...base.right.expression.instantiationValues()
         ])
       ) {
         return this.composeExpressions('=', base.left, base.right);
@@ -130,10 +130,8 @@ export class FilterConditionSimplifier {
     for (const element of terms) {
       if (node == null) {
         node = element.expression.node;
-        instantiation.push(...element.expression.instantiation);
       } else {
         const transformed = transformer.expr(element.expression.node)!;
-        instantiation.push(...element.expression.instantiation);
 
         node = {
           type: 'binary',
@@ -143,15 +141,21 @@ export class FilterConditionSimplifier {
           _location: expandNodeLocations([node, transformed])
         };
       }
+
+      instantiation.push(...element.expression.instantiationValues());
     }
 
-    const toSqlite = new PostgresToSqlite(this.originalText, {
-      report() {
-        // We don't need to re-report errors when we shuffle expressions around, the mapper would have already reported
-        // these issues on the first round.
-      }
-    });
+    const toSqlite = new PostgresToSqlite(
+      this.originalText,
+      {
+        report() {
+          // We don't need to re-report errors when we shuffle expressions around, the mapper would have already reported
+          // these issues on the first round.
+        }
+      },
+      instantiation
+    );
     toSqlite.addExpression(node!);
-    return new SingleDependencyExpression(new SyncExpression(toSqlite.sql, node!, instantiation));
+    return new SingleDependencyExpression(new SyncExpression(toSqlite.sql, node!, toSqlite.inputs));
   }
 }

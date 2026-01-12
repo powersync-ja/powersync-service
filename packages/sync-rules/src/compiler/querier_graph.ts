@@ -7,7 +7,6 @@ import {
   ParameterValue,
   RequestParameterValue,
   ResolveBucket,
-  StreamOptions,
   StreamResolver
 } from './bucket_resolver.js';
 import { equalsIgnoringResultSet } from './compatibility.js';
@@ -17,6 +16,7 @@ import { PhysicalSourceResultSet, RequestTableValuedResultSet, SourceResultSet }
 import { ParsingErrorListener, SyncStreamCompiler } from './compiler.js';
 import { HashMap, HashSet } from './equality.js';
 import { ParsedStreamQuery } from './parser.js';
+import { StreamOptions } from '../sync_plan/plan.js';
 
 /**
  * Builds stream resolvers for a single stream, potentially consisting of multiple queries.
