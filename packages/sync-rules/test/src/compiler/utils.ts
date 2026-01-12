@@ -47,10 +47,6 @@ export function compilationErrorsForSingleStream(...sql: string[]): TranslationE
   ])[0];
 }
 
-export function compilationErrors(inputs: SyncStreamInput[]): TranslationError[] {
-  return compileToSyncPlan(inputs)[0];
-}
-
 export function compileToSyncPlan(inputs: SyncStreamInput[]): [TranslationError[], SyncPlan] {
   const compiler = new SyncStreamsCompiler();
   const errors: TranslationError[] = [];
