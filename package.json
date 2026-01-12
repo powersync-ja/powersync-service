@@ -19,8 +19,7 @@
     "clean:modules": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
-    "test": "pnpm run -r test",
-    "vitest": "vitest"
+    "test": "pnpm run -r test"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.8",
