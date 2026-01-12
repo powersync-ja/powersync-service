@@ -282,6 +282,7 @@ export class HashMap<K, V> {
     if (this.first) {
       this.last!.next = entry;
       entry.prev = this.last;
+      this.last = entry;
     } else {
       this.first = this.last = entry;
     }
