@@ -1,12 +1,15 @@
-import { StreamOptions } from '../compiler/bucket_resolver.js';
-import { ColumnSource, StarColumnSource } from '../compiler/rows.js';
 import { TablePattern } from '../TablePattern.js';
 import {
+  ColumnSource,
+  ColumnSqlParameterValue,
   ExpandingLookup,
   ParameterValue,
+  PartitionKey,
+  RequestSqlParameterValue,
   SqlExpression,
   StreamBucketDataSource,
   StreamDataSource,
+  StreamOptions,
   StreamParameterIndexLookupCreator,
   StreamQuerier,
   SyncPlan
@@ -36,7 +39,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         filters: source.filters,
         partition_by: source.parameters,
         columns: source.columns
-      };
+      } satisfies SerializedDataSource;
     });
   }
 
@@ -50,7 +53,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         filters: source.filters,
         partition_by: source.parameters,
         output: source.outputs
-      };
+      } satisfies SerializedParameterIndexLookupCreator;
     });
   }
 
@@ -109,7 +112,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 
   return {
     version: 'unstable', // TODO: Mature to 1 before storing in bucket storage
-    data: serializeDataSources(),
+    dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
       bucketIndex.set(bkt, index);
       return {
@@ -125,7 +128,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 
 interface SerializedSyncPlanUnstable {
   version: 'unstable';
-  data: SerializedDataSource[];
+  dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];
   queriers: SerializedStreamQuerier[];
@@ -137,10 +140,6 @@ interface SerializedBucketDataSource {
   sources: number[];
 }
 
-type SerializedSyncExpression = SqlExpression;
-
-type SerializedColumnSource = 'star' | { expr: SerializedSyncExpression; alias: string | null };
-
 interface SerializedTablePattern {
   connection: string;
   schema: string;
@@ -150,22 +149,22 @@ interface SerializedTablePattern {
 interface SerializedDataSource {
   table: SerializedTablePattern;
   hash: number;
-  columns: SerializedColumnSource[];
-  filters: SerializedSyncExpression[];
-  partition_by: SerializedSyncExpression[];
+  columns: ColumnSource[];
+  filters: SqlExpression<ColumnSqlParameterValue>[];
+  partition_by: PartitionKey[];
 }
 
 interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
-  output: SerializedSyncExpression[];
-  filters: SerializedSyncExpression[];
-  partition_by: SerializedSyncExpression[];
+  output: SqlExpression<ColumnSqlParameterValue>[];
+  filters: SqlExpression<ColumnSqlParameterValue>[];
+  partition_by: PartitionKey[];
 }
 
 interface SerializedStreamQuerier {
   stream: StreamOptions;
-  requestFilters: SerializedSyncExpression[];
+  requestFilters: SqlExpression<RequestSqlParameterValue>[];
   lookupStages: any[][];
   bucket: number;
   sourceInstantiation: SerializedParameterValue[];
@@ -180,9 +179,9 @@ type SerializedExpandingLookup =
   | {
       type: 'table_valued';
       functionName: string;
-      functionInputs: SerializedSyncExpression[];
-      outputs: SerializedSyncExpression[];
-      filters: SerializedSyncExpression[];
+      functionInputs: SqlExpression<RequestSqlParameterValue>[];
+      outputs: SqlExpression<ColumnSqlParameterValue>[];
+      filters: SqlExpression<ColumnSqlParameterValue>[];
     };
 
 interface LookupReference {
@@ -191,6 +190,6 @@ interface LookupReference {
 }
 
 type SerializedParameterValue =
-  | { type: 'request'; expr: SerializedSyncExpression }
+  | { type: 'request'; expr: SqlExpression<RequestSqlParameterValue> }
   | { type: 'lookup'; lookup: LookupReference; resultIndex: number }
   | { type: 'intersection'; values: SerializedParameterValue[] };

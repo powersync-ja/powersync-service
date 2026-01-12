@@ -1,15 +1,9 @@
-import { BucketPriority } from '../BucketDescription.js';
 import { Equatable, HashSet, StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList, equalsIgnoringResultSetUnordered } from './compatibility.js';
 import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
 import { RequestTableValuedResultSet } from './table.js';
-
-export interface StreamOptions {
-  name: string;
-  isSubscribedByDefault: boolean;
-  priority: BucketPriority;
-}
+import { StreamOptions } from '../sync_plan/plan.js';
 
 export class StreamResolver {
   constructor(

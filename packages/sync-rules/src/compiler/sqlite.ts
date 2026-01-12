@@ -1,6 +1,7 @@
 import { BinaryOperator, Expr, ExprCall, UnaryOperator } from 'pgsql-ast-parser';
 import { ParsingErrorListener } from './compiler.js';
 import { CAST_TYPES } from '../sql_functions.js';
+import { ExpressionInput, ExpressionInputWithSpan, SyncExpression } from './expression.js';
 
 export const intrinsicContains = 'intrinsic:contains';
 
@@ -11,18 +12,21 @@ export const intrinsicContains = 'intrinsic:contains';
  */
 export class PostgresToSqlite {
   sql = '';
+  inputs: ExpressionInputWithSpan[] = [];
+
   private needsSpace = false;
 
   constructor(
     private readonly originalSource: string,
-    private readonly errors: ParsingErrorListener
+    private readonly errors: ParsingErrorListener,
+    private readonly parameters: ExpressionInput[]
   ) {}
 
   private space() {
     this.sql += ' ';
   }
 
-  private addLexeme(text: string, options?: { spaceLeft?: boolean; spaceRight?: boolean }) {
+  private addLexeme(text: string, options?: { spaceLeft?: boolean; spaceRight?: boolean }): number {
     const spaceLeft = options?.spaceLeft ?? true;
     const spaceRight = options?.spaceRight ?? true;
 
@@ -30,8 +34,10 @@ export class PostgresToSqlite {
       this.space();
     }
 
+    const startOffset = this.sql.length;
     this.sql += text;
     this.needsSpace = spaceRight;
+    return startOffset;
   }
 
   private identifier(name: string) {
@@ -113,7 +119,14 @@ export class PostgresToSqlite {
         this.errors.report('Internal error: Dependency should have been extracted', expr);
         break;
       case 'parameter':
-        this.addLexeme(expr.name);
+        // The name is going to be ?<index>
+        const index = Number(expr.name.substring(1));
+        const value = this.parameters[index - 1];
+        if (value == null) {
+          throw new Error('Internal error: No value given for parameter');
+        }
+        const start = this.addLexeme('?');
+        this.inputs.push(new ExpressionInputWithSpan(value, start, 1));
         break;
       case 'substring': {
         const args = [expr.value, expr.from ?? { type: 'numeric', value: 1 }];

@@ -4,29 +4,34 @@ exports[`old streams test > OR in subquery 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -39,27 +44,35 @@ exports[`old streams test > OR in subquery 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -71,25 +84,31 @@ exports[`old streams test > OR in subquery 1`] = `
     {
       "filters": [
         {
-          "hash": 157614356,
-          "instantiation": [
+          "sql": "? = 'test'",
+          "values": [
             {
               "column": "name",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1 = 'test'",
         },
       ],
-      "hash": 256941425,
+      "hash": 460428812,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [],
@@ -109,13 +128,16 @@ exports[`old streams test > OR in subquery 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -179,29 +201,34 @@ exports[`old streams test > in > on parameter data 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -223,13 +250,16 @@ exports[`old streams test > in > on parameter data 1`] = `
             "functionName": "json_each",
             "outputs": [
               {
-                "hash": 252102568,
-                "instantiation": [
+                "sql": "?",
+                "values": [
                   {
                     "column": "value",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
                   },
                 ],
-                "sql": "?1",
               },
             ],
             "type": "table_valued",
@@ -262,38 +292,48 @@ exports[`old streams test > in > on parameter data and table 1`] = `
 {
   "buckets": [
     {
-      "hash": 452637394,
+      "hash": 302346399,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 68963601,
+      "hash": 394975399,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
         {
-          "hash": 416316124,
-          "instantiation": [
-            {
-              "column": "label",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "label",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -306,27 +346,35 @@ exports[`old streams test > in > on parameter data and table 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -345,13 +393,16 @@ exports[`old streams test > in > on parameter data and table 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -365,13 +416,16 @@ exports[`old streams test > in > on parameter data and table 1`] = `
             "functionName": "json_each",
             "outputs": [
               {
-                "hash": 252102568,
-                "instantiation": [
+                "sql": "?",
+                "values": [
                   {
                     "column": "value",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
                   },
                 ],
-                "sql": "?1",
               },
             ],
             "type": "table_valued",
@@ -412,29 +466,34 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -456,13 +515,16 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
             "functionName": "json_each",
             "outputs": [
               {
-                "hash": 252102568,
-                "instantiation": [
+                "sql": "?",
+                "values": [
                   {
                     "column": "value",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
                   },
                 ],
-                "sql": "?1",
               },
             ],
             "type": "table_valued",
@@ -476,13 +538,16 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
           "values": [
             {
               "expr": {
-                "hash": 444402882,
-                "instantiation": [
+                "sql": "? ->> '$.' || 'issue'",
+                "values": [
                   {
-                    "connection": "subscription",
+                    "request": "subscription",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
                   },
                 ],
-                "sql": "?1 ->> '$.' || 'issue'",
               },
               "type": "request",
             },
@@ -519,7 +584,7 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
@@ -538,26 +603,34 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
     {
       "filters": [
         {
-          "hash": 102968610,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "is_admin",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
-      "hash": 65299060,
+      "hash": 125105203,
       "output": [],
       "partition_by": [
         {
-          "hash": 288876155,
-          "instantiation": [
-            {
-              "column": "id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -576,13 +649,16 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -609,29 +685,34 @@ exports[`old streams test > in > row value in subquery 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -644,27 +725,35 @@ exports[`old streams test > in > row value in subquery 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -683,13 +772,16 @@ exports[`old streams test > in > row value in subquery 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -725,29 +817,34 @@ exports[`old streams test > in > two subqueries 1`] = `
 {
   "buckets": [
     {
-      "hash": 310037818,
+      "hash": 355014290,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 206790411,
+      "hash": 509357917,
       "partition_by": [
         {
-          "hash": 288876155,
-          "instantiation": [
-            {
-              "column": "id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -760,27 +857,35 @@ exports[`old streams test > in > two subqueries 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 491315879,
+      "hash": 508166872,
       "output": [
         {
-          "hash": 376439996,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "user_a",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 119268889,
-          "instantiation": [
-            {
-              "column": "user_b",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_b",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -791,27 +896,35 @@ exports[`old streams test > in > two subqueries 1`] = `
     },
     {
       "filters": [],
-      "hash": 467843732,
+      "hash": 163672218,
       "output": [
         {
-          "hash": 119268889,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "user_b",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 376439996,
-          "instantiation": [
-            {
-              "column": "user_a",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_a",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -830,13 +943,16 @@ exports[`old streams test > in > two subqueries 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -871,13 +987,16 @@ exports[`old streams test > in > two subqueries 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -913,29 +1032,34 @@ exports[`old streams test > nested subqueries 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -949,25 +1073,31 @@ exports[`old streams test > nested subqueries 1`] = `
     {
       "filters": [
         {
-          "hash": 102968610,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "is_admin",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
-      "hash": 65299060,
+      "hash": 125105203,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [],
@@ -979,27 +1109,35 @@ exports[`old streams test > nested subqueries 1`] = `
     },
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1063,46 +1201,54 @@ exports[`old streams test > normalization > distribute and 1`] = `
 {
   "buckets": [
     {
-      "hash": 489769293,
+      "hash": 245991010,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 168834462,
+      "hash": 525379431,
       "sources": [
         1,
       ],
       "uniqueName": "stream|1",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [
         {
-          "hash": 94872629,
-          "instantiation": [
+          "sql": ""length"(?) > 2",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
             },
           ],
-          "sql": ""length"(?1) > 2",
         },
       ],
-      "hash": 490701732,
+      "hash": 286289119,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1117,16 +1263,19 @@ exports[`old streams test > normalization > distribute and 1`] = `
       ],
       "filters": [
         {
-          "hash": 94872629,
-          "instantiation": [
+          "sql": ""length"(?) > 2",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
             },
           ],
-          "sql": ""length"(?1) > 2",
         },
       ],
-      "hash": 104023950,
+      "hash": 96920671,
       "partition_by": [],
       "table": {
         "connection": "default",
@@ -1138,27 +1287,35 @@ exports[`old streams test > normalization > distribute and 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1177,13 +1334,16 @@ exports[`old streams test > normalization > distribute and 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -1215,13 +1375,16 @@ exports[`old streams test > normalization > distribute and 1`] = `
       "lookupStages": [],
       "requestFilters": [
         {
-          "hash": 529186025,
-          "instantiation": [
+          "sql": "? ->> '$.' || 'is_admin'",
+          "values": [
             {
-              "connection": "auth",
+              "request": "auth",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1 ->> '$.' || 'is_admin'",
         },
       ],
       "sourceInstantiation": [],
@@ -1240,29 +1403,34 @@ exports[`old streams test > normalization > double negation 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1275,27 +1443,35 @@ exports[`old streams test > normalization > double negation 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1314,13 +1490,16 @@ exports[`old streams test > normalization > double negation 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -1356,36 +1535,41 @@ exports[`old streams test > normalization > negated and 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 166530544,
+      "hash": 309238741,
       "sources": [
         1,
       ],
       "uniqueName": "stream|1",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1400,16 +1584,19 @@ exports[`old streams test > normalization > negated and 1`] = `
       ],
       "filters": [
         {
-          "hash": 185683052,
-          "instantiation": [
+          "sql": "NOT "length"(?) = 5",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                13,
+                1,
+              ],
             },
           ],
-          "sql": "NOT "length"(?1) = 5",
         },
       ],
-      "hash": 138342129,
+      "hash": 377415427,
       "partition_by": [],
       "table": {
         "connection": "default",
@@ -1421,27 +1608,35 @@ exports[`old streams test > normalization > negated and 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1460,13 +1655,16 @@ exports[`old streams test > normalization > negated and 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -1513,39 +1711,47 @@ exports[`old streams test > normalization > negated or 1`] = `
 {
   "buckets": [
     {
-      "hash": 105626336,
+      "hash": 153980926,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [
         {
-          "hash": 185683052,
-          "instantiation": [
+          "sql": "NOT "length"(?) = 5",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                13,
+                1,
+              ],
             },
           ],
-          "sql": "NOT "length"(?1) = 5",
         },
       ],
-      "hash": 447026134,
+      "hash": 223123304,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1558,27 +1764,35 @@ exports[`old streams test > normalization > negated or 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1597,13 +1811,16 @@ exports[`old streams test > normalization > negated or 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -1639,7 +1856,7 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 406182990,
+      "hash": 64769288,
       "sources": [
         0,
       ],
@@ -1653,22 +1870,27 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
       "uniqueName": "stream|1",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 218610467,
+      "hash": 454807063,
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1700,13 +1922,16 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
       "sourceInstantiation": [
         {
           "expr": {
-            "hash": 142781093,
-            "instantiation": [
+            "sql": "? ->> '$.sub'",
+            "values": [
               {
-                "connection": "auth",
+                "request": "auth",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
               },
             ],
-            "sql": "?1 ->> '$.sub'",
           },
           "type": "request",
         },
@@ -1722,13 +1947,16 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
       "lookupStages": [],
       "requestFilters": [
         {
-          "hash": 529186025,
-          "instantiation": [
+          "sql": "? ->> '$.' || 'is_admin'",
+          "values": [
             {
-              "connection": "auth",
+              "request": "auth",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1 ->> '$.' || 'is_admin'",
         },
       ],
       "sourceInstantiation": [],
@@ -1747,36 +1975,41 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 406182990,
+      "hash": 64769288,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
     {
-      "hash": 369127866,
+      "hash": 534546607,
       "sources": [
         1,
       ],
       "uniqueName": "stream|1",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 218610467,
+      "hash": 454807063,
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -1791,16 +2024,19 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
       ],
       "filters": [
         {
-          "hash": 475072616,
-          "instantiation": [
+          "sql": ""length"(?) = 3",
+          "values": [
             {
               "column": "name",
+              "sqlPosition": [
+                9,
+                1,
+              ],
             },
           ],
-          "sql": ""length"(?1) = 3",
         },
       ],
-      "hash": 101838550,
+      "hash": 280261367,
       "partition_by": [],
       "table": {
         "connection": "default",
@@ -1818,13 +2054,16 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
       "sourceInstantiation": [
         {
           "expr": {
-            "hash": 142781093,
-            "instantiation": [
+            "sql": "? ->> '$.sub'",
+            "values": [
               {
-                "connection": "auth",
+                "request": "auth",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
               },
             ],
-            "sql": "?1 ->> '$.sub'",
           },
           "type": "request",
         },
@@ -1862,7 +2101,7 @@ exports[`old streams test > or > request condition or request condition 1`] = `
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
@@ -1884,16 +2123,23 @@ exports[`old streams test > or > request condition or request condition 1`] = `
       "lookupStages": [],
       "requestFilters": [
         {
-          "hash": 250372512,
-          "instantiation": [
+          "sql": "? ->> '$.' || 'a' OR ? ->> 'b'",
+          "values": [
             {
-              "connection": "auth",
+              "request": "auth",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
             {
-              "connection": "auth",
+              "request": "auth",
+              "sqlPosition": [
+                21,
+                1,
+              ],
             },
           ],
-          "sql": "?1 ->> '$.' || 'a' OR ?2 ->> 'b'",
         },
       ],
       "sourceInstantiation": [],
@@ -1919,14 +2165,14 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
       "uniqueName": "stream|0",
     },
     {
-      "hash": 62735874,
+      "hash": 436876819,
       "sources": [
         1,
       ],
       "uniqueName": "stream|1",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
@@ -1946,16 +2192,19 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
       ],
       "filters": [
         {
-          "hash": 426733954,
-          "instantiation": [
+          "sql": ""length"(?) > 5",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
             },
           ],
-          "sql": ""length"(?1) > 5",
         },
       ],
-      "hash": 327762476,
+      "hash": 373797931,
       "partition_by": [],
       "table": {
         "connection": "default",
@@ -1971,13 +2220,16 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
       "lookupStages": [],
       "requestFilters": [
         {
-          "hash": 529186025,
-          "instantiation": [
+          "sql": "? ->> '$.' || 'is_admin'",
+          "values": [
             {
-              "connection": "auth",
+              "request": "auth",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1 ->> '$.' || 'is_admin'",
         },
       ],
       "sourceInstantiation": [],
@@ -2007,33 +2259,40 @@ exports[`old streams test > or > row condition or row condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 388281914,
+      "hash": 155890019,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [
         {
-          "hash": 241673101,
-          "instantiation": [
+          "sql": ""length"(?) > 5 OR "json_array_length"(?) > 1",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
             },
             {
               "column": "tagged_users",
+              "sqlPosition": [
+                39,
+                1,
+              ],
             },
           ],
-          "sql": ""length"(?1) > 5 OR "json_array_length"(?2) > 1",
         },
       ],
-      "hash": 43120379,
+      "hash": 67072829,
       "partition_by": [],
       "table": {
         "connection": "default",
@@ -2064,7 +2323,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
@@ -2078,22 +2337,27 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
       "uniqueName": "stream|1",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -2119,27 +2383,35 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48226101,
+      "hash": 264070699,
       "output": [
         {
-          "hash": 288876155,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 494640796,
-          "instantiation": [
-            {
-              "column": "owner_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -2158,13 +2430,16 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -2196,13 +2471,16 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
       "lookupStages": [],
       "requestFilters": [
         {
-          "hash": 529186025,
-          "instantiation": [
+          "sql": "? ->> '$.' || 'is_admin'",
+          "values": [
             {
-              "connection": "auth",
+              "request": "auth",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1 ->> '$.' || 'is_admin'",
         },
       ],
       "sourceInstantiation": [],
@@ -2221,30 +2499,33 @@ exports[`old streams test > row condition 1`] = `
 {
   "buckets": [
     {
-      "hash": 62735874,
+      "hash": 436876819,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [
         {
-          "hash": 426733954,
-          "instantiation": [
+          "sql": ""length"(?) > 5",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
             },
           ],
-          "sql": ""length"(?1) > 5",
         },
       ],
-      "hash": 327762476,
+      "hash": 373797931,
       "partition_by": [],
       "table": {
         "connection": "default",
@@ -2275,39 +2556,47 @@ exports[`old streams test > row filter and stream parameter 1`] = `
 {
   "buckets": [
     {
-      "hash": 501751390,
+      "hash": 128629938,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [
         {
-          "hash": 426733954,
-          "instantiation": [
+          "sql": ""length"(?) > 5",
+          "values": [
             {
               "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
             },
           ],
-          "sql": ""length"(?1) > 5",
         },
       ],
-      "hash": 199404979,
+      "hash": 106392262,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -2326,13 +2615,16 @@ exports[`old streams test > row filter and stream parameter 1`] = `
       "sourceInstantiation": [
         {
           "expr": {
-            "hash": 305930080,
-            "instantiation": [
+            "sql": "? ->> '$.' || 'id'",
+            "values": [
               {
-                "connection": "subscription",
+                "request": "subscription",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
               },
             ],
-            "sql": "?1 ->> '$.' || 'id'",
           },
           "type": "request",
         },
@@ -2352,29 +2644,34 @@ exports[`old streams test > stream parameter 1`] = `
 {
   "buckets": [
     {
-      "hash": 250528360,
+      "hash": 393524843,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 321263901,
+      "hash": 297208864,
       "partition_by": [
         {
-          "hash": 414001903,
-          "instantiation": [
-            {
-              "column": "issue_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -2393,13 +2690,16 @@ exports[`old streams test > stream parameter 1`] = `
       "sourceInstantiation": [
         {
           "expr": {
-            "hash": 305930080,
-            "instantiation": [
+            "sql": "? ->> '$.' || 'id'",
+            "values": [
               {
-                "connection": "subscription",
+                "request": "subscription",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
               },
             ],
-            "sql": "?1 ->> '$.' || 'id'",
           },
           "type": "request",
         },
@@ -2419,29 +2719,34 @@ exports[`old streams test > table alias 1`] = `
 {
   "buckets": [
     {
-      "hash": 270104871,
+      "hash": 436460920,
       "sources": [
         0,
       ],
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",
       ],
       "filters": [],
-      "hash": 257667422,
+      "hash": 96159643,
       "partition_by": [
         {
-          "hash": 339553671,
-          "instantiation": [
-            {
-              "column": "account_id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "account_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -2454,27 +2759,35 @@ exports[`old streams test > table alias 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 503677135,
+      "hash": 258396764,
       "output": [
         {
-          "hash": 339553671,
-          "instantiation": [
+          "sql": "?",
+          "values": [
             {
               "column": "account_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
             },
           ],
-          "sql": "?1",
         },
       ],
       "partition_by": [
         {
-          "hash": 288876155,
-          "instantiation": [
-            {
-              "column": "id",
-            },
-          ],
-          "sql": "?1",
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
         },
       ],
       "table": {
@@ -2493,13 +2806,16 @@ exports[`old streams test > table alias 1`] = `
             "instantiation": [
               {
                 "expr": {
-                  "hash": 142781093,
-                  "instantiation": [
+                  "sql": "? ->> '$.sub'",
+                  "values": [
                     {
-                      "connection": "auth",
+                      "request": "auth",
+                      "sqlPosition": [
+                        0,
+                        1,
+                      ],
                     },
                   ],
-                  "sql": "?1 ->> '$.sub'",
                 },
                 "type": "request",
               },
@@ -2542,7 +2858,7 @@ exports[`old streams test > without filter 1`] = `
       "uniqueName": "stream|0",
     },
   ],
-  "data": [
+  "dataSources": [
     {
       "columns": [
         "star",

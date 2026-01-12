@@ -142,13 +142,17 @@ function translate(source: string): [string, TranslationError[]] {
   const expr = parse(source, { entry: 'expr', locationTracking: true })[0] as Expr;
   const errors: TranslationError[] = [];
 
-  const translator = new PostgresToSqlite(source, {
-    report: (message, location) => {
-      const resolved = getLocation(location);
+  const translator = new PostgresToSqlite(
+    source,
+    {
+      report: (message, location) => {
+        const resolved = getLocation(location);
 
-      errors.push({ message, source: source.substring(resolved?.start ?? 0, resolved?.end) });
-    }
-  });
+        errors.push({ message, source: source.substring(resolved?.start ?? 0, resolved?.end) });
+      }
+    },
+    []
+  );
   translator.addExpression(expr);
   return [translator.sql, errors];
 }

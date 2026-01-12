@@ -47,7 +47,7 @@ export class CompilerModelToSyncPlan {
   translate(source: CompiledStreamQueries): plan.SyncPlan {
     return {
       dataSources: source.evaluators.map((e) => this.translateRowEvaluator(e)),
-      parameterIndexes: source.pointLookups.map((p) => this.translatePointLookup(p)),
+      parameterIndexes: source.pointLookups.map((p, i) => this.translatePointLookup(p, i)),
       // Note: data sources and parameter indexes must be translated first because we reference them in stream
       // resolvers.
       queriers: source.resolvers.map((e) => this.translateStreamResolver(e)),
@@ -69,6 +69,10 @@ export class CompilerModelToSyncPlan {
     });
   }
 
+  private translatePartitionKey(value: rows.PartitionKey): plan.PartitionKey {
+    return { expr: this.translateExpression(value.expression.expression) };
+  }
+
   private translateRowEvaluator(value: rows.RowEvaluator): plan.StreamDataSource {
     return this.translateStatefulObject(value, () => {
       const hasher = new StableHasher();
@@ -84,39 +88,45 @@ export class CompilerModelToSyncPlan {
           }
         }),
         filters: value.filters.map((e) => this.translateExpression(e.expression)),
-        parameters: value.partitionBy.map((e) => this.translateExpression(e.expression.expression))
-      };
+        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e))
+      } satisfies plan.StreamDataSource;
       return mapped;
     });
   }
 
-  private translatePointLookup(value: rows.PointLookup): plan.StreamParameterIndexLookupCreator {
+  private translatePointLookup(value: rows.PointLookup, index: number): plan.StreamParameterIndexLookupCreator {
     return this.translateStatefulObject(value, () => {
       const hasher = new StableHasher();
       value.buildBehaviorHashCode(hasher);
       return {
         sourceTable: value.tablePattern,
+        defaultLookupScope: {
+          // This just needs to be unique, and isn't visible to users (unlike bucket names). We might want to use a
+          // more stable naming scheme in the future.
+          lookupName: 'lookup',
+          queryId: index.toString()
+        },
         hashCode: hasher.buildHashCode(),
         outputs: value.result.map((e) => this.translateExpression(e.expression)),
         filters: value.filters.map((e) => this.translateExpression(e.expression)),
-        parameters: value.partitionBy.map((e) => this.translateExpression(e.expression.expression))
-      };
+        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e))
+      } satisfies plan.StreamParameterIndexLookupCreator;
     });
   }
 
-  private translateExpression(expression: SyncExpression): plan.SqlExpression {
-    const hash = StableHasher.hashWith(equalsIgnoringResultSet, expression);
-
+  private translateExpression<T extends plan.SqlParameterValue>(expression: SyncExpression): plan.SqlExpression<T> {
     return {
-      hash,
       sql: expression.sql,
-      instantiation: expression.instantiation.map((e) => {
-        if (e instanceof ColumnInRow) {
-          return { column: e.column };
+      values: expression.instantiation.map((e) => {
+        const value = e.value;
+        const sqlPosition: [number, number] = [e.startOffset, e.length];
+
+        if (value instanceof ColumnInRow) {
+          return { column: value.column, sqlPosition } satisfies plan.ColumnSqlParameterValue;
         } else {
-          return { connection: e.source };
+          return { request: value.source, sqlPosition } satisfies plan.RequestSqlParameterValue;
         }
-      })
+      }) as unknown[] as T[]
     };
   }
 
