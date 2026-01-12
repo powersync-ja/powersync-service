@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { DateTimeValue, SqlSyncRules, TimeValuePrecision, toSyncRulesValue } from '../../src/index.js';
 
-import { versionedHydrationState } from '../../src/HydrationState.js';
+import { DEFAULT_HYDRATION_STATE, versionedHydrationState } from '../../src/HydrationState.js';
 import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS, removeSource, removeSourceSymbol } from './util.js';
 
 describe('compatibility options', () => {
@@ -20,7 +20,7 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules
@@ -49,7 +49,7 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules
@@ -223,7 +223,7 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules
@@ -249,7 +249,7 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules

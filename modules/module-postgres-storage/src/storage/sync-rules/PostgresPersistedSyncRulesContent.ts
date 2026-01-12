@@ -1,7 +1,7 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { CompatibilityOption, DEFAULT_HYDRATION_STATE, SqlSyncRules } from '@powersync/service-sync-rules';
 
 import { models } from '../../types/types.js';
 import { versionedHydrationState } from '@powersync/service-sync-rules';
@@ -38,9 +38,15 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
       slot_name: this.slot_name,
       sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, options),
       hydratedSyncRules() {
-        return this.sync_rules.hydrate({
-          hydrationState: versionedHydrationState(this.id)
-        });
+        if (this.sync_rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+          return this.sync_rules.hydrate({
+            hydrationState: versionedHydrationState(this.id)
+          });
+        } else {
+          return this.sync_rules.hydrate({
+            hydrationState: DEFAULT_HYDRATION_STATE
+          });
+        }
       }
     };
   }

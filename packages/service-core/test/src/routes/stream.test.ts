@@ -1,6 +1,6 @@
 import { BasicRouterRequest, Context, SyncRulesBucketStorage } from '@/index.js';
 import { RouterResponse, ServiceError, logger } from '@powersync/lib-services-framework';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, SqlSyncRules } from '@powersync/service-sync-rules';
 import { Readable, Writable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { describe, expect, it } from 'vitest';
@@ -45,7 +45,7 @@ describe('Stream Route', () => {
 
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate();
+          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');
@@ -83,7 +83,7 @@ describe('Stream Route', () => {
     it('logs the application metadata', async () => {
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate();
+          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');

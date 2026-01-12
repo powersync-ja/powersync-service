@@ -1,5 +1,6 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
@@ -14,8 +15,6 @@ import {
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
-import { CustomTypeRegistry } from '@module/types/registry.js';
-import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;

@@ -1,6 +1,8 @@
 import {
   BucketDataScope,
   BucketDataSource,
+  CompatibilityOption,
+  DEFAULT_HYDRATION_STATE,
   HydratedSyncRules,
   HydrationState,
   ParameterIndexLookupCreator,
@@ -26,7 +28,11 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 
   hydratedSyncRules(): HydratedSyncRules {
     if (this.mapping == null) {
-      return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(this.id) });
+      if (this.sync_rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+        return this.sync_rules.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      } else {
+        return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(this.id) });
+      }
     } else {
       return this.sync_rules.hydrate({
         hydrationState: new MongoHydrationState(this.mapping)
