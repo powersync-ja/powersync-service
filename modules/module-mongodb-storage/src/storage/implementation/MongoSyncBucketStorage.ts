@@ -8,6 +8,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  BucketDataRequest,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   deserializeParameterLookup,
@@ -24,7 +25,12 @@ import {
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  HydratedSyncRules,
+  ScopedParameterLookup,
+  SqliteJsonRow
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -37,6 +43,8 @@ import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: MongoChecksumOptions;
@@ -62,17 +70,19 @@ export class MongoSyncBucketStorage
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
+  private mapping: BucketDefinitionMapping;
 
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    private readonly sync_rules: storage.PersistedSyncRulesContent,
+    private readonly sync_rules: MongoPersistedSyncRulesContent,
     public readonly slot_name: string,
     writeCheckpointMode?: storage.WriteCheckpointMode,
     options?: MongoSyncBucketStorageOptions
   ) {
     super();
     this.db = factory.db;
+    this.mapping = this.sync_rules.mapping;
     this.checksums = new MongoChecksums(this.db, this.group_id, options?.checksumOptions);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
@@ -163,10 +173,12 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
+    const parsedSyncRules = this.sync_rules.parsed(options);
+
     const batch = new MongoBucketBatch({
       logger: options.logger,
       db: this.db,
-      syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
+      syncRules: parsedSyncRules,
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
@@ -364,28 +376,30 @@ export class MongoSyncBucketStorage
 
   async *getBucketDataBatch(
     checkpoint: utils.InternalOpId,
-    dataBuckets: Map<string, InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.size == 0) {
+    if (dataBuckets.length == 0) {
       return;
     }
     let filters: mongo.Filter<BucketDataDocument>[] = [];
+    const bucketMap = new Map<string, InternalOpId>(dataBuckets.map((d) => [d.bucket, d.start]));
 
     if (checkpoint == null) {
       throw new ServiceAssertionError('checkpoint is null');
     }
     const end = checkpoint;
-    for (let [name, start] of dataBuckets.entries()) {
+    for (let { bucket: name, start, source } of dataBuckets) {
+      const sourceDefinitionId = this.mapping.bucketSourceId(source);
       filters.push({
         _id: {
           $gt: {
-            g: this.group_id,
+            g: sourceDefinitionId,
             b: name,
             o: start
           },
           $lte: {
-            g: this.group_id,
+            g: sourceDefinitionId,
             b: name,
             o: end as any
           }
@@ -469,7 +483,7 @@ export class MongoSyncBucketStorage
         }
 
         if (start == null) {
-          const startOpId = dataBuckets.get(bucket);
+          const startOpId = bucketMap.get(bucket);
           if (startOpId == null) {
             throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
           }

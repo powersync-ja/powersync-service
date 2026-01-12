@@ -50,7 +50,14 @@ export class MongoBucketStorage
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name, undefined, this.internalOptions);
+    const storage = new MongoSyncBucketStorage(
+      this,
+      id,
+      syncRules as MongoPersistedSyncRulesContent,
+      slot_name,
+      undefined,
+      this.internalOptions
+    );
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     }
@@ -223,7 +230,8 @@ export class MongoBucketStorage
             bucketDefinitionId += 1;
             return {
               // N/A
-              bucketPrefix: ''
+              bucketPrefix: '',
+              source
             };
           },
           getParameterIndexLookupScope(source) {

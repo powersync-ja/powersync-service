@@ -109,7 +109,7 @@ bucket_definitions:
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1' }, ['user1'])
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1', source: null as any }, ['user1'])
       }
     ]);
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -179,12 +179,13 @@ bucket_definitions:
     );
     const hydrationState: HydrationState = {
       getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}-test` };
+        return { bucketPrefix: `${source.uniqueName}-test`, source };
       },
       getParameterIndexLookupScope(source) {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };
@@ -202,13 +203,19 @@ bucket_definitions:
       }
     ]);
     expect(querier.querier.parameterQueryLookups).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+      ScopedParameterLookup.direct(
+        { lookupName: 'mybucket.test', queryId: '2.test', source: rules.bucketParameterLookupSources[1] },
+        ['user1']
+      )
     ]);
 
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{ user_id: 'user1' }],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+        lookup: ScopedParameterLookup.direct(
+          { lookupName: 'mybucket.test', queryId: '2.test', source: rules.bucketParameterLookupSources[1] },
+          ['user1']
+        )
       }
     ]);
 
@@ -1027,10 +1034,19 @@ bucket_definitions:
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
       hasDynamicBuckets: true,
       parameterQueryLookups: [
-        ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '2' }, ['user1']),
-        ScopedParameterLookup.direct({ lookupName: 'by_list', queryId: '1' }, ['user1']),
+        ScopedParameterLookup.direct(
+          { lookupName: 'mybucket', queryId: '2', source: rules.bucketParameterLookupSources[1] },
+          ['user1']
+        ),
+        ScopedParameterLookup.direct(
+          { lookupName: 'by_list', queryId: '1', source: rules.bucketParameterLookupSources[2] },
+          ['user1']
+        ),
         // These are not filtered out yet, due to how the lookups are structured internally
-        ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
+        ScopedParameterLookup.direct(
+          { lookupName: 'admin_only', queryId: '1', source: rules.bucketParameterLookupSources[3] },
+          [1]
+        )
       ],
       staticBuckets: [
         {

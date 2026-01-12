@@ -1,8 +1,8 @@
 import {
   BucketParameterQuerier,
-  UnscopedParameterLookup,
   PendingQueriers,
-  ScopedParameterLookup
+  ScopedParameterLookup,
+  UnscopedParameterLookup
 } from './BucketParameterQuerier.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupScope } from './HydrationState.js';
@@ -10,18 +10,18 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import {
+  EvaluatedParameters,
   EvaluatedParametersResult,
   EvaluatedRow,
   EvaluateRowOptions,
   EvaluationResult,
   isEvaluationError,
-  UnscopedEvaluationResult,
   SourceSchema,
   SqliteRow,
   UnscopedEvaluatedParametersResult,
-  EvaluatedParameters
+  UnscopedEvaluationResult
 } from './types.js';
-import { buildBucketName } from './utils.js';
+import { buildBucketInfo, SOURCE } from './utils.js';
 
 export interface CreateSourceParams {
   hydrationState: HydrationState;
@@ -171,11 +171,13 @@ export function hydrateEvaluateRow(hydrationState: HydrationState, source: Bucke
       if (isEvaluationError(result)) {
         return result;
       }
+      const info = buildBucketInfo(scope, result.serializedBucketParameters);
       return {
-        bucket: buildBucketName(scope, result.serializedBucketParameters),
+        bucket: info.bucket,
         id: result.id,
         table: result.table,
-        data: result.data
+        data: result.data,
+        source: info[SOURCE]
       } satisfies EvaluatedRow;
     });
   };

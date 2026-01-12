@@ -6,7 +6,8 @@ import {
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
-  ResolvedBucket
+  ResolvedBucket,
+  SOURCE
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -207,8 +208,10 @@ export class BucketChecksumState {
         ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
+        const description = bucketDescriptionMap.get(b);
         return {
-          priority: bucketDescriptionMap.get(b)!.priority,
+          priority: description!.priority,
+          [SOURCE]: description![SOURCE],
           bucket: b
         };
       });
@@ -242,7 +245,7 @@ export class BucketChecksumState {
         message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
       };
-      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
+      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority, [SOURCE]: b[SOURCE] }));
 
       const subscriptions: util.StreamDescription[] = [];
       const streamNameToIndex = new Map<string, number>();
@@ -319,17 +322,21 @@ export class BucketChecksumState {
         deferredLog();
       },
 
-      getFilteredBucketPositions: (buckets?: BucketDescription[]): Map<string, util.InternalOpId> => {
+      getFilteredBucketPositions: (buckets?: BucketDescription[]): storage.BucketDataRequest[] => {
         if (!hasAdvanced) {
           throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
         }
         buckets ??= bucketsToFetch;
-        const filtered = new Map<string, util.InternalOpId>();
+        const filtered: storage.BucketDataRequest[] = [];
 
         for (let bucket of buckets) {
           const state = this.bucketDataPositions.get(bucket.bucket);
           if (state) {
-            filtered.set(bucket.bucket, state.start_op_id);
+            filtered.push({
+              bucket: bucket.bucket,
+              start: state.start_op_id,
+              source: bucket[SOURCE]
+            });
           }
         }
         return filtered;
@@ -617,7 +624,7 @@ export interface CheckpointLine {
    *
    * @param bucketsToFetch List of buckets to fetch - either this.bucketsToFetch, or a subset of it. Defaults to this.bucketsToFetch.
    */
-  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): Map<string, util.InternalOpId>;
+  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): storage.BucketDataRequest[];
 
   /**
    * Update the position of bucket data the client has, after it was sent to the client.
@@ -668,7 +675,9 @@ function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
     if (Object.hasOwn(byBucketId, bucket.bucket)) {
       byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
     } else {
-      byBucketId[bucket.bucket] = structuredClone(bucket);
+      let clone = structuredClone(bucket);
+      clone[SOURCE] = bucket[SOURCE]; // structuredClone does not clone symbol-keyed properties
+      byBucketId[bucket.bucket] = clone;
     }
   }
 

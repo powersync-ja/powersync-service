@@ -43,7 +43,7 @@ bucket_definitions:
       await batch.commit('1/1');
     });
 
-    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1' }, ['t1']);
+    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup]);
@@ -155,7 +155,7 @@ bucket_definitions:
         await batch.commit('3/1');
       });
 
-      const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1' }, ['u1']);
+      const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['u1']);
 
       const checkpoint1 = await bucketStorage.getCheckpoint();
       const parameters1 = await checkpoint1.getParameterSets([lookup]);

@@ -1,5 +1,10 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  HydratedSyncRules,
+  ScopedParameterLookup,
+  SqliteJsonRow
+} from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
@@ -115,7 +120,7 @@ export interface SyncRulesBucketStorage
    */
   getBucketDataBatch(
     checkpoint: util.InternalOpId,
-    dataBuckets: Map<string, util.InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk>;
 
@@ -137,6 +142,12 @@ export interface SyncRulesBucketStorage
 
 export interface SyncRulesBucketStorageListener {
   batchStarted: (batch: BucketStorageBatch) => void;
+}
+
+export interface BucketDataRequest {
+  bucket: string;
+  start: util.InternalOpId;
+  source: BucketDataSource;
 }
 
 export interface SyncRuleStatus {

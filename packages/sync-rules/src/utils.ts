@@ -15,12 +15,28 @@ import {
   SqliteValue
 } from './types.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
+import { BucketDataSource } from './BucketSource.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
 }
 
-export function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {
+export const SOURCE = Symbol.for('BucketSourceStorage');
+
+export function buildBucketInfo(
+  scope: BucketDataScope,
+  serializedParameters: string
+): { bucket: string; [SOURCE]: BucketDataSource } {
+  if (scope.source == null) {
+    throw new Error('foooo');
+  }
+  return {
+    bucket: scope.bucketPrefix + serializedParameters,
+    [SOURCE]: scope.source
+  };
+}
+
+function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {
   return scope.bucketPrefix + serializedParameters;
 }
 

@@ -24,9 +24,11 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
+import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
@@ -47,7 +49,7 @@ export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
 
 export interface MongoBucketBatchOptions {
   db: PowerSyncMongo;
-  syncRules: HydratedSyncRules;
+  syncRules: MongoPersistedSyncRules;
   groupId: number;
   slotName: string;
   lastCheckpointLsn: string | null;
@@ -85,6 +87,7 @@ export class MongoBucketBatch
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private clearedError = false;
+  private readonly mapping: BucketDefinitionMapping;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -126,7 +129,8 @@ export class MongoBucketBatch
     this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
     this.slot_name = options.slotName;
-    this.sync_rules = options.syncRules;
+    this.sync_rules = options.syncRules.hydratedSyncRules();
+    this.mapping = options.syncRules.mapping;
     this.storeCurrentData = options.storeCurrentData;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
@@ -271,7 +275,8 @@ export class MongoBucketBatch
       }
 
       let persistedBatch: PersistedBatch | null = new PersistedBatch(this.group_id, transactionSize, {
-        logger: this.logger
+        logger: this.logger,
+        mapping: this.mapping
       });
 
       for (let op of b) {
@@ -497,7 +502,9 @@ export class MongoBucketBatch
           before_buckets: existing_buckets
         });
         new_buckets = evaluated.map((e) => {
+          const sourceDefinitionId = this.mapping.bucketSourceId(e.source);
           return {
+            def: sourceDefinitionId,
             bucket: e.bucket,
             table: e.table,
             id: e.id
@@ -1026,7 +1033,7 @@ export class MongoBucketBatch
           session: session
         });
         const batch = await cursor.toArray();
-        const persistedBatch = new PersistedBatch(this.group_id, 0, { logger: this.logger });
+        const persistedBatch = new PersistedBatch(this.group_id, 0, { logger: this.logger, mapping: this.mapping });
 
         for (let value of batch) {
           persistedBatch.saveBucketData({

@@ -1,10 +1,6 @@
-import { Scope } from 'ajv/dist/compile/codegen/scope.js';
 import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
-import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
 import {
-  ParameterIndexLookupCreator,
   BucketParameterQuerier,
-  buildBucketName,
   CompatibilityContext,
   EvaluatedParameters,
   EvaluatedRow,
@@ -17,6 +13,7 @@ import {
   mergeBucketParameterQueriers,
   mergeDataSources,
   mergeParameterIndexLookupCreators,
+  ParameterIndexLookupCreator,
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,

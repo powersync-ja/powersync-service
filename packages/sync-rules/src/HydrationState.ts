@@ -3,12 +3,14 @@ import { BucketDataSource, ParameterIndexLookupCreator } from './BucketSource.js
 export interface BucketDataScope {
   /** The prefix is the bucket name before the parameters. */
   bucketPrefix: string;
+  source: BucketDataSource;
 }
 
 export interface ParameterLookupScope {
   /** The lookup name + queryid is used to reference the parameter lookup record. */
   lookupName: string;
   queryId: string;
+  source: ParameterIndexLookupCreator;
 }
 
 /**
@@ -37,7 +39,8 @@ export interface HydrationState {
 export const DEFAULT_HYDRATION_STATE: HydrationState = {
   getBucketSourceScope(source: BucketDataSource) {
     return {
-      bucketPrefix: source.uniqueName
+      bucketPrefix: source.uniqueName,
+      source
     };
   },
   getParameterIndexLookupScope(source) {
@@ -61,7 +64,8 @@ export function versionedHydrationState(version: number): HydrationState {
   return {
     getBucketSourceScope(source: BucketDataSource): BucketDataScope {
       return {
-        bucketPrefix: `${version}#${source.uniqueName}`
+        bucketPrefix: `${version}#${source.uniqueName}`,
+        source
       };
     },
 

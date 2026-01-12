@@ -1,13 +1,15 @@
-import { SqlSyncRules, HydratedSyncRules } from '@powersync/service-sync-rules';
+import {
+  BucketDataScope,
+  BucketDataSource,
+  HydratedSyncRules,
+  HydrationState,
+  ParameterIndexLookupCreator,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
 import { versionedHydrationState } from '@powersync/service-sync-rules';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
-
-export interface SyncDefinitionMapping {
-  definitions: Record<string, number>;
-  parameterLookups: Record<string, number>;
-}
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly slot_name: string;
@@ -17,7 +19,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     public readonly sync_rules: SqlSyncRules,
     public readonly checkpoint_lsn: string | null,
     slot_name: string | null,
-    private readonly mapping: SyncDefinitionMapping | null
+    public readonly mapping: BucketDefinitionMapping
   ) {
     this.slot_name = slot_name ?? `powersync_${id}`;
   }
@@ -27,29 +29,28 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
       return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(this.id) });
     } else {
       return this.sync_rules.hydrate({
-        hydrationState: {
-          getBucketSourceScope: (source) => {
-            const defId = this.mapping!.definitions[source.uniqueName];
-            if (defId == null) {
-              throw new ServiceAssertionError(`No mapping found for bucket source ${source.uniqueName}`);
-            }
-            return {
-              bucketPrefix: defId.toString(16)
-            };
-          },
-          getParameterIndexLookupScope: (source) => {
-            const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
-            const defId = this.mapping!.parameterLookups[key];
-            if (defId == null) {
-              throw new ServiceAssertionError(`No mapping found for parameter lookup ${key}`);
-            }
-            return {
-              lookupName: defId.toString(16),
-              queryId: ''
-            };
-          }
-        }
+        hydrationState: new MongoHydrationState(this.mapping)
       });
     }
+  }
+}
+
+class MongoHydrationState implements HydrationState {
+  constructor(private mapping: BucketDefinitionMapping) {}
+
+  getBucketSourceScope(source: BucketDataSource): BucketDataScope {
+    const defId = this.mapping.bucketSourceId(source);
+    return {
+      bucketPrefix: defId.toString(16),
+      source: source
+    };
+  }
+  getParameterIndexLookupScope(source: ParameterIndexLookupCreator) {
+    const defId = this.mapping.parameterLookupId(source);
+    return {
+      lookupName: defId.toString(16),
+      queryId: '',
+      source
+    };
   }
 }

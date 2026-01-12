@@ -44,6 +44,7 @@ export interface CurrentDataDocument {
 }
 
 export interface CurrentBucket {
+  def: number;
   bucket: string;
   table: string;
   id: string;

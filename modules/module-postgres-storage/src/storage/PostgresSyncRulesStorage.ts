@@ -2,6 +2,7 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
   BroadcastIterable,
   BucketChecksum,
+  BucketDataRequest,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
@@ -419,10 +420,10 @@ export class PostgresSyncRulesStorage
 
   async *getBucketDataBatch(
     checkpoint: InternalOpId,
-    dataBuckets: Map<string, InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.size == 0) {
+    if (dataBuckets.length == 0) {
       return;
     }
 
@@ -434,10 +435,11 @@ export class PostgresSyncRulesStorage
     // not match up with chunks.
 
     const end = checkpoint ?? BIGINT_MAX;
-    const filters = Array.from(dataBuckets.entries()).map(([name, start]) => ({
-      bucket_name: name,
+    const filters = dataBuckets.map(({ bucket, start }) => ({
+      bucket_name: bucket,
       start: start
     }));
+    const bucketMap = new Map<string, InternalOpId>(dataBuckets.map((d) => [d.bucket, d.start]));
 
     const batchRowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
     const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
@@ -537,7 +539,7 @@ export class PostgresSyncRulesStorage
           }
 
           if (start == null) {
-            const startOpId = dataBuckets.get(bucket_name);
+            const startOpId = bucketMap.get(bucket_name);
             if (startOpId == null) {
               throw new framework.ServiceAssertionError(`data for unexpected bucket: ${bucket_name}`);
             }
