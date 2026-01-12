@@ -1,4 +1,4 @@
-import { storage, utils } from '@powersync/service-core';
+import { BucketDataRequest, InternalOpId, storage, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import { versionedHydrationState } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -117,5 +117,25 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
     globalParameters,
     hasDefaultStreams: true,
     streams: {}
+  };
+}
+
+export function bucketRequest(
+  syncRules: storage.PersistedSyncRulesContent | SqlSyncRules,
+  bucket?: string,
+  start?: InternalOpId | string | number
+): BucketDataRequest {
+  const parsed =
+    syncRules instanceof SqlSyncRules ? syncRules : syncRules.parsed({ defaultSchema: 'not-applicable' }).sync_rules;
+  bucket ??= 'global[]';
+  const definitionName = bucket.substring(0, bucket.indexOf('['));
+  const source = parsed.bucketDataSources.find((b) => b.uniqueName === definitionName);
+  if (source == null) {
+    throw new Error('Failed to find global bucket');
+  }
+  return {
+    bucket,
+    start: BigInt(start ?? 0n),
+    source: source
   };
 }

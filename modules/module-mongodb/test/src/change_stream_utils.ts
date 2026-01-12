@@ -12,7 +12,7 @@ import {
   TestStorageOptions,
   unsettledPromise
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
@@ -184,7 +184,8 @@ export class ChangeStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules.definition, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -193,8 +194,9 @@ export class ChangeStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    let map = [bucketRequest(syncRules.definition, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -204,7 +206,7 @@ export class ChangeStreamTestContext {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+      map = [bucketRequest(syncRules.definition, bucket, start)];
     }
     return data;
   }

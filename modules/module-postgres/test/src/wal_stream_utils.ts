@@ -11,7 +11,7 @@ import {
   SyncRulesBucketStorage,
   unsettledPromise
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 import { CustomTypeRegistry } from '@module/types/registry.js';
@@ -171,7 +171,8 @@ export class WalStreamTestContext implements AsyncDisposable {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules.definition, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -183,8 +184,9 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    let map = [bucketRequest(syncRules.definition, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -194,7 +196,7 @@ export class WalStreamTestContext implements AsyncDisposable {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+      map = [bucketRequest(syncRules.definition, bucket, start)];
     }
     return data;
   }
@@ -207,8 +209,9 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    const map = [bucketRequest(syncRules.definition, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

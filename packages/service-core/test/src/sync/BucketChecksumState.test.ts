@@ -505,7 +505,9 @@ bucket_definitions:
 
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source: null as any }, ['u1'])
+        ]);
         return [{ id: 1 }, { id: 2 }];
       }),
       writeCheckpoint: null,
@@ -566,7 +568,9 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source: null as any }, ['u1'])
+        ]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
       writeCheckpoint: null,

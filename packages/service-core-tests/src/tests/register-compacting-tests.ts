@@ -1,6 +1,7 @@
 import { addChecksums, storage } from '@powersync/service-core';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { bucketRequest } from '../test-utils/test-utils-index.js';
 
 export function registerCompactTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
@@ -52,7 +53,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
     );
     const dataBefore = batchBefore.chunkData.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -84,7 +85,7 @@ bucket_definitions:
     });
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
     );
     const dataAfter = batchAfter.chunkData.data;
     const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -168,7 +169,7 @@ bucket_definitions:
     const checkpoint = result!.flushed_op;
 
     const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
     );
     const dataBefore = batchBefore.chunkData.data;
     const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
@@ -201,7 +202,7 @@ bucket_definitions:
     });
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
     );
     const dataAfter = batchAfter.chunkData.data;
     bucketStorage.clearChecksumCache();
@@ -297,7 +298,7 @@ bucket_definitions:
     });
 
     const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint2, new Map([['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint2, [bucketRequest(syncRules)])
     );
     const dataAfter = batchAfter.chunkData.data;
     await bucketStorage.clearChecksumCache();
@@ -408,13 +409,10 @@ bucket_definitions:
     });
 
     const batchAfter = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(
-        checkpoint,
-        new Map([
-          ['grouped["b1"]', 0n],
-          ['grouped["b2"]', 0n]
-        ])
-      )
+      bucketStorage.getBucketDataBatch(checkpoint, [
+        bucketRequest(syncRules, 'grouped["b1"]', 0n),
+        bucketRequest(syncRules, 'grouped["b2"]', 0n)
+      ])
     );
     const dataAfter = batchAfter.flatMap((b) => b.chunkData.data);
 
