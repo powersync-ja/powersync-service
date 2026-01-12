@@ -1,14 +1,3 @@
-import tsconfigPaths from 'vite-tsconfig-paths';
-import { defineConfig } from 'vitest/config';
+import { serviceIntegrationTestConfig } from '../test_config';
 
-export default defineConfig({
-  plugins: [tsconfigPaths()],
-  test: {
-    poolOptions: {
-      threads: {
-        singleThread: true
-      }
-    },
-    pool: 'threads'
-  }
-});
+export default serviceIntegrationTestConfig(__dirname, { hasSetup: false });

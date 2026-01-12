@@ -1,15 +1,14 @@
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths';
+import * as path from 'node:path';
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src')
+    }
+  },
   test: {
     setupFiles: './test/src/setup.ts',
-    poolOptions: {
-      threads: {
-        singleThread: true
-      }
-    },
     pool: 'threads'
   }
 });
