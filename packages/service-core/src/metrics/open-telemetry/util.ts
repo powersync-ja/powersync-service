@@ -59,6 +59,8 @@ export function createOpenTelemetryMetricsFactory(context: ServiceContext): Metr
   const resource = resourceFromAttributes({
     ['service']: 'PowerSync',
     ['service.version']: pkg.version,
+    ['source_type']: configuration.connections ? configuration.connections[0].type : 'Unknown',
+    ['storage_type']: configuration.storage.type ? configuration.storage.type : 'Unknown',
     ['instance_id']: instanceIdPromise
   });
 
