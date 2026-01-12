@@ -19,7 +19,6 @@
     "@powersync/service-sync-rules": "workspace:^"
   },
   "peerDependencies": {
-    "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:"
   },
   "devDependencies": {

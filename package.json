@@ -39,7 +39,6 @@
     "ts-node-dev": "^2.0.0",
     "tsc-watch": "^6.2.0",
     "typescript": "^5.7.3",
-    "vite-tsconfig-paths": "^5.1.4",
     "vitest": "catalog:",
     "@vitest/ui": "catalog:",
     "@vitest/coverage-v8": "catalog:",
