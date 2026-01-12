@@ -12,7 +12,13 @@ import {
   mergeParameterIndexLookupCreators
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { BASIC_SCHEMA, EMPTY_DATA_SOURCE, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
+import {
+  BASIC_SCHEMA,
+  EMPTY_DATA_SOURCE,
+  normalizeTokenParameters,
+  PARSE_OPTIONS,
+  removeSourceSymbol
+} from './util.js';
 import { HydrationState } from '../../src/HydrationState.js';
 
 describe('parameter queries', () => {
@@ -124,15 +130,21 @@ describe('parameter queries', () => {
 
     // We _do_ need to care about the bucket string representation.
     expect(
-      query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}), {
-        bucketPrefix: 'mybucket'
-      })
+      query
+        .resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], normalizeTokenParameters({}), {
+          bucketPrefix: 'mybucket',
+          source: EMPTY_DATA_SOURCE
+        })
+        .map(removeSourceSymbol)
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
     expect(
-      query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}), {
-        bucketPrefix: 'mybucket'
-      })
+      query
+        .resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], normalizeTokenParameters({}), {
+          bucketPrefix: 'mybucket',
+          source: EMPTY_DATA_SOURCE
+        })
+        .map(removeSourceSymbol)
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
@@ -496,11 +508,13 @@ describe('parameter queries', () => {
     ]);
 
     expect(
-      query.resolveBucketDescriptions(
-        [{ user_id: 'user1' }],
-        normalizeTokenParameters({ user_id: 'user1', is_admin: true }),
-        { bucketPrefix: 'mybucket' }
-      )
+      query
+        .resolveBucketDescriptions(
+          [{ user_id: 'user1' }],
+          normalizeTokenParameters({ user_id: 'user1', is_admin: true }),
+          { bucketPrefix: 'mybucket', source: EMPTY_DATA_SOURCE }
+        )
+        .map(removeSourceSymbol)
     ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });
 
@@ -870,12 +884,13 @@ describe('parameter queries', () => {
   describe('custom hydrationState', function () {
     const hydrationState: HydrationState = {
       getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}-test` };
+        return { bucketPrefix: `${source.uniqueName}-test`, source: EMPTY_DATA_SOURCE };
       },
       getParameterIndexLookupScope(source) {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };
@@ -903,13 +918,17 @@ describe('parameter queries', () => {
       });
       expect(result).toEqual([
         {
-          lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, ['test-user']),
+          lookup: ScopedParameterLookup.direct(
+            { lookupName: 'mybucket.test', queryId: 'myquery.test', source: query },
+            ['test-user']
+          ),
           bucketParameters: [{ group_id: 'group1' }]
         },
         {
-          lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, [
-            'other-user'
-          ]),
+          lookup: ScopedParameterLookup.direct(
+            { lookupName: 'mybucket.test', queryId: 'myquery.test', source: query },
+            ['other-user']
+          ),
           bucketParameters: [{ group_id: 'group1' }]
         }
       ]);
@@ -941,7 +960,9 @@ describe('parameter queries', () => {
       const querier = queriers[0];
 
       expect(querier.parameterQueryLookups).toEqual([
-        ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, ['test-user'])
+        ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: query }, [
+          'test-user'
+        ])
       ]);
     });
   });

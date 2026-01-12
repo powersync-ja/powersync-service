@@ -28,7 +28,7 @@ export function buildBucketInfo(
   serializedParameters: string
 ): { bucket: string; [SOURCE]: BucketDataSource } {
   if (scope.source == null) {
-    throw new Error('foooo');
+    throw new Error('source is required');
   }
   return {
     bucket: scope.bucketPrefix + serializedParameters,

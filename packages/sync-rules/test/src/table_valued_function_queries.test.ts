@@ -8,7 +8,7 @@ import {
   SqlParameterQuery
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { EMPTY_DATA_SOURCE, PARSE_OPTIONS } from './util.js';
+import { EMPTY_DATA_SOURCE, PARSE_OPTIONS, removeSourceSymbol } from './util.js';
 
 describe('table-valued function queries', () => {
   function scope(q: StaticSqlParameterQuery): BucketDataScope {
@@ -34,7 +34,9 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), scope(query))
+      query
+        .getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), scope(query))
+        .map(removeSourceSymbol)
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -63,7 +65,9 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), scope(query))
+      query
+        .getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), scope(query))
+        .map(removeSourceSymbol)
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -84,7 +88,9 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['v']);
 
-    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), scope(query))).toEqual([
+    expect(
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), scope(query)).map(removeSourceSymbol)
+    ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
       { bucket: 'mybucket[3]', priority: 3 }
@@ -154,7 +160,9 @@ describe('table-valued function queries', () => {
     expect(query.errors).toEqual([]);
     expect(query.bucketParameters).toEqual(['value']);
 
-    expect(query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), scope(query))).toEqual([
+    expect(
+      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), scope(query)).map(removeSourceSymbol)
+    ).toEqual([
       { bucket: 'mybucket["a"]', priority: 3 },
       { bucket: 'mybucket["b"]', priority: 3 },
       { bucket: 'mybucket["c"]', priority: 3 }
@@ -177,7 +185,9 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['value']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), scope(query))
+      query
+        .getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), scope(query))
+        .map(removeSourceSymbol)
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -201,7 +211,9 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['value']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), scope(query))
+      query
+        .getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), scope(query))
+        .map(removeSourceSymbol)
     ).toEqual([
       { bucket: 'mybucket[1]', priority: 3 },
       { bucket: 'mybucket[2]', priority: 3 },
@@ -225,7 +237,9 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), scope(query))
+      query
+        .getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), scope(query))
+        .map(removeSourceSymbol)
     ).toEqual([
       { bucket: 'mybucket[2]', priority: 3 },
       { bucket: 'mybucket[3]', priority: 3 }
@@ -249,19 +263,21 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['project_id']);
 
     expect(
-      query.getStaticBucketDescriptions(
-        new RequestParameters(
-          {
-            sub: '',
-            projects: [
-              { id: 1, role: 'admin' },
-              { id: 2, role: 'user' }
-            ]
-          },
-          {}
-        ),
-        scope(query)
-      )
+      query
+        .getStaticBucketDescriptions(
+          new RequestParameters(
+            {
+              sub: '',
+              projects: [
+                { id: 1, role: 'admin' },
+                { id: 2, role: 'user' }
+              ]
+            },
+            {}
+          ),
+          scope(query)
+        )
+        .map(removeSourceSymbol)
     ).toEqual([{ bucket: 'mybucket[1]', priority: 3 }]);
   });
 

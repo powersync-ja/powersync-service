@@ -24,7 +24,7 @@ import {
   syncStreamFromSql,
   ScopedParameterLookup
 } from '../../src/index.js';
-import { normalizeQuerierOptions, PARSE_OPTIONS, TestSourceTable } from './util.js';
+import { normalizeQuerierOptions, PARSE_OPTIONS, removeSourceSymbol, TestSourceTable } from './util.js';
 
 describe('streams', () => {
   const STREAM_0: ParameterLookupScope = {
@@ -92,7 +92,7 @@ describe('streams', () => {
       normalizeQuerierOptions({ test: 'foo' }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
     );
 
-    expect(mergeBucketParameterQueriers(queriers).staticBuckets).toEqual([
+    expect(mergeBucketParameterQueriers(queriers).staticBuckets.map(removeSourceSymbol)).toEqual([
       {
         bucket: '1#stream|0["foo"]',
         definition: 'stream',
