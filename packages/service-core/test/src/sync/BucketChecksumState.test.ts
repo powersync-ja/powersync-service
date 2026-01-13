@@ -827,6 +827,206 @@ config:
       });
     });
   });
+
+  describe('parameter query result logging', () => {
+    test('logs parameter query results for dynamic buckets', async () => {
+      const storage = new MockBucketChecksumStateStorage();
+      storage.updateTestChecksum({ bucket: 'by_project[1]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: 'by_project[2]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: 'by_project[3]', checksum: 1, count: 1 });
+
+      const logMessages: string[] = [];
+      const logData: any[] = [];
+      const mockLogger = {
+        info: (message: string, data: any) => {
+          logMessages.push(message);
+          logData.push(data);
+        },
+        error: () => {},
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const state = new BucketChecksumState({
+        syncContext,
+        tokenPayload: { sub: 'u1' },
+        syncRequest,
+        syncRules: SYNC_RULES_DYNAMIC,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      const line = (await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n, (lookups) => {
+          return [{ id: 1 }, { id: 2 }, { id: 3 }];
+        }),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      }))!;
+      line.advance();
+
+      expect(logMessages[0]).toContain('param_results: 3');
+      expect(logData[0].parameter_query_results).toBe(3);
+    });
+
+    test('throws error with breakdown when parameter query limit is exceeded', async () => {
+      const SYNC_RULES_MULTI = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  projects:
+    parameters: select id from projects where user_id = request.user_id()
+    data: []
+  tasks:
+    parameters: select id from tasks where user_id = request.user_id()
+    data: []
+  comments:
+    parameters: select id from comments where user_id = request.user_id()
+    data: []
+    `,
+        { defaultSchema: 'public' }
+      ).hydrate({ hydrationState: versionedHydrationState(4) });
+
+      const storage = new MockBucketChecksumStateStorage();
+
+      const errorMessages: string[] = [];
+      const errorData: any[] = [];
+      const mockLogger = {
+        info: () => {},
+        error: (message: string, data: any) => {
+          errorMessages.push(message);
+          errorData.push(data);
+        },
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const smallContext = new SyncContext({
+        maxBuckets: 100,
+        maxParameterQueryResults: 50,
+        maxDataFetchConcurrency: 10
+      });
+
+      const state = new BucketChecksumState({
+        syncContext: smallContext,
+        tokenPayload: { sub: 'u1' },
+        syncRequest,
+        syncRules: SYNC_RULES_MULTI,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      // Create 60 total results: 30 projects + 20 tasks + 10 comments
+      const projectIds = Array.from({ length: 30 }, (_, i) => ({ id: i + 1 }));
+      const taskIds = Array.from({ length: 20 }, (_, i) => ({ id: i + 1 }));
+      const commentIds = Array.from({ length: 10 }, (_, i) => ({ id: i + 1 }));
+
+      for (let i = 1; i <= 30; i++) {
+        storage.updateTestChecksum({ bucket: `projects[${i}]`, checksum: 1, count: 1 });
+      }
+      for (let i = 1; i <= 20; i++) {
+        storage.updateTestChecksum({ bucket: `tasks[${i}]`, checksum: 1, count: 1 });
+      }
+      for (let i = 1; i <= 10; i++) {
+        storage.updateTestChecksum({ bucket: `comments[${i}]`, checksum: 1, count: 1 });
+      }
+
+      await expect(
+        state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(1n, (lookups) => {
+            const lookup = lookups[0];
+            const lookupName = lookup.values[0];
+            if (lookupName === 'projects') {
+              return projectIds;
+            } else if (lookupName === 'tasks') {
+              return taskIds;
+            } else {
+              return commentIds;
+            }
+          }),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        })
+      ).rejects.toThrow('Too many parameter query results: 60 (limit of 50)');
+
+      // Verify error log includes breakdown
+      expect(errorMessages[0]).toContain('Parameter query results by definition:');
+      expect(errorMessages[0]).toContain('projects: 30');
+      expect(errorMessages[0]).toContain('tasks: 20');
+      expect(errorMessages[0]).toContain('comments: 10');
+
+      expect(errorData[0].parameter_query_results).toBe(60);
+      expect(errorData[0].parameter_query_results_by_definition).toEqual({
+        projects: 30,
+        tasks: 20,
+        comments: 10
+      });
+    });
+
+    test('limits breakdown to top 10 definitions', async () => {
+      // Create sync rules with 15 different definitions with dynamic parameters
+      let yamlDefinitions = 'bucket_definitions:\n';
+      for (let i = 1; i <= 15; i++) {
+        yamlDefinitions += `  def${i}:\n`;
+        yamlDefinitions += `    parameters: select id from def${i}_table where user_id = request.user_id()\n`;
+        yamlDefinitions += `    data: []\n`;
+      }
+
+      const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).hydrate({
+        hydrationState: versionedHydrationState(5)
+      });
+
+      const storage = new MockBucketChecksumStateStorage();
+
+      const errorMessages: string[] = [];
+      const mockLogger = {
+        info: () => {},
+        error: (message: string) => {
+          errorMessages.push(message);
+        },
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const smallContext = new SyncContext({
+        maxBuckets: 100,
+        maxParameterQueryResults: 10,
+        maxDataFetchConcurrency: 10
+      });
+
+      const state = new BucketChecksumState({
+        syncContext: smallContext,
+        tokenPayload: { sub: 'u1' },
+        syncRequest,
+        syncRules: SYNC_RULES_MANY,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      // Each definition creates one bucket, total 15 buckets
+      for (let i = 1; i <= 15; i++) {
+        storage.updateTestChecksum({ bucket: `def${i}[${i}]`, checksum: 1, count: 1 });
+      }
+
+      await expect(
+        state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(1n, (lookups) => {
+            // Return one result for each definition
+            return [{ id: 1 }];
+          }),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        })
+      ).rejects.toThrow('Too many parameter query results: 15 (limit of 10)');
+
+      // Verify only top 10 are shown
+      const errorMessage = errorMessages[0];
+      expect(errorMessage).toContain('... and 5 more');
+
+      // Count how many definitions are listed (should be exactly 10)
+      const defMatches = errorMessage.match(/def\d+:/g);
+      expect(defMatches?.length).toBe(10);
+    });
+  });
 });
 
 class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
