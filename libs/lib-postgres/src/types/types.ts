@@ -8,6 +8,67 @@ export interface NormalizedBasePostgresConnectionConfig extends jpgwire.Normaliz
   max_pool_size: number;
 }
 
+/**
+ * Known PostgreSQL connection parameters that can be passed via query string.
+ * @see https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
+ */
+const KNOWN_CONNECTION_PARAMETERS = [
+  'connect_timeout',
+  'keepalives',
+  'keepalives_idle',
+  'keepalives_interval',
+  'keepalives_count'
+] as const;
+
+/**
+ * Parse query string into key-value pairs.
+ */
+function parseQueryString(query: string | undefined): Record<string, string> {
+  if (!query) {
+    return {};
+  }
+
+  const params: Record<string, string> = {};
+  const pairs = query.split('&');
+
+  for (const pair of pairs) {
+    const [key, value] = pair.split('=');
+    if (key && value !== undefined) {
+      params[decodeURIComponent(key)] = decodeURIComponent(value);
+    }
+  }
+
+  return params;
+}
+
+/**
+ * Parse and validate connection parameters from query string.
+ * Returns undefined if no valid connection parameters are found.
+ */
+function parseConnectionParameters(
+  queryParams: Record<string, string>
+): jpgwire.PostgresConnectionParameters | undefined {
+  const result: jpgwire.PostgresConnectionParameters = {};
+  let hasParams = false;
+
+  for (const param of KNOWN_CONNECTION_PARAMETERS) {
+    const value = queryParams[param];
+    if (value !== undefined) {
+      const numValue = parseInt(value, 10);
+      if (isNaN(numValue)) {
+        throw new ServiceError(
+          ErrorCode.PSYNC_S1109,
+          `Invalid connection parameter: ${param} must be a number, got ${JSON.stringify(value)}`
+        );
+      }
+      result[param] = numValue;
+      hasParams = true;
+    }
+  }
+
+  return hasParams ? result : undefined;
+}
+
 export const POSTGRES_CONNECTION_TYPE = 'postgresql' as const;
 
 export const BasePostgresConnectionConfig = t.object({
@@ -86,6 +147,10 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
   const sslmode = options.sslmode ?? 'verify-full'; // Configuration not supported via URI
   const cacert = options.cacert;
 
+  // Parse connection parameters from query string
+  const queryParams = parseQueryString(uri.query);
+  const connection_parameters = parseConnectionParameters(queryParams);
+
   if (sslmode == 'verify-ca' && cacert == null) {
     throw new ServiceError(
       ErrorCode.PSYNC_S1104,
@@ -131,7 +196,9 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     client_certificate: options.client_certificate ?? undefined,
     client_private_key: options.client_private_key ?? undefined,
 
-    max_pool_size: options.max_pool_size ?? 8
+    max_pool_size: options.max_pool_size ?? 8,
+
+    connection_parameters
   } satisfies NormalizedBasePostgresConnectionConfig;
 }
 
