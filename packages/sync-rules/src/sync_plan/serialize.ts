@@ -109,7 +109,6 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
     });
 
     return {
-      stream: source.stream,
       requestFilters: source.requestFilters,
       lookupStages: stages,
       bucket: bucketIndex.get(source.bucket)!,
@@ -129,7 +128,10 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       };
     }),
     parameterIndexes: serializeParameterIndexes(),
-    queriers: plan.queriers.map(serializeStreamQuerier)
+    streams: plan.streams.map((s) => ({
+      stream: s.stream,
+      queriers: s.queriers.map(serializeStreamQuerier)
+    }))
   };
 }
 
@@ -138,7 +140,7 @@ interface SerializedSyncPlanUnstable {
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];
-  queriers: SerializedStreamQuerier[];
+  streams: SerializedStream[];
 }
 
 interface SerializedBucketDataSource {
@@ -169,8 +171,12 @@ interface SerializedParameterIndexLookupCreator {
   partition_by: PartitionKey[];
 }
 
-interface SerializedStreamQuerier {
+interface SerializedStream {
   stream: StreamOptions;
+  queriers: SerializedStreamQuerier[];
+}
+
+interface SerializedStreamQuerier {
   requestFilters: SqlExpression<RequestSqlParameterValue>[];
   lookupStages: any[][];
   bucket: number;

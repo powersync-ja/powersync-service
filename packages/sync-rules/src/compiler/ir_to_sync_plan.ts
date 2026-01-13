@@ -44,12 +44,19 @@ export class CompilerModelToSyncPlan {
   }
 
   translate(source: CompiledStreamQueries): plan.SyncPlan {
+    const queriersByStream = Object.groupBy(source.resolvers, (r) => r.options.name);
+
     return {
       dataSources: source.evaluators.map((e) => this.translateRowEvaluator(e)),
       parameterIndexes: source.pointLookups.map((p, i) => this.translatePointLookup(p, i)),
       // Note: data sources and parameter indexes must be translated first because we reference them in stream
       // resolvers.
-      queriers: source.resolvers.map((e) => this.translateStreamResolver(e)),
+      streams: Object.values(queriersByStream).map((resolvers) => {
+        return {
+          stream: resolvers![0].options,
+          queriers: resolvers!.map((e) => this.translateStreamResolver(e))
+        };
+      }),
       buckets: this.buckets
     };
   }
@@ -131,7 +138,6 @@ export class CompilerModelToSyncPlan {
 
   private translateStreamResolver(value: resolver.StreamResolver): plan.StreamQuerier {
     return {
-      stream: value.options,
       requestFilters: value.requestFilters.map((e) => this.translateExpression(e.expression)),
       lookupStages: value.lookupStages.map((stage) => {
         return stage.map((e) => this.translateExpandingLookup(e));

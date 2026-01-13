@@ -119,71 +119,70 @@ exports[`old streams test > OR in subquery 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
-      ],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
         {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -239,42 +238,46 @@ exports[`old streams test > in > on parameter data 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "filters": [],
-            "functionInputs": [],
-            "functionName": "json_each",
-            "outputs": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "sql": "?",
-                "values": [
+                "filters": [],
+                "functionInputs": [],
+                "functionName": "json_each",
+                "outputs": [
                   {
-                    "column": "value",
-                    "sqlPosition": [
-                      0,
-                      1,
+                    "sql": "?",
+                    "values": [
+                      {
+                        "column": "value",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
                     ],
                   },
                 ],
+                "type": "table_valued",
               },
             ],
-            "type": "table_valued",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -384,71 +387,75 @@ exports[`old streams test > in > on parameter data and table 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
-            ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-          {
-            "filters": [],
-            "functionInputs": [],
-            "functionName": "json_each",
-            "outputs": [
               {
-                "sql": "?",
-                "values": [
+                "filters": [],
+                "functionInputs": [],
+                "functionName": "json_each",
+                "outputs": [
                   {
-                    "column": "value",
-                    "sqlPosition": [
-                      0,
-                      1,
+                    "sql": "?",
+                    "values": [
+                      {
+                        "column": "value",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
                     ],
                   },
                 ],
+                "type": "table_valued",
               },
             ],
-            "type": "table_valued",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
-        },
-        {
-          "lookup": {
-            "idInStage": 1,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+            {
+              "lookup": {
+                "idInStage": 1,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -504,60 +511,64 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "filters": [],
-            "functionInputs": [],
-            "functionName": "json_each",
-            "outputs": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "sql": "?",
-                "values": [
+                "filters": [],
+                "functionInputs": [],
+                "functionName": "json_each",
+                "outputs": [
                   {
-                    "column": "value",
-                    "sqlPosition": [
-                      0,
-                      1,
+                    "sql": "?",
+                    "values": [
+                      {
+                        "column": "value",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
                     ],
                   },
                 ],
+                "type": "table_valued",
               },
             ],
-            "type": "table_valued",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "type": "intersection",
-          "values": [
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
             {
-              "expr": {
-                "sql": "? ->> '$.' || 'issue'",
-                "values": [
-                  {
-                    "request": "subscription",
-                    "sqlPosition": [
-                      0,
-                      1,
+              "type": "intersection",
+              "values": [
+                {
+                  "expr": {
+                    "sql": "? ->> '$.' || 'issue'",
+                    "values": [
+                      {
+                        "request": "subscription",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
                     ],
                   },
-                ],
-              },
-              "type": "request",
-            },
-            {
-              "lookup": {
-                "idInStage": 0,
-                "stageId": 0,
-              },
-              "resultIndex": 0,
-              "type": "lookup",
+                  "type": "request",
+                },
+                {
+                  "lookup": {
+                    "idInStage": 0,
+                    "stageId": 0,
+                  },
+                  "resultIndex": 0,
+                  "type": "lookup",
+                },
+              ],
             },
           ],
         },
@@ -640,36 +651,40 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
       ],
-      "requestFilters": [],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -763,43 +778,47 @@ exports[`old streams test > in > row value in subquery 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -934,87 +953,86 @@ exports[`old streams test > in > two subqueries 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
-      ],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
               },
             ],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1147,43 +1165,47 @@ exports[`old streams test > nested subqueries 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 0,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 1,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1325,69 +1347,68 @@ exports[`old streams test > normalization > distribute and 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
-        },
-      ],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 1,
-      "lookupStages": [],
-      "requestFilters": [
-        {
-          "sql": "? ->> '$.' || 'is_admin'",
-          "values": [
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
             {
-              "request": "auth",
-              "sqlPosition": [
-                0,
-                1,
-              ],
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
             },
           ],
         },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
       ],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -1481,43 +1502,47 @@ exports[`old streams test > normalization > double negation 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1646,56 +1671,55 @@ exports[`old streams test > normalization > negated and 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
         {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
         },
       ],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 1,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -1802,43 +1826,47 @@ exports[`old streams test > normalization > negated or 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1914,52 +1942,51 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [
+      "queriers": [
         {
-          "expr": {
-            "sql": "? ->> '$.sub'",
-            "values": [
-              {
-                "request": "auth",
-                "sqlPosition": [
-                  0,
-                  1,
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.sub'",
+                "values": [
+                  {
+                    "request": "auth",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
                 ],
               },
-            ],
-          },
-          "type": "request",
-        },
-      ],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 1,
-      "lookupStages": [],
-      "requestFilters": [
-        {
-          "sql": "? ->> '$.' || 'is_admin'",
-          "values": [
-            {
-              "request": "auth",
-              "sqlPosition": [
-                0,
-                1,
-              ],
+              "type": "request",
             },
           ],
         },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
       ],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -2046,39 +2073,38 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [
+      "queriers": [
         {
-          "expr": {
-            "sql": "? ->> '$.sub'",
-            "values": [
-              {
-                "request": "auth",
-                "sqlPosition": [
-                  0,
-                  1,
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.sub'",
+                "values": [
+                  {
+                    "request": "auth",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
                 ],
               },
-            ],
-          },
-          "type": "request",
+              "type": "request",
+            },
+          ],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
         },
       ],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 1,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -2117,32 +2143,36 @@ exports[`old streams test > or > request condition or request condition 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [
+      "queriers": [
         {
-          "sql": "? ->> '$.' || 'a' OR ? ->> 'b'",
-          "values": [
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [
             {
-              "request": "auth",
-              "sqlPosition": [
-                0,
-                1,
-              ],
-            },
-            {
-              "request": "auth",
-              "sqlPosition": [
-                21,
-                1,
+              "sql": "? ->> '$.' || 'a' OR ? ->> 'b'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    21,
+                    1,
+                  ],
+                },
               ],
             },
           ],
+          "sourceInstantiation": [],
         },
       ],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -2214,36 +2244,35 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [
+      "queriers": [
         {
-          "sql": "? ->> '$.' || 'is_admin'",
-          "values": [
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [
             {
-              "request": "auth",
-              "sqlPosition": [
-                0,
-                1,
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
               ],
             },
           ],
+          "sourceInstantiation": [],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
         },
       ],
-      "sourceInstantiation": [],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 1,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -2302,12 +2331,16 @@ exports[`old streams test > or > row condition or row condition 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [],
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -2421,69 +2454,68 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
-        },
-      ],
-      "stream": {
-        "isSubscribedByDefault": true,
-        "name": "stream",
-        "priority": 3,
-      },
-    },
-    {
-      "bucket": 1,
-      "lookupStages": [],
-      "requestFilters": [
-        {
-          "sql": "? ->> '$.' || 'is_admin'",
-          "values": [
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
             {
-              "request": "auth",
-              "sqlPosition": [
-                0,
-                1,
-              ],
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
             },
           ],
         },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
       ],
-      "sourceInstantiation": [],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -2535,12 +2567,16 @@ exports[`old streams test > row condition 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [],
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -2607,26 +2643,30 @@ exports[`old streams test > row filter and stream parameter 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [
+      "queriers": [
         {
-          "expr": {
-            "sql": "? ->> '$.' || 'id'",
-            "values": [
-              {
-                "request": "subscription",
-                "sqlPosition": [
-                  0,
-                  1,
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'id'",
+                "values": [
+                  {
+                    "request": "subscription",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
                 ],
               },
-            ],
-          },
-          "type": "request",
+              "type": "request",
+            },
+          ],
         },
       ],
       "stream": {
@@ -2682,26 +2722,30 @@ exports[`old streams test > stream parameter 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [
+      "queriers": [
         {
-          "expr": {
-            "sql": "? ->> '$.' || 'id'",
-            "values": [
-              {
-                "request": "subscription",
-                "sqlPosition": [
-                  0,
-                  1,
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'id'",
+                "values": [
+                  {
+                    "request": "subscription",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
                 ],
               },
-            ],
-          },
-          "type": "request",
+              "type": "request",
+            },
+          ],
         },
       ],
       "stream": {
@@ -2797,43 +2841,47 @@ exports[`old streams test > table alias 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -2874,12 +2922,16 @@ exports[`old streams test > without filter 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [],
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",

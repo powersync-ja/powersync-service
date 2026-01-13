@@ -40,12 +40,16 @@ exports[`new sync stream features > in array 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [],
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
       "stream": {
         "isSubscribedByDefault": true,
         "name": "stream",
@@ -178,59 +182,63 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 0,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
               },
             ],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 1,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -339,43 +347,47 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -539,59 +551,63 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 0,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
               },
             ],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 1,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -687,43 +703,47 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -858,59 +878,63 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 0,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
               },
             ],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 1,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1084,75 +1108,79 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.' || 'app_metadata.user_id'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.' || 'app_metadata.user_id'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 0,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
               },
             ],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 1,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 1,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 2,
+                "type": "parameter",
               },
             ],
-            "lookup": 2,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 2,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 2,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1248,43 +1276,47 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 0,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1471,75 +1503,79 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
       },
     },
   ],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [
-        [
-          {
-            "instantiation": [
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
               {
-                "expr": {
-                  "sql": "? ->> '$.sub'",
-                  "values": [
-                    {
-                      "request": "auth",
-                      "sqlPosition": [
-                        0,
-                        1,
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
                       ],
                     },
-                  ],
-                },
-                "type": "request",
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
               },
             ],
-            "lookup": 0,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 0,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
               },
             ],
-            "lookup": 1,
-            "type": "parameter",
-          },
-        ],
-        [
-          {
-            "instantiation": [
+            [
               {
-                "lookup": {
-                  "idInStage": 0,
-                  "stageId": 1,
-                },
-                "resultIndex": 0,
-                "type": "lookup",
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 1,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 2,
+                "type": "parameter",
               },
             ],
-            "lookup": 2,
-            "type": "parameter",
-          },
-        ],
-      ],
-      "requestFilters": [],
-      "sourceInstantiation": [
-        {
-          "lookup": {
-            "idInStage": 0,
-            "stageId": 2,
-          },
-          "resultIndex": 0,
-          "type": "lookup",
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 2,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
         },
       ],
       "stream": {
@@ -1652,41 +1688,45 @@ exports[`new sync stream features > order-independent parameters 1`] = `
     },
   ],
   "parameterIndexes": [],
-  "queriers": [
+  "streams": [
     {
-      "bucket": 0,
-      "lookupStages": [],
-      "requestFilters": [],
-      "sourceInstantiation": [
+      "queriers": [
         {
-          "expr": {
-            "sql": "? ->> '$.' || 'region'",
-            "values": [
-              {
-                "request": "subscription",
-                "sqlPosition": [
-                  0,
-                  1,
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'region'",
+                "values": [
+                  {
+                    "request": "subscription",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
                 ],
               },
-            ],
-          },
-          "type": "request",
-        },
-        {
-          "expr": {
-            "sql": "? ->> '$.' || 'org'",
-            "values": [
-              {
-                "request": "auth",
-                "sqlPosition": [
-                  0,
-                  1,
+              "type": "request",
+            },
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'org'",
+                "values": [
+                  {
+                    "request": "auth",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
                 ],
               },
-            ],
-          },
-          "type": "request",
+              "type": "request",
+            },
+          ],
         },
       ],
       "stream": {

@@ -24,7 +24,7 @@ export interface SyncPlan {
   dataSources: StreamDataSource[];
   buckets: StreamBucketDataSource[];
   parameterIndexes: StreamParameterIndexLookupCreator[];
-  queriers: StreamQuerier[];
+  streams: CompiledSyncStream[];
 }
 
 /**
@@ -81,7 +81,9 @@ export type ColumnSource = 'star' | { expr: SqlExpression<ColumnSqlParameterValu
 /**
  * A mapping describing how {@link StreamDataSource}s are combined into buckets.
  *
- * One instance of this always describe a bucket data source.
+ * One instance of this always describes a single bucket data source. A stream may consist of multiple such sources if
+ * different variants are used. It is also possible for a bucket data source to be reused between streams in some
+ * instances.
  */
 export interface StreamBucketDataSource {
   hashCode: number;
@@ -124,8 +126,12 @@ export interface StreamOptions {
   priority: BucketPriority;
 }
 
-export interface StreamQuerier {
+export interface CompiledSyncStream {
   stream: StreamOptions;
+  queriers: StreamQuerier[];
+}
+
+export interface StreamQuerier {
   /**
    * Static filters on the subscription, connection or token.
    *
