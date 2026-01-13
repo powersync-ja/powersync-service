@@ -22,6 +22,7 @@ import {
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
+  SyncRuleState,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -603,8 +604,31 @@ export class MongoSyncBucketStorage
     );
 
     if (doc?.rule_mapping != null) {
+      // TODO: Handle consistency
+
+      const otherSyncRules = await this.db.sync_rules
+        .find({
+          _id: { $ne: this.group_id },
+          state: { $in: [SyncRuleState.ACTIVE, SyncRuleState.PROCESSING, SyncRuleState.ERRORED] },
+          'rule_mapping.definitions': { $exists: true }
+        })
+        .toArray();
+      const keepSyncDefinitionIds = new Set<number>();
+      const keepParameterLookupIds = new Set<number>();
+      for (let other of otherSyncRules) {
+        for (let id of Object.values(other.rule_mapping.definitions)) {
+          keepSyncDefinitionIds.add(id);
+        }
+        for (let id of Object.values(other.rule_mapping.parameter_lookups)) {
+          keepParameterLookupIds.add(id);
+        }
+      }
+
       // TODO: Only delete if not used by other sync rules
       for (let [name, id] of Object.entries(doc.rule_mapping.definitions)) {
+        if (keepSyncDefinitionIds.has(id)) {
+          continue;
+        }
         await this.retriedDelete(`deleting bucket data for ${name}`, signal, () =>
           this.db.bucket_data.deleteMany(
             {
@@ -613,9 +637,21 @@ export class MongoSyncBucketStorage
             { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
           )
         );
+
+        await this.retriedDelete(`deleting bucket_state data for ${name}`, signal, () =>
+          this.db.bucket_state.deleteMany(
+            {
+              _id: idPrefixFilter<BucketStateDocument['_id']>({ g: id }, ['b'])
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          )
+        );
       }
 
       for (let [name, id] of Object.entries(doc.rule_mapping.parameter_lookups)) {
+        if (keepParameterLookupIds.has(id)) {
+          continue;
+        }
         await this.retriedDelete(`deleting parameter lookup data for ${name}`, signal, () =>
           this.db.bucket_parameters.deleteMany(
             {
@@ -627,6 +663,7 @@ export class MongoSyncBucketStorage
       }
     }
 
+    // Legacy
     await this.retriedDelete('deleting bucket data', signal, () =>
       this.db.bucket_data.deleteMany(
         {
@@ -635,6 +672,8 @@ export class MongoSyncBucketStorage
         { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       )
     );
+
+    // Legacy
     await this.retriedDelete('deleting bucket parameter lookup values', signal, () =>
       this.db.bucket_parameters.deleteMany(
         {
@@ -644,6 +683,7 @@ export class MongoSyncBucketStorage
       )
     );
 
+    // Legacy
     await this.retriedDelete('deleting current data records', signal, () =>
       this.db.current_data.deleteMany(
         {
@@ -653,6 +693,7 @@ export class MongoSyncBucketStorage
       )
     );
 
+    // Legacy
     await this.retriedDelete('deleting bucket state records', signal, () =>
       this.db.bucket_state.deleteMany(
         {
