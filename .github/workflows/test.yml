@@ -76,6 +76,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Validate tsconfig references
+        run: pnpm validate:tsconfig-references
+
       - name: Build
         shell: bash
         run: pnpm build

@@ -16,7 +16,8 @@
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
     "build:tsc": "tsc -b",
-    "build": "pnpm build:tsc && node scripts/compile-schema.js",
+    "build": "pnpm build:tsc && pnpm run build:extra",
+    "build:extra": "node scripts/compile-schema.js",
     "build:tests": "tsc -b test/tsconfig.json",
     "test": "vitest"
   },

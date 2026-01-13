@@ -17,12 +17,6 @@
   "references": [
     {
       "path": "../"
-    },
-    {
-      "path": "../../../packages/service-core/test"
-    },
-    {
-      "path": "../../../packages/service-core/"
     }
   ]
 }
