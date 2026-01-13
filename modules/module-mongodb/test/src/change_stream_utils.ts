@@ -1,5 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
+  BucketChecksumRequest,
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
@@ -19,8 +20,8 @@ import { MongoManager } from '@module/replication/MongoManager.js';
 import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
-import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
@@ -185,7 +186,7 @@ export class ChangeStreamTestContext {
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
     const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules.definition, bucket, start));
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -196,7 +197,7 @@ export class ChangeStreamTestContext {
     }
     const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const checkpoint = await this.getCheckpoint(options);
-    let map = [bucketRequest(syncRules.definition, bucket, start)];
+    let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -206,20 +207,15 @@ export class ChangeStreamTestContext {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map = [bucketRequest(syncRules.definition, bucket, start)];
+      map = [bucketRequest(syncRules, bucket, start)];
     }
     return data;
   }
 
-  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+  async getChecksum(request: BucketChecksumRequest, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    return this.storage!.getChecksums(checkpoint, buckets);
-  }
-
-  async getChecksum(bucket: string, options?: { timeout?: number }) {
-    let checkpoint = await this.getCheckpoint(options);
-    const map = await this.storage!.getChecksums(checkpoint, [bucket]);
-    return map.get(bucket);
+    const map = await this.storage!.getChecksums(checkpoint, [request]);
+    return map.get(request.bucket);
   }
 }
 

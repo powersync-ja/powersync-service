@@ -12,6 +12,7 @@ import {
   LastValueSink,
   maxLsn,
   PartialChecksum,
+  PersistedSyncRules,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ReplicationCheckpoint,
@@ -62,7 +63,7 @@ export class PostgresSyncRulesStorage
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | { parsed: PersistedSyncRules; hydrated: sync_rules.HydratedSyncRules; options: storage.ParseSyncRulesOptions }
     | undefined;
   private _checksumCache: storage.ChecksumCache | undefined;
 
@@ -99,17 +100,24 @@ export class PostgresSyncRulesStorage
   }
 
   //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
+
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): PersistedSyncRules {
+    this.getHydratedSyncRules(options);
+    return this.parsedSyncRulesCache!.parsed;
+  }
+
+  getHydratedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      const parsed = this.sync_rules.parsed(options);
+      this.parsedSyncRulesCache = { parsed, hydrated: parsed.hydratedSyncRules(), options };
     }
 
-    return this.parsedSyncRulesCache!.parsed;
+    return this.parsedSyncRulesCache!.hydrated;
   }
 
   async reportError(e: any): Promise<void> {

@@ -89,7 +89,7 @@ export class BinLogStream {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.connections = options.connections;
-    this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
+    this.syncRules = options.storage.getHydratedSyncRules({ defaultSchema: this.defaultSchema });
     this.groupId = options.storage.group_id;
     this.abortSignal = options.abortSignal;
   }

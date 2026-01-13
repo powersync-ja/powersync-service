@@ -151,7 +151,7 @@ export class BinlogStreamTestContext {
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
     const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules.definition, bucket, start));
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -166,7 +166,7 @@ export class BinlogStreamTestContext {
     }
     const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const checkpoint = await this.getCheckpoint(options);
-    const map = [bucketRequest(syncRules.definition, bucket, start)];
+    const map = [bucketRequest(syncRules, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

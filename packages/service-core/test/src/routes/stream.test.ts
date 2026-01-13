@@ -44,7 +44,7 @@ describe('Stream Route', () => {
       // when compressing the stream.
 
       const storage = {
-        getParsedSyncRules() {
+        getHydratedSyncRules() {
           return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
@@ -82,7 +82,7 @@ describe('Stream Route', () => {
 
     it('logs the application metadata', async () => {
       const storage = {
-        getParsedSyncRules() {
+        getHydratedSyncRules() {
           return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {

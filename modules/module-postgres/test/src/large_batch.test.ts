@@ -4,6 +4,7 @@ import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
 import { describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { bucketRequest } from '@powersync/service-core-tests';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (config) {
@@ -44,8 +45,13 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-    const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
-    expect(checksum.get('global[]')!.count).toEqual(operation_count);
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules);
+    const checksum = await context.storage!.getChecksums(checkpoint, [request]);
+    expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
     const perSecond = Math.round((operation_count / duration) * 1000);
     console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
   });
@@ -54,6 +60,11 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     await using context = await WalStreamTestContext.open(factory);
     // Manual test to check initial replication performance and memory usage
     await context.updateSyncRules(BASIC_SYNC_RULES);
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules);
     const { pool } = context;
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
@@ -90,8 +101,8 @@ function defineBatchTests(config: storage.TestStorageConfig) {
 
       const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
       const duration = Date.now() - start;
-      const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
-      expect(checksum.get('global[]')!.count).toEqual(operation_count);
+      const checksum = await context.storage!.getChecksums(checkpoint, [request]);
+      expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
       const perSecond = Math.round((operation_count / duration) * 1000);
       console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s.`);
       printMemoryUsage();
@@ -104,6 +115,11 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     await using context = await WalStreamTestContext.open(factory);
     // This just tests performance of a large number of operations inside a transaction.
     await context.updateSyncRules(BASIC_SYNC_RULES);
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules);
     const { pool } = context;
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
@@ -141,8 +157,8 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-    const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
-    expect(checksum.get('global[]')!.count).toEqual(operationCount);
+    const checksum = await context.storage!.getChecksums(checkpoint, [request]);
+    expect(checksum.get(request.bucket)!.count).toEqual(operationCount);
     const perSecond = Math.round((operationCount / duration) * 1000);
     // This number depends on the test machine, so we keep the test significantly
     // lower than expected numbers.
@@ -158,8 +174,8 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     const checkpoint2 = await context.getCheckpoint({ timeout: 20_000 });
     const truncateDuration = Date.now() - truncateStart;
 
-    const checksum2 = await context.storage!.getChecksums(checkpoint2, ['global[]']);
-    const truncateCount = checksum2.get('global[]')!.count - checksum.get('global[]')!.count;
+    const checksum2 = await context.storage!.getChecksums(checkpoint2, [request]);
+    const truncateCount = checksum2.get(request.bucket)!.count - checksum.get(request.bucket)!.count;
     expect(truncateCount).toEqual(numTransactions * perTransaction);
     const truncatePerSecond = Math.round((truncateCount / truncateDuration) * 1000);
     console.log(`Truncated ${truncateCount} ops in ${truncateDuration}ms ${truncatePerSecond} ops/s. ${used}MB heap`);
@@ -190,6 +206,11 @@ function defineBatchTests(config: storage.TestStorageConfig) {
       - SELECT * FROM test_data
       - SELECT * FROM test_data
       `);
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules);
     const { pool } = context;
 
     await pool.query(`CREATE TABLE test_data(id serial primary key, description text)`);
@@ -224,8 +245,8 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     await context.replicateSnapshot();
 
     const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
-    const checksum = await context.storage!.getChecksums(checkpoint, ['global[]']);
-    expect(checksum.get('global[]')!.count).toEqual((numDocs + 2) * 4);
+    const checksum = await context.storage!.getChecksums(checkpoint, [request]);
+    expect(checksum.get(request.bucket)!.count).toEqual((numDocs + 2) * 4);
   });
 
   function printMemoryUsage() {

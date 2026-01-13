@@ -85,7 +85,7 @@ class SubStream {
     this.logger = options.logger;
     this.metrics = options.metrics;
     this.abortSignal = options.abortSignal;
-    this.syncRules = this.storage.getParsedSyncRules({
+    this.syncRules = this.storage.getHydratedSyncRules({
       defaultSchema: this.connections.db.databaseName
     });
     this.snapshotter = new MongoSnapshotter({

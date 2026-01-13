@@ -8,7 +8,7 @@ import {
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
+import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
@@ -49,7 +49,12 @@ export interface SyncRulesBucketStorage
    */
   createWriter(options: StartBatchOptions): Promise<BucketStorageBatch>;
 
-  getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
+  getHydratedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
+
+  /**
+   * For tests only.
+   */
+  getParsedSyncRules(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   /**
    * Terminate the sync rules.

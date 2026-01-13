@@ -1,4 +1,4 @@
-import { BucketDataRequest, InternalOpId, storage, utils } from '@powersync/service-core';
+import { BucketDataRequest, InternalOpId, storage, sync, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import { versionedHydrationState } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -121,12 +121,18 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
   };
 }
 
+function isParsedSyncRules(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
+): syncRules is storage.PersistedSyncRules {
+  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
+}
+
 export function bucketRequest(
-  syncRules: storage.PersistedSyncRulesContent,
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
   bucket?: string,
   start?: InternalOpId | string | number
 ): BucketDataRequest {
-  const parsed = syncRules.parsed({ defaultSchema: 'not-applicable' });
+  const parsed = isParsedSyncRules(syncRules) ? syncRules : syncRules.parsed(PARSE_OPTIONS);
   const hydrationState = parsed.hydrationState;
   bucket ??= 'global[]';
   const definitionName = bucket.substring(0, bucket.indexOf('['));

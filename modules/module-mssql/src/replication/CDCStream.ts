@@ -110,7 +110,7 @@ export class CDCStream {
   constructor(private options: CDCStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
-    this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: options.connections.schema });
+    this.syncRules = options.storage.getHydratedSyncRules({ defaultSchema: options.connections.schema });
     this.connections = options.connections;
     this.abortSignal = options.abortSignal;
   }

@@ -595,11 +595,11 @@ bucket_definitions:
     });
     const syncBucketStorage = bucketStorageFactory.getInstance(syncRules);
 
-    const parsedSchema1 = syncBucketStorage.getParsedSyncRules({
+    const parsedSchema1 = syncBucketStorage.getHydratedSyncRules({
       defaultSchema: 'public'
     });
 
-    const parsedSchema2 = syncBucketStorage.getParsedSyncRules({
+    const parsedSchema2 = syncBucketStorage.getHydratedSyncRules({
       defaultSchema: 'public'
     });
 
@@ -607,7 +607,7 @@ bucket_definitions:
     expect(parsedSchema2).equals(parsedSchema1);
     expect(parsedSchema1.getSourceTables()[0].schema).equals('public');
 
-    const parsedSchema3 = syncBucketStorage.getParsedSyncRules({
+    const parsedSchema3 = syncBucketStorage.getHydratedSyncRules({
       defaultSchema: 'databasename'
     });
 

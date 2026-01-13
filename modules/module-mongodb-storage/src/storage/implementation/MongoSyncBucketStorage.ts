@@ -17,6 +17,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  PersistedSyncRules,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ProtocolOpId,
@@ -70,7 +71,9 @@ export class MongoSyncBucketStorage
   private readonly db: PowerSyncMongo;
   readonly checksums: MongoChecksums;
 
-  private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncRulesCache:
+    | { parsed: PersistedSyncRules; hydrated: HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   private mapping: BucketDefinitionMapping;
 
@@ -112,17 +115,23 @@ export class MongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): PersistedSyncRules {
+    this.getHydratedSyncRules(options);
+    return this.parsedSyncRulesCache!.parsed;
+  }
+
+  getHydratedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      const parsed = this.sync_rules.parsed(options);
+      this.parsedSyncRulesCache = { parsed, hydrated: parsed.hydratedSyncRules(), options };
     }
 
-    return this.parsedSyncRulesCache!.parsed;
+    return this.parsedSyncRulesCache!.hydrated;
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {

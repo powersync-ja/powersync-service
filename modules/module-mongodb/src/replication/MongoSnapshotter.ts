@@ -101,7 +101,7 @@ export class MongoSnapshotter {
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
-    this.sync_rules = options.storage.getParsedSyncRules({
+    this.sync_rules = options.storage.getHydratedSyncRules({
       defaultSchema: this.defaultDb.databaseName
     });
     this.abortSignal = options.abort_signal;
