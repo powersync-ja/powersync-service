@@ -13,6 +13,7 @@ import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
+import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 
 export class MongoBucketStorage
   extends BaseObserver<storage.BucketStorageFactoryListener>
@@ -191,7 +192,17 @@ export class MongoBucketStorage
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP } }
+        { $set: { state: storage.SyncRuleState.STOP } },
+        {
+          session: this.session
+        }
+      );
+
+      const activeSyncRules = await this.db.sync_rules.findOne(
+        {
+          state: storage.SyncRuleState.ACTIVE
+        },
+        { session: this.session }
       );
 
       const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
@@ -205,7 +216,8 @@ export class MongoBucketStorage
         },
         {
           upsert: true,
-          returnDocument: 'after'
+          returnDocument: 'after',
+          session: this.session
         }
       );
 
@@ -223,11 +235,23 @@ export class MongoBucketStorage
       let bucketDefinitionId = (id << 16) + 1;
       let parameterDefinitionId = (id << 17) + 1;
 
+      let existingMapping: BucketDefinitionMapping;
+      if (activeSyncRules != null) {
+        existingMapping = BucketDefinitionMapping.fromSyncRules(activeSyncRules);
+      } else {
+        existingMapping = new BucketDefinitionMapping({}, {});
+      }
+
       syncRules.hydrate({
         hydrationState: {
           getBucketSourceScope(source) {
-            bucketDefinitionMapping[source.uniqueName] = bucketDefinitionId;
-            bucketDefinitionId += 1;
+            const existingId = existingMapping.equivalentBucketSourceId(source);
+            if (existingId != null) {
+              bucketDefinitionMapping[source.uniqueName] = existingId;
+            } else {
+              bucketDefinitionMapping[source.uniqueName] = bucketDefinitionId;
+              bucketDefinitionId += 1;
+            }
             return {
               // N/A
               bucketPrefix: '',
@@ -236,8 +260,13 @@ export class MongoBucketStorage
           },
           getParameterIndexLookupScope(source) {
             const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
-            parameterDefinitionMapping[key] = parameterDefinitionId;
-            parameterDefinitionId += 1;
+            const existingId = existingMapping.equivalentParameterLookupId(source);
+            if (existingId != null) {
+              parameterDefinitionMapping[key] = existingId;
+            } else {
+              parameterDefinitionMapping[key] = parameterDefinitionId;
+              parameterDefinitionId += 1;
+            }
             // N/A
             return source.defaultLookupScope;
           }
@@ -264,7 +293,7 @@ export class MongoBucketStorage
           parameter_lookups: parameterDefinitionMapping
         }
       };
-      await this.db.sync_rules.insertOne(doc);
+      await this.db.sync_rules.insertOne(doc, { session: this.session });
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);
       if (options.lock) {

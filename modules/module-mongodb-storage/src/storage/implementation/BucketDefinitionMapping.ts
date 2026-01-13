@@ -28,4 +28,15 @@ export class BucketDefinitionMapping {
     }
     return defId;
   }
+
+  equivalentBucketSourceId(source: BucketDataSource): number | null {
+    // FIXME: Do an actual comparison, instead of just using the unique name
+    return this.definitions[source.uniqueName] ?? null;
+  }
+
+  equivalentParameterLookupId(source: ParameterIndexLookupCreator): number | null {
+    // FIXME: Do an actual comparison, instead of just using the scope
+    const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
+    return this.parameterLookupMapping[key] ?? null;
+  }
 }
