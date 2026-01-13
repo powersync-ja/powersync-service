@@ -10,6 +10,7 @@ dist
 **/*.tsbuildinfo
 **/lib
 */public
+**/coverage
 
 npm-error.log
 .pnpm-debug.log
