@@ -1,5 +1,6 @@
 import {
   BucketChecksum,
+  BucketChecksumRequest,
   BucketChecksumState,
   BucketChecksumStateOptions,
   BucketChecksumStateStorage,
@@ -859,14 +860,14 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     this.filter?.({ invalidate: true });
   }
 
-  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksums(checkpoint: InternalOpId, requests: BucketChecksumRequest[]): Promise<ChecksumMap> {
     return new Map<string, BucketChecksum>(
-      buckets.map((bucket) => {
-        const checksum = this.state.get(bucket);
+      requests.map((request) => {
+        const checksum = this.state.get(request.bucket);
         return [
-          bucket,
+          request.bucket,
           {
-            bucket: bucket,
+            bucket: request.bucket,
             checksum: checksum?.checksum ?? 0,
             count: checksum?.count ?? 0
           }
