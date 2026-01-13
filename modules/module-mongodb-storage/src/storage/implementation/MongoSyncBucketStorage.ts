@@ -348,7 +348,7 @@ export class MongoSyncBucketStorage
           [
             {
               $match: {
-                'key.g': this.group_id,
+                'key.g': 0,
                 lookup: { $in: lookupFilter },
                 _id: { $lte: checkpoint.checkpoint }
               }
@@ -661,14 +661,16 @@ export class MongoSyncBucketStorage
         if (keepParameterLookupIds.has(id)) {
           continue;
         }
-        await this.retriedDelete(`deleting parameter lookup data for ${name}`, signal, () =>
-          this.db.bucket_parameters.deleteMany(
-            {
-              'key.g': id
-            },
-            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-          )
-        );
+        // FIXME: how do we do these deletes?
+        // For now, we delete only when the source table is removed.
+        // await this.retriedDelete(`deleting parameter lookup data for ${name}`, signal, () =>
+        //   this.db.bucket_parameters.deleteMany(
+        //     {
+        //       'key.g': id
+        //     },
+        //     { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        //   )
+        // );
       }
     }
 
@@ -726,7 +728,7 @@ export class MongoSyncBucketStorage
       .toArray();
 
     for (let table of tables) {
-      await this.retriedDelete('deleting current data records for table', signal, () =>
+      await this.retriedDelete(`deleting current data records for table ${table.table_name}`, signal, () =>
         this.db.current_data.deleteMany(
           {
             _id: idPrefixFilter<SourceKey>({ g: 0, t: table._id }, ['k'])
@@ -734,6 +736,15 @@ export class MongoSyncBucketStorage
           { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
         )
       );
+      await this.retriedDelete(`deleting parameter data records for table ${table.table_name}`, signal, () =>
+        this.db.bucket_parameters.deleteMany(
+          {
+            key: idPrefixFilter<SourceKey>({ g: 0, t: table._id }, ['k'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        )
+      );
+
       await this.db.source_tables.deleteOne({ _id: table._id }); // Delete the source table record itself
     }
   }
@@ -1067,7 +1078,7 @@ export class MongoSyncBucketStorage
       .find(
         {
           _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
-          'key.g': this.group_id
+          'key.g': 0
         },
         {
           projection: {
