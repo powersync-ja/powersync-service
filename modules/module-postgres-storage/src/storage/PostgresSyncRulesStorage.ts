@@ -2,6 +2,7 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
   BroadcastIterable,
   BucketChecksum,
+  BucketChecksumRequest,
   BucketDataRequest,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
@@ -594,7 +595,7 @@ export class PostgresSyncRulesStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(checkpoint: utils.InternalOpId, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 

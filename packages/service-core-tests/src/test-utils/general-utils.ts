@@ -29,7 +29,8 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
         slot_name: 'test',
         hydratedSyncRules() {
           return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(1) });
-        }
+        },
+        hydrationState: versionedHydrationState(1)
       };
     },
     lock() {
@@ -121,20 +122,24 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
 }
 
 export function bucketRequest(
-  syncRules: storage.PersistedSyncRulesContent | SqlSyncRules,
+  syncRules: storage.PersistedSyncRulesContent,
   bucket?: string,
   start?: InternalOpId | string | number
 ): BucketDataRequest {
-  const parsed =
-    syncRules instanceof SqlSyncRules ? syncRules : syncRules.parsed({ defaultSchema: 'not-applicable' }).sync_rules;
+  const parsed = syncRules.parsed({ defaultSchema: 'not-applicable' });
+  const hydrationState = parsed.hydrationState;
   bucket ??= 'global[]';
   const definitionName = bucket.substring(0, bucket.indexOf('['));
-  const source = parsed.bucketDataSources.find((b) => b.uniqueName === definitionName);
+  const parameters = bucket.substring(bucket.indexOf('['));
+  const source = parsed.sync_rules.bucketDataSources.find((b) => b.uniqueName === definitionName);
+
   if (source == null) {
     throw new Error('Failed to find global bucket');
   }
+  const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
+  console.log('query for bucket', bucketName);
   return {
-    bucket,
+    bucket: bucketName,
     start: BigInt(start ?? 0n),
     source: source
   };

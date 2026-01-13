@@ -2,6 +2,7 @@ import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongod
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   addChecksums,
+  BucketChecksumRequest,
   InternalOpId,
   isPartialChecksum,
   PopulateChecksumCacheResults,
@@ -13,6 +14,7 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
+import { BucketDataSource } from '@powersync/service-sync-rules';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -509,7 +511,7 @@ export class MongoCompactor {
           break;
         }
       }
-      await this.updateChecksumsBatch(checkBuckets.map((b) => b.bucket));
+      await this.updateChecksumsBatch(checkBuckets);
       logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
       count += buckets.length;
     }
@@ -525,7 +527,7 @@ export class MongoCompactor {
   private async dirtyBucketBatch(options: {
     minBucketChanges: number;
     exclude?: string[];
-  }): Promise<{ bucket: string; estimatedCount: number }[]> {
+  }): Promise<{ bucket: string; estimatedCount: number; source: BucketDataSource }[]> {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
@@ -554,15 +556,17 @@ export class MongoCompactor {
 
     return dirtyBuckets.map((bucket) => ({
       bucket: bucket._id.b,
-      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0)
+      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0),
+      source: null as any // FIXME: Implement this
     }));
   }
 
-  private async updateChecksumsBatch(buckets: string[]) {
+  private async updateChecksumsBatch(buckets: BucketChecksumRequest[]) {
     const checksums = await this.storage.checksums.computePartialChecksumsDirect(
       buckets.map((bucket) => {
         return {
-          bucket,
+          bucket: bucket.bucket,
+          source: bucket.source,
           end: this.maxOpId
         };
       })

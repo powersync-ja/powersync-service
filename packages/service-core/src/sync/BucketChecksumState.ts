@@ -138,20 +138,23 @@ export class BucketChecksumState {
       }
 
       // Re-check updated buckets only
-      let checksumLookups: string[] = [];
+      let checksumLookups: storage.BucketChecksumRequest[] = [];
 
       let newChecksums = new Map<string, util.BucketChecksum>();
-      for (let bucket of bucketDescriptionMap.keys()) {
-        if (!updatedBuckets.has(bucket)) {
-          const existing = this.lastChecksums.get(bucket);
+      for (let desc of bucketDescriptionMap.values()) {
+        if (!updatedBuckets.has(desc.bucket)) {
+          const existing = this.lastChecksums.get(desc.bucket);
           if (existing == null) {
             // If this happens, it means updatedBuckets did not correctly include all new buckets
-            throw new ServiceAssertionError(`Existing checksum not found for bucket ${bucket}`);
+            throw new ServiceAssertionError(`Existing checksum not found for bucket ${desc}`);
           }
           // Bucket is not specifically updated, and we have a previous checksum
-          newChecksums.set(bucket, existing);
+          newChecksums.set(desc.bucket, existing);
         } else {
-          checksumLookups.push(bucket);
+          checksumLookups.push({
+            bucket: desc.bucket,
+            source: desc[SOURCE]
+          });
         }
       }
 
@@ -164,7 +167,7 @@ export class BucketChecksumState {
       checksumMap = newChecksums;
     } else {
       // Re-check all buckets
-      const bucketList = [...bucketDescriptionMap.keys()];
+      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b[SOURCE] }));
       checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
     }
 

@@ -17,6 +17,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    const request = bucketRequest(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.markAllSnapshotDone('1/1');
@@ -51,12 +52,11 @@ bucket_definitions:
     });
 
     const checkpoint = result!.flushed_op;
+    const request2 = bucketRequest(syncRules);
 
-    const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
-    );
+    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request2]));
     const dataBefore = batchBefore.chunkData.data;
-    const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
+    const checksumBefore = await bucketStorage.getChecksums(checkpoint, [request2]);
 
     expect(dataBefore).toMatchObject([
       {
@@ -84,13 +84,11 @@ bucket_definitions:
       minBucketChanges: 1
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
-    );
+    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataAfter = batchAfter.chunkData.data;
-    const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint, [request]);
     bucketStorage.clearChecksumCache();
-    const checksumAfter2 = await bucketStorage.getChecksums(checkpoint, ['global[]']);
+    const checksumAfter2 = await bucketStorage.getChecksums(checkpoint, [request]);
 
     expect(batchAfter.targetOp).toEqual(3n);
     expect(dataAfter).toMatchObject([
@@ -108,8 +106,8 @@ bucket_definitions:
       }
     ]);
 
-    expect(checksumAfter.get('global[]')).toEqual(checksumBefore.get('global[]'));
-    expect(checksumAfter2.get('global[]')).toEqual(checksumBefore.get('global[]'));
+    expect(checksumAfter.get(request.bucket)).toEqual(checksumBefore.get(request.bucket));
+    expect(checksumAfter2.get(request.bucket)).toEqual(checksumBefore.get(request.bucket));
 
     test_utils.validateCompactedBucket(dataBefore, dataAfter);
   });
@@ -167,12 +165,11 @@ bucket_definitions:
     });
 
     const checkpoint = result!.flushed_op;
+    const request = bucketRequest(syncRules);
 
-    const batchBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
-    );
+    const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = batchBefore.chunkData.data;
-    const checksumBefore = await bucketStorage.getChecksums(checkpoint, ['global[]']);
+    const checksumBefore = await bucketStorage.getChecksums(checkpoint, [request]);
 
     // op_id sequence depends on the storage implementation
     expect(dataBefore).toMatchObject([
@@ -201,12 +198,10 @@ bucket_definitions:
       minBucketChanges: 1
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)])
-    );
+    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataAfter = batchAfter.chunkData.data;
     bucketStorage.clearChecksumCache();
-    const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['global[]']);
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint, [request]);
 
     expect(batchAfter.targetOp).toBeLessThanOrEqual(checkpoint);
     expect(dataAfter).toMatchObject([
@@ -223,8 +218,8 @@ bucket_definitions:
         op: 'PUT'
       }
     ]);
-    expect(checksumAfter.get('global[]')).toEqual({
-      ...checksumBefore.get('global[]'),
+    expect(checksumAfter.get(request.bucket)).toEqual({
+      ...checksumBefore.get(request.bucket),
       count: 2
     });
 
@@ -275,7 +270,8 @@ bucket_definitions:
     });
 
     const checkpoint1 = result!.flushed_op;
-    await bucketStorage.getChecksums(checkpoint1, ['global[]']);
+    const request = bucketRequest(syncRules);
+    await bucketStorage.getChecksums(checkpoint1, [request]);
 
     const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
@@ -297,20 +293,18 @@ bucket_definitions:
       minBucketChanges: 1
     });
 
-    const batchAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint2, [bucketRequest(syncRules)])
-    );
+    const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint2, [request]));
     const dataAfter = batchAfter.chunkData.data;
     await bucketStorage.clearChecksumCache();
-    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, [request]);
 
     expect(dataAfter).toMatchObject([
       {
         op: 'CLEAR'
       }
     ]);
-    expect(checksumAfter.get('global[]')).toEqual({
-      bucket: 'global[]',
+    expect(checksumAfter.get(request.bucket)).toEqual({
+      bucket: request.bucket,
       count: 1,
       checksum: dataAfter[0].checksum
     });
@@ -408,12 +402,9 @@ bucket_definitions:
       minBucketChanges: 1
     });
 
-    const batchAfter = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [
-        bucketRequest(syncRules, 'grouped["b1"]', 0n),
-        bucketRequest(syncRules, 'grouped["b2"]', 0n)
-      ])
-    );
+    const groupedBuckets = ['b1', 'b2'];
+    const groupedRequests = groupedBuckets.map((bucket) => bucketRequest(syncRules, `grouped["${bucket}"]`, 0n));
+    const batchAfter = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, groupedRequests));
     const dataAfter = batchAfter.flatMap((b) => b.chunkData.data);
 
     // The op_ids will vary between MongoDB and Postgres storage
@@ -506,9 +497,10 @@ bucket_definitions:
     });
     const checkpoint2 = result2!.flushed_op;
     await bucketStorage.clearChecksumCache();
-    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
-    expect(checksumAfter.get('global[]')).toMatchObject({
-      bucket: 'global[]',
+    const request = bucketRequest(syncRules);
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, [request]);
+    expect(checksumAfter.get(request.bucket)).toMatchObject({
+      bucket: request.bucket,
       count: 4
     });
   });
@@ -523,6 +515,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    const request = bucketRequest(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.markAllSnapshotDone('1/1');
@@ -548,7 +541,7 @@ bucket_definitions:
     });
 
     // Get checksums here just to populate the cache
-    await bucketStorage.getChecksums(result!.flushed_op, ['global[]']);
+    await bucketStorage.getChecksums(result!.flushed_op, [request]);
     const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.save({
         sourceTable: TEST_TABLE,
@@ -569,9 +562,9 @@ bucket_definitions:
     });
 
     const checkpoint2 = result2!.flushed_op;
-    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, ['global[]']);
-    expect(checksumAfter.get('global[]')).toMatchObject({
-      bucket: 'global[]',
+    const checksumAfter = await bucketStorage.getChecksums(checkpoint2, [request]);
+    expect(checksumAfter.get(request.bucket)).toMatchObject({
+      bucket: request.bucket,
       count: 1
     });
   });

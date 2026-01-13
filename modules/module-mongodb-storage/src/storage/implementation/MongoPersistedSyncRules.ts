@@ -15,6 +15,7 @@ import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly slot_name: string;
+  public readonly hydrationState: HydrationState;
 
   constructor(
     public readonly id: number,
@@ -24,20 +25,18 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     public readonly mapping: BucketDefinitionMapping
   ) {
     this.slot_name = slot_name ?? `powersync_${id}`;
+    if (!this.sync_rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+      this.hydrationState = DEFAULT_HYDRATION_STATE;
+    }
+    if (this.mapping == null) {
+      this.hydrationState = versionedHydrationState(this.id);
+    } else {
+      this.hydrationState = new MongoHydrationState(this.mapping);
+    }
   }
 
   hydratedSyncRules(): HydratedSyncRules {
-    if (this.mapping == null) {
-      if (this.sync_rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
-        return this.sync_rules.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
-      } else {
-        return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(this.id) });
-      }
-    } else {
-      return this.sync_rules.hydrate({
-        hydrationState: new MongoHydrationState(this.mapping)
-      });
-    }
+    return this.sync_rules.hydrate({ hydrationState: this.hydrationState });
   }
 }
 

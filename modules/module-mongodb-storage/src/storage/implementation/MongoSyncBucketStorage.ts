@@ -8,6 +8,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
+  BucketChecksumRequest,
   BucketDataRequest,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
@@ -83,7 +84,7 @@ export class MongoSyncBucketStorage
     super();
     this.db = factory.db;
     this.mapping = this.sync_rules.mapping;
-    this.checksums = new MongoChecksums(this.db, this.group_id, options?.checksumOptions);
+    this.checksums = new MongoChecksums(this.db, this.group_id, this.mapping, options?.checksumOptions);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
@@ -525,7 +526,7 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(checkpoint: utils.InternalOpId, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
     return this.checksums.getChecksums(checkpoint, buckets);
   }
 

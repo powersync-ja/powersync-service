@@ -3,6 +3,7 @@ import {
   addPartialChecksums,
   bson,
   BucketChecksum,
+  BucketChecksumRequest,
   ChecksumCache,
   ChecksumMap,
   FetchPartialBucketChecksum,
@@ -13,6 +14,7 @@ import {
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
  * Checksum calculation options, primarily for tests.
@@ -47,6 +49,7 @@ export class MongoChecksums {
   constructor(
     private db: PowerSyncMongo,
     private group_id: number,
+    private mapping: BucketDefinitionMapping,
     private options?: MongoChecksumOptions
   ) {}
 
@@ -68,7 +71,7 @@ export class MongoChecksums {
    * Calculate checksums, utilizing the cache for partial checkums, and querying the remainder from
    * the database (bucket_state + bucket_data).
    */
-  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksums(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
     return this.cache.getChecksumMap(checkpoint, buckets);
   }
 
@@ -92,10 +95,12 @@ export class MongoChecksums {
 
     const preFilters: any[] = [];
     for (let request of batch) {
+      const sourceId = this.mapping.bucketSourceId(request.source);
+
       if (request.start == null) {
         preFilters.push({
           _id: {
-            g: this.group_id,
+            g: sourceId,
             b: request.bucket
           },
           'compacted_state.op_id': { $exists: true, $lte: request.end }
@@ -206,15 +211,16 @@ export class MongoChecksums {
     while (requests.size > 0) {
       const filters: any[] = [];
       for (let request of requests.values()) {
+        const sourceId = this.mapping.bucketSourceId(request.source);
         filters.push({
           _id: {
             $gt: {
-              g: this.group_id,
+              g: sourceId,
               b: request.bucket,
               o: request.start ?? new bson.MinKey()
             },
             $lte: {
-              g: this.group_id,
+              g: sourceId,
               b: request.bucket,
               o: request.end
             }
@@ -291,7 +297,8 @@ export class MongoChecksums {
           requests.set(bucket, {
             bucket,
             start: doc.last_op,
-            end: req!.end
+            end: req!.end,
+            source: req!.source
           });
         } else {
           // All done for this bucket

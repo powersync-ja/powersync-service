@@ -132,7 +132,7 @@ export interface SyncRulesBucketStorage
    * This may be slow, depending on the size of the buckets.
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
-  getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
+  getChecksums(checkpoint: util.InternalOpId, buckets: BucketChecksumRequest[]): Promise<util.ChecksumMap>;
 
   /**
    * Clear checksum cache. Primarily intended for tests.
@@ -147,6 +147,10 @@ export interface SyncRulesBucketStorageListener {
 export interface BucketDataRequest {
   bucket: string;
   start: util.InternalOpId;
+  source: BucketDataSource;
+}
+export interface BucketChecksumRequest {
+  bucket: string;
   source: BucketDataSource;
 }
 

@@ -180,7 +180,8 @@ export const validate = routeDefinition({
           }),
           hydratedSyncRules() {
             return this.sync_rules.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
-          }
+          },
+          hydrationState: DEFAULT_HYDRATION_STATE
         };
       },
       sync_rules_content: content,

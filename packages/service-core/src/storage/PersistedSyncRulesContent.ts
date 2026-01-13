@@ -1,4 +1,4 @@
-import { SqlSyncRules, HydratedSyncRules } from '@powersync/service-sync-rules';
+import { SqlSyncRules, HydratedSyncRules, HydrationState } from '@powersync/service-sync-rules';
 import { ReplicationLock } from './ReplicationLock.js';
 
 export interface ParseSyncRulesOptions {
@@ -30,6 +30,10 @@ export interface PersistedSyncRules {
   readonly id: number;
   readonly sync_rules: SqlSyncRules;
   readonly slot_name: string;
+  /**
+   * For testing only.
+   */
+  readonly hydrationState: HydrationState;
 
   hydratedSyncRules(): HydratedSyncRules;
 }
