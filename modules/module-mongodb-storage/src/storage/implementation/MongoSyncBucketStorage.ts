@@ -194,13 +194,18 @@ export class MongoSyncBucketStorage
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
-    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+    const { schema, name, objectId, replicaIdColumns, replicationIdentity } = entity_descriptor;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       type_oid: column.typeId
     }));
+
+    // Determine if we need to store current_data for this table
+    // If REPLICA IDENTITY FULL, we always get complete rows, so no need to store
+    const storeCurrentData = replicationIdentity !== 'full';
+
     let result: storage.ResolveTableResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
@@ -215,6 +220,7 @@ export class MongoSyncBucketStorage
         filter.relation_id = objectId;
       }
       let doc = await col.findOne(filter, { session });
+      let needsUpdate = false;
       if (doc == null) {
         doc = {
           _id: new bson.ObjectId(),
@@ -226,11 +232,21 @@ export class MongoSyncBucketStorage
           replica_id_columns: null,
           replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false,
-          snapshot_status: undefined
+          snapshot_status: undefined,
+          store_current_data: storeCurrentData
         };
 
         await col.insertOne(doc, { session });
+      } else if (doc.store_current_data !== storeCurrentData) {
+        // Update if the store_current_data flag has changed
+        needsUpdate = true;
+        doc.store_current_data = storeCurrentData;
       }
+
+      if (needsUpdate) {
+        await col.updateOne({ _id: doc._id }, { $set: { store_current_data: storeCurrentData } }, { session });
+      }
+
       const sourceTable = new storage.SourceTable({
         id: doc._id,
         connectionTag: connection_tag,
@@ -243,6 +259,7 @@ export class MongoSyncBucketStorage
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
       sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
+      sourceTable.storeCurrentData = doc.store_current_data ?? true; // default to true for backwards compatibility
       sourceTable.snapshotStatus =
         doc.snapshot_status == null
           ? undefined
@@ -270,19 +287,20 @@ export class MongoSyncBucketStorage
           { session }
         )
         .toArray();
-      dropTables = truncate.map(
-        (doc) =>
-          new storage.SourceTable({
-            id: doc._id,
-            connectionTag: connection_tag,
-            objectId: doc.relation_id,
-            schema: doc.schema_name,
-            name: doc.table_name,
-            replicaIdColumns:
-              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true
-          })
-      );
+      dropTables = truncate.map((doc) => {
+        const table = new storage.SourceTable({
+          id: doc._id,
+          connectionTag: connection_tag,
+          objectId: doc.relation_id,
+          schema: doc.schema_name,
+          name: doc.table_name,
+          replicaIdColumns:
+            doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+          snapshotComplete: doc.snapshot_done ?? true
+        });
+        table.storeCurrentData = doc.store_current_data ?? true;
+        return table;
+      });
 
       result = {
         table: sourceTable,
