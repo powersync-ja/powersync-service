@@ -11,12 +11,7 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
   oldestUncommittedChange: null
 };
 
-export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
-  /**
-   * Alias for [Symbol.asyncDispose]
-   */
-  dispose(): Promise<void>;
-
+export interface BucketDataWriter {
   /**
    * Save an op, and potentially flush.
    *
@@ -45,6 +40,16 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * @returns null if there are no changes to flush.
    */
   flush(options?: BatchBucketFlushOptions): Promise<FlushedResult | null>;
+}
+
+export interface BucketStorageBatch
+  extends ObserverClient<BucketBatchStorageListener>,
+    AsyncDisposable,
+    BucketDataWriter {
+  /**
+   * Alias for [Symbol.asyncDispose]
+   */
+  dispose(): Promise<void>;
 
   /**
    * Flush and commit any saved ops. This creates a new checkpoint by default.

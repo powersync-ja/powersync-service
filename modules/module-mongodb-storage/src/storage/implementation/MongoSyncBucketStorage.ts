@@ -41,7 +41,7 @@ import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } f
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
-import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoBucketBatch, MongoBucketDataWriter } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
@@ -186,18 +186,22 @@ export class MongoSyncBucketStorage
 
     const parsedSyncRules = this.sync_rules.parsed(options);
 
-    const batch = new MongoBucketBatch({
+    const writer = new MongoBucketDataWriter({
       logger: options.logger,
       db: this.db,
-      syncRules: parsedSyncRules,
-      groupId: this.group_id,
       slotName: this.slot_name,
-      lastCheckpointLsn: checkpoint_lsn,
-      resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
-      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
-      markRecordUnavailable: options.markRecordUnavailable
+      markRecordUnavailable: options.markRecordUnavailable,
+      mapping: this.mapping,
+      rowProcessor: parsedSyncRules.hydratedSyncRules()
+    });
+    const batch = writer.forSyncRules({
+      syncRules: parsedSyncRules,
+
+      lastCheckpointLsn: checkpoint_lsn,
+      resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
+      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
     return batch;

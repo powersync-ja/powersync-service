@@ -64,11 +64,7 @@ export class PersistedBatch {
    */
   currentSize = 0;
 
-  constructor(
-    private group_id: number,
-    writtenSize: number,
-    options: { logger: Logger; mapping: BucketDefinitionMapping }
-  ) {
+  constructor(writtenSize: number, options: { logger: Logger; mapping: BucketDefinitionMapping }) {
     this.currentSize = writtenSize;
     this.logger = options.logger;
     this.mapping = options.mapping;

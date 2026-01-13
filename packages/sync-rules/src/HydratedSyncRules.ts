@@ -20,16 +20,49 @@ import {
   SqlEventDescriptor,
   SqliteInputValue,
   SqliteValue,
-  SqlSyncRules
+  SqlSyncRules,
+  TablePattern
 } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
+
+export interface RowProcessor {
+  readonly eventDescriptors: SqlEventDescriptor[];
+  readonly compatibility: CompatibilityContext;
+
+  getSourceTables(): TablePattern[];
+
+  tableTriggersEvent(table: SourceTableInterface): boolean;
+
+  tableSyncsData(table: SourceTableInterface): boolean;
+  tableSyncsParameters(table: SourceTableInterface): boolean;
+
+  applyRowContext<MaybeToast extends undefined = never>(
+    source: SqliteRow<SqliteInputValue | MaybeToast>
+  ): SqliteRow<SqliteValue | MaybeToast>;
+
+  /**
+   * Throws errors.
+   */
+  evaluateRow(options: EvaluateRowOptions): EvaluatedRow[];
+
+  evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] };
+
+  /**
+   * Throws errors.
+   */
+  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[];
+  evaluateParameterRowWithErrors(
+    table: SourceTableInterface,
+    row: SqliteRow
+  ): { results: EvaluatedParameters[]; errors: EvaluationError[] };
+}
 
 /**
  * Hydrated sync rules is sync rule definitions along with persisted state. Currently, the persisted state
  * specifically affects bucket names.
  */
-export class HydratedSyncRules {
+export class HydratedSyncRules implements RowProcessor {
   bucketSources: HydratedBucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
