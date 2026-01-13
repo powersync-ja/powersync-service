@@ -17,6 +17,15 @@
   "references": [
     {
       "path": "../"
+    },
+    {
+      "path": "../../../packages/service-core-tests"
+    },
+    {
+      "path": "../../module-mongodb-storage"
+    },
+    {
+      "path": "../../module-postgres-storage"
     }
   ]
 }

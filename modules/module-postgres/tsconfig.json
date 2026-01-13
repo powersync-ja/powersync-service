@@ -25,19 +25,10 @@
       "path": "../../packages/service-core"
     },
     {
-      "path": "../../packages/service-core-tests"
-    },
-    {
       "path": "../../libs/lib-services"
     },
     {
       "path": "../../libs/lib-postgres"
-    },
-    {
-      "path": "../module-mongodb-storage"
-    },
-    {
-      "path": "../module-postgres-storage"
     }
   ]
 }

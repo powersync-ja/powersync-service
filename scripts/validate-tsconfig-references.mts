@@ -5,9 +5,11 @@ import { fileURLToPath } from 'node:url';
 import fg from 'fast-glob';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const DEP_SECTIONS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'] as const;
+const PROD_DEP_SECTIONS = ['dependencies', 'peerDependencies', 'optionalDependencies'] as const;
+const DEV_DEP_SECTIONS = ['devDependencies'] as const;
 
-type DependencySection = (typeof DEP_SECTIONS)[number];
+type ProdDependencySection = (typeof PROD_DEP_SECTIONS)[number];
+type DevDependencySection = (typeof DEV_DEP_SECTIONS)[number];
 
 type PackageJson = {
   name?: string;
@@ -33,23 +35,24 @@ type WorkspacePackageInfo = {
   hasTsconfig: boolean;
 };
 
-type MissingDependencyRef = {
+type IssueBase = {
   dependent: string;
   dependentPath: string;
+  testTsconfigPath?: string;
+};
+
+type DependencyIssue = IssueBase & {
   dependency: string;
   dependencyPath: string;
 };
 
-type ExtraDependencyRef = {
-  dependent: string;
-  dependentPath: string;
+type ReferenceIssue = IssueBase & {
   reference: string;
   referencePath: string;
 };
 
-type InvalidTestRef = {
-  filePath: string;
-  invalid: string[];
+type TestReferenceIssue = ReferenceIssue & {
+  testTsconfigPath: string;
 };
 
 function isString(value: unknown): value is string {
@@ -60,11 +63,12 @@ function isWorkspacePackageInfo(value: WorkspacePackageInfo | undefined): value 
   return value !== undefined;
 }
 
-// Validates:
-// 1) Every folder with a tsconfig.json is referenced in the root tsconfig.json.
-// 2) Every workspace dependency is referenced in its package tsconfig.json.
-// 3) Every workspace tsconfig reference is declared as a dependency.
-// 4) Test tsconfig.json references only use ../ paths.
+// Validation steps:
+// 1) Root tsconfig.json references every folder with a tsconfig.json.
+// 2) Workspace dependencies are referenced in package tsconfig.json.
+// 3) Workspace devDependencies are referenced in package or test tsconfig.json.
+// 4) Package + test refs contain no extra workspace references.
+// 5) Workspace refs are not duplicated between package and test tsconfig.json.
 // Uses fast-glob and pnpm-workspace.yaml to find workspace packages.
 
 function toPosixPath(filePath: string): string {
@@ -118,6 +122,7 @@ function workspacePatternToPackageJson(pattern: string): string {
 }
 
 async function main() {
+  // Step 1: Root tsconfig must reference every tsconfig.json folder.
   const rootTsconfig = await readJson<TsconfigFile>(path.join(ROOT_DIR, 'tsconfig.json'));
   const referencePaths = new Set(
     (rootTsconfig.references ?? [])
@@ -189,10 +194,35 @@ async function main() {
     });
   }
 
-  const missingDependencyRefs: MissingDependencyRef[] = [];
-  const extraDependencyRefs: ExtraDependencyRef[] = [];
+  const missingProdDependencyRefs: DependencyIssue[] = [];
+  const extraPackageReferences: ReferenceIssue[] = [];
+  const missingDevDependencyRefs: DependencyIssue[] = [];
+  const extraTestReferences: TestReferenceIssue[] = [];
+  const duplicateWorkspaceReferences: ReferenceIssue[] = [];
   const workspaceByRefPath = new Map([...workspaceByName.values()].map((pkg) => [pkg.refPath, pkg]));
-  const invalidTestRefs: InvalidTestRef[] = [];
+
+  const testTsconfigFiles = await fg('**/test/tsconfig.json', {
+    cwd: ROOT_DIR,
+    ignore: ['**/node_modules'],
+    absolute: true,
+    onlyFiles: true,
+    dot: false,
+    unique: true
+  });
+  const testRefsByPackageDir = new Map<string, { filePath: string; rawRefs: string[]; normalizedRefs: Set<string> }>();
+  for (const filePath of testTsconfigFiles) {
+    const tsconfig = await readJson<TsconfigFile>(filePath);
+    const rawRefs = (tsconfig.references ?? []).map((ref) => ref?.path).filter(isString);
+    const testDir = path.dirname(filePath);
+    const normalizedRefs = new Set(rawRefs.map((refPath) => normalizeRefPath(refPath, testDir)));
+    const packageDir = path.resolve(testDir, '..');
+    testRefsByPackageDir.set(packageDir, {
+      filePath,
+      rawRefs,
+      normalizedRefs
+    });
+  }
+
   for (const workspacePkg of workspaceByName.values()) {
     if (!workspacePkg.hasTsconfig) {
       continue;
@@ -204,22 +234,60 @@ async function main() {
         .filter(isString)
         .map((refPath) => normalizeRefPath(refPath, workspacePkg.dir))
     );
-    const depNames = new Set(
-      DEP_SECTIONS.flatMap((section: DependencySection) => Object.keys(workspacePkg.pkgJson[section] ?? {}))
+    const prodDepNames = new Set(
+      PROD_DEP_SECTIONS.flatMap((section: ProdDependencySection) => Object.keys(workspacePkg.pkgJson[section] ?? {}))
     );
-    const referencedWorkspaceDeps = new Set(
+    const devDepNames = new Set(
+      DEV_DEP_SECTIONS.flatMap((section: DevDependencySection) => Object.keys(workspacePkg.pkgJson[section] ?? {}))
+    );
+    const testInfo = testRefsByPackageDir.get(path.resolve(workspacePkg.dir));
+
+    const pkgWorkspaceRefs = new Set(
       [...pkgReferences]
         .map((refPath) => workspaceByRefPath.get(refPath))
         .filter(isWorkspacePackageInfo)
         .map((refPkg) => refPkg.name)
     );
-    for (const depName of depNames) {
+
+    const testWorkspaceRefs = new Set<string>();
+    if (testInfo) {
+      for (const refPath of testInfo.normalizedRefs) {
+        if (refPath === workspacePkg.refPath) {
+          continue;
+        }
+        const refPkg = workspaceByRefPath.get(refPath);
+        if (!refPkg) {
+          continue;
+        }
+        testWorkspaceRefs.add(refPkg.name);
+      }
+    }
+
+    // Step 6: No duplicate workspace refs between package and test.
+    for (const refName of pkgWorkspaceRefs) {
+      if (testWorkspaceRefs.has(refName)) {
+        const refPkg = workspaceByName.get(refName);
+        if (!refPkg) {
+          continue;
+        }
+        duplicateWorkspaceReferences.push({
+          dependent: workspacePkg.name,
+          dependentPath: workspacePkg.refPath,
+          reference: refName,
+          referencePath: refPkg.refPath,
+          testTsconfigPath: testInfo?.filePath
+        });
+      }
+    }
+
+    // Step 3: Production dependencies must be referenced in package tsconfig.json.
+    for (const depName of prodDepNames) {
       const depPkg = workspaceByName.get(depName);
       if (!depPkg || !depPkg.hasTsconfig) {
         continue;
       }
-      if (!pkgReferences.has(depPkg.refPath)) {
-        missingDependencyRefs.push({
+      if (!pkgWorkspaceRefs.has(depName)) {
+        missingProdDependencyRefs.push({
           dependent: workspacePkg.name,
           dependentPath: workspacePkg.refPath,
           dependency: depName,
@@ -227,13 +295,32 @@ async function main() {
         });
       }
     }
-    for (const refName of referencedWorkspaceDeps) {
-      if (!depNames.has(refName)) {
+
+    // Step 4: Dev dependencies must be referenced in package or test tsconfig.json.
+    for (const depName of devDepNames) {
+      const depPkg = workspaceByName.get(depName);
+      if (!depPkg || !depPkg.hasTsconfig) {
+        continue;
+      }
+      if (!pkgWorkspaceRefs.has(depName) && !testWorkspaceRefs.has(depName)) {
+        missingDevDependencyRefs.push({
+          dependent: workspacePkg.name,
+          dependentPath: workspacePkg.refPath,
+          dependency: depName,
+          dependencyPath: depPkg.refPath,
+          testTsconfigPath: testInfo?.filePath
+        });
+      }
+    }
+
+    // Step 5: Package refs must map to workspace dependencies/devDependencies.
+    for (const refName of pkgWorkspaceRefs) {
+      if (!prodDepNames.has(refName) && !devDepNames.has(refName)) {
         const refPkg = workspaceByName.get(refName);
         if (!refPkg) {
           continue;
         }
-        extraDependencyRefs.push({
+        extraPackageReferences.push({
           dependent: workspacePkg.name,
           dependentPath: workspacePkg.refPath,
           reference: refName,
@@ -241,29 +328,28 @@ async function main() {
         });
       }
     }
-  }
-  const testTsconfigFiles = await fg('**/test/tsconfig.json', {
-    cwd: ROOT_DIR,
-    ignore: ['**/node_modules'],
-    absolute: true,
-    onlyFiles: true,
-    dot: false,
-    unique: true
-  });
-  for (const filePath of testTsconfigFiles) {
-    const tsconfig = await readJson<TsconfigFile>(filePath);
-    const refs = (tsconfig.references ?? []).map((ref) => ref?.path).filter(isString);
-    const invalid = refs.filter((refPath) => refPath != '../');
-    if (invalid.length > 0) {
-      invalidTestRefs.push({
-        filePath,
-        invalid
-      });
+
+    // Step 5: Test refs must map to workspace dependencies/devDependencies.
+    for (const refName of testWorkspaceRefs) {
+      if (!prodDepNames.has(refName) && !devDepNames.has(refName)) {
+        const refPkg = workspaceByName.get(refName);
+        if (!refPkg || !testInfo) {
+          continue;
+        }
+        extraTestReferences.push({
+          dependent: workspacePkg.name,
+          dependentPath: workspacePkg.refPath,
+          reference: refName,
+          referencePath: refPkg.refPath,
+          testTsconfigPath: testInfo.filePath
+        });
+      }
     }
   }
 
   let hasIssues = false;
 
+  // Step 1 report.
   if (missingTsconfigRefs.length > 0) {
     hasIssues = true;
     console.error('Missing references in root tsconfig.json:');
@@ -272,10 +358,11 @@ async function main() {
     }
   }
 
-  if (missingDependencyRefs.length > 0) {
+  // Step 2 report.
+  if (missingProdDependencyRefs.length > 0) {
     hasIssues = true;
-    console.error('Missing workspace dependency references (add to tsconfig.json):');
-    missingDependencyRefs
+    console.error('Missing workspace dependencies in tsconfig.json:');
+    missingProdDependencyRefs
       .sort((a, b) => {
         const byDependent = a.dependent.localeCompare(b.dependent);
         if (byDependent !== 0) {
@@ -288,10 +375,11 @@ async function main() {
       });
   }
 
-  if (extraDependencyRefs.length > 0) {
+  // Step 4 report (package refs).
+  if (extraPackageReferences.length > 0) {
     hasIssues = true;
-    console.error('Extra workspace tsconfig references (remove from tsconfig.json):');
-    extraDependencyRefs
+    console.error('Extra workspace refs in tsconfig.json:');
+    extraPackageReferences
       .sort((a, b) => {
         const byDependent = a.dependent.localeCompare(b.dependent);
         if (byDependent !== 0) {
@@ -306,17 +394,68 @@ async function main() {
       });
   }
 
-  if (invalidTestRefs.length > 0) {
+  // Step 3 report.
+  if (missingDevDependencyRefs.length > 0) {
     hasIssues = true;
-    console.error('Test tsconfig references must only include ../ - no other references:');
-    invalidTestRefs
-      .sort((a, b) => a.filePath.localeCompare(b.filePath))
+    console.error('Missing workspace devDependencies in tsconfig.json or test/tsconfig.json:');
+    missingDevDependencyRefs
+      .sort((a, b) => {
+        const byDependent = a.dependent.localeCompare(b.dependent);
+        if (byDependent !== 0) {
+          return byDependent;
+        }
+        return a.dependency.localeCompare(b.dependency);
+      })
       .forEach((item) => {
-        const relPath = toPosixPath(path.relative(ROOT_DIR, item.filePath));
-        console.error(`  - ${relPath}: ${item.invalid.join(', ')}`);
+        const testInfo = item.testTsconfigPath
+          ? ` (test tsconfig: ${toPosixPath(path.relative(ROOT_DIR, item.testTsconfigPath))})`
+          : '';
+        console.error(`  - ${item.dependentPath} missing ${item.dependency} (${item.dependencyPath})${testInfo}`);
       });
   }
 
+  // Step 4 report (test refs).
+  if (extraTestReferences.length > 0) {
+    hasIssues = true;
+    console.error('Extra workspace refs in test/tsconfig.json:');
+    extraTestReferences
+      .sort((a, b) => {
+        const byDependent = a.dependent.localeCompare(b.dependent);
+        if (byDependent !== 0) {
+          return byDependent;
+        }
+        return a.reference.localeCompare(b.reference);
+      })
+      .forEach((item) => {
+        console.error(
+          `  - ${item.dependentPath} references ${item.reference} (${item.referencePath}) in ${toPosixPath(path.relative(ROOT_DIR, item.testTsconfigPath))}`
+        );
+      });
+  }
+
+  // Step 5 report.
+  if (duplicateWorkspaceReferences.length > 0) {
+    hasIssues = true;
+    console.error('Duplicate workspace refs between tsconfig.json and test/tsconfig.json:');
+    duplicateWorkspaceReferences
+      .sort((a, b) => {
+        const byDependent = a.dependent.localeCompare(b.dependent);
+        if (byDependent !== 0) {
+          return byDependent;
+        }
+        return a.reference.localeCompare(b.reference);
+      })
+      .forEach((item) => {
+        const testInfo = item.testTsconfigPath
+          ? ` in ${toPosixPath(path.relative(ROOT_DIR, item.testTsconfigPath))}`
+          : '';
+        console.error(
+          `  - ${item.dependentPath}/tsconfig.json and test/tsconfig.json both reference ${item.reference} (${item.referencePath})${testInfo}`
+        );
+      });
+  }
+
+  // Extra sanity check: duplicate workspace names.
   if (duplicatePackageNames.size > 0) {
     hasIssues = true;
     console.error('Duplicate workspace package names:');
