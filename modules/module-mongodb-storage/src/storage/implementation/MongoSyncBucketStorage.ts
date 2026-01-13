@@ -633,7 +633,6 @@ export class MongoSyncBucketStorage
         }
       }
 
-      // TODO: Only delete if not used by other sync rules
       for (let [name, id] of Object.entries(doc.rule_mapping.definitions)) {
         if (keepSyncDefinitionIds.has(id)) {
           continue;
