@@ -603,6 +603,7 @@ export class MongoSyncBucketStorage
     );
 
     if (doc?.rule_mapping != null) {
+      // TODO: Only delete if not used by other sync rules
       for (let [name, id] of Object.entries(doc.rule_mapping.definitions)) {
         await this.retriedDelete(`deleting bucket data for ${name}`, signal, () =>
           this.db.bucket_data.deleteMany(
@@ -643,11 +644,10 @@ export class MongoSyncBucketStorage
       )
     );
 
-    // FIXME: handle refactored current_data structure
     await this.retriedDelete('deleting current data records', signal, () =>
       this.db.current_data.deleteMany(
         {
-          _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
+          _id: idPrefixFilter<SourceKey>({ g: this.group_id as any }, ['t', 'k'])
         },
         { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       )
@@ -665,15 +665,27 @@ export class MongoSyncBucketStorage
     // First remove the reference
     this.db.source_tables.updateMany({ sync_rules_ids: this.group_id }, { $pull: { sync_rules_ids: this.group_id } });
 
-    // Then delete any source tables no longer referenced
-    await this.retriedDelete('deleting source table records', signal, () =>
-      this.db.source_tables.deleteMany(
+    // Then delete the data associated with unreferenced source tables
+    const tables = await this.db.source_tables
+      .find(
         {
           sync_rules_ids: []
         },
-        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        { projection: { _id: 1 } }
       )
-    );
+      .toArray();
+
+    for (let table of tables) {
+      await this.retriedDelete('deleting current data records for table', signal, () =>
+        this.db.current_data.deleteMany(
+          {
+            _id: idPrefixFilter<SourceKey>({ g: 0, t: table._id }, ['k'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        )
+      );
+      await this.db.source_tables.deleteOne({ _id: table._id }); // Delete the source table record itself
+    }
   }
 
   private async retriedDelete(

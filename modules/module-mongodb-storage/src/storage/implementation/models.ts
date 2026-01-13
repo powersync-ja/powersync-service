@@ -14,7 +14,7 @@ export type ReplicaId = bson.UUID | bson.Document | any;
 
 export interface SourceKey {
   /** group_id */
-  g: number;
+  g: 0;
   /** source table id */
   t: bson.ObjectId;
   /** source key */

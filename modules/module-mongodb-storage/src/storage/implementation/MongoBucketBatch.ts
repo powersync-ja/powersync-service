@@ -216,7 +216,7 @@ export class MongoBucketBatch
       // the order of processing, which then becomes really tricky to manage.
       // This now takes 2+ queries, but doesn't have any issues with order of operations.
       const sizeLookups: SourceKey[] = batch.batch.map((r) => {
-        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
+        return { g: 0, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
       });
 
       sizes = new Map<string, number>();
@@ -259,7 +259,7 @@ export class MongoBucketBatch
         continue;
       }
       const lookups: SourceKey[] = b.map((r) => {
-        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
+        return { g: 0, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
       });
       let current_data_lookup = new Map<string, CurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
@@ -340,7 +340,7 @@ export class MongoBucketBatch
     let existing_lookups: bson.Binary[] = [];
     let new_lookups: bson.Binary[] = [];
 
-    const before_key: SourceKey = { g: this.group_id, t: mongoTableId(record.sourceTable.id), k: beforeId };
+    const before_key: SourceKey = { g: 0, t: mongoTableId(record.sourceTable.id), k: beforeId };
 
     if (this.skipExistingRows) {
       if (record.tag == SaveOperationTag.INSERT) {
@@ -553,7 +553,7 @@ export class MongoBucketBatch
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key: SourceKey = { g: this.group_id, t: mongoTableId(sourceTable.id), k: afterId };
+      const after_key: SourceKey = { g: 0, t: mongoTableId(sourceTable.id), k: afterId };
       batch.upsertCurrentData(after_key, {
         data: afterData,
         buckets: new_buckets,
@@ -1018,7 +1018,7 @@ export class MongoBucketBatch
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
         const current_data_filter: mongo.Filter<CurrentDataDocument> = {
-          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: mongoTableId(sourceTable.id) }, ['k']),
+          _id: idPrefixFilter<SourceKey>({ g: 0, t: mongoTableId(sourceTable.id) }, ['k']),
           // Skip soft-deleted data
           pending_delete: { $exists: false }
         };

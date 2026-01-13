@@ -218,7 +218,7 @@ export class PersistedBatch {
           document: {
             _id: op_id,
             key: {
-              g: this.group_id,
+              g: 0,
               t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
@@ -240,7 +240,7 @@ export class PersistedBatch {
           document: {
             _id: op_id,
             key: {
-              g: this.group_id,
+              g: 0,
               t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
