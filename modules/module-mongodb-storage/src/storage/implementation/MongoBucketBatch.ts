@@ -901,7 +901,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     });
   }
 
-  private async withReplicationTransaction(
+  async withReplicationTransaction(
     description: string,
     callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>
   ): Promise<void> {

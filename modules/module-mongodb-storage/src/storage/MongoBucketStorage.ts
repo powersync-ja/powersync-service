@@ -319,10 +319,13 @@ export class MongoBucketStorage
       const doc: SyncRuleDocument = {
         _id: id,
         content: options.content,
-        last_checkpoint: null,
+        last_checkpoint: activeSyncRules?.last_checkpoint ?? null,
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,
-        keepalive_op: null,
+        // HACK: copy the op from the active sync rules, if any.
+        // This specifically helps for the case of the new sync rules not replicating anything new.
+        // FIXME: Make sure this is properly sound and tested.
+        keepalive_op: activeSyncRules?.last_checkpoint ? String(activeSyncRules.last_checkpoint) : null,
         snapshot_done: false,
         snapshot_lsn: undefined,
         state: storage.SyncRuleState.PROCESSING,
