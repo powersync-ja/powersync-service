@@ -377,10 +377,10 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
         };
 
         await col.insertOne(doc, { session });
-        docs.push(doc);
+        matchingDocs.push(doc);
       }
 
-      const sourceTables = docs.map((doc) => {
+      const sourceTables = matchingDocs.map((doc) => {
         const sourceTable = new storage.SourceTable({
           id: doc._id,
           connectionTag: connection_tag,
@@ -501,6 +501,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     options?: storage.BucketBatchCommitOptions
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
+
     if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
