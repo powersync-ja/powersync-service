@@ -14,6 +14,8 @@ export interface SqlEngine {
 
 export interface PreparedStatement {
   evaluateScalar(params: SqliteValue[]): SqliteValue[] | undefined;
+
+  evaluateMultiple(params: SqliteValue[]): SqliteValue[][];
 }
 
 /**
@@ -30,6 +32,9 @@ export function nodeSqlEngine(module: typeof import('node:sqlite')): SqlEngine {
         evaluateScalar(params) {
           const row = prepared.get(...params) as unknown as SqliteValue[];
           return row;
+        },
+        evaluateMultiple(params) {
+          return prepared.all(...params) as unknown as SqliteValue[][];
         }
       };
     },

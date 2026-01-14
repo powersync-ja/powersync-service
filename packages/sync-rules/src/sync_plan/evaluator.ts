@@ -1,13 +1,22 @@
-import { UnscopedParameterLookup } from '../BucketParameterQuerier.js';
-import { BucketDataSource, ParameterIndexLookupCreator } from '../BucketSource.js';
+import { BucketInclusionReason } from '../BucketDescription.js';
+import { PendingQueriers, UnscopedParameterLookup } from '../BucketParameterQuerier.js';
+import {
+  BucketDataSource,
+  BucketSource,
+  BucketSourceType,
+  CreateSourceParams,
+  HydratedBucketSource,
+  ParameterIndexLookupCreator
+} from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { ParameterLookupScope } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
+import { GetQuerierOptions, RequestedStream, SqlSyncRules } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
 import {
   EvaluateRowOptions,
   idFromData,
+  RequestParameters,
   SourceSchema,
   SqliteJsonRow,
   SqliteJsonValue,
@@ -17,8 +26,10 @@ import {
   UnscopedEvaluationResult
 } from '../types.js';
 import { filterJsonRow, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
+import { isValidParameterValue, isValidParameterValueRow, RequestParameterEvaluators } from './lookup_stages.js';
 import * as plan from './plan.js';
-import { prepareRowEvaluator, RowEvaluator, SqlEngine } from './sql_engine.js';
+import { PreparedQuerier, StreamInput } from './querier_impl.js';
+import { prepareRowEvaluator, RowEvaluator, SqlBuilder, SqlEngine } from './sql_engine.js';
 
 export interface StreamEvaluationContext {
   engine: SqlEngine;
@@ -42,6 +53,15 @@ export function addPrecompiledSyncPlanToRules(
     const prepared = new PreparedParameterIndexLookupCreator(parameter, context);
     preparedLookups.set(parameter, prepared);
     rules.bucketParameterLookupSources.push(prepared);
+  }
+
+  const streamInput: StreamInput = {
+    ...context,
+    preparedBuckets,
+    preparedLookups
+  };
+  for (const stream of plan.streams) {
+    rules.bucketSources.push(new StreamBucketSource(stream, streamInput));
   }
 }
 
@@ -85,9 +105,7 @@ class PreparedStreamDataSource {
         const id = idFromData(record);
 
         for (const bucketParameter of source.partitionValues) {
-          if (bucketParameter == null || !isJsonValue(bucketParameter)) {
-            // All parameters are compared via the equals operator, and null is not equal to anything. Also, we can only
-            // persist JSON values
+          if (!isValidParameterValue(bucketParameter)) {
             continue row;
           }
         }
@@ -195,23 +213,18 @@ class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator
     }
 
     try {
-      row: for (const outputRow of this.evaluator.evaluate(row)) {
+      for (const outputRow of this.evaluator.evaluate(row)) {
+        if (!isValidParameterValueRow(outputRow.outputs) || !isValidParameterValueRow(outputRow.partitionValues)) {
+          continue;
+        }
+
         const bucketParameters: Record<string, SqliteJsonValue> = {};
         for (let i = 0; i < outputRow.outputs.length; i++) {
           const value = outputRow.outputs[i];
-          if (value == null || !isJsonValue(value)) {
-            continue row;
-          }
-
           bucketParameters[i.toString()] = value;
         }
 
-        for (const parameter of outputRow.partitionValues) {
-          if (parameter == null || !isJsonValue(parameter)) {
-            continue row;
-          }
-        }
-        const lookup = UnscopedParameterLookup.normalized(outputRow.partitionValues as SqliteJsonValue[]);
+        const lookup = UnscopedParameterLookup.normalized(outputRow.partitionValues);
         results.push({ lookup, bucketParameters: [bucketParameters] });
       }
     } catch (e) {
@@ -223,5 +236,84 @@ class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
     return this.source.sourceTable.matches(table);
+  }
+}
+
+class StreamBucketSource implements BucketSource {
+  readonly dataSources: BucketDataSource[] = [];
+  readonly parameterIndexLookupCreators: ParameterIndexLookupCreator[] = [];
+
+  constructor(
+    readonly stream: plan.CompiledSyncStream,
+    private readonly input: StreamInput
+  ) {
+    for (const querier of stream.queriers) {
+      const mappedSource = input.preparedBuckets.get(querier.bucket)!;
+      this.dataSources.push(mappedSource);
+    }
+  }
+
+  get name(): string {
+    return this.stream.stream.name;
+  }
+
+  get subscribedToByDefault(): boolean {
+    return this.stream.stream.isSubscribedByDefault;
+  }
+
+  get type(): BucketSourceType {
+    return BucketSourceType.SYNC_STREAM;
+  }
+
+  debugRepresentation() {
+    throw new Error('debugRepresentation not implemented.');
+  }
+
+  hydrate(params: CreateSourceParams): HydratedBucketSource {
+    const queriers = this.stream.queriers.map((q) => new PreparedQuerier(this.stream.stream, q, this.input));
+
+    return {
+      definition: this,
+      pushBucketParameterQueriers: (result, options) => {
+        const subscriptions = options.streams[this.name] ?? [];
+        if (!this.subscribedToByDefault && !subscriptions.length) {
+          // The client is not subscribing to this stream, so don't query buckets related to it.
+          return;
+        }
+
+        let hasExplicitDefaultSubscription = false;
+        const activeQueriers: { querier: PreparedQuerier; partialInstantiation: RequestParameterEvaluators }[] = [];
+        for (const querier of queriers) {
+          const partialInstantiation = querier.partialInstantiationForGlobalRequestdata(result, options);
+          if (partialInstantiation == null) {
+            // Nothing in this request can fullfil the querier, continue
+            continue;
+          }
+
+          activeQueriers.push({ querier, partialInstantiation });
+        }
+
+        for (const subscription of subscriptions) {
+          let subscriptionParams = options.globalParameters;
+          if (subscription.parameters != null) {
+            subscriptionParams = subscriptionParams.withAddedStreamParameters(subscription.parameters);
+          } else {
+            hasExplicitDefaultSubscription = true;
+          }
+
+          for (const { querier, partialInstantiation } of activeQueriers) {
+            querier.querierForSubscription(params, result, subscriptionParams, subscription, partialInstantiation);
+          }
+        }
+
+        // If the stream is subscribed to by default and there is no explicit subscription that would match the default
+        // subscription, also include the default querier.
+        if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+          for (const { querier, partialInstantiation } of activeQueriers) {
+            querier.querierForSubscription(params, result, options.globalParameters, null, partialInstantiation);
+          }
+        }
+      }
+    };
   }
 }

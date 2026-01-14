@@ -194,6 +194,10 @@ export function isColumnSqlParameterValue(source: SqlParameterValue): source is 
   return (source as any).column != null;
 }
 
+export function isRequestSqlParameterValue(source: SqlParameterValue): source is RequestSqlParameterValue {
+  return (source as any).request != null;
+}
+
 /**
  * A value that resolves to a given column in a row being processed.
  */
