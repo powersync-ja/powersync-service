@@ -3,6 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import fg from 'fast-glob';
+import { findWorkspacePackages, type Project } from '@pnpm/workspace.find-packages';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROD_DEP_SECTIONS = ['dependencies', 'peerDependencies', 'optionalDependencies'] as const;
@@ -10,14 +11,6 @@ const DEV_DEP_SECTIONS = ['devDependencies'] as const;
 
 type ProdDependencySection = (typeof PROD_DEP_SECTIONS)[number];
 type DevDependencySection = (typeof DEV_DEP_SECTIONS)[number];
-
-type PackageJson = {
-  name?: string;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
-};
 
 type TsconfigReference = {
   path?: string;
@@ -28,10 +21,8 @@ type TsconfigFile = {
 };
 
 type WorkspacePackageInfo = {
-  name: string;
   refPath: string;
-  pkgJson: PackageJson;
-  dir: string;
+  project: Project;
   hasTsconfig: boolean;
 };
 
@@ -89,38 +80,6 @@ async function readJson<T>(filePath: string): Promise<T> {
   return JSON.parse(raw);
 }
 
-async function readWorkspacePatterns(workspaceFile: string): Promise<string[]> {
-  const raw = await fs.readFile(workspaceFile, 'utf8');
-  const lines = raw.split(/\r?\n/);
-  const patterns: string[] = [];
-  let inPackages = false;
-  for (const line of lines) {
-    if (!inPackages) {
-      if (/^\s*packages\s*:/.test(line)) {
-        inPackages = true;
-      }
-      continue;
-    }
-    if (/^\s*$/.test(line) || /^\s*#/.test(line)) {
-      continue;
-    }
-    const match = line.match(/^\s*-\s*['"]?(.+?)['"]?\s*$/);
-    if (match) {
-      patterns.push(match[1]);
-      continue;
-    }
-    if (/^\S/.test(line)) {
-      break;
-    }
-  }
-  return patterns;
-}
-
-function workspacePatternToPackageJson(pattern: string): string {
-  const normalized = pattern.replace(/\/+$/, '');
-  return path.posix.join(normalized, 'package.json');
-}
-
 async function main() {
   // Step 1: Root tsconfig must reference every tsconfig.json folder.
   const rootTsconfig = await readJson<TsconfigFile>(path.join(ROOT_DIR, 'tsconfig.json'));
@@ -147,38 +106,22 @@ async function main() {
 
   const missingTsconfigRefs = [...tsconfigRefPaths].filter((refPath) => !referencePaths.has(refPath));
 
-  const workspacePatterns = await readWorkspacePatterns(path.join(ROOT_DIR, 'pnpm-workspace.yaml'));
-  const includePatterns = workspacePatterns.filter((pattern) => !pattern.startsWith('!'));
-  const excludePatterns = workspacePatterns
-    .filter((pattern) => pattern.startsWith('!'))
-    .map((pattern) => pattern.slice(1));
-
-  const packageJsonPatterns = includePatterns.map(workspacePatternToPackageJson);
-  const packageJsonFiles = await fg(packageJsonPatterns, {
-    cwd: ROOT_DIR,
-    ignore: excludePatterns,
-    absolute: true,
-    onlyFiles: true,
-    dot: false,
-    unique: true
-  });
-  const workspacePackageDirs = [...new Set(packageJsonFiles.map(path.dirname))]
-    .map((dir) => ({
-      dir,
-      relPath: toPosixPath(path.relative(ROOT_DIR, dir))
-    }))
-    .filter((item) => item.relPath && item.relPath !== '.');
+  const workspacePackages = await findWorkspacePackages(ROOT_DIR);
 
   const workspaceByName = new Map<string, WorkspacePackageInfo>();
   const duplicatePackageNames = new Map<string, string[]>();
 
-  for (const item of workspacePackageDirs) {
-    const pkgJson = await readJson<PackageJson>(path.join(item.dir, 'package.json'));
-    const name = pkgJson.name;
+  for (const item of workspacePackages) {
+    const name = item.manifest.name;
     if (!name) {
       continue;
     }
-    const refPath = `./${item.relPath}`;
+
+    const relPath = path.relative(ROOT_DIR, item.rootDirRealPath);
+    if (relPath == '') {
+      continue;
+    }
+    const refPath = `./${relPath}`;
     if (workspaceByName.has(name)) {
       const list = duplicatePackageNames.get(name) ?? [];
       list.push(refPath);
@@ -186,11 +129,9 @@ async function main() {
       continue;
     }
     workspaceByName.set(name, {
-      name,
+      project: item,
       refPath,
-      pkgJson,
-      dir: item.dir,
-      hasTsconfig: tsconfigDirSet.has(path.resolve(item.dir))
+      hasTsconfig: tsconfigDirSet.has(item.rootDirRealPath)
     });
   }
 
@@ -227,26 +168,30 @@ async function main() {
     if (!workspacePkg.hasTsconfig) {
       continue;
     }
-    const tsconfig = await readJson<TsconfigFile>(path.join(workspacePkg.dir, 'tsconfig.json'));
+    const tsconfig = await readJson<TsconfigFile>(path.join(workspacePkg.project.rootDir, 'tsconfig.json'));
     const pkgReferences = new Set(
       (tsconfig.references ?? [])
         .map((ref) => ref?.path)
         .filter(isString)
-        .map((refPath) => normalizeRefPath(refPath, workspacePkg.dir))
+        .map((refPath) => normalizeRefPath(refPath, workspacePkg.project.rootDir))
     );
     const prodDepNames = new Set(
-      PROD_DEP_SECTIONS.flatMap((section: ProdDependencySection) => Object.keys(workspacePkg.pkgJson[section] ?? {}))
+      PROD_DEP_SECTIONS.flatMap((section: ProdDependencySection) =>
+        Object.keys(workspacePkg.project.manifest[section] ?? {})
+      )
     );
     const devDepNames = new Set(
-      DEV_DEP_SECTIONS.flatMap((section: DevDependencySection) => Object.keys(workspacePkg.pkgJson[section] ?? {}))
+      DEV_DEP_SECTIONS.flatMap((section: DevDependencySection) =>
+        Object.keys(workspacePkg.project.manifest[section] ?? {})
+      )
     );
-    const testInfo = testRefsByPackageDir.get(path.resolve(workspacePkg.dir));
+    const testInfo = testRefsByPackageDir.get(path.resolve(workspacePkg.project.rootDir));
 
     const pkgWorkspaceRefs = new Set(
       [...pkgReferences]
         .map((refPath) => workspaceByRefPath.get(refPath))
         .filter(isWorkspacePackageInfo)
-        .map((refPkg) => refPkg.name)
+        .map((refPkg) => refPkg.project.manifest.name!)
     );
 
     const testWorkspaceRefs = new Set<string>();
@@ -259,7 +204,7 @@ async function main() {
         if (!refPkg) {
           continue;
         }
-        testWorkspaceRefs.add(refPkg.name);
+        testWorkspaceRefs.add(refPkg.project.manifest.name!);
       }
     }
 
@@ -271,7 +216,7 @@ async function main() {
           continue;
         }
         duplicateWorkspaceReferences.push({
-          dependent: workspacePkg.name,
+          dependent: workspacePkg.project.manifest.name!,
           dependentPath: workspacePkg.refPath,
           reference: refName,
           referencePath: refPkg.refPath,
@@ -288,7 +233,7 @@ async function main() {
       }
       if (!pkgWorkspaceRefs.has(depName)) {
         missingProdDependencyRefs.push({
-          dependent: workspacePkg.name,
+          dependent: workspacePkg.project.manifest.name!,
           dependentPath: workspacePkg.refPath,
           dependency: depName,
           dependencyPath: depPkg.refPath
@@ -304,7 +249,7 @@ async function main() {
       }
       if (!pkgWorkspaceRefs.has(depName) && !testWorkspaceRefs.has(depName)) {
         missingDevDependencyRefs.push({
-          dependent: workspacePkg.name,
+          dependent: workspacePkg.project.manifest.name!,
           dependentPath: workspacePkg.refPath,
           dependency: depName,
           dependencyPath: depPkg.refPath,
@@ -321,7 +266,7 @@ async function main() {
           continue;
         }
         extraPackageReferences.push({
-          dependent: workspacePkg.name,
+          dependent: workspacePkg.project.manifest.name!,
           dependentPath: workspacePkg.refPath,
           reference: refName,
           referencePath: refPkg.refPath
@@ -337,7 +282,7 @@ async function main() {
           continue;
         }
         extraTestReferences.push({
-          dependent: workspacePkg.name,
+          dependent: workspacePkg.project.manifest.name!,
           dependentPath: workspacePkg.refPath,
           reference: refName,
           referencePath: refPkg.refPath,
