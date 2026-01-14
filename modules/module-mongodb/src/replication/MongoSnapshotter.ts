@@ -1,49 +1,29 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
-  ErrorCode,
   logger as defaultLogger,
+  ErrorCode,
   Logger,
   ReplicationAbortedError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import {
-  MetricsEngine,
-  RelationCache,
-  SaveOperationTag,
-  SourceEntityDescriptor,
-  SourceTable,
-  InternalOpId,
-  storage
-} from '@powersync/service-core';
-import {
-  DatabaseInputRow,
-  SqliteInputRow,
-  SqliteRow,
-  HydratedSyncRules,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { InternalOpId, MetricsEngine, SaveOperationTag, SourceTable, storage } from '@powersync/service-core';
+import { DatabaseInputRow, RowProcessor, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
 import pDefer from 'p-defer';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
-import {
-  constructAfterRecord,
-  createCheckpoint,
-  getCacheIdentifier,
-  getMongoRelation,
-  STANDALONE_CHECKPOINT_ID
-} from './MongoRelation.js';
-import { MongoManager } from './MongoManager.js';
 import { mapChangeStreamError } from './ChangeStreamErrors.js';
+import { MongoManager } from './MongoManager.js';
+import { constructAfterRecord, createCheckpoint, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
+import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
 export interface MongoSnapshotterOptions {
   connections: MongoManager;
-  storage: storage.SyncRulesBucketStorage;
+  writer: () => Promise<storage.BucketDataWriter>;
   metrics: MetricsEngine;
   abort_signal: AbortSignal;
   /**
@@ -58,18 +38,11 @@ export interface MongoSnapshotterOptions {
   checkpointStreamId: mongo.ObjectId;
 }
 
-interface InitResult {
-  needsInitialSync: boolean;
-  snapshotLsn: string | null;
-}
-
 export class MongoSnapshotter {
-  sync_rules: HydratedSyncRules;
-  group_id: number;
-
   connection_id = 1;
 
-  private readonly storage: storage.SyncRulesBucketStorage;
+  private readonly writerFactory: () => Promise<storage.BucketDataWriter>;
+
   private readonly metrics: MetricsEngine;
 
   private connections: MongoManager;
@@ -81,8 +54,6 @@ export class MongoSnapshotter {
 
   private abortSignal: AbortSignal;
 
-  private relationCache = new RelationCache(getCacheIdentifier);
-
   private logger: Logger;
 
   private checkpointStreamId: mongo.ObjectId;
@@ -93,17 +64,13 @@ export class MongoSnapshotter {
   private lastSnapshotOpId: InternalOpId | null = null;
 
   constructor(options: MongoSnapshotterOptions) {
-    this.storage = options.storage;
+    this.writerFactory = options.writer;
     this.metrics = options.metrics;
-    this.group_id = options.storage.group_id;
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
-    this.sync_rules = options.storage.getHydratedSyncRules({
-      defaultSchema: this.defaultDb.databaseName
-    });
     this.abortSignal = options.abort_signal;
     this.logger = options.logger ?? defaultLogger;
     this.checkpointStreamId = options.checkpointStreamId;
@@ -118,66 +85,29 @@ export class MongoSnapshotter {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
   }
 
-  async checkSlot(): Promise<InitResult> {
-    const status = await this.storage.getStatus();
-    if (status.snapshot_done && status.checkpoint_lsn) {
-      this.logger.info(`Initial replication already done`);
-      return { needsInitialSync: false, snapshotLsn: null };
-    }
-
-    return { needsInitialSync: true, snapshotLsn: status.snapshot_lsn };
-  }
-
-  async setupCheckpointsCollection() {
-    const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
-    if (collection == null) {
-      await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
-        changeStreamPreAndPostImages: { enabled: true }
-      });
-    } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
-      // Drop + create requires less permissions than collMod,
-      // and we don't care about the data in this collection.
-      await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);
-      await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
-        changeStreamPreAndPostImages: { enabled: true }
-      });
-    } else {
-      // Clear the collection on startup, to keep it clean
-      // We never query this collection directly, and don't want to keep the data around.
-      // We only use this to get data into the oplog/changestream.
-      await this.defaultDb.collection(CHECKPOINTS_COLLECTION).deleteMany({});
-    }
-  }
-
   async queueSnapshotTables(snapshotLsn: string | null) {
-    const sourceTables = this.sync_rules.getSourceTables();
-    await this.client.connect();
-
-    await using batch = await this.storage.createWriter({
-      logger: this.logger,
-      zeroLSN: MongoLSN.ZERO.comparable,
-      defaultSchema: this.defaultDb.databaseName,
-      storeCurrentData: false,
-      skipExistingRows: true
-    });
+    await using writer = await this.writerFactory();
+    const sourceTables = writer.rowProcessor.getSourceTables();
 
     if (snapshotLsn == null) {
       // First replication attempt - get a snapshot and store the timestamp
-      snapshotLsn = await this.getSnapshotLsn();
-      await batch.setResumeLsn(snapshotLsn);
+      snapshotLsn = await this.getSnapshotLsn(writer);
+      // FIXME: check the logic for resumeLSN.
+      await writer.setAllResumeLsn(snapshotLsn);
       this.logger.info(`Marking snapshot at ${snapshotLsn}`);
     } else {
       this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
       // Check that the snapshot is still valid.
-      await this.validateSnapshotLsn(snapshotLsn);
+      await this.validateSnapshotLsn(writer, snapshotLsn);
     }
 
     // Start by resolving all tables.
     // This checks postImage configuration, and that should fail as
     // early as possible.
+    // This resolves _all_ tables, including those already snapshotted.
     let allSourceTables: SourceTable[] = [];
     for (let tablePattern of sourceTables) {
-      const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
+      const tables = await this.resolveQualifiedTableNames(writer, tablePattern);
       allSourceTables.push(...tables);
     }
 
@@ -188,11 +118,10 @@ export class MongoSnapshotter {
         continue;
       }
       const count = await this.estimatedCountNumber(table);
-      const updated = await batch.updateTableProgress(table, {
+      const updated = await writer.updateTableProgress(table, {
         totalEstimatedCount: count
       });
       tablesWithStatus.push(updated);
-      this.relationCache.update(updated);
       this.logger.info(
         `To replicate: ${updated.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
       );
@@ -209,9 +138,10 @@ export class MongoSnapshotter {
 
   async replicationLoop() {
     try {
+      await using writer = await this.writerFactory();
       if (this.queue.size == 0) {
         // Special case where we start with no tables to snapshot
-        await this.markSnapshotDone();
+        await this.markSnapshotDone(writer);
       }
       while (!this.abortSignal.aborted) {
         const table = this.queue.values().next().value;
@@ -221,10 +151,10 @@ export class MongoSnapshotter {
           continue;
         }
 
-        await this.replicateTable(table);
+        await this.replicateTable(writer, table);
         this.queue.delete(table);
         if (this.queue.size == 0) {
-          await this.markSnapshotDone();
+          await this.markSnapshotDone(writer);
         }
       }
       throw new ReplicationAbortedError(`Replication loop aborted`, this.abortSignal.reason);
@@ -235,72 +165,57 @@ export class MongoSnapshotter {
     }
   }
 
-  private async markSnapshotDone() {
-    const flushResults = await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: MongoLSN.ZERO.comparable,
-        defaultSchema: this.defaultDb.databaseName,
-        storeCurrentData: false,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        // The checkpoint here is a marker - we need to replicate up to at least this
-        // point before the data can be considered consistent.
-        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-        await batch.markAllSnapshotDone(checkpoint);
-        // KLUDGE: We need to create an extra checkpoint _after_ marking the snapshot done, to fix
-        // issues with order of processing commits(). This is picked up by tests on postgres storage,
-        // the issue may be specific to that storage engine.
-        await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-      }
-    );
+  private async markSnapshotDone(writer: storage.BucketDataWriter) {
+    // The checkpoint here is a marker - we need to replicate up to at least this
+    // point before the data can be considered consistent.
+    const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+    await writer.markAllSnapshotDone(checkpoint);
+    // KLUDGE: We need to create an extra checkpoint _after_ marking the snapshot done, to fix
+    // issues with order of processing commits(). This is picked up by tests on postgres storage,
+    // the issue may be specific to that storage engine.
+    await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
-    const lastOp = flushResults?.flushed_op ?? this.lastSnapshotOpId;
-    if (lastOp != null) {
+    if (this.lastSnapshotOpId != null) {
       // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
       // TODO: only run this after initial replication, not after each table.
-      await this.storage.populatePersistentChecksumCache({
-        // No checkpoint yet, but we do have the opId.
-        maxOpId: lastOp,
-        signal: this.abortSignal
-      });
+      // FIXME: implement this again
+      // await this.storage.populatePersistentChecksumCache({
+      //   // No checkpoint yet, but we do have the opId.
+      //   maxOpId: this.lastSnapshotOpId,
+      //   signal: this.abortSignal
+      // });
     }
   }
 
-  private async replicateTable(tableRequest: SourceTable) {
-    const flushResults = await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: MongoLSN.ZERO.comparable,
-        defaultSchema: this.defaultDb.databaseName,
-        storeCurrentData: false,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        // Get fresh table info, in case it was updated while queuing
-        const table = await this.handleRelation(batch, tableRequest, { collectionInfo: undefined });
-        if (table.snapshotComplete) {
-          return;
-        }
-        await this.snapshotTable(batch, table);
-
-        const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-        await batch.markTableSnapshotDone([table], noCheckpointBefore);
-
-        // This commit ensures we set keepalive_op.
-        const resumeLsn = batch.resumeFromLsn ?? MongoLSN.ZERO.comparable;
-        await batch.commit(resumeLsn);
-      }
-    );
-    if (flushResults?.flushed_op != null) {
-      this.lastSnapshotOpId = flushResults.flushed_op;
+  private async replicateTable(writer: storage.BucketDataWriter, tableRequest: SourceTable) {
+    // Get fresh table info, in case it was updated while queuing
+    const table = await writer.getTable(tableRequest);
+    if (table == null) {
+      return;
     }
-    this.logger.info(`Flushed snapshot at ${flushResults?.flushed_op}`);
+    if (table.snapshotComplete) {
+      return;
+    }
+    await this.snapshotTable(writer, table);
+
+    const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+    await writer.markTableSnapshotDone([table], noCheckpointBefore);
+
+    // This commit ensures we set keepalive_op.
+    const resumeLsn = writer.resumeFromLsn ?? MongoLSN.ZERO.comparable;
+    // FIXME: Only commit on relevant syncRules?
+
+    await writer.commitAll(resumeLsn);
+
+    // FIXME: check this
+    // if (flushResults?.flushed_op != null) {
+    //   this.lastSnapshotOpId = flushResults.flushed_op;
+    // }
+    this.logger.info(`Flushed snapshot at ${this.lastSnapshotOpId}`);
   }
 
-  async queueSnapshot(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
-    await batch.markTableSnapshotRequired(table);
+  async queueSnapshot(writer: storage.BucketDataWriter, table: storage.SourceTable) {
+    await writer.markTableSnapshotRequired(table);
     this.queue.add(table);
   }
 
@@ -314,8 +229,8 @@ export class MongoSnapshotter {
     return await db.collection(table.name).estimatedDocumentCount();
   }
 
-  async resolveQualifiedTableNames(
-    batch: storage.BucketStorageBatch,
+  private async resolveQualifiedTableNames(
+    writer: storage.BucketDataWriter,
     tablePattern: TablePattern
   ): Promise<storage.SourceTable[]> {
     const schema = tablePattern.schema;
@@ -347,17 +262,20 @@ export class MongoSnapshotter {
     }
 
     for (let collection of collections) {
-      const table = await this.handleRelation(batch, getMongoRelation({ db: schema, coll: collection.name }), {
-        collectionInfo: collection
+      await this.checkPostImages(schema, collection);
+      const sourceTables = await writer.resolveTable({
+        connection_id: this.connection_id,
+        connection_tag: this.connections.connectionTag,
+        entity_descriptor: getMongoRelation({ db: schema, coll: collection.name })
       });
-
-      result.push(table);
+      // TODO: dropTables?
+      result.push(...sourceTables.tables);
     }
 
     return result;
   }
 
-  private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+  private async snapshotTable(writer: storage.BucketDataWriter, table: storage.SourceTable) {
     const totalEstimatedCount = await this.estimatedCountNumber(table);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
@@ -391,10 +309,10 @@ export class MongoSnapshotter {
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (let document of docBatch) {
-        const record = this.constructAfterRecord(document);
+        const record = this.constructAfterRecord(writer.rowProcessor, document);
 
         // This auto-flushes when the batch reaches its size limit
-        await batch.save({
+        await writer.save({
           tag: SaveOperationTag.INSERT,
           sourceTable: table,
           before: undefined,
@@ -405,16 +323,18 @@ export class MongoSnapshotter {
       }
 
       // Important: flush before marking progress
-      await batch.flush();
+      const flushResult = await writer.flush();
+      if (flushResult != null) {
+        this.lastSnapshotOpId = flushResult.flushed_op;
+      }
       at += docBatch.length;
       this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(docBatch.length);
 
-      table = await batch.updateTableProgress(table, {
+      table = await writer.updateTableProgress(table, {
         lastKey,
         replicatedCount: at,
         totalEstimatedCount: totalEstimatedCount
       });
-      this.relationCache.update(table);
 
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
@@ -427,9 +347,9 @@ export class MongoSnapshotter {
     await nextChunkPromise;
   }
 
-  private constructAfterRecord(document: mongo.Document): SqliteRow {
+  private constructAfterRecord(rowProcessor: RowProcessor, document: mongo.Document): SqliteRow {
     const inputRow = constructAfterRecord(document);
-    return this.sync_rules.applyRowContext<never>(inputRow);
+    return rowProcessor.applyRowContext<never>(inputRow);
   }
 
   private async getCollectionInfo(db: string, name: string): Promise<mongo.CollectionInfo | undefined> {
@@ -466,40 +386,7 @@ export class MongoSnapshotter {
     }
   }
 
-  private async handleRelation(
-    batch: storage.BucketStorageBatch,
-    descriptor: SourceEntityDescriptor,
-    options: { collectionInfo: mongo.CollectionInfo | undefined }
-  ) {
-    if (options.collectionInfo != null) {
-      await this.checkPostImages(descriptor.schema, options.collectionInfo);
-    } else {
-      // If collectionInfo is null, the collection may have been dropped.
-      // Ignore the postImages check in this case.
-    }
-
-    const result = await this.storage.resolveTable({
-      group_id: this.group_id,
-      connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      sync_rules: this.sync_rules
-    });
-    this.relationCache.update(result.table);
-
-    // Drop conflicting collections.
-    // This is generally not expected for MongoDB source dbs, so we log an error.
-    if (result.dropTables.length > 0) {
-      this.logger.error(
-        `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
-      );
-      await batch.drop(result.dropTables);
-    }
-
-    return result.table;
-  }
-
-  private async getSnapshotLsn(): Promise<string> {
+  private async getSnapshotLsn(writer: storage.BucketDataWriter): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
     // Basic sanity check
     if (hello.msg == 'isdbgrid') {
@@ -529,7 +416,7 @@ export class MongoSnapshotter {
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
-    await using streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
+    await using streamManager = this.openChangeStream(writer, { lsn: null, maxAwaitTimeMs: 0 });
     const { stream } = streamManager;
     const startTime = performance.now();
     let lastCheckpointCreated = -10_000;
@@ -576,8 +463,8 @@ export class MongoSnapshotter {
   /**
    * Given a snapshot LSN, validate that we can read from it, by opening a change stream.
    */
-  private async validateSnapshotLsn(lsn: string) {
-    await using streamManager = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
+  private async validateSnapshotLsn(writer: storage.BucketDataWriter, lsn: string) {
+    await using streamManager = this.openChangeStream(writer, { lsn: lsn, maxAwaitTimeMs: 0 });
     const { stream } = streamManager;
     try {
       // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
@@ -589,8 +476,8 @@ export class MongoSnapshotter {
     }
   }
 
-  private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
-    const sourceTables = this.sync_rules.getSourceTables();
+  private getSourceNamespaceFilters(rowProcessor: RowProcessor): { $match: any; multipleDatabases: boolean } {
+    const sourceTables = rowProcessor.getSourceTables();
 
     let $inFilters: { db: string; coll: string }[] = [
       { db: this.defaultDb.databaseName, coll: CHECKPOINTS_COLLECTION }
@@ -634,12 +521,12 @@ export class MongoSnapshotter {
     }
   }
 
-  private openChangeStream(options: { lsn: string | null; maxAwaitTimeMs?: number }) {
+  private openChangeStream(writer: storage.BucketDataWriter, options: { lsn: string | null; maxAwaitTimeMs?: number }) {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
     const resumeAfter = lastLsn?.resumeToken;
 
-    const filters = this.getSourceNamespaceFilters();
+    const filters = this.getSourceNamespaceFilters(writer.rowProcessor);
 
     const pipeline: mongo.Document[] = [
       {

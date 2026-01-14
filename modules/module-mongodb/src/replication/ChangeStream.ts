@@ -62,55 +62,37 @@ interface SubStreamOptions {
   logger: Logger;
   abortSignal: AbortSignal;
   checkpointStreamId: mongo.ObjectId;
-  snapshotChunkLength?: number;
-  metrics: MetricsEngine;
   maxAwaitTimeMS: number;
 }
 
+interface InitResult {
+  needsInitialSync: boolean;
+  snapshotLsn: string | null;
+}
+
 class SubStream {
-  private readonly connection_id = 1;
   private readonly connections: MongoManager;
   public readonly storage: storage.SyncRulesBucketStorage;
   public readonly syncRules: HydratedSyncRules;
   private readonly logger: Logger;
-  public readonly snapshotter: MongoSnapshotter;
-  private readonly client: mongo.MongoClient;
-  private readonly metrics: MetricsEngine;
-  private readonly abortSignal: AbortSignal;
 
   constructor(options: SubStreamOptions) {
     this.connections = options.connections;
-    this.client = this.connections.client;
     this.storage = options.storage;
     this.logger = options.logger;
-    this.metrics = options.metrics;
-    this.abortSignal = options.abortSignal;
     this.syncRules = this.storage.getHydratedSyncRules({
       defaultSchema: this.connections.db.databaseName
     });
-    this.snapshotter = new MongoSnapshotter({
-      abort_signal: options.abortSignal,
-      checkpointStreamId: options.checkpointStreamId,
-      connections: this.connections,
-      storage: this.storage,
-      logger: this.logger.child({ prefix: `[powersync_${this.storage.group_id}_snapshot] ` }),
-      snapshotChunkLength: options.snapshotChunkLength,
-      metrics: options.metrics,
-      maxAwaitTimeMS: options.maxAwaitTimeMS
-    });
   }
 
-  async initReplication() {
-    const result = await this.snapshotter.checkSlot();
-    // FIXME: This should be done once, not per sub-stream
-    await this.snapshotter.setupCheckpointsCollection();
-    if (result.needsInitialSync) {
-      if (result.snapshotLsn == null) {
-        // Snapshot LSN is not present, so we need to start replication from scratch.
-        await this.storage.clear({ signal: this.abortSignal });
-      }
-      await this.snapshotter.queueSnapshotTables(result.snapshotLsn);
+  async checkSlot(): Promise<InitResult> {
+    const status = await this.storage.getStatus();
+    if (status.snapshot_done && status.checkpoint_lsn) {
+      this.logger.info(`Initial replication already done`);
+      return { needsInitialSync: false, snapshotLsn: null };
     }
+
+    return { needsInitialSync: true, snapshotLsn: status.snapshot_lsn };
   }
 }
 
@@ -151,6 +133,10 @@ export class ChangeStream {
 
   public readonly relationCache = new Map<string | number, SourceTable[]>();
 
+  private readonly snapshotter: MongoSnapshotter;
+
+  private readonly snapshotChunkLength: number | undefined;
+
   constructor(options: ChangeStreamOptions) {
     this.metrics = options.metrics;
     this.connections = options.connections;
@@ -163,6 +149,7 @@ export class ChangeStream {
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
 
     this.logger = options.logger ?? defaultLogger;
+    this.snapshotChunkLength = options.snapshotChunkLength;
 
     this.substreams = options.streams.map((config) => {
       return new SubStream({
@@ -171,11 +158,34 @@ export class ChangeStream {
         connections: this.connections,
         storage: config.storage,
         logger: this.logger.child({ prefix: `[powersync_${config.storage.group_id}] ` }),
-        snapshotChunkLength: options.snapshotChunkLength,
-        maxAwaitTimeMS: this.maxAwaitTimeMS,
-        metrics: this.metrics
+        maxAwaitTimeMS: this.maxAwaitTimeMS
       });
     });
+
+    const snapshotLogger = this.logger.child({ prefix: `[powersync_snapshot] ` });
+
+    const snapshotter = new MongoSnapshotter({
+      writer: async () => {
+        const writer = await this.factory.createCombinedWriter(
+          this.substreams.map((s) => s.storage),
+          {
+            defaultSchema: this.defaultDb.databaseName,
+            storeCurrentData: false,
+            zeroLSN: ZERO_LSN,
+            logger: snapshotLogger
+          }
+        );
+        return writer;
+      },
+      abort_signal: this.abortSignal,
+      checkpointStreamId: this.checkpointStreamId,
+      connections: this.connections,
+      logger: snapshotLogger,
+      snapshotChunkLength: this.snapshotChunkLength,
+      metrics: this.metrics,
+      maxAwaitTimeMS: this.maxAwaitTimeMS
+    });
+    this.snapshotter = snapshotter;
 
     // We wrap in our own abort controller so we can trigger abort internally.
     options.abort_signal.addEventListener('abort', () => {
@@ -274,14 +284,51 @@ export class ChangeStream {
     }
   }
 
+  private async createSnapshotter() {}
+
+  private async setupCheckpointsCollection() {
+    const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
+    if (collection == null) {
+      await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
+        changeStreamPreAndPostImages: { enabled: true }
+      });
+    } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
+      // Drop + create requires less permissions than collMod,
+      // and we don't care about the data in this collection.
+      await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);
+      await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
+        changeStreamPreAndPostImages: { enabled: true }
+      });
+    } else {
+      // Clear the collection on startup, to keep it clean
+      // We never query this collection directly, and don't want to keep the data around.
+      // We only use this to get data into the oplog/changestream.
+      await this.defaultDb.collection(CHECKPOINTS_COLLECTION).deleteMany({});
+    }
+  }
+
+  private async initReplication() {
+    await this.setupCheckpointsCollection();
+    for (let stream of this.substreams) {
+      const result = await stream.checkSlot();
+
+      if (result.needsInitialSync) {
+        if (result.snapshotLsn == null) {
+          // Snapshot LSN is not present, so we need to start replication from scratch.
+          await stream.storage.clear({ signal: this.abortSignal });
+        }
+        await this.snapshotter.queueSnapshotTables(result.snapshotLsn);
+      }
+    }
+  }
+
   async replicate() {
     let streamPromise: Promise<void> | null = null;
-    let loopPromises: Promise<void>[] = [];
+    let loopPromise: Promise<void> | null = null;
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
       this.initPromise = this.initReplication();
-      await this.initPromise;
       streamPromise = this.streamChanges()
         .then(() => {
           throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
@@ -295,19 +342,21 @@ export class ChangeStream {
           this.abortController.abort(e);
           throw e;
         });
-      loopPromises = this.substreams.map((s) =>
-        s.snapshotter
-          .replicationLoop()
-          .then(() => {
-            throw new ReplicationAssertionError(`Replication snapshotter exited unexpectedly`);
-          })
-          .catch(async (e) => {
-            await s.storage.reportError(e);
-            this.abortController.abort(e);
-            throw e;
-          })
-      );
-      const results = await Promise.allSettled([...loopPromises, streamPromise]);
+      loopPromise = this.snapshotter
+        .replicationLoop()
+        .then(() => {
+          throw new ReplicationAssertionError(`Replication snapshotter exited unexpectedly`);
+        })
+        .catch(async (e) => {
+          // Report stream errors to all substreams for now - we can't yet distinguish the errors
+          for (let substream of this.substreams) {
+            await substream.storage.reportError(e);
+          }
+
+          this.abortController.abort(e);
+          throw e;
+        });
+      const results = await Promise.allSettled([loopPromise, streamPromise]);
       // First, prioritize non-aborted errors
       for (let result of results) {
         if (result.status == 'rejected' && !(result.reason instanceof ReplicationAbortedError)) {
@@ -337,11 +386,7 @@ export class ChangeStream {
       throw new ReplicationAssertionError('replicate() must be called before waitForInitialSnapshot()');
     }
     await this.initPromise;
-    await Promise.all(this.substreams.map((s) => s.snapshotter.waitForInitialSnapshot()));
-  }
-
-  private async initReplication() {
-    await Promise.all(this.substreams.map((substream) => substream.initReplication()));
+    await this.snapshotter?.waitForInitialSnapshot();
   }
 
   private async streamChanges() {

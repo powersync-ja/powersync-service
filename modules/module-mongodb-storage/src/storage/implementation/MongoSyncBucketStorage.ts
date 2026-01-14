@@ -177,35 +177,8 @@ export class MongoSyncBucketStorage
   }
 
   async createWriter(options: storage.StartBatchOptions): Promise<MongoBucketBatch> {
-    const doc = await this.db.sync_rules.findOne(
-      {
-        _id: this.group_id
-      },
-      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1, snapshot_lsn: 1 } }
-    );
-    const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
-
-    const parsedSyncRules = this.sync_rules.parsed(options);
-
-    const writer = new MongoBucketDataWriter({
-      logger: options.logger,
-      db: this.db,
-      slotName: this.slot_name,
-      storeCurrentData: options.storeCurrentData,
-      skipExistingRows: options.skipExistingRows ?? false,
-      markRecordUnavailable: options.markRecordUnavailable,
-      mapping: this.mapping,
-      rowProcessor: parsedSyncRules.hydratedSyncRules()
-    });
-    const batch = writer.forSyncRules({
-      syncRules: parsedSyncRules,
-
-      lastCheckpointLsn: checkpoint_lsn,
-      resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
-      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
-    });
-    this.iterateListeners((cb) => cb.batchStarted?.(batch));
-    return batch;
+    const writer = await this.factory.createCombinedWriter([this], options);
+    return writer.subWriters[0];
   }
 
   async startBatch(

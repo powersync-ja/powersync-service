@@ -16,6 +16,14 @@ export class BucketDefinitionMapping {
     private parameterLookupMapping: Record<string, number> = {}
   ) {}
 
+  hasBucketSourceId(id: number) {
+    return Object.values(this.definitions).includes(id);
+  }
+
+  hasParameterLookupId(id: number) {
+    return Object.values(this.parameterLookupMapping).includes(id);
+  }
+
   bucketSourceId(source: BucketDataSource): number {
     const defId = this.definitions[source.uniqueName];
     if (defId == null) {

@@ -8,7 +8,7 @@ import {
 } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
-import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
+import { SourceTable, SourceTableId, TableSnapshotStatus } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions, ResolveTableOptions, ResolveTableResult } from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
@@ -28,6 +28,7 @@ export interface BucketDataWriter extends BucketDataWriterBase, AsyncDisposable 
    * Resolve a table, keeping track of it internally.
    */
   resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
+  getTable(ref: SourceTable): Promise<SourceTable | null>;
 }
 
 export interface BucketDataWriterBase {
@@ -61,6 +62,12 @@ export interface BucketDataWriterBase {
    * @returns null if there are no changes to flush.
    */
   flush(options?: BatchBucketFlushOptions): Promise<FlushedResult | null>;
+
+  markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
+  markTableSnapshotRequired(table: SourceTable): Promise<void>;
+  markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+
+  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 }
 
 export interface BucketStorageBatch
@@ -113,12 +120,6 @@ export interface BucketStorageBatch
    * Not relevant for streams where the source keeps track of replication progress, such as Postgres.
    */
   resumeFromLsn: string | null;
-
-  markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
-  markTableSnapshotRequired(table: SourceTable): Promise<void>;
-  markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
-
-  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.

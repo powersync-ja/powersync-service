@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
-  HydratedSyncRules,
   RowProcessor,
+  SourceTableInterface,
   SqlEventDescriptor,
   SqliteRow,
   SqliteValue
@@ -23,8 +23,9 @@ import {
   deserializeBson,
   InternalOpId,
   isCompleteRow,
-  PersistedSyncRulesContent,
   SaveOperationTag,
+  SourceTable,
+  SourceTableId,
   storage,
   SyncRuleState,
   utils
@@ -169,6 +170,127 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     for (let batch of this.subWriters) {
       await batch.setResumeLsn(lsn);
     }
+  }
+
+  private findMatchingSubWriters(tables: SourceTableDocument[]) {
+    return this.subWriters.filter((subWriter) => {
+      return tables.some((table) => subWriter.hasTable(table));
+    });
+  }
+
+  async markTableSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn?: string) {
+    const session = this.session;
+    const ids = tables.map((table) => mongoTableId(table.id));
+
+    await this.withTransaction(async () => {
+      await this.db.source_tables.updateMany(
+        { _id: { $in: ids } },
+        {
+          $set: {
+            snapshot_done: true
+          },
+          $unset: {
+            snapshot_status: 1
+          }
+        },
+        { session }
+      );
+
+      const updatedTables = await this.db.source_tables.find({ _id: { $in: ids } }, { session }).toArray();
+
+      if (no_checkpoint_before_lsn != null) {
+        const affectedSubWriters = this.findMatchingSubWriters(updatedTables);
+
+        await this.db.sync_rules.updateOne(
+          {
+            _id: { $in: affectedSubWriters.map((w) => w.group_id) }
+          },
+          {
+            $set: {
+              last_keepalive_ts: new Date()
+            },
+            $max: {
+              no_checkpoint_before: no_checkpoint_before_lsn
+            }
+          },
+          { session: this.session }
+        );
+      }
+    });
+    return tables.map((table) => {
+      const copy = table.clone();
+      copy.snapshotComplete = true;
+      return copy;
+    });
+  }
+
+  async markTableSnapshotRequired(table: SourceTable): Promise<void> {
+    const doc = await this.db.source_tables.findOne({ _id: mongoTableId(table.id) });
+    if (doc == null) {
+      return;
+    }
+
+    const subWriters = this.findMatchingSubWriters([doc]);
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: { $in: subWriters.map((w) => w.group_id) }
+      },
+      {
+        $set: {
+          snapshot_done: false
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: { $in: this.subWriters.map((w) => w.group_id) },
+        snapshot_done: { $ne: true }
+      },
+      {
+        $set: {
+          snapshot_done: true,
+          last_keepalive_ts: new Date()
+        },
+        $max: {
+          no_checkpoint_before: no_checkpoint_before_lsn
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async getTable(ref: SourceTable): Promise<storage.SourceTable | null> {
+    const doc = await this.db.source_tables.findOne({ _id: mongoTableId(ref.id) });
+    if (doc == null) {
+      return null;
+    }
+    const sourceTable = new storage.SourceTable({
+      id: doc._id,
+      objectId: doc.relation_id,
+      schema: doc.schema_name,
+      connectionTag: ref.connectionTag,
+      name: doc.table_name,
+      replicaIdColumns: ref.replicaIdColumns,
+      snapshotComplete: doc.snapshot_done ?? true
+    });
+    sourceTable.snapshotStatus =
+      doc.snapshot_status == null
+        ? undefined
+        : {
+            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+            replicatedCount: doc.snapshot_status.replicated_count
+          };
+
+    sourceTable.syncData = doc.bucket_data_source_ids.length > 0;
+    sourceTable.syncParameters = doc.parameter_lookup_source_ids.length > 0;
+    // FIXME: implement sourceTable.syncEvent
+    return sourceTable;
   }
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
@@ -1012,11 +1134,10 @@ export class MongoBucketBatch
 {
   private logger: Logger;
 
-  private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
 
-  private readonly group_id: number;
+  public readonly group_id: number;
 
   private clearedError = false;
 
@@ -1052,24 +1173,34 @@ export class MongoBucketBatch
 
   private readonly writer: MongoBucketDataWriter;
 
+  public readonly mapping: BucketDefinitionMapping;
+
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger ?? defaultLogger;
-    this.client = options.db.client;
     this.db = options.db;
     this.group_id = options.syncRules.id;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.writer = options.writer;
     this.session = this.writer.session;
+    this.mapping = options.syncRules.mapping;
 
     this.persisted_op = options.keepaliveOp ?? null;
   }
-  updateTableProgress(
+
+  async updateTableProgress(
     table: storage.SourceTable,
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
-    throw new Error('Method not implemented.');
+    return await this.writer.updateTableProgress(table, progress);
+  }
+
+  hasTable(sourceTable: SourceTableDocument): boolean {
+    return (
+      sourceTable.bucket_data_source_ids.some((id) => this.mapping.hasBucketSourceId(id)) ||
+      sourceTable.parameter_lookup_source_ids.some((id) => this.mapping.hasParameterLookupId(id))
+    );
   }
 
   save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
@@ -1383,59 +1514,11 @@ export class MongoBucketBatch
   }
 
   async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          snapshot_done: false
-        }
-      },
-      { session: this.session }
-    );
+    await this.writer.markTableSnapshotRequired(table);
   }
 
   async markTableSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn?: string) {
-    const session = this.session;
-    const ids = tables.map((table) => mongoTableId(table.id));
-
-    await this.writer.withTransaction(async () => {
-      await this.db.source_tables.updateMany(
-        { _id: { $in: ids } },
-        {
-          $set: {
-            snapshot_done: true
-          },
-          $unset: {
-            snapshot_status: 1
-          }
-        },
-        { session }
-      );
-
-      if (no_checkpoint_before_lsn != null) {
-        await this.db.sync_rules.updateOne(
-          {
-            _id: this.group_id
-          },
-          {
-            $set: {
-              last_keepalive_ts: new Date()
-            },
-            $max: {
-              no_checkpoint_before: no_checkpoint_before_lsn
-            }
-          },
-          { session: this.session }
-        );
-      }
-    });
-    return tables.map((table) => {
-      const copy = table.clone();
-      copy.snapshotComplete = true;
-      return copy;
-    });
+    return this.writer.markTableSnapshotDone(tables, no_checkpoint_before_lsn);
   }
 
   async clearError(): Promise<void> {
