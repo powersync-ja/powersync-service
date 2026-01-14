@@ -32,4 +32,6 @@ export * from './HydratedSyncRules.js';
 
 export * from './compiler/compiler.js';
 export * from './sync_plan/plan.js';
+export { addPrecompiledSyncPlanToRules } from './sync_plan/evaluator.js';
 export { serializeSyncPlan } from './sync_plan/serialize.js';
+export { nodeSqlEngine } from './sync_plan/sql_engine.js';
