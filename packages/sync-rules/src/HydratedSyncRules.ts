@@ -75,6 +75,8 @@ export class HydratedSyncRules implements RowProcessor {
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
+  private readonly bucketDataSources: BucketDataSource[];
+  private readonly bucketParameterIndexLookupCreators: ParameterIndexLookupCreator[];
 
   constructor(params: {
     definition: SqlSyncRules;
@@ -87,6 +89,8 @@ export class HydratedSyncRules implements RowProcessor {
     const hydrationState = params.createParams.hydrationState;
 
     this.definition = params.definition;
+    this.bucketDataSources = params.bucketDataSources;
+    this.bucketParameterIndexLookupCreators = params.bucketParameterIndexLookupCreators;
     this.innerEvaluateRow = mergeDataSources(hydrationState, params.bucketDataSources).evaluateRow;
     this.innerEvaluateParameterRow = mergeParameterIndexLookupCreators(
       hydrationState,
@@ -101,6 +105,20 @@ export class HydratedSyncRules implements RowProcessor {
     }
 
     this.bucketSources = this.definition.bucketSources.map((source) => source.hydrate(params.createParams));
+  }
+
+  getMatchingSources(table: SourceTableInterface): {
+    bucketDataSources: BucketDataSource[];
+    parameterIndexLookupCreators: ParameterIndexLookupCreator[];
+  } {
+    const bucketDataSources = this.bucketDataSources.filter((ds) => ds.tableSyncsData(table));
+    const parameterIndexLookupCreators: ParameterIndexLookupCreator[] = this.bucketParameterIndexLookupCreators.filter(
+      (ds) => ds.tableSyncsParameters(table)
+    );
+    return {
+      bucketDataSources,
+      parameterIndexLookupCreators
+    };
   }
 
   // These methods do not depend on hydration, so we can just forward them to the definition.

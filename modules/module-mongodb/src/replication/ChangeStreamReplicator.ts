@@ -79,6 +79,7 @@ export class ChangeStreamReplicator extends replication.AbstractReplicator<Chang
 
     const newJob = new ChangeStreamReplicationJob({
       id: this.createJobId(replicatingSyncRules[0].id), // FIXME: check the id
+      storageFactory: this.storage,
       storage: streamConfig[0].storage, // FIXME: multi-stream logic
       lock: streamConfig[0].lock, // FIXME: multi-stream logic
       streams: streamConfig,

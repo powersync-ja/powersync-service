@@ -1,5 +1,6 @@
 import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
 import {
+  BucketStorageFactory,
   PersistedSyncRulesContent,
   replication,
   ReplicationLock,
@@ -11,6 +12,7 @@ import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 export interface ChangeStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
+  storageFactory: BucketStorageFactory;
   streams: ReplicationStreamConfig[];
 }
 
@@ -22,6 +24,7 @@ export interface ReplicationStreamConfig {
 
 export class ChangeStreamReplicationJob extends replication.AbstractReplicationJob {
   private connectionFactory: ConnectionManagerFactory;
+  private storageFactory: BucketStorageFactory;
   private lastStream: ChangeStream | null = null;
 
   private readonly streams: ReplicationStreamConfig[];
@@ -30,6 +33,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     super(options);
     this.connectionFactory = options.connectionFactory;
     this.streams = options.streams;
+    this.storageFactory = options.storageFactory;
     // We use a custom formatter to process the prefix
     this.logger = defaultLogger.child({
       prefix: `[powersync-${this.streams.map((stream) => stream.syncRules.id).join(',')}] `
@@ -106,6 +110,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
         return;
       }
       const stream = new ChangeStream({
+        factory: this.storageFactory,
         abort_signal: this.abortController.signal,
         streams: this.streams,
         metrics: this.options.metrics,
