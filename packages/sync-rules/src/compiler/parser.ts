@@ -36,7 +36,7 @@ import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
 import { intrinsicContains, PostgresToSqlite } from './sqlite.js';
 import { SqlScope } from './scope.js';
-import { ParsingErrorListener } from './compiler.js';
+import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { TablePattern } from '../TablePattern.js';
 import { FilterConditionSimplifier } from './filter_simplifier.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
@@ -81,8 +81,16 @@ export interface ParsedStreamQuery {
   where: Or;
 }
 
+export interface StreamQueryParserOptions {
+  compiler: SyncStreamsCompiler;
+  originalText: string;
+  errors: ParsingErrorListener;
+  parentScope?: SqlScope;
+}
+
 export class StreamQueryParser {
   readonly errors: ParsingErrorListener;
+  private readonly compiler: SyncStreamsCompiler;
   private readonly originalText: string;
   private readonly statementScope: SqlScope;
   // Note: This is not the same as SqlScope since some result sets are inlined from CTEs or subqueries. These are not in
@@ -95,7 +103,8 @@ export class StreamQueryParser {
   private primaryResultSet?: PhysicalSourceResultSet;
   private syntheticSubqueryCounter: number = 0;
 
-  constructor(options: { originalText: string; errors: ParsingErrorListener; parentScope?: SqlScope }) {
+  constructor(options: StreamQueryParserOptions) {
+    this.compiler = options.compiler;
     this.originalText = options.originalText;
     this.errors = options.errors;
     this.statementScope = new SqlScope({ parent: options.parentScope });
@@ -168,7 +177,10 @@ export class StreamQueryParser {
     let handled = false;
     if (from.type == 'table') {
       const source = new SyntacticResultSetSource(from.name, from.name.alias ?? null);
-      const resultSet = new PhysicalSourceResultSet(new TablePattern(from.name.schema ?? '', from.name.name), source);
+      const resultSet = new PhysicalSourceResultSet(
+        new TablePattern(from.name.schema ?? this.compiler.defaultSchema, from.name.name),
+        source
+      );
       scope.registerResultSet(this.errors, from.name.alias ?? from.name.name, source);
       this.resultSets.set(source, resultSet);
       handled = true;
@@ -492,6 +504,7 @@ export class StreamQueryParser {
       const desugarInSubquery = (negated: boolean, left: Expr, right: SelectFromStatement) => {
         // Independently analyze the inner query.
         const parseInner = new StreamQueryParser({
+          compiler: this.compiler,
           originalText: this.originalText,
           errors: this.errors,
           parentScope: this.statementScope
