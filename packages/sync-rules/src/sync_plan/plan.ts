@@ -190,6 +190,10 @@ export interface SqlParameterValue {
   sqlPosition: [number, number];
 }
 
+export function isColumnSqlParameterValue(source: SqlParameterValue): source is ColumnSqlParameterValue {
+  return (source as any).column != null;
+}
+
 /**
  * A value that resolves to a given column in a row being processed.
  */

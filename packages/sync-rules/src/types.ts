@@ -9,6 +9,7 @@ import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { toSyncRulesParameters } from './utils.js';
+import { castAsText } from './sql_functions.js';
 
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
@@ -88,6 +89,23 @@ export interface UnscopedEvaluatedRow {
 
   /** Must be JSON-serializable. */
   data: SqliteJsonRow;
+}
+
+/**
+ * Extracts and normalizes the ID column from a row.
+ */
+export function idFromData(data: SqliteJsonRow): string {
+  let id = data.id;
+  if (typeof id != 'string') {
+    // While an explicit cast would be better, this covers against very common
+    // issues when initially testing out sync, for example when the id column is an
+    // auto-incrementing integer.
+    // If there is no id column, we use a blank id. This will result in the user syncing
+    // a single arbitrary row for this table - better than just not being able to sync
+    // anything.
+    id = castAsText(id) ?? '';
+  }
+  return id;
 }
 
 export interface EvaluationError {
