@@ -43,6 +43,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       return {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
+        outputTableName: source.outputTableName,
         filters: source.filters,
         partition_by: source.parameters,
         columns: source.columns
@@ -157,6 +158,7 @@ interface SerializedTablePattern {
 
 interface SerializedDataSource {
   table: SerializedTablePattern;
+  outputTableName?: string;
   hash: number;
   columns: ColumnSource[];
   filters: SqlExpression<ColumnSqlParameterValue>[];

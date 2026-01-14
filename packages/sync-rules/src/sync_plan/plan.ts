@@ -71,12 +71,19 @@ export interface PartitionKey {
  */
 export interface StreamDataSource extends TableProcessor {
   /**
+   * The name of the output table for evaluated rows.
+   *
+   * If null, the name of the table being evaluated should be used instead.
+   */
+  outputTableName?: string;
+
+  /**
    * Output columns describing the row to store in buckets.
    */
   columns: ColumnSource[];
 }
 
-export type ColumnSource = 'star' | { expr: SqlExpression<ColumnSqlParameterValue>; alias: string | null };
+export type ColumnSource = 'star' | { expr: SqlExpression<ColumnSqlParameterValue>; alias: string };
 
 /**
  * A mapping describing how {@link StreamDataSource}s are combined into buckets.

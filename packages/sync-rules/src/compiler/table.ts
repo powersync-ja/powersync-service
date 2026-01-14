@@ -21,7 +21,10 @@ export type SourceResultSet = PhysicalSourceResultSet | RequestTableValuedResult
  * The syntactic sources of a {@link SourceResultSet} being added to a table.
  */
 export class SyntacticResultSetSource {
-  constructor(readonly origin: PGNode) {}
+  constructor(
+    readonly origin: PGNode,
+    readonly explicitName: string | null
+  ) {}
 }
 
 abstract class BaseSourceResultSet {
