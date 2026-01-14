@@ -1,13 +1,10 @@
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as uuid from 'uuid';
-import * as fsPromises from 'node:fs/promises';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, utils } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { BucketDataDocument } from '../storage/implementation/models.js';
-import { FsCachePaths } from '../types/types.js';
-import path from 'node:path';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
   let filter = {
@@ -156,55 +153,3 @@ export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
     more: !(count !== limit)
   };
 };
-
-/**
- * Caches data in a file and processes it using a provided function.
- *
- * This function checks if a file exists at the specified `filename` path. If the file exists,
- * it reads the cached data from the file and passes it, along with the provided `text`,
- * to the `func` callback for processing. If the file does not exist, it writes the `text`
- * to the file and then calls the `func` with the `text` as both the cache and input.
- *
- * @template T - The return type of the `func` callback.
- * @param {FsCachePaths} filename - The path to the cache file.
- * @param dir
- * @param {string} text - The text to cache or compare against the cached data.
- * @param {(cache: string, text: string) => Promise<T>} func - A callback function that processes the cached data
- * and the provided text. It receives the cached data (or the `text` if no cache exists) as the first argument
- * and the `text` as the second argument.
- * @returns {Promise<T>} - A promise that resolves to the result of the `func` callback.
- */
-export async function fsCache<T>(
-  filename: FsCachePaths,
-  dir: string,
-  text: string,
-  func: (cache: string, text: string) => Promise<T>
-): Promise<T> {
-  try {
-    await fsPromises.access(dir, fsPromises.constants.R_OK);
-  } catch (error) {
-    await fsPromises.mkdir(dir, { recursive: true });
-  }
-  try {
-    await fsPromises.access(path.join(dir, filename), fsPromises.constants.R_OK);
-    const cache = await fsPromises.readFile(path.join(dir, filename), 'utf-8');
-    return func(cache, text);
-  } catch (error) {
-    await fsPromises.writeFile(path.join(dir, filename), text, 'utf-8');
-    return func(text, text);
-  }
-}
-
-/**
- * Compares cached text with new text and updates the cache file if they differ.
- * Returns true if the cache was updated, false otherwise.
- */
-export function syncLockCheck(dir: string) {
-  return async (cache: string, text: string): Promise<boolean> => {
-    if (cache === text) {
-      return false;
-    }
-    await fsPromises.writeFile(path.join(dir, FsCachePaths.SYNC_RULES_LOCK), text, 'utf-8');
-    return true;
-  };
-}

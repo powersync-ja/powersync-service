@@ -3,9 +3,6 @@ import crypto from 'crypto';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
-import { fsCache, syncLockCheck } from '../../utils/util.js';
-import { FsCacheDirs, FsCachePaths } from '../../types/types.js';
-import path from 'node:path';
 
 /**
  * Manages a lock on a sync rules document, so that only one process
@@ -13,6 +10,7 @@ import path from 'node:path';
  */
 export class MongoSyncRulesLock implements storage.ReplicationLock {
   private readonly refreshInterval: NodeJS.Timeout;
+  private static lockAlerted: boolean = false;
 
   static async createLock(
     db: PowerSyncMongo,
@@ -39,30 +37,27 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       // Query the existing lock to get the expiration time (best effort - it may have been released in the meantime).
       const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 } });
       if (heldLock?.lock?.expires_at) {
-        const dir = path.join(process.cwd(), FsCacheDirs.SYNC_RULES_LOCK);
-        const alert = await fsCache(
-          FsCachePaths.SYNC_RULES_LOCK,
-          dir,
-          heldLock.lock.expires_at.toISOString(),
-          syncLockCheck(dir)
-        );
-        /** If the date has changed on the expires_at the alert key will be true, we want to notify that another process has a lock */
-        if (alert) {
+        if (!this.lockAlerted) {
+          this.lockAlerted = true;
           throw new ServiceError(
             ErrorCode.PSYNC_S1003,
             `Sync rules: ${sync_rules.id} have been locked by another process for replication, expiring at ${heldLock.lock.expires_at.toISOString()}.`
           );
         } else {
-          /** We throw undefined as it will be ignored in the catch block */
           throw undefined;
         }
       } else {
-        throw new ServiceError(
-          ErrorCode.PSYNC_S1003,
-          `Sync rules: ${sync_rules.id} have been locked by another process for replication.`
-        );
+        if (!this.lockAlerted) {
+          throw new ServiceError(
+            ErrorCode.PSYNC_S1003,
+            `Sync rules: ${sync_rules.id} have been locked by another process for replication.`
+          );
+        } else {
+          throw undefined;
+        }
       }
     }
+    this.lockAlerted = false;
     return new MongoSyncRulesLock(db, sync_rules.id, lockId);
   }
 
