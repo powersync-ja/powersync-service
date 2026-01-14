@@ -15,6 +15,9 @@
   "references": [
     {
       "path": "../"
+    },
+    {
+      "path": "../../../packages/service-core-tests"
     }
   ]
 }

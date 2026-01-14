@@ -15,7 +15,6 @@
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
     "build": "tsc -b",
-    "build:tests": "tsc -b test/tsconfig.json",
     "test": "vitest"
   },
   "keywords": [],
