@@ -18,8 +18,11 @@ npm-error.log
 .probes
 powersync.yaml
 sync-rules.yaml
+powersync-mongo*.yaml
+sync_rules_lock
 
 
 packages/*/manifest.json
 
 .clinic
+

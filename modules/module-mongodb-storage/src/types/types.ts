@@ -2,6 +2,10 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import * as service_types from '@powersync/service-types';
 import * as t from 'ts-codec';
 
+export enum FsCachePaths {
+  SYNC_RULES_LOCK = 'sync_rules_lock'
+}
+
 export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
   t.object({
     // Add any mongo specific storage settings here in future

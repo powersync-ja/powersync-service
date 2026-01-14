@@ -230,7 +230,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           // for example from stricter validation that was added.
           // This will be retried every couple of seconds.
           // When new (valid) sync rules are deployed and processed, this one be disabled.
-          this.logger.error('Failed to start replication for new sync rules', e);
+          if (e) {
+            this.logger.error('Failed to start replication for new sync rules', e);
+          }
         }
       }
     }

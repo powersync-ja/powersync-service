@@ -3,6 +3,8 @@ import crypto from 'crypto';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
+import { fsCache, syncLockCheck } from '../../utils/util.js';
+import { FsCachePaths } from '../../types/types.js';
 
 /**
  * Manages a lock on a sync rules document, so that only one process
@@ -36,10 +38,21 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       // Query the existing lock to get the expiration time (best effort - it may have been released in the meantime).
       const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 } });
       if (heldLock?.lock?.expires_at) {
-        throw new ServiceError(
-          ErrorCode.PSYNC_S1003,
-          `Sync rules: ${sync_rules.id} have been locked by another process for replication, expiring at ${heldLock.lock.expires_at.toISOString()}.`
+        const alert = await fsCache(
+          FsCachePaths.SYNC_RULES_LOCK,
+          heldLock.lock.expires_at.toISOString(),
+          syncLockCheck
         );
+        /** If the date has changed on the expires_at the alert key will be true, we want to notify that another process has a lock */
+        if (alert) {
+          throw new ServiceError(
+            ErrorCode.PSYNC_S1003,
+            `Sync rules: ${sync_rules.id} have been locked by another process for replication, expiring at ${heldLock.lock.expires_at.toISOString()}.`
+          );
+        } else {
+          /** We throw undefined as it will be ignored in the catch block */
+          throw undefined;
+        }
       } else {
         throw new ServiceError(
           ErrorCode.PSYNC_S1003,

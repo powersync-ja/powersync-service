@@ -1,11 +1,13 @@
 import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as uuid from 'uuid';
-
+import fs from 'fs';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, utils } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { BucketDataDocument } from '../storage/implementation/models.js';
+import { promisify } from 'node:util';
+import { FsCachePaths } from '../types/types.js';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
   let filter = {
@@ -154,3 +156,51 @@ export const createPaginatedConnectionQuery = async <T extends mongo.Document>(
     more: !(count !== limit)
   };
 };
+
+/**
+ * Caches data in a file and processes it using a provided function.
+ *
+ * This function checks if a file exists at the specified `filename` path. If the file exists,
+ * it reads the cached data from the file and passes it, along with the provided `text`,
+ * to the `func` callback for processing. If the file does not exist, it writes the `text`
+ * to the file and then calls the `func` with the `text` as both the cache and input.
+ *
+ * @template T - The return type of the `func` callback.
+ * @param {FsCachePaths} filename - The path to the cache file.
+ * @param {string} text - The text to cache or compare against the cached data.
+ * @param {(cache: string, text: string) => Promise<T>} func - A callback function that processes the cached data
+ * and the provided text. It receives the cached data (or the `text` if no cache exists) as the first argument
+ * and the `text` as the second argument.
+ * @returns {Promise<T>} - A promise that resolves to the result of the `func` callback.
+ */
+export async function fsCache<T>(
+  filename: FsCachePaths,
+  text: string,
+  func: (cache: string, text: string) => Promise<T>
+): Promise<T> {
+  const readFilePromise = promisify(fs.readFile);
+  const checkFilePromise = promisify(fs.exists);
+  const writeFilePromise = promisify(fs.writeFile);
+
+  /** Checks to see if the file exists */
+  if (await checkFilePromise(filename)) {
+    const cache = await readFilePromise(filename, 'utf-8');
+    return func(cache, text);
+  } else {
+    await writeFilePromise(filename, text, 'utf-8');
+    return func(text, text);
+  }
+}
+
+/**
+ * Compares cached text with new text and updates the cache file if they differ.
+ * Returns true if the cache was updated, false otherwise.
+ */
+export async function syncLockCheck(cache: string, text: string): Promise<boolean> {
+  if (cache === text) {
+    return false;
+  }
+  const writeFilePromise = promisify(fs.writeFile);
+  await writeFilePromise(FsCachePaths.SYNC_RULES_LOCK, text, 'utf-8');
+  return true;
+}
