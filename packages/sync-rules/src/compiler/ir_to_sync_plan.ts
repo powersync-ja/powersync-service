@@ -93,6 +93,7 @@ export class CompilerModelToSyncPlan {
             return { expr: this.translateExpression(e.expression.expression), alias: e.alias ?? null };
           }
         }),
+        outputTableName: value.outputName,
         filters: value.filters.map((e) => this.translateExpression(e.expression)),
         parameters: value.partitionBy.map((e) => this.translatePartitionKey(e))
       } satisfies plan.StreamDataSource;

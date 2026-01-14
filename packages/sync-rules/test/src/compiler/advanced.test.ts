@@ -89,13 +89,13 @@ WHERE
       // The user provided an equivalent stream definition not using subqueries.
       const streamB = `
 SELECT
-    DISTINCT u2.*
+    DISTINCT u.*
 FROM
     public.user_organization_map AS uom1
 JOIN
     public.user_organization_map AS uom2 ON uom1.organization_id = uom2.organization_id
 JOIN
-    public.users AS u2 ON uom2.user_id = u2.id
+    public.users AS u ON uom2.user_id = u.id
 WHERE
     uom1.user_id = auth.user_id()
         `;

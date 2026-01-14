@@ -132,13 +132,33 @@ export class RowEvaluator extends BaseSourceRowProcessor {
     this.columns = options.columns;
   }
 
+  get outputName(): string | undefined {
+    const alias = this.syntacticSource.source.explicitName;
+
+    if (this.syntacticSource.tablePattern.isWildcard) {
+      if (alias == null) {
+        // Unaliased wildcard, use source table name.
+        return undefined;
+      }
+    }
+
+    return alias ?? this.syntacticSource.tablePattern.tablePattern;
+  }
+
   buildBehaviorHashCode(hasher: StableHasher): void {
     this.addBaseHashCode(hasher);
     equalsIgnoringResultSetList.hash(hasher, this.columns);
+    if (this.outputName) {
+      hasher.addString(this.outputName);
+    }
   }
 
   behavesIdenticalTo(other: RowEvaluator): boolean {
-    return this.baseMatchesOther(other) && equalsIgnoringResultSetList.equals(other.columns, this.columns);
+    return (
+      this.baseMatchesOther(other) &&
+      equalsIgnoringResultSetList.equals(other.columns, this.columns) &&
+      other.outputName == this.outputName
+    );
   }
 }
 
@@ -189,7 +209,7 @@ export class StarColumnSource implements EqualsIgnoringResultSet {
 export class ExpressionColumnSource implements EqualsIgnoringResultSet {
   constructor(
     readonly expression: RowExpression,
-    readonly alias?: string
+    readonly alias: string
   ) {}
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
@@ -202,9 +222,6 @@ export class ExpressionColumnSource implements EqualsIgnoringResultSet {
 
   assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
     this.expression.assumingSameResultSetEqualityHashCode(hasher);
-
-    if (this.alias != null) {
-      hasher.addString(this.alias);
-    }
+    hasher.addString(this.alias);
   }
 }

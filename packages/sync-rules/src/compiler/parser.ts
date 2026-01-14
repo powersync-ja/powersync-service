@@ -167,13 +167,13 @@ export class StreamQueryParser {
     const scope = this.statementScope;
     let handled = false;
     if (from.type == 'table') {
-      const source = new SyntacticResultSetSource(from.name);
+      const source = new SyntacticResultSetSource(from.name, from.name.alias ?? null);
       const resultSet = new PhysicalSourceResultSet(new TablePattern(from.name.schema ?? '', from.name.name), source);
       scope.registerResultSet(this.errors, from.name.alias ?? from.name.name, source);
       this.resultSets.set(source, resultSet);
       handled = true;
     } else if (from.type == 'call') {
-      const source = new SyntacticResultSetSource(from);
+      const source = new SyntacticResultSetSource(from, from.alias?.name ?? null);
       scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       this.resultSets.set(source, this.resolveTableValued(from, source));
       handled = true;
@@ -264,7 +264,10 @@ export class StreamQueryParser {
         }
 
         try {
-          this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr), column.alias?.name));
+          const outputName =
+            column.alias?.name ?? this.originalText.substring(column._location!.start, column._location!.end);
+
+          this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr), outputName));
         } catch (e) {
           if (e instanceof InvalidExpressionError) {
             // Invalid dependencies, we've already logged errors for this. Ignore.
