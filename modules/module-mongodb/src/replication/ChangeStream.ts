@@ -18,7 +18,7 @@ import {
 } from '@powersync/service-core';
 import { DatabaseInputRow, HydratedSyncRules, SqliteInputRow, SqliteRow } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
-import { MongoLSN } from '../common/MongoLSN.js';
+import { MongoLSN, ZERO_LSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { ChangeStreamInvalidatedError, mapChangeStreamError } from './ChangeStreamErrors.js';
@@ -509,11 +509,21 @@ export class ChangeStream {
   }
 
   private async streamChangesInternal() {
-    await using writers = await this.factory.createCombinedWriter(this.substreams.map((s) => s.storage));
+    await using writer = await this.factory.createCombinedWriter(
+      this.substreams.map((s) => s.storage),
+      {
+        defaultSchema: this.defaultDb.databaseName,
+        storeCurrentData: false,
+        zeroLSN: ZERO_LSN,
+        logger: this.logger,
+        markRecordUnavailable: undefined,
+        skipExistingRows: false
+      }
+    );
 
     // FIXME: Proper resumeFromLsn implementation for multiple writers
     // We should probably use the active sync rules for this, or alternatively the minimum from the writers.
-    const resumeFromLsn = writers.resumeFromLsn;
+    const resumeFromLsn = writer.resumeFromLsn;
     if (resumeFromLsn == null) {
       throw new ReplicationAssertionError(`No LSN found to resume from`);
     }
@@ -579,7 +589,7 @@ export class ChangeStream {
         // doing a keepalive in the middle of a transaction.
         if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
           const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
-          await writers.keepaliveAll(lsn);
+          await writer.keepaliveAll(lsn);
           this.touch();
           lastEmptyResume = performance.now();
           // Log the token update. This helps as a general "replication is still active" message in the logs.
@@ -709,7 +719,7 @@ export class ChangeStream {
         if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
           waitForCheckpointLsn = null;
         }
-        const didCommit = await writers.commitAll(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+        const didCommit = await writer.commitAll(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
 
         if (didCommit) {
           // TODO: Re-check this logic
@@ -731,7 +741,7 @@ export class ChangeStream {
           waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
         }
         const rel = getMongoRelation(changeDocument.ns);
-        const tables = await this.getRelations(writers, rel, {
+        const tables = await this.getRelations(writer, rel, {
           // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
           // for whatever reason, then we do need to snapshot it.
           // This may result in some duplicate operations when a collection is created for the first time after
@@ -744,7 +754,7 @@ export class ChangeStream {
           if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
             this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
           }
-          const flushResult = await this.writeChange(writers, table, changeDocument);
+          const flushResult = await this.writeChange(writer, table, changeDocument);
           changesSinceLastCheckpoint += 1;
           if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
             // When we are catching up replication after an initial snapshot, there may be a very long delay
@@ -756,21 +766,21 @@ export class ChangeStream {
               resume_token: changeDocument._id
             });
             this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
-            await writers.setAllResumeLsn(lsn);
+            await writer.setAllResumeLsn(lsn);
             changesSinceLastCheckpoint = 0;
           }
         }
       } else if (changeDocument.operationType == 'drop') {
         const rel = getMongoRelation(changeDocument.ns);
-        await this.drop(writers, rel);
+        await this.drop(writer, rel);
       } else if (changeDocument.operationType == 'rename') {
         const relFrom = getMongoRelation(changeDocument.ns);
         const relTo = getMongoRelation(changeDocument.to);
-        await this.drop(writers, relFrom);
+        await this.drop(writer, relFrom);
 
         // Here we do need to snapshot the new table
         const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
-        await this.handleRelations(writers, relTo, {
+        await this.handleRelations(writer, relTo, {
           // This is a new (renamed) collection, so always snapshot it.
           snapshot: true,
           collectionInfo: collection

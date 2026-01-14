@@ -92,7 +92,7 @@ export interface ForSyncRulesOptions {
 
 export class MongoBucketDataWriter implements storage.BucketDataWriter {
   private batch: OperationBatch | null = null;
-  private readonly rowProcessor: RowProcessor;
+  public readonly rowProcessor: RowProcessor;
   write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
 
   private readonly client: mongo.MongoClient;
@@ -106,7 +106,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
   private readonly mapping: BucketDefinitionMapping;
 
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
-  private batches: MongoBucketBatch[] = [];
+  public subWriters: MongoBucketBatch[] = [];
 
   constructor(options: MongoWriterOptions) {
     this.db = options.db;
@@ -131,25 +131,25 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       logger: this.logger,
       writer: this
     });
-    this.batches.push(batch);
+    this.subWriters.push(batch);
     return batch;
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.session.endSession();
-    for (let batch of this.batches) {
+    for (let batch of this.subWriters) {
       await batch[Symbol.asyncDispose]();
     }
   }
 
   get resumeFromLsn(): string | null {
     // FIXME: check the logic here when there are multiple batches
-    return this.batches[0]?.resumeFromLsn ?? null;
+    return this.subWriters[0]?.resumeFromLsn ?? null;
   }
 
   async keepaliveAll(lsn: string): Promise<boolean> {
     let didAny = false;
-    for (let batch of this.batches) {
+    for (let batch of this.subWriters) {
       const didBatchKeepalive = await batch.keepalive(lsn);
       didAny ||= didBatchKeepalive;
     }
@@ -158,7 +158,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
 
   async commitAll(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
     let didCommit = false;
-    for (let batch of this.batches) {
+    for (let batch of this.subWriters) {
       const didWriterCommit = await batch.commit(lsn, options);
       didCommit ||= didWriterCommit;
     }
@@ -166,7 +166,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
   }
 
   async setAllResumeLsn(lsn: string): Promise<void> {
-    for (let batch of this.batches) {
+    for (let batch of this.subWriters) {
       await batch.setResumeLsn(lsn);
     }
   }
@@ -349,7 +349,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       throw new ReplicationAssertionError('Unexpected last_op == null');
     }
 
-    for (let batch of this.batches) {
+    for (let batch of this.subWriters) {
       batch.persisted_op = last_op;
       batch.last_flushed_op = last_op;
     }
@@ -479,7 +479,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     }
 
     if (didFlush) {
-      for (let batch of this.batches) {
+      for (let batch of this.subWriters) {
         await batch.clearError();
       }
     }
@@ -836,7 +836,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {
-      for (let batch of this.batches) {
+      for (let batch of this.subWriters) {
         batch.iterateListeners((cb) =>
           cb.replicationEvent?.({
             batch: batch,
@@ -897,7 +897,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     }
 
     if (last_op) {
-      for (let batch of this.batches) {
+      for (let batch of this.subWriters) {
         batch.persisted_op = last_op;
       }
       return {

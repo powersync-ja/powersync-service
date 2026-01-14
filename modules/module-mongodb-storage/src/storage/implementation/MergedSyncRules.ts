@@ -1,4 +1,5 @@
 import {
+  BucketDataSource,
   buildBucketInfo,
   CompatibilityContext,
   EvaluatedParameters,
@@ -6,10 +7,9 @@ import {
   EvaluateRowOptions,
   EvaluationError,
   EvaluationResult,
-  HydrationState,
   isEvaluatedRow,
   isEvaluationError,
-  mergeDataSources,
+  ParameterIndexLookupCreator,
   RowProcessor,
   SOURCE,
   SourceTableInterface,
@@ -23,9 +23,13 @@ import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 
 type EvaluateRowFn = (options: EvaluateRowOptions) => EvaluationResult[];
 
+interface ResolvedDataSource {
+  source: BucketDataSource;
+  evaluate: EvaluateRowFn;
+}
 export class MergedSyncRules implements RowProcessor {
   static merge(sources: MongoPersistedSyncRules[]): MergedSyncRules {
-    let evaluators = new Map<number, EvaluateRowFn>();
+    let resolvedDataSources = new Map<number, ResolvedDataSource>();
 
     for (let source of sources) {
       const syncRules = source.sync_rules;
@@ -35,7 +39,7 @@ export class MergedSyncRules implements RowProcessor {
       for (let source of dataSources) {
         const scope = hydrationState.getBucketSourceScope(source);
         const id = mapping.bucketSourceId(source);
-        if (evaluators.has(id)) {
+        if (resolvedDataSources.has(id)) {
           continue;
         }
 
@@ -54,14 +58,30 @@ export class MergedSyncRules implements RowProcessor {
             } satisfies EvaluatedRow;
           });
         };
-        evaluators.set(id, evaluate);
+        resolvedDataSources.set(id, { source, evaluate });
       }
     }
 
-    return new MergedSyncRules(Array.from(evaluators.values()));
+    return new MergedSyncRules(resolvedDataSources);
   }
 
-  constructor(private evaluators: EvaluateRowFn[]) {}
+  constructor(private resolvedDataSources: Map<number, ResolvedDataSource>) {}
+
+  getMatchingSources(table: SourceTableInterface): {
+    bucketDataSources: BucketDataSource[];
+    parameterIndexLookupCreators: ParameterIndexLookupCreator[];
+  } {
+    const bucketDataSources = [...this.resolvedDataSources.values()]
+      .map((dataSource) => dataSource.source)
+      .filter((ds) => ds.tableSyncsData(table));
+    return {
+      bucketDataSources,
+      parameterIndexLookupCreators: [
+        //FIXME: implement
+      ]
+    };
+  }
+
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
@@ -95,7 +115,9 @@ export class MergedSyncRules implements RowProcessor {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
-    const rawResults: EvaluationResult[] = this.evaluators.flatMap((evaluator) => evaluator(options));
+    const rawResults: EvaluationResult[] = Object.values(this.resolvedDataSources).flatMap((dataSource) =>
+      dataSource.evaluate(options)
+    );
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
 

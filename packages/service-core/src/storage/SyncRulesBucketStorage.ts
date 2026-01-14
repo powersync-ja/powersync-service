@@ -25,11 +25,6 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
 
   /**
-   * Resolve a table, keeping track of it internally.
-   */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
-
-  /**
    * Use this to get access to update storage data.
    *
    * @deprecated Use `createWriter` instead.

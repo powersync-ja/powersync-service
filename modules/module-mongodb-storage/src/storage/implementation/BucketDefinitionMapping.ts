@@ -7,8 +7,12 @@ export class BucketDefinitionMapping {
     return new BucketDefinitionMapping(doc.rule_mapping.definitions, doc.rule_mapping.parameter_lookups);
   }
 
+  static merged(mappings: BucketDefinitionMapping[]): BucketDefinitionMapping {
+    return mappings.reduce((acc, curr) => acc.mergeWith(curr), new BucketDefinitionMapping());
+  }
+
   constructor(
-    private definitions: Record<string, number>,
+    private definitions: Record<string, number> = {},
     private parameterLookupMapping: Record<string, number> = {}
   ) {}
 
@@ -38,5 +42,12 @@ export class BucketDefinitionMapping {
     // FIXME: Do an actual comparison, instead of just using the scope
     const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
     return this.parameterLookupMapping[key] ?? null;
+  }
+
+  mergeWith(other: BucketDefinitionMapping): BucketDefinitionMapping {
+    return new BucketDefinitionMapping(
+      { ...this.definitions, ...other.definitions },
+      { ...this.parameterLookupMapping, ...other.parameterLookupMapping }
+    );
   }
 }

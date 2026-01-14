@@ -1,6 +1,6 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 
-import { GetIntanceOptions, storage } from '@powersync/service-core';
+import { GetIntanceOptions, maxLsn, StartBatchOptions, storage } from '@powersync/service-core';
 
 import { BaseObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -14,6 +14,8 @@ import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedS
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
+import { MongoBucketDataWriter } from './storage-index.js';
+import { MergedSyncRules } from './implementation/MergedSyncRules.js';
 
 export class MongoBucketStorage
   extends BaseObserver<storage.BucketStorageFactoryListener>
@@ -70,6 +72,47 @@ export class MongoBucketStorage
       }
     });
     return storage;
+  }
+
+  async createCombinedWriter(
+    storages: storage.SyncRulesBucketStorage[],
+    options: StartBatchOptions
+  ): Promise<MongoBucketDataWriter> {
+    const mongoStorages = storages as MongoSyncBucketStorage[];
+    const mappings = mongoStorages.map((s) => s.sync_rules.mapping);
+    const mergedMappings = BucketDefinitionMapping.merged(mappings);
+    const mergedProcessor = MergedSyncRules.merge(mongoStorages.map((s) => s.getParsedSyncRules(options)));
+
+    const writer = new MongoBucketDataWriter({
+      db: this.db,
+      mapping: mergedMappings,
+      markRecordUnavailable: options.markRecordUnavailable,
+      rowProcessor: mergedProcessor,
+      skipExistingRows: options.skipExistingRows ?? false,
+      slotName: '',
+      storeCurrentData: options.storeCurrentData
+    });
+
+    for (let storage of mongoStorages) {
+      const doc = await this.db.sync_rules.findOne(
+        {
+          _id: storage.group_id
+        },
+        { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1, snapshot_lsn: 1 } }
+      );
+      const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
+      const parsedSyncRules = storage.getParsedSyncRules(options);
+      const batch = writer.forSyncRules({
+        syncRules: parsedSyncRules,
+
+        lastCheckpointLsn: checkpoint_lsn,
+        resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
+        keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
+      });
+      storage.iterateListeners((cb) => cb.batchStarted?.(batch));
+    }
+
+    return writer;
   }
 
   async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
