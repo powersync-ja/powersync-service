@@ -166,16 +166,13 @@ export interface SyncRuleStatus {
   snapshot_lsn: string | null;
 }
 export interface ResolveTableOptions {
-  group_id: number;
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
-
-  sync_rules: HydratedSyncRules;
 }
 
 export interface ResolveTableResult {
-  table: SourceTable;
+  tables: SourceTable[];
   dropTables: SourceTable[];
 }
 

@@ -4,6 +4,7 @@ import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 import { ReportStorage } from './ReportStorage.js';
+import { BucketDataWriter } from './BucketStorageBatch.js';
 
 /**
  * Represents a configured storage provider.
@@ -25,6 +26,8 @@ export interface BucketStorageFactory extends ObserverClient<BucketStorageFactor
    * Get a storage instance to query sync data for specific sync rules.
    */
   getInstance(syncRules: PersistedSyncRulesContent, options?: GetIntanceOptions): SyncRulesBucketStorage;
+
+  createCombinedWriter(storage: SyncRulesBucketStorage[]): Promise<BucketDataWriter>;
 
   /**
    * Deploy new sync rules.

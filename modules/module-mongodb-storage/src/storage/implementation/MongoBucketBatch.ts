@@ -33,7 +33,7 @@ import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
+import { CurrentBucket, CurrentDataDocument, SourceKey, SourceTableDocument, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
@@ -133,6 +133,181 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     });
     this.batches.push(batch);
     return batch;
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.session.endSession();
+    for (let batch of this.batches) {
+      await batch[Symbol.asyncDispose]();
+    }
+  }
+
+  get resumeFromLsn(): string | null {
+    // FIXME: check the logic here when there are multiple batches
+    return this.batches[0]?.resumeFromLsn ?? null;
+  }
+
+  async keepaliveAll(lsn: string): Promise<boolean> {
+    let didAny = false;
+    for (let batch of this.batches) {
+      const didBatchKeepalive = await batch.keepalive(lsn);
+      didAny ||= didBatchKeepalive;
+    }
+    return didAny;
+  }
+
+  async commitAll(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+    let didCommit = false;
+    for (let batch of this.batches) {
+      const didWriterCommit = await batch.commit(lsn, options);
+      didCommit ||= didWriterCommit;
+    }
+    return didCommit;
+  }
+
+  async setAllResumeLsn(lsn: string): Promise<void> {
+    for (let batch of this.batches) {
+      await batch.setResumeLsn(lsn);
+    }
+  }
+
+  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
+    const sources = this.rowProcessor.getMatchingSources({
+      connectionTag: options.connection_tag,
+      name: options.entity_descriptor.name,
+      schema: options.entity_descriptor.schema
+    });
+    const bucketDataSourceIds = sources.bucketDataSources.map((source) => this.mapping.bucketSourceId(source));
+    const parameterLookupSourceIds = sources.parameterIndexLookupCreators.map((source) =>
+      this.mapping.parameterLookupId(source)
+    );
+
+    const { connection_id, connection_tag, entity_descriptor } = options;
+
+    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      type_oid: column.typeId
+    }));
+    let result: storage.ResolveTableResult | null = null;
+    await this.db.client.withSession(async (session) => {
+      const col = this.db.source_tables;
+      let filter: mongo.Filter<SourceTableDocument> = {
+        connection_id: connection_id,
+        schema_name: schema,
+        table_name: name,
+        replica_id_columns2: normalizedReplicaIdColumns
+      };
+      if (objectId != null) {
+        filter.relation_id = objectId;
+      }
+      let docs = await col.find(filter, { session }).toArray();
+      let matchingDocs: SourceTableDocument[] = [];
+
+      let coveredBucketDataSourceIds = new Set<number>();
+      let coveredParameterLookupSourceIds = new Set<number>();
+
+      for (let doc of docs) {
+        const matchingBucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => bucketDataSourceIds.includes(id));
+        const matchingParameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) =>
+          parameterLookupSourceIds.includes(id)
+        );
+        if (matchingBucketDataSourceIds.length == 0 && matchingParameterLookupSourceIds.length == 0) {
+          // Not relevant
+          continue;
+        }
+        matchingDocs.push(doc);
+      }
+
+      const pendingBucketDataSourceIds = bucketDataSourceIds.filter((id) => !coveredBucketDataSourceIds.has(id));
+      const pendingParameterLookupSourceIds = parameterLookupSourceIds.filter(
+        (id) => !coveredParameterLookupSourceIds.has(id)
+      );
+      if (pendingBucketDataSourceIds.length > 0 || pendingParameterLookupSourceIds.length > 0) {
+        const doc: SourceTableDocument = {
+          _id: new bson.ObjectId(),
+          connection_id: connection_id,
+          relation_id: objectId,
+          schema_name: schema,
+          table_name: name,
+          replica_id_columns: null,
+          replica_id_columns2: normalizedReplicaIdColumns,
+          snapshot_done: false,
+          snapshot_status: undefined,
+          bucket_data_source_ids: pendingBucketDataSourceIds,
+          parameter_lookup_source_ids: pendingParameterLookupSourceIds
+        };
+
+        await col.insertOne(doc, { session });
+        docs.push(doc);
+      }
+
+      const sourceTables = docs.map((doc) => {
+        const sourceTable = new storage.SourceTable({
+          id: doc._id,
+          connectionTag: connection_tag,
+          objectId: objectId,
+          schema: schema,
+          name: name,
+          replicaIdColumns: replicaIdColumns,
+          snapshotComplete: doc.snapshot_done ?? true
+        });
+        sourceTable.snapshotStatus =
+          doc.snapshot_status == null
+            ? undefined
+            : {
+                lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+                totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+                replicatedCount: doc.snapshot_status.replicated_count
+              };
+
+        sourceTable.syncData = doc.bucket_data_source_ids.length > 0;
+        sourceTable.syncParameters = doc.parameter_lookup_source_ids.length > 0;
+        // FIXME: implement sourceTable.syncEvent
+        return sourceTable;
+      });
+
+      // FIXME: dropTables
+      // let dropTables: storage.SourceTable[] = [];
+      // // Detect tables that are either renamed, or have different replica_id_columns
+      // let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
+      // if (objectId != null) {
+      //   // Only detect renames if the source uses relation ids.
+      //   truncateFilter.push({ relation_id: objectId });
+      // }
+      // const truncate = await col
+      //   .find(
+      //     {
+      //       group_id: group_id,
+      //       connection_id: connection_id,
+      //       _id: { $ne: doc._id },
+      //       $or: truncateFilter
+      //     },
+      //     { session }
+      //   )
+      //   .toArray();
+      // dropTables = truncate.map(
+      //   (doc) =>
+      //     new storage.SourceTable({
+      //       id: doc._id,
+      //       connectionTag: connection_tag,
+      //       objectId: doc.relation_id,
+      //       schema: doc.schema_name,
+      //       name: doc.table_name,
+      //       replicaIdColumns:
+      //         doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+      //       snapshotComplete: doc.snapshot_done ?? true
+      //     })
+      // );
+
+      result = {
+        tables: sourceTables,
+        dropTables: []
+      };
+    });
+    return result!;
   }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {

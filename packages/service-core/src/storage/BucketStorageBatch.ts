@@ -1,9 +1,15 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
+import {
+  EvaluatedParameters,
+  EvaluatedRow,
+  RowProcessor,
+  SqliteRow,
+  ToastableSqliteRow
+} from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
+import { BatchedCustomWriteCheckpointOptions, ResolveTableOptions, ResolveTableResult } from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
@@ -11,7 +17,22 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
   oldestUncommittedChange: null
 };
 
-export interface BucketDataWriter {
+export interface BucketDataWriter extends BucketDataWriterBase, AsyncDisposable {
+  readonly rowProcessor: RowProcessor;
+
+  keepaliveAll(lsn: string): Promise<boolean>;
+  commitAll(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
+  setAllResumeLsn(lsn: string): Promise<void>;
+
+  /**
+   * Resolve a table, keeping track of it internally.
+   */
+  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
+}
+
+export interface BucketDataWriterBase {
+  readonly resumeFromLsn: string | null;
+
   /**
    * Save an op, and potentially flush.
    *
@@ -45,7 +66,7 @@ export interface BucketDataWriter {
 export interface BucketStorageBatch
   extends ObserverClient<BucketBatchStorageListener>,
     AsyncDisposable,
-    BucketDataWriter {
+    BucketDataWriterBase {
   /**
    * Alias for [Symbol.asyncDispose]
    */

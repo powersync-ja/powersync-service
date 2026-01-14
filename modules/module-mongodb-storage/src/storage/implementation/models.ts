@@ -73,7 +73,8 @@ export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
 
 export interface SourceTableDocument {
   _id: bson.ObjectId;
-  sync_rules_ids: number[];
+  bucket_data_source_ids: number[];
+  parameter_lookup_source_ids: number[];
   connection_id: number;
   relation_id: number | string | undefined;
   schema_name: string;

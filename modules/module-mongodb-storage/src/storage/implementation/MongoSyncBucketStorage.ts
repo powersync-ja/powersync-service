@@ -223,7 +223,8 @@ export class MongoSyncBucketStorage
   }
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
+    const { connection_id, connection_tag, entity_descriptor, bucket_data_source_ids, parameter_lookup_source_ids } =
+      options;
 
     const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
 
@@ -236,7 +237,6 @@ export class MongoSyncBucketStorage
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
       let filter: mongo.Filter<SourceTableDocument> = {
-        sync_rules_ids: group_id,
         connection_id: connection_id,
         schema_name: schema,
         table_name: name,
@@ -245,11 +245,33 @@ export class MongoSyncBucketStorage
       if (objectId != null) {
         filter.relation_id = objectId;
       }
-      let doc = await col.findOne(filter, { session });
-      if (doc == null) {
-        doc = {
+      let docs = await col.find(filter, { session }).toArray();
+      let matchingDocs: SourceTableDocument[] = [];
+
+      let coveredBucketDataSourceIds = new Set<number>();
+      let coveredParameterLookupSourceIds = new Set<number>();
+
+      for (let doc of docs) {
+        const matchingBucketDataSourceIds = doc.bucket_data_source_ids.filter((id) =>
+          bucket_data_source_ids.includes(id)
+        );
+        const matchingParameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) =>
+          parameter_lookup_source_ids.includes(id)
+        );
+        if (matchingBucketDataSourceIds.length == 0 && matchingParameterLookupSourceIds.length == 0) {
+          // Not relevant
+          continue;
+        }
+        matchingDocs.push(doc);
+      }
+
+      const pendingBucketDataSourceIds = bucket_data_source_ids.filter((id) => !coveredBucketDataSourceIds.has(id));
+      const pendingParameterLookupSourceIds = parameter_lookup_source_ids.filter(
+        (id) => !coveredParameterLookupSourceIds.has(id)
+      );
+      if (pendingBucketDataSourceIds.length > 0 || pendingParameterLookupSourceIds.length > 0) {
+        const doc: SourceTableDocument = {
           _id: new bson.ObjectId(),
-          sync_rules_ids: [group_id],
           connection_id: connection_id,
           relation_id: objectId,
           schema_name: schema,
@@ -257,67 +279,72 @@ export class MongoSyncBucketStorage
           replica_id_columns: null,
           replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false,
-          snapshot_status: undefined
+          snapshot_status: undefined,
+          bucket_data_source_ids: bucket_data_source_ids,
+          parameter_lookup_source_ids: parameter_lookup_source_ids
         };
 
         await col.insertOne(doc, { session });
+        docs.push(doc);
       }
-      const sourceTable = new storage.SourceTable({
-        id: doc._id,
-        connectionTag: connection_tag,
-        objectId: objectId,
-        schema: schema,
-        name: name,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true
-      });
-      sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
-      sourceTable.snapshotStatus =
-        doc.snapshot_status == null
-          ? undefined
-          : {
-              lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-              totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-              replicatedCount: doc.snapshot_status.replicated_count
-            };
 
-      let dropTables: storage.SourceTable[] = [];
-      // Detect tables that are either renamed, or have different replica_id_columns
-      let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
-      if (objectId != null) {
-        // Only detect renames if the source uses relation ids.
-        truncateFilter.push({ relation_id: objectId });
-      }
-      const truncate = await col
-        .find(
-          {
-            group_id: group_id,
-            connection_id: connection_id,
-            _id: { $ne: doc._id },
-            $or: truncateFilter
-          },
-          { session }
-        )
-        .toArray();
-      dropTables = truncate.map(
-        (doc) =>
-          new storage.SourceTable({
-            id: doc._id,
-            connectionTag: connection_tag,
-            objectId: doc.relation_id,
-            schema: doc.schema_name,
-            name: doc.table_name,
-            replicaIdColumns:
-              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true
-          })
-      );
+      const sourceTables = docs.map((doc) => {
+        const sourceTable = new storage.SourceTable({
+          id: doc._id,
+          connectionTag: connection_tag,
+          objectId: objectId,
+          schema: schema,
+          name: name,
+          replicaIdColumns: replicaIdColumns,
+          snapshotComplete: doc.snapshot_done ?? true
+        });
+        sourceTable.snapshotStatus =
+          doc.snapshot_status == null
+            ? undefined
+            : {
+                lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+                totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+                replicatedCount: doc.snapshot_status.replicated_count
+              };
+        return sourceTable;
+      });
+
+      // FIXME: dropTables
+      // let dropTables: storage.SourceTable[] = [];
+      // // Detect tables that are either renamed, or have different replica_id_columns
+      // let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
+      // if (objectId != null) {
+      //   // Only detect renames if the source uses relation ids.
+      //   truncateFilter.push({ relation_id: objectId });
+      // }
+      // const truncate = await col
+      //   .find(
+      //     {
+      //       group_id: group_id,
+      //       connection_id: connection_id,
+      //       _id: { $ne: doc._id },
+      //       $or: truncateFilter
+      //     },
+      //     { session }
+      //   )
+      //   .toArray();
+      // dropTables = truncate.map(
+      //   (doc) =>
+      //     new storage.SourceTable({
+      //       id: doc._id,
+      //       connectionTag: connection_tag,
+      //       objectId: doc.relation_id,
+      //       schema: doc.schema_name,
+      //       name: doc.table_name,
+      //       replicaIdColumns:
+      //         doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+      //       snapshotComplete: doc.snapshot_done ?? true
+      //     })
+      // );
 
       result = {
-        table: sourceTable,
-        dropTables: dropTables
+        tables: sourceTables,
+        dropTables: []
       };
     });
     return result!;

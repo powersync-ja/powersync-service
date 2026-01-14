@@ -153,57 +153,54 @@ export class MongoSnapshotter {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
 
-    await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: MongoLSN.ZERO.comparable,
-        defaultSchema: this.defaultDb.databaseName,
-        storeCurrentData: false,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        if (snapshotLsn == null) {
-          // First replication attempt - get a snapshot and store the timestamp
-          snapshotLsn = await this.getSnapshotLsn();
-          await batch.setResumeLsn(snapshotLsn);
-          this.logger.info(`Marking snapshot at ${snapshotLsn}`);
-        } else {
-          this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
-          // Check that the snapshot is still valid.
-          await this.validateSnapshotLsn(snapshotLsn);
-        }
+    await using batch = await this.storage.createWriter({
+      logger: this.logger,
+      zeroLSN: MongoLSN.ZERO.comparable,
+      defaultSchema: this.defaultDb.databaseName,
+      storeCurrentData: false,
+      skipExistingRows: true
+    });
 
-        // Start by resolving all tables.
-        // This checks postImage configuration, and that should fail as
-        // early as possible.
-        let allSourceTables: SourceTable[] = [];
-        for (let tablePattern of sourceTables) {
-          const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
-          allSourceTables.push(...tables);
-        }
+    if (snapshotLsn == null) {
+      // First replication attempt - get a snapshot and store the timestamp
+      snapshotLsn = await this.getSnapshotLsn();
+      await batch.setResumeLsn(snapshotLsn);
+      this.logger.info(`Marking snapshot at ${snapshotLsn}`);
+    } else {
+      this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
+      // Check that the snapshot is still valid.
+      await this.validateSnapshotLsn(snapshotLsn);
+    }
 
-        let tablesWithStatus: SourceTable[] = [];
-        for (let table of allSourceTables) {
-          if (table.snapshotComplete) {
-            this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
-            continue;
-          }
-          const count = await this.estimatedCountNumber(table);
-          const updated = await batch.updateTableProgress(table, {
-            totalEstimatedCount: count
-          });
-          tablesWithStatus.push(updated);
-          this.relationCache.update(updated);
-          this.logger.info(
-            `To replicate: ${updated.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
-          );
-        }
+    // Start by resolving all tables.
+    // This checks postImage configuration, and that should fail as
+    // early as possible.
+    let allSourceTables: SourceTable[] = [];
+    for (let tablePattern of sourceTables) {
+      const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
+      allSourceTables.push(...tables);
+    }
 
-        for (let table of tablesWithStatus) {
-          this.queue.add(table);
-        }
+    let tablesWithStatus: SourceTable[] = [];
+    for (let table of allSourceTables) {
+      if (table.snapshotComplete) {
+        this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
+        continue;
       }
-    );
+      const count = await this.estimatedCountNumber(table);
+      const updated = await batch.updateTableProgress(table, {
+        totalEstimatedCount: count
+      });
+      tablesWithStatus.push(updated);
+      this.relationCache.update(updated);
+      this.logger.info(
+        `To replicate: ${updated.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
+      );
+    }
+
+    for (let table of tablesWithStatus) {
+      this.queue.add(table);
+    }
   }
 
   async waitForInitialSnapshot() {

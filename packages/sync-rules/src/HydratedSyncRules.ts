@@ -36,6 +36,10 @@ export interface RowProcessor {
 
   tableSyncsData(table: SourceTableInterface): boolean;
   tableSyncsParameters(table: SourceTableInterface): boolean;
+  getMatchingSources(table: SourceTableInterface): {
+    bucketDataSources: BucketDataSource[];
+    parameterIndexLookupCreators: ParameterIndexLookupCreator[];
+  };
 
   applyRowContext<MaybeToast extends undefined = never>(
     source: SqliteRow<SqliteInputValue | MaybeToast>
