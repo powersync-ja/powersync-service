@@ -21,12 +21,15 @@ import {
   TablePattern
 } from '@powersync/service-sync-rules';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
+import { SourceTable } from '@powersync/service-core';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 
 type EvaluateRowFn = (options: EvaluateRowOptions) => EvaluationResult[];
 
 interface ResolvedDataSource {
   source: BucketDataSource;
   evaluate: EvaluateRowFn;
+  id: number;
 }
 export class MergedSyncRules implements RowProcessor {
   static merge(sources: MongoPersistedSyncRules[]): MergedSyncRules {
@@ -70,7 +73,7 @@ export class MergedSyncRules implements RowProcessor {
             } satisfies EvaluatedRow;
           });
         };
-        resolvedDataSources.set(id, { source, evaluate });
+        resolvedDataSources.set(id, { source, evaluate, id });
       }
 
       for (let pattern of syncRules.getSourceTables()) {
@@ -92,9 +95,9 @@ export class MergedSyncRules implements RowProcessor {
       .map((dataSource) => dataSource.source)
       .filter((ds) => ds.tableSyncsData(table));
     return {
-      bucketDataSources,
+      bucketDataSources: bucketDataSources,
       parameterIndexLookupCreators: [
-        //FIXME: implement
+        // FIXME: implement
       ]
     };
   }
@@ -136,9 +139,22 @@ export class MergedSyncRules implements RowProcessor {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
-    const rawResults: EvaluationResult[] = [...this.resolvedDataSources.values()].flatMap((dataSource) =>
-      dataSource.evaluate(options)
+    // Important: We only get matching sources here, not all sources. This can help for two things:
+    // 1. For performance: Skip any not-matching sources.
+    // 2. For re-replication: We may take a snapshot when adding a new source, with a new SourceTable.
+    //    In that case, we don't want to re-evaluate all existing sources, only the new one.
+
+    // FIXME: Fix performance - don't scan all sources
+    // And maybe re-use getMatchingSources?
+    const table = options.sourceTable;
+    if (!(table instanceof SourceTable)) {
+      throw new ReplicationAssertionError(`Expected SourceTable instance`);
+    }
+    const bucketDataSources = [...this.resolvedDataSources.values()].filter((ds) =>
+      table.bucketDataSourceIds.includes(ds.id)
     );
+
+    const rawResults: EvaluationResult[] = bucketDataSources.flatMap((dataSource) => dataSource.evaluate(options));
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
 

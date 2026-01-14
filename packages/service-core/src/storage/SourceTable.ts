@@ -16,6 +16,9 @@ export interface SourceTableOptions {
   name: string;
   replicaIdColumns: ColumnDescriptor[];
   snapshotComplete: boolean;
+
+  bucketDataSourceIds?: number[];
+  parameterLookupSourceIds?: number[];
 }
 
 export interface TableSnapshotStatus {
@@ -100,6 +103,14 @@ export class SourceTable implements SourceEntityDescriptor {
 
   get syncAny() {
     return this.syncData || this.syncParameters || this.syncEvent;
+  }
+
+  get bucketDataSourceIds() {
+    return this.options.bucketDataSourceIds ?? [];
+  }
+
+  get parameterLookupSourceIds() {
+    return this.options.parameterLookupSourceIds ?? [];
   }
 
   /**

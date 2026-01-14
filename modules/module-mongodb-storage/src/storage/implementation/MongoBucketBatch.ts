@@ -282,7 +282,9 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       connectionTag: ref.connectionTag,
       name: doc.table_name,
       replicaIdColumns: ref.replicaIdColumns,
-      snapshotComplete: doc.snapshot_done ?? true
+      snapshotComplete: doc.snapshot_done ?? true,
+      bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
+      parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? []
     });
     sourceTable.snapshotStatus =
       doc.snapshot_status == null
@@ -386,7 +388,9 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           schema: schema,
           name: name,
           replicaIdColumns: replicaIdColumns,
-          snapshotComplete: doc.snapshot_done ?? true
+          snapshotComplete: doc.snapshot_done ?? true,
+          bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
+          parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? []
         });
         sourceTable.snapshotStatus =
           doc.snapshot_status == null
