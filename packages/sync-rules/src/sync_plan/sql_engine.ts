@@ -9,14 +9,17 @@ import {
 
 export interface SqlEngine {
   prepare(stmt: string): PreparedStatement;
+  close(): void;
 }
 
 export interface PreparedStatement {
   evaluateScalar(params: SqliteValue[]): SqliteValue[] | undefined;
 }
 
+/**
+ * @param module The `node:sqlite` module, imported by the caller to ensure this package keeps working in browsers.
+ */
 export function nodeSqlEngine(module: typeof import('node:sqlite')): SqlEngine {
-  // Imported dynamically so that we can keep running sync-rules in browser contexts.
   const db = new module.DatabaseSync(':memory:', { readOnly: true, readBigInts: true, returnArrays: true } as any);
 
   return {
@@ -29,6 +32,9 @@ export function nodeSqlEngine(module: typeof import('node:sqlite')): SqlEngine {
           return rows[0];
         }
       };
+    },
+    close() {
+      db.close();
     }
   };
 }
@@ -75,6 +81,11 @@ export function prepareRowEvaluator(
   const builder = new SqlBuilder('SELECT ');
   builder.addExpressions(outputs);
   builder.addExpressions(parameters.map((e) => e.expr));
+
+  if (outputs.length == 0 && parameters.length == 0) {
+    // Add a bogus expression so that we can evaluate filters.
+    builder.sql += '1';
+  }
 
   if (filters.length) {
     builder.sql += ' WHERE ';
