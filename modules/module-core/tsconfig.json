@@ -16,6 +16,9 @@
       "path": "../../packages/service-core"
     },
     {
+      "path": "../../packages/rsocket-router"
+    },
+    {
       "path": "../../libs/lib-services"
     }
   ]
