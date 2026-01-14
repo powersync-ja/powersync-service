@@ -23,6 +23,7 @@ import {
   deserializeBson,
   InternalOpId,
   isCompleteRow,
+  maxLsn,
   SaveOperationTag,
   SourceTable,
   SourceTableId,
@@ -145,7 +146,12 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
 
   get resumeFromLsn(): string | null {
     // FIXME: check the logic here when there are multiple batches
-    return this.subWriters[0]?.resumeFromLsn ?? null;
+    let lsn: string | null = null;
+    for (let sub of this.subWriters) {
+      // TODO: should this be min instead?
+      lsn = maxLsn(lsn, sub.resumeFromLsn);
+    }
+    return lsn;
   }
 
   async keepaliveAll(lsn: string): Promise<boolean> {
@@ -341,6 +347,12 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           continue;
         }
         matchingDocs.push(doc);
+        for (let id of matchingBucketDataSourceIds) {
+          coveredBucketDataSourceIds.add(id);
+        }
+        for (let id of matchingParameterLookupSourceIds) {
+          coveredParameterLookupSourceIds.add(id);
+        }
       }
 
       const pendingBucketDataSourceIds = bucketDataSourceIds.filter((id) => !coveredBucketDataSourceIds.has(id));

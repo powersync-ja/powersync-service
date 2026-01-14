@@ -26,6 +26,17 @@ export class TablePattern {
     this.tablePattern = tablePattern;
   }
 
+  /**
+   * Unique lookup key for this pattern. For in-memory use only - no gaurantee of stability across restarts.
+   */
+  get key(): string {
+    return JSON.stringify([this.connectionTag, this.schema, this.tablePattern]);
+  }
+
+  equals(other: TablePattern): boolean {
+    return this.key == other.key;
+  }
+
   get isWildcard() {
     return this.tablePattern.endsWith('%');
   }

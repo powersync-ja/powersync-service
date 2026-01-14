@@ -16,7 +16,7 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { DatabaseInputRow, HydratedSyncRules, SqliteInputRow, SqliteRow } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, SqliteRow } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN, ZERO_LSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -278,14 +278,6 @@ export class ChangeStream {
     }
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
-    for (let row of results) {
-      yield constructAfterRecord(row);
-    }
-  }
-
-  private async createSnapshotter() {}
-
   private async setupCheckpointsCollection() {
     const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
     if (collection == null) {
@@ -329,6 +321,8 @@ export class ChangeStream {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
       this.initPromise = this.initReplication();
+      // Important - need to wait for init. This sets the resumeLsn, amongst other setup
+      await this.initPromise;
       streamPromise = this.streamChanges()
         .then(() => {
           throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
@@ -566,8 +560,10 @@ export class ChangeStream {
       }
     );
 
-    // FIXME: Proper resumeFromLsn implementation for multiple writers
-    // We should probably use the active sync rules for this, or alternatively the minimum from the writers.
+    // Even though we use a unified stream, the resumeFromLsn is tracked separately per sync rules version.
+    // This resumeFromLsn on the writer gives us the _minimum_ one.
+    // When starting with the first sync rules, we need to get an LSN from the snapshot.
+    // When we then start a new sync rules version, it will use the LSN from the existing sync rules version.
     const resumeFromLsn = writer.resumeFromLsn;
     if (resumeFromLsn == null) {
       throw new ReplicationAssertionError(`No LSN found to resume from`);

@@ -16,8 +16,6 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  maxLsn,
-  PersistedSyncRules,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ProtocolOpId,
@@ -28,27 +26,22 @@ import {
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import {
-  BucketDataSource,
-  HydratedSyncRules,
-  ScopedParameterLookup,
-  SqliteJsonRow
-} from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { MongoPersistedSyncRules } from '../storage-index.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
-import { MongoBucketBatch, MongoBucketDataWriter } from './MongoBucketBatch.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey } from './models.js';
+import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
-import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { MongoPersistedSyncRules } from '../storage-index.js';
+import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: MongoChecksumOptions;
