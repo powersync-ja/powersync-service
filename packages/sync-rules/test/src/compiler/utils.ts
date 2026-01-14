@@ -48,7 +48,7 @@ export function compilationErrorsForSingleStream(...sql: string[]): TranslationE
 }
 
 export function compileToSyncPlan(inputs: SyncStreamInput[]): [TranslationError[], SyncPlan] {
-  const compiler = new SyncStreamsCompiler();
+  const compiler = new SyncStreamsCompiler('test_schema');
   const errors: TranslationError[] = [];
 
   for (const input of inputs) {

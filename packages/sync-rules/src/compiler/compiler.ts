@@ -23,6 +23,8 @@ import { StreamQueryParser } from './parser.js';
 export class SyncStreamsCompiler {
   readonly output = new CompiledStreamQueries();
 
+  constructor(readonly defaultSchema: string) {}
+
   /**
    * Utility for compiling a sync stream.
    *
@@ -35,6 +37,7 @@ export class SyncStreamsCompiler {
       addQuery: (sql: string, errors: ParsingErrorListener) => {
         const [stmt] = parse(sql, { locationTracking: true });
         const parser = new StreamQueryParser({
+          compiler: this,
           originalText: sql,
           errors
         });

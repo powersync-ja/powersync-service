@@ -4,7 +4,7 @@ exports[`new sync stream features > in array 1`] = `
 {
   "buckets": [
     {
-      "hash": 219258053,
+      "hash": 482908656,
       "sources": [
         0,
       ],
@@ -30,12 +30,12 @@ exports[`new sync stream features > in array 1`] = `
           ],
         },
       ],
-      "hash": 399753670,
+      "hash": 240499768,
       "outputTableName": "notes",
       "partition_by": [],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "notes",
       },
     },
@@ -66,7 +66,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
 {
   "buckets": [
     {
-      "hash": 276040565,
+      "hash": 479140323,
       "sources": [
         0,
       ],
@@ -79,7 +79,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 367702293,
+      "hash": 94710716,
       "outputTableName": "u",
       "partition_by": [
         {
@@ -99,7 +99,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "users",
       },
     },
@@ -107,7 +107,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 81381604,
+      "hash": 136074946,
       "output": [
         {
           "sql": "?",
@@ -140,13 +140,13 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "group_memberships",
       },
     },
     {
       "filters": [],
-      "hash": 346299388,
+      "hash": 322713396,
       "output": [
         {
           "sql": "?",
@@ -179,7 +179,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "group_memberships",
       },
     },
@@ -258,7 +258,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
 {
   "buckets": [
     {
-      "hash": 193157835,
+      "hash": 518503768,
       "sources": [
         0,
       ],
@@ -271,7 +271,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 5872627,
+      "hash": 209445370,
       "outputTableName": "m",
       "partition_by": [
         {
@@ -291,7 +291,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "message",
       },
     },
@@ -312,7 +312,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
           ],
         },
       ],
-      "hash": 33706696,
+      "hash": 378594320,
       "output": [
         {
           "sql": "?",
@@ -345,7 +345,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "roles",
       },
     },
@@ -408,7 +408,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
 {
   "buckets": [
     {
-      "hash": 464369638,
+      "hash": 50211887,
       "sources": [
         0,
         1,
@@ -422,7 +422,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 471100765,
+      "hash": 134988142,
       "outputTableName": "users",
       "partition_by": [
         {
@@ -442,7 +442,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "users",
       },
     },
@@ -451,7 +451,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 460807442,
+      "hash": 367912637,
       "outputTableName": "families",
       "partition_by": [
         {
@@ -471,7 +471,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "families",
       },
     },
@@ -479,7 +479,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 48052536,
+      "hash": 249133436,
       "output": [
         {
           "sql": "?",
@@ -512,13 +512,13 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "user_auth_mappings",
       },
     },
     {
       "filters": [],
-      "hash": 497298267,
+      "hash": 230646996,
       "output": [
         {
           "sql": "?",
@@ -551,7 +551,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "users",
       },
     },
@@ -630,7 +630,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
 {
   "buckets": [
     {
-      "hash": 220865258,
+      "hash": 84136847,
       "sources": [
         0,
       ],
@@ -643,7 +643,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 336079656,
+      "hash": 454629191,
       "outputTableName": "events",
       "partition_by": [
         {
@@ -663,7 +663,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "events",
       },
     },
@@ -671,7 +671,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 202536777,
+      "hash": 283859073,
       "output": [
         {
           "sql": "?",
@@ -704,7 +704,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "event_users",
       },
     },
@@ -1206,7 +1206,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
 {
   "buckets": [
     {
-      "hash": 64281863,
+      "hash": 162955439,
       "sources": [
         0,
       ],
@@ -1219,7 +1219,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 414981033,
+      "hash": 494167431,
       "outputTableName": "t",
       "partition_by": [
         {
@@ -1239,7 +1239,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "ticket",
       },
     },
@@ -1247,7 +1247,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 405558175,
+      "hash": 369143364,
       "output": [
         {
           "sql": "?",
@@ -1280,7 +1280,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "ticket_detail_item",
       },
     },
@@ -1343,7 +1343,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
 {
   "buckets": [
     {
-      "hash": 312471476,
+      "hash": 8299255,
       "sources": [
         0,
       ],
@@ -1356,7 +1356,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 435940625,
+      "hash": 26563318,
       "outputTableName": "c",
       "partition_by": [
         {
@@ -1376,7 +1376,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "checkpoint",
       },
     },
@@ -1384,7 +1384,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 308039938,
+      "hash": 496369348,
       "output": [
         {
           "sql": "?",
@@ -1417,7 +1417,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "user_assignment_scope",
       },
     },
@@ -1436,7 +1436,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
           ],
         },
       ],
-      "hash": 266298412,
+      "hash": 189091889,
       "output": [
         {
           "sql": "?",
@@ -1469,13 +1469,13 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "assignment",
       },
     },
     {
       "filters": [],
-      "hash": 151531089,
+      "hash": 532009492,
       "output": [
         {
           "sql": "?",
@@ -1508,7 +1508,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "assignment_checkpoint",
       },
     },
@@ -1603,7 +1603,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
 {
   "buckets": [
     {
-      "hash": 245561330,
+      "hash": 8009051,
       "sources": [
         0,
         1,
@@ -1617,7 +1617,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 71490629,
+      "hash": 449161944,
       "outputTableName": "stores",
       "partition_by": [
         {
@@ -1651,7 +1651,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "stores",
       },
     },
@@ -1660,7 +1660,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 128445185,
+      "hash": 319690968,
       "outputTableName": "products",
       "partition_by": [
         {
@@ -1694,7 +1694,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
       ],
       "table": {
         "connection": "default",
-        "schema": "",
+        "schema": "test_schema",
         "table": "products",
       },
     },
