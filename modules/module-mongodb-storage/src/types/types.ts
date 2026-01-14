@@ -6,6 +6,10 @@ export enum FsCachePaths {
   SYNC_RULES_LOCK = 'sync_rules_lock'
 }
 
+export enum FsCacheDirs {
+  SYNC_RULES_LOCK = '.sync'
+}
+
 export const MongoStorageConfig = lib_mongo.BaseMongoConfig.and(
   t.object({
     // Add any mongo specific storage settings here in future

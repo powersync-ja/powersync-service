@@ -4,7 +4,8 @@ import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framewo
 import { storage } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
 import { fsCache, syncLockCheck } from '../../utils/util.js';
-import { FsCachePaths } from '../../types/types.js';
+import { FsCacheDirs, FsCachePaths } from '../../types/types.js';
+import path from 'node:path';
 
 /**
  * Manages a lock on a sync rules document, so that only one process
@@ -38,10 +39,12 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       // Query the existing lock to get the expiration time (best effort - it may have been released in the meantime).
       const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 } });
       if (heldLock?.lock?.expires_at) {
+        const dir = path.join(process.cwd(), FsCacheDirs.SYNC_RULES_LOCK);
         const alert = await fsCache(
           FsCachePaths.SYNC_RULES_LOCK,
+          dir,
           heldLock.lock.expires_at.toISOString(),
-          syncLockCheck
+          syncLockCheck(dir)
         );
         /** If the date has changed on the expires_at the alert key will be true, we want to notify that another process has a lock */
         if (alert) {

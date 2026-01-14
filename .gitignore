@@ -16,6 +16,7 @@ npm-error.log
 .pnpm-debug.log
 .local-dev
 .probes
+.sync
 powersync.yaml
 sync-rules.yaml
 powersync-mongo*.yaml
