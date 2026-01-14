@@ -28,8 +28,8 @@ export function nodeSqlEngine(module: typeof import('node:sqlite')): SqlEngine {
 
       return {
         evaluateScalar(params) {
-          const rows = prepared.get(...params) as unknown as SqliteValue[][];
-          return rows[0];
+          const row = prepared.get(...params) as unknown as SqliteValue[];
+          return row;
         }
       };
     },
@@ -79,8 +79,7 @@ export function prepareRowEvaluator(
   parameters: PartitionKey[]
 ): RowEvaluator {
   const builder = new SqlBuilder('SELECT ');
-  builder.addExpressions(outputs);
-  builder.addExpressions(parameters.map((e) => e.expr));
+  builder.addExpressions([...outputs, ...parameters.map((e) => e.expr)]);
 
   if (outputs.length == 0 && parameters.length == 0) {
     // Add a bogus expression so that we can evaluate filters.
@@ -106,10 +105,11 @@ export function prepareRowEvaluator(
       }
 
       const outputValues = columnValues.splice(0, outputs.length);
+      const partitionValues = columnValues.splice(0, parameters.length);
       return [
         {
           outputs: outputValues,
-          partitionValues: columnValues
+          partitionValues
         }
       ];
     }

@@ -16,7 +16,7 @@ import {
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
 } from '../types.js';
-import { isJsonValue, JSONBucketNameSerialize } from '../utils.js';
+import { filterJsonRow, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import * as plan from './plan.js';
 import { prepareRowEvaluator, RowEvaluator, SqlEngine } from './sql_engine.js';
 
@@ -74,7 +74,7 @@ class PreparedStreamDataSource {
         const record: SqliteJsonRow = {};
         for (const output of this.outputs) {
           if (output === 'star') {
-            Object.assign(record, options.record);
+            Object.assign(record, filterJsonRow(options.record));
           } else {
             const value = source.outputs[output.index];
             if (isJsonValue(value)) {
@@ -85,10 +85,9 @@ class PreparedStreamDataSource {
         const id = idFromData(record);
 
         for (const bucketParameter of source.partitionValues) {
-          if (!isJsonValue(bucketParameter)) {
-            results.push({
-              error: `While evaluating ${options.sourceTable.name}, id ${id}. Parameter is not JSON serializable.`
-            });
+          if (bucketParameter == null || !isJsonValue(bucketParameter)) {
+            // All parameters are compared via the equals operator, and null is not equal to anything. Also, we can only
+            // persist JSON values
             continue row;
           }
         }
@@ -200,13 +199,15 @@ class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator
         const bucketParameters: Record<string, SqliteJsonValue> = {};
         for (let i = 0; i < outputRow.outputs.length; i++) {
           const value = outputRow.outputs[i];
-          if (!isJsonValue(value)) {
+          if (value == null || !isJsonValue(value)) {
             continue row;
           }
+
+          bucketParameters[i.toString()] = value;
         }
 
         for (const parameter of outputRow.partitionValues) {
-          if (!isJsonValue(parameter)) {
+          if (parameter == null || !isJsonValue(parameter)) {
             continue row;
           }
         }
