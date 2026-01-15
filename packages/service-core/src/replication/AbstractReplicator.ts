@@ -1,4 +1,4 @@
-import { container, logger } from '@powersync/lib-services-framework';
+import { container, ErrorCode, logger } from '@powersync/lib-services-framework';
 import { ReplicationMetric } from '@powersync/service-types';
 import { hrtime } from 'node:process';
 import winston from 'winston';
@@ -227,13 +227,17 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           }
           this.lockAlerted = false;
         } catch (e) {
-          if (!this.lockAlerted) {
+          if (e.errorData.code === ErrorCode.PSYNC_S1003) {
+            if (!this.lockAlerted) {
+              this.logger.info(`[${e.errorData}] ${e.errorData.description}`);
+              this.lockAlerted = true;
+            }
+          } else {
             // Could be a sync rules parse error,
             // for example from stricter validation that was added.
             // This will be retried every couple of seconds.
             // When new (valid) sync rules are deployed and processed, this one be disabled.
             this.logger.error('Failed to start replication for new sync rules', e);
-            this.lockAlerted = true;
           }
         }
       }
