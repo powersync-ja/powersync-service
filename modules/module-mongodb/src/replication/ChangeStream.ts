@@ -34,6 +34,8 @@ import {
 } from './MongoRelation.js';
 import { MongoSnapshotter } from './MongoSnapshotter.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { staticFilterToMongoExpression } from './staticFilters.js';
+import { inspect } from 'node:util';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -212,6 +214,7 @@ export class ChangeStream {
   private getSourceNamespaceFilters(writer: BucketDataWriter): {
     $match: any;
     multipleDatabases: boolean;
+    filters: any[];
   } {
     const sourceTables = writer.rowProcessor.getSourceTables();
 
@@ -230,6 +233,11 @@ export class ChangeStream {
         multipleDatabases = true;
       }
 
+      let filterExpression =
+        tablePattern.filter == null
+          ? { $literal: true }
+          : staticFilterToMongoExpression(tablePattern.filter, { columnPrefix: '$fullDocument.' });
+
       if (tablePattern.isWildcard) {
         $refilters.push({
           'ns.db': tablePattern.schema,
@@ -237,12 +245,18 @@ export class ChangeStream {
         });
         filters.push({
           'ns.db': tablePattern.schema,
-          'ns.coll': new RegExp('^' + escapeRegExp(tablePattern.tablePrefix))
+          'ns.coll': new RegExp('^' + escapeRegExp(tablePattern.tablePrefix)),
+          $expr: filterExpression
         });
       } else {
         $inFilters.push({
           db: tablePattern.schema,
           coll: tablePattern.name
+        });
+        filters.push({
+          'ns.db': tablePattern.schema,
+          'ns.coll': tablePattern.name,
+          $expr: filterExpression
         });
       }
     }
@@ -265,9 +279,9 @@ export class ChangeStream {
       : // collection-level: filter on coll only
         { 'ns.coll': { $in: $inFilters.map((ns) => ns.coll) } };
     if ($refilters.length > 0) {
-      return { $match: { $or: [nsFilter, ...$refilters] }, multipleDatabases };
+      return { $match: { $or: [nsFilter, ...$refilters] }, multipleDatabases, filters };
     }
-    return { $match: nsFilter, multipleDatabases };
+    return { $match: nsFilter, multipleDatabases, filters };
   }
 
   private async checkPostImages(db: string, collectionInfo: mongo.CollectionInfo) {
@@ -420,6 +434,12 @@ export class ChangeStream {
       {
         $match: filters.$match
       },
+      // Not working currently - getting "resumeToken not found"
+      // {
+      //   $match: {
+      //     $or: filters.filters
+      //   }
+      // },
       { $changeStreamSplitLargeEvent: {} }
     ];
 
@@ -485,37 +505,56 @@ export class ChangeStream {
       // Ignore the postImages check in this case.
     }
 
-    const result = await writer.resolveTables({
-      connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor
+    // What happens here:
+    // 1. We see a new collection that we haven't observed before.
+    // 2. We check which table pattern(s) match this collection, _regardless of specific row filters_.
+    // 3. We resolve the tables for those patterns.
+
+    // FIXME: don't scan through it all
+    // FIXME: handle wildcards
+    const patterns = writer.rowProcessor.getSourceTables().filter((t) => {
+      return (
+        t.connectionTag == this.connections.connectionTag && t.name == descriptor.name && t.schema == descriptor.schema
+      );
     });
 
-    const snapshot = options.snapshot;
-    this.relationCache.set(getCacheIdentifier(descriptor), result.tables);
+    let allTables: SourceTable[] = [];
+    for (let pattern of patterns) {
+      const result = await writer.resolveTables({
+        connection_id: this.connection_id,
+        connection_tag: this.connections.connectionTag,
+        entity_descriptor: descriptor,
+        pattern: pattern
+      });
 
-    // Drop conflicting collections.
-    // This is generally not expected for MongoDB source dbs, so we log an error.
-    if (result.dropTables.length > 0) {
-      this.logger.error(
-        `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
-      );
-      await writer.drop(result.dropTables);
-    }
+      const snapshot = options.snapshot;
+      this.relationCache.set(getCacheIdentifier(descriptor), result.tables);
 
-    // Snapshot if:
-    // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
-    // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
-    for (let table of result.tables) {
-      const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
-      if (shouldSnapshot) {
-        this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
-        await this.snapshotter.queueSnapshot(writer, table);
+      // Drop conflicting collections.
+      // This is generally not expected for MongoDB source dbs, so we log an error.
+      if (result.dropTables.length > 0) {
+        this.logger.error(
+          `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
+        );
+        await writer.drop(result.dropTables);
       }
+
+      // Snapshot if:
+      // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
+      // 2. Snapshot is not already done, AND:
+      // 3. The table is used in sync rules.
+      for (let table of result.tables) {
+        const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
+        if (shouldSnapshot) {
+          this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
+          await this.snapshotter.queueSnapshot(writer, table);
+        }
+      }
+
+      allTables.push(...result.tables);
     }
 
-    return result.tables;
+    return allTables;
   }
 
   private async drop(writer: storage.BucketDataWriter, entity: SourceEntityDescriptor): Promise<void> {

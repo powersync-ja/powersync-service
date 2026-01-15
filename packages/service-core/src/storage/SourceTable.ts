@@ -1,4 +1,4 @@
-import { DEFAULT_TAG } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, TablePattern } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
 import { bson } from '../index.js';
@@ -19,6 +19,7 @@ export interface SourceTableOptions {
 
   bucketDataSourceIds?: number[];
   parameterLookupSourceIds?: number[];
+  pattern?: TablePattern;
 }
 
 export interface TableSnapshotStatus {
@@ -93,6 +94,10 @@ export class SourceTable implements SourceEntityDescriptor {
     return this.options.replicaIdColumns;
   }
 
+  get pattern(): TablePattern | undefined {
+    return this.options.pattern;
+  }
+
   /**
    *  Sanitized name of the entity in the format of "{schema}.{entity name}"
    *  Suitable for safe use in Postgres queries.
@@ -124,7 +129,10 @@ export class SourceTable implements SourceEntityDescriptor {
       schema: this.schema,
       name: this.name,
       replicaIdColumns: this.replicaIdColumns,
-      snapshotComplete: this.snapshotComplete
+      snapshotComplete: this.snapshotComplete,
+      bucketDataSourceIds: this.bucketDataSourceIds,
+      parameterLookupSourceIds: this.parameterLookupSourceIds,
+      pattern: this.pattern
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;

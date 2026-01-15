@@ -32,7 +32,7 @@ export interface RowProcessor {
 
   getSourceTables(): TablePattern[];
 
-  getMatchingSources(table: SourceTableInterface): {
+  getMatchingSources(pattern: TablePattern): {
     bucketDataSources: BucketDataSource[];
     parameterIndexLookupCreators: ParameterIndexLookupCreator[];
   };
@@ -94,13 +94,15 @@ export class HydratedSyncRules implements RowProcessor {
     this.bucketSources = this.definition.bucketSources.map((source) => source.hydrate(params.createParams));
   }
 
-  getMatchingSources(table: SourceTableInterface): {
+  getMatchingSources(pattern: TablePattern): {
     bucketDataSources: BucketDataSource[];
     parameterIndexLookupCreators: ParameterIndexLookupCreator[];
   } {
-    const bucketDataSources = this.bucketDataSources.filter((ds) => ds.tableSyncsData(table));
+    const bucketDataSources = this.bucketDataSources.filter((ds) =>
+      ds.getSourceTables().some((table) => table.equals(pattern))
+    );
     const parameterIndexLookupCreators: ParameterIndexLookupCreator[] = this.bucketParameterIndexLookupCreators.filter(
-      (ds) => ds.tableSyncsParameters(table)
+      (ds) => ds.getSourceTables().some((table) => table.equals(pattern))
     );
     return {
       bucketDataSources,

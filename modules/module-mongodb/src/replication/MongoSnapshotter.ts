@@ -266,7 +266,8 @@ export class MongoSnapshotter {
       const sourceTables = await writer.resolveTables({
         connection_id: this.connection_id,
         connection_tag: this.connections.connectionTag,
-        entity_descriptor: getMongoRelation({ db: schema, coll: collection.name })
+        entity_descriptor: getMongoRelation({ db: schema, coll: collection.name }),
+        pattern: tablePattern
       });
       // TODO: dropTables?
       result.push(...sourceTables.tables);
@@ -280,10 +281,12 @@ export class MongoSnapshotter {
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
     const collection = db.collection(table.name);
+    console.log('snapshot with filter', table.pattern?.filter, table.pattern);
     await using query = new ChunkedSnapshotQuery({
       collection,
       key: table.snapshotStatus?.lastKey,
-      batchSize: this.snapshotChunkLength
+      batchSize: this.snapshotChunkLength,
+      filter: table.pattern?.filter
     });
     if (query.lastKey != null) {
       this.logger.info(
