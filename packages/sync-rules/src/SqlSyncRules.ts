@@ -419,21 +419,18 @@ export class SqlSyncRules {
     const sourceTables = new Map<String, TablePattern>();
     for (const bucket of this.bucketDataSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key, r);
       }
     }
     for (const bucket of this.bucketParameterLookupSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key, r);
       }
     }
 
     for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key, r);
       }
     }
 
