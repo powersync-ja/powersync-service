@@ -548,10 +548,8 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
     };
   }
 
-  getSourceTables(): Set<TablePattern> {
-    let result = new Set<TablePattern>();
-    result.add(this.parameterTable);
-    return result;
+  getSourceTables() {
+    return [this.parameterTable];
   }
 
   /**

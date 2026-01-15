@@ -95,8 +95,8 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
   uniqueName: 'mybucket',
   bucketParameters: [],
   // These are not used in the tests.
-  getSourceTables: function (): Set<TablePattern> {
-    return new Set();
+  getSourceTables: function (): TablePattern[] {
+    return [];
   },
   evaluateRow(options) {
     throw new Error('Function not implemented.');

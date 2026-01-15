@@ -224,7 +224,7 @@ export class TableValuedFunctionSqlParameterQuery {
   }
 
   getSourceTables() {
-    return new Set<TablePattern>();
+    return [];
   }
 
   tableSyncsParameters(_table: SourceTableInterface): boolean {

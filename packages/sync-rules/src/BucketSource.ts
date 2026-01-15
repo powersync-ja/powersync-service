@@ -104,7 +104,7 @@ export interface BucketDataSource {
    */
   readonly bucketParameters: string[];
 
-  getSourceTables(): Set<TablePattern>;
+  getSourceTables(): TablePattern[];
   tableSyncsData(table: SourceTableInterface): boolean;
 
   /**
@@ -137,7 +137,7 @@ export interface ParameterIndexLookupCreator {
    */
   readonly defaultLookupScope: ParameterLookupScope;
 
-  getSourceTables(): Set<TablePattern>;
+  getSourceTables(): TablePattern[];
 
   /**
    * Given a row in a source table that affects sync parameters, returns a structure to index which buckets rows should

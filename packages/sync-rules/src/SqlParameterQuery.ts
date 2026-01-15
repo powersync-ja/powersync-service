@@ -346,8 +346,8 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     return this.sourceTable.matches(table);
   }
 
-  getSourceTables(): Set<TablePattern> {
-    return new Set([this.sourceTable]);
+  getSourceTables() {
+    return [this.sourceTable];
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
