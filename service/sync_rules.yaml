@@ -1,9 +1,0 @@
-# See Documentation for more information:
-# https://docs.powersync.com/usage/sync-rules
-bucket_definitions:
-  global:
-    data:
-      - SELECT * FROM lists
-      - SELECT * FROM todos
-
-
