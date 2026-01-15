@@ -36,7 +36,7 @@ export interface AbstractReplicatorOptions {
  */
 export abstract class AbstractReplicator<T extends AbstractReplicationJob = AbstractReplicationJob> {
   protected logger: winston.Logger;
-
+  private lockAlerted: boolean = false;
   /**
    *  Map of replication jobs by sync rule id. Usually there is only one running job, but there could be two when
    *  transitioning to a new set of sync rules.
@@ -225,13 +225,15 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           if (syncRules.active) {
             activeJob = newJob;
           }
+          this.lockAlerted = false;
         } catch (e) {
-          // Could be a sync rules parse error,
-          // for example from stricter validation that was added.
-          // This will be retried every couple of seconds.
-          // When new (valid) sync rules are deployed and processed, this one be disabled.
-          if (e) {
+          if (!this.lockAlerted) {
+            // Could be a sync rules parse error,
+            // for example from stricter validation that was added.
+            // This will be retried every couple of seconds.
+            // When new (valid) sync rules are deployed and processed, this one be disabled.
             this.logger.error('Failed to start replication for new sync rules', e);
+            this.lockAlerted = true;
           }
         }
       }

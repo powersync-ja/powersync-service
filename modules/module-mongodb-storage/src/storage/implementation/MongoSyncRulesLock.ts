@@ -10,7 +10,6 @@ import { PowerSyncMongo } from './db.js';
  */
 export class MongoSyncRulesLock implements storage.ReplicationLock {
   private readonly refreshInterval: NodeJS.Timeout;
-  private static lockAlerted: boolean = false;
 
   static async createLock(
     db: PowerSyncMongo,
@@ -37,27 +36,17 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       // Query the existing lock to get the expiration time (best effort - it may have been released in the meantime).
       const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 } });
       if (heldLock?.lock?.expires_at) {
-        if (!this.lockAlerted) {
-          this.lockAlerted = true;
-          throw new ServiceError(
-            ErrorCode.PSYNC_S1003,
-            `Sync rules: ${sync_rules.id} have been locked by another process for replication, expiring at ${heldLock.lock.expires_at.toISOString()}.`
-          );
-        } else {
-          throw undefined;
-        }
+        throw new ServiceError(
+          ErrorCode.PSYNC_S1003,
+          `Sync rules: ${sync_rules.id} have been locked by another process for replication, expiring at ${heldLock.lock.expires_at.toISOString()}.`
+        );
       } else {
-        if (!this.lockAlerted) {
-          throw new ServiceError(
-            ErrorCode.PSYNC_S1003,
-            `Sync rules: ${sync_rules.id} have been locked by another process for replication.`
-          );
-        } else {
-          throw undefined;
-        }
+        throw new ServiceError(
+          ErrorCode.PSYNC_S1003,
+          `Sync rules: ${sync_rules.id} have been locked by another process for replication.`
+        );
       }
     }
-    this.lockAlerted = false;
     logger.info(`Sync rules: ${sync_rules.id} has been locked for replication with lock ID ${lockId}.`);
     return new MongoSyncRulesLock(db, sync_rules.id, lockId);
   }
