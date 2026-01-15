@@ -241,7 +241,6 @@ export class CDCStream {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
     }
     const resolved = await this.storage.resolveTable({
-      group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: table,

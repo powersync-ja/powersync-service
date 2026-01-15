@@ -176,9 +176,11 @@ export class PostgresSyncRulesStorage
   }
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
+    const { connection_id, connection_tag, entity_descriptor } = options;
 
     const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
+
+    const group_id = this.group_id;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,

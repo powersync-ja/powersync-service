@@ -301,7 +301,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     return sourceTable;
   }
 
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const sources = this.rowProcessor.getMatchingSources({
       connectionTag: options.connection_tag,
       name: options.entity_descriptor.name,
@@ -321,7 +321,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       type: column.type,
       type_oid: column.typeId
     }));
-    let result: storage.ResolveTableResult | null = null;
+    let result: storage.ResolveTablesResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
       let filter: mongo.Filter<SourceTableDocument> = {

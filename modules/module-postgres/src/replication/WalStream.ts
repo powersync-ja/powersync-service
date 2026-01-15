@@ -183,7 +183,6 @@ export class WalStream {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
     const result = await this.storage.resolveTable({
-      group_id: this.group_id,
       connection_id: this.connection_id,
       connection_tag: this.connections.connectionTag,
       entity_descriptor: descriptor,

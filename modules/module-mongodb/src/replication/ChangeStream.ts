@@ -474,7 +474,7 @@ export class ChangeStream {
       // Ignore the postImages check in this case.
     }
 
-    const result = await writer.resolveTable({
+    const result = await writer.resolveTables({
       connection_id: this.connection_id,
       connection_tag: this.connections.connectionTag,
       entity_descriptor: descriptor

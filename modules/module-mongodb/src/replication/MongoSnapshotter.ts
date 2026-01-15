@@ -263,7 +263,7 @@ export class MongoSnapshotter {
 
     for (let collection of collections) {
       await this.checkPostImages(schema, collection);
-      const sourceTables = await writer.resolveTable({
+      const sourceTables = await writer.resolveTables({
         connection_id: this.connection_id,
         connection_tag: this.connections.connectionTag,
         entity_descriptor: getMongoRelation({ db: schema, coll: collection.name })

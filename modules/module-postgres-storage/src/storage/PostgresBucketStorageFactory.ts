@@ -43,6 +43,13 @@ export class PostgresBucketStorageFactory
     });
   }
 
+  createCombinedWriter(
+    storage: SyncRulesBucketStorage[],
+    options: storage.StartBatchOptions
+  ): Promise<storage.BucketDataWriter> {
+    throw new Error('Not implemented yet');
+  }
+
   async [Symbol.asyncDispose]() {
     await this.db[Symbol.asyncDispose]();
   }

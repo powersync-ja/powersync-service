@@ -9,7 +9,13 @@ import {
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, SourceTableId, TableSnapshotStatus } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, ResolveTableOptions, ResolveTableResult } from './storage-index.js';
+import {
+  BatchedCustomWriteCheckpointOptions,
+  ResolveTableOptions,
+  ResolveTableResult,
+  ResolveTablesOptions,
+  ResolveTablesResult
+} from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
@@ -27,7 +33,7 @@ export interface BucketDataWriter extends BucketDataWriterBase, AsyncDisposable 
   /**
    * Resolve a table, keeping track of it internally.
    */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
+  resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
   getTable(ref: SourceTable): Promise<SourceTable | null>;
 }
 

@@ -35,6 +35,11 @@ export interface SyncRulesBucketStorage
   ): Promise<FlushedResult | null>;
 
   /**
+   * @deprecated use `createWriter()` instead, with its `resolveTables` method.
+   */
+  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
+
+  /**
    * Create a new writer - an alternative to `startBatch`.
    *
    * The writer is stateful. It is not safe to use the same writer concurrently from multiple places,
@@ -160,14 +165,26 @@ export interface SyncRuleStatus {
   snapshot_done: boolean;
   snapshot_lsn: string | null;
 }
-export interface ResolveTableOptions {
+export interface ResolveTablesOptions {
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
 }
 
-export interface ResolveTableResult {
+export interface ResolveTableOptions {
+  connection_id: number;
+  connection_tag: string;
+  entity_descriptor: SourceEntityDescriptor;
+  sync_rules: HydratedSyncRules;
+}
+
+export interface ResolveTablesResult {
   tables: SourceTable[];
+  dropTables: SourceTable[];
+}
+
+export interface ResolveTableResult {
+  table: SourceTable;
   dropTables: SourceTable[];
 }
 

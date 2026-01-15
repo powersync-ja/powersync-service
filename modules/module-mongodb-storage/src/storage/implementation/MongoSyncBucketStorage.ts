@@ -35,7 +35,7 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoPersistedSyncRules } from '../storage-index.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey } from './models.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
@@ -187,6 +187,10 @@ export class MongoSyncBucketStorage
     } else {
       return null;
     }
+  }
+
+  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
+    throw new Error('Method deprecated and not implemented.');
   }
 
   async getParameterSets(
