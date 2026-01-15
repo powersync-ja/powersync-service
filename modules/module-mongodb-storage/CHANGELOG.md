@@ -1,5 +1,21 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.13.0
+
+### Minor Changes
+
+- e578245: [Internal] Refactor sync rule representation to split out the parsed definitions from the hydrated state.
+
+### Patch Changes
+
+- Updated dependencies [781d0e3]
+- Updated dependencies [e578245]
+- Updated dependencies [3040079]
+  - @powersync/service-core@1.19.0
+  - @powersync/service-sync-rules@0.30.0
+  - @powersync/lib-services-framework@0.7.15
+  - @powersync/lib-service-mongodb@0.6.17
+
 ## 0.12.16
 
 ### Patch Changes
