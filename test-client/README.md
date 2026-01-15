@@ -11,7 +11,7 @@ For a full implementation, see our client SDKs.
 ```shell
 # In project root directory
 pnpm install
-pnpm build:packages
+pnpm build
 ```
 
 2. Build the test-client in the `test-client` directory

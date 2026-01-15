@@ -10,28 +10,13 @@
   "include": ["src"],
   "references": [
     {
-      "path": "../types"
-    },
-    {
-      "path": "../rsocket-router"
-    },
-    {
       "path": "../jsonbig"
-    },
-    {
-      "path": "../jpgwire"
     },
     {
       "path": "../sync-rules"
     },
     {
       "path": "../service-core"
-    },
-    {
-      "path": "../../libs/lib-services"
-    },
-    {
-      "path": "../sync-rules"
     }
   ]
 }

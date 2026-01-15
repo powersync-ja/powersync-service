@@ -9,7 +9,6 @@ import {
   getUuidReplicaIdentityBson,
   MetricsEngine,
   RelationCache,
-  SourceEntityDescriptor,
   SourceTable,
   storage
 } from '@powersync/service-core';
@@ -19,7 +18,6 @@ import {
   HydratedSyncRules,
   SqliteInputRow,
   SqliteInputValue,
-  SqlSyncRules,
   TablePattern,
   toSyncRulesRow,
   toSyncRulesValue
@@ -117,12 +115,7 @@ export class PostgresSnapshotter {
       let query = `
         SELECT
           c.oid AS relid,
-          c.relname AS table_name,
-          (SELECT
-            json_agg(DISTINCT a.atttypid)
-            FROM pg_attribute a
-            WHERE a.attnum > 0 AND NOT a.attisdropped AND a.attrelid = c.oid) 
-          AS column_types
+          c.relname AS table_name
         FROM pg_class c
         JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = $1
@@ -182,18 +175,12 @@ export class PostgresSnapshotter {
         this.logger.warn(`Could not check RLS access for ${tablePattern.schema}.${name}`, e);
       }
 
-      const cresult = await getReplicationIdentityColumns(db, relid);
-
-      const columnTypes = (JSON.parse(row.column_types) as string[]).map((e) => Number(e));
       const table = await this.handleRelation({
         batch,
-        descriptor: {
-          name,
-          schema,
-          objectId: relid,
-          replicaIdColumns: cresult.replicationColumns
-        } as SourceEntityDescriptor,
-        referencedTypeIds: columnTypes
+        db,
+        name,
+        schema,
+        relId: relid
       });
 
       result.push(table);
@@ -314,7 +301,7 @@ export class PostgresSnapshotter {
     }
   }
 
-  async replicateTable(table: SourceTable) {
+  async replicateTable(requestTable: SourceTable) {
     const db = await this.connections.snapshotConnection();
     try {
       const flushResults = await this.storage.startBatch(
@@ -326,6 +313,14 @@ export class PostgresSnapshotter {
           skipExistingRows: true
         },
         async (batch) => {
+          // Get fresh table info, in case it was updated while queuing
+          const table = await this.handleRelation({
+            batch,
+            db: db,
+            name: requestTable.name,
+            schema: requestTable.schema,
+            relId: requestTable.objectId as number
+          });
           await this.snapshotTableInTx(batch, db, table);
           // This commit ensures we set keepalive_op.
           // It may be better if that is automatically set when flushing.
@@ -535,8 +530,6 @@ export class PostgresSnapshotter {
     }
     await q.initialize();
 
-    let columns: { i: number; name: string }[] = [];
-    let columnMap: Record<string, number> = {};
     let hasRemainingData = true;
     while (hasRemainingData) {
       // Fetch 10k at a time.
@@ -613,20 +606,34 @@ export class PostgresSnapshotter {
     }
   }
 
-  async handleRelation(options: {
+  private async handleRelation(options: {
     batch: storage.BucketStorageBatch;
-    descriptor: SourceEntityDescriptor;
-    referencedTypeIds: number[];
+    db: pgwire.PgConnection;
+    name: string;
+    schema: string;
+    relId: number;
   }) {
-    const { batch, descriptor, referencedTypeIds } = options;
+    const { batch, db, name, schema, relId } = options;
 
-    if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
-      throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
-    }
+    const cresult = await getReplicationIdentityColumns(db, relId);
+    const columnTypesResult = await db.query({
+      statement: `SELECT DISTINCT atttypid
+            FROM pg_attribute
+            WHERE attnum > 0 AND NOT attisdropped AND attrelid = $1`,
+      params: [{ type: 'int4', value: relId }]
+    });
+
+    const columnTypes = columnTypesResult.rows.map((row) => Number(row.decodeWithoutCustomTypes(0)));
+
     const result = await this.storage.resolveTable({
       connection_id: this.connection_id,
       connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
+      entity_descriptor: {
+        name,
+        schema,
+        objectId: relId,
+        replicaIdColumns: cresult.replicationColumns
+      },
       sync_rules: this.sync_rules
     });
     this.relationCache.update(result.table);
@@ -635,7 +642,7 @@ export class PostgresSnapshotter {
     await batch.drop(result.dropTables);
 
     // Ensure we have a description for custom types referenced in the table.
-    await this.connections.types.fetchTypes(referencedTypeIds);
+    await this.connections.types.fetchTypes(columnTypes);
 
     return result.table;
   }

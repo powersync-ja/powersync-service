@@ -19,10 +19,13 @@
       "path": "../"
     },
     {
-      "path": "../../../packages/service-core/test"
+      "path": "../../../packages/service-core-tests"
     },
     {
-      "path": "../../../packages/service-core/"
+      "path": "../../module-mongodb-storage"
+    },
+    {
+      "path": "../../module-postgres-storage"
     }
   ]
 }

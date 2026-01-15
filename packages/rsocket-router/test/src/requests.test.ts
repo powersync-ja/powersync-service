@@ -35,7 +35,8 @@ async function handleRoute(
       dataMimeType: 'application/bson',
       metadataMimeType: 'application/bson',
       responder,
-      ...request
+      ...request,
+      connection: null as any
     },
     createMockObserver(),
     new AbortController(),
@@ -170,7 +171,8 @@ describe('Requests', () => {
         metadataMimeType: 'application/json',
         dataMimeType: 'application/json',
         initialN: 1,
-        responder
+        responder,
+        connection: null as any
       },
       createMockObserver(),
       new AbortController(),

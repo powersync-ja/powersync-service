@@ -8,8 +8,8 @@ import {
   SqlSyncRules
 } from '@powersync/service-sync-rules';
 
-import { models } from '../../types/types.js';
 import { versionedHydrationState } from '@powersync/service-sync-rules';
+import { models } from '../../types/types.js';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;

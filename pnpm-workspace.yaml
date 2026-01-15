@@ -6,3 +6,8 @@ packages:
   - 'test-client'
   # exclude packages that are inside test directories
   - '!**/test/**'
+
+catalog:
+  vitest: ^4.0.16
+  "@vitest/ui": ^4.0.16
+  "@vitest/coverage-v8": ^4.0.16
