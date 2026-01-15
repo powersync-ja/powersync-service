@@ -1,0 +1,2973 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`old streams test > OR in subquery 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+    {
+      "filters": [
+        {
+          "sql": "? = 'test'",
+          "values": [
+            {
+              "column": "name",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 139759831,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > on parameter data 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "filters": [],
+                "functionInputs": [],
+                "functionName": "json_each",
+                "outputs": [
+                  {
+                    "sql": "?",
+                    "values": [
+                      {
+                        "column": "value",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
+                    ],
+                  },
+                ],
+                "type": "table_valued",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > on parameter data and table 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 79673634,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 271388085,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "label",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+              {
+                "filters": [],
+                "functionInputs": [],
+                "functionName": "json_each",
+                "outputs": [
+                  {
+                    "sql": "?",
+                    "values": [
+                      {
+                        "column": "value",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
+                    ],
+                  },
+                ],
+                "type": "table_valued",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+            {
+              "lookup": {
+                "idInStage": 1,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > parameter and auth match on same column 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "filters": [],
+                "functionInputs": [],
+                "functionName": "json_each",
+                "outputs": [
+                  {
+                    "sql": "?",
+                    "values": [
+                      {
+                        "column": "value",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
+                    ],
+                  },
+                ],
+                "type": "table_valued",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "type": "intersection",
+              "values": [
+                {
+                  "expr": {
+                    "sql": "? ->> '$.' || 'issue'",
+                    "values": [
+                      {
+                        "request": "subscription",
+                        "sqlPosition": [
+                          0,
+                          1,
+                        ],
+                      },
+                    ],
+                  },
+                  "type": "request",
+                },
+                {
+                  "lookup": {
+                    "idInStage": 0,
+                    "stageId": 0,
+                  },
+                  "resultIndex": 0,
+                  "type": "lookup",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > parameter value in subquery 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 239704629,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 135365369,
+      "outputTableName": "issues",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "is_admin",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 429775008,
+      "output": [],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "users",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > row value in subquery 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > in > two subqueries 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 104833472,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 106708571,
+      "outputTableName": "users",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "users",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 75103629,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "user_a",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_b",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "friends",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 287627362,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "user_b",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_a",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "friends",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > nested subqueries 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "is_admin",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 429775008,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "users",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > normalization > distribute and 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 452778701,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+    {
+      "hash": 85112918,
+      "sources": [
+        1,
+      ],
+      "uniqueName": "stream|1",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": ""length"(?) > 2",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 359214091,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": ""length"(?) > 2",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 16883790,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > normalization > double negation 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > normalization > negated and 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+    {
+      "hash": 299253648,
+      "sources": [
+        1,
+      ],
+      "uniqueName": "stream|1",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": "NOT "length"(?) = 5",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                13,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 27211305,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > normalization > negated or 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 160708722,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": "NOT "length"(?) = 5",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                13,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 6712104,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > or > parameter match or request condition 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 408179151,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+    {
+      "hash": 239704629,
+      "sources": [
+        1,
+      ],
+      "uniqueName": "stream|1",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 406537365,
+      "outputTableName": "issues",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 135365369,
+      "outputTableName": "issues",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.sub'",
+                "values": [
+                  {
+                    "request": "auth",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
+                ],
+              },
+              "type": "request",
+            },
+          ],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > or > parameter match or row condition 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 408179151,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+    {
+      "hash": 111478030,
+      "sources": [
+        1,
+      ],
+      "uniqueName": "stream|1",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 406537365,
+      "outputTableName": "issues",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": ""length"(?) = 3",
+          "values": [
+            {
+              "column": "name",
+              "sqlPosition": [
+                9,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 280456815,
+      "outputTableName": "issues",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.sub'",
+                "values": [
+                  {
+                    "request": "auth",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
+                ],
+              },
+              "type": "request",
+            },
+          ],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > or > request condition or request condition 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 217216237,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 93028239,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'a' OR ? ->> 'b'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    21,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > or > row condition or parameter condition 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 217216237,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+    {
+      "hash": 254943337,
+      "sources": [
+        1,
+      ],
+      "uniqueName": "stream|1",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 93028239,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": ""length"(?) > 5",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 58661560,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > or > row condition or row condition 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 409997171,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": ""length"(?) > 5 OR "json_array_length"(?) > 1",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
+            },
+            {
+              "column": "tagged_users",
+              "sqlPosition": [
+                39,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 24706075,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > or > subquery or token parameter 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+    {
+      "hash": 217216237,
+      "sources": [
+        1,
+      ],
+      "uniqueName": "stream|1",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 93028239,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 473033600,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "owner_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "issues",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+        {
+          "bucket": 1,
+          "lookupStages": [],
+          "requestFilters": [
+            {
+              "sql": "? ->> '$.' || 'is_admin'",
+              "values": [
+                {
+                  "request": "auth",
+                  "sqlPosition": [
+                    0,
+                    1,
+                  ],
+                },
+              ],
+            },
+          ],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > row condition 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 254943337,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": ""length"(?) > 5",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 58661560,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > row filter and stream parameter 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 291801525,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": ""length"(?) > 5",
+          "values": [
+            {
+              "column": "content",
+              "sqlPosition": [
+                9,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 226522950,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'id'",
+                "values": [
+                  {
+                    "request": "subscription",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
+                ],
+              },
+              "type": "request",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > stream parameter 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 354751954,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 275929871,
+      "outputTableName": "comments",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "issue_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'id'",
+                "values": [
+                  {
+                    "request": "subscription",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
+                ],
+              },
+              "type": "request",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > table alias 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 122334514,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 173866106,
+      "outputTableName": "outer",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "account_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "account_member",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 405169598,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "account_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "account_member",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`old streams test > without filter 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 217216237,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 93028239,
+      "outputTableName": "comments",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;

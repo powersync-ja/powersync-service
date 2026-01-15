@@ -1,0 +1,1753 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`new sync stream features > in array 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 482908656,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "sql": "? IN ('public', 'archived')",
+          "values": [
+            {
+              "column": "state",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 240499768,
+      "outputTableName": "notes",
+      "partition_by": [],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "notes",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 1 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 479140323,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 94710716,
+      "outputTableName": "u",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "users",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 136074946,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "group_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "group_memberships",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 322713396,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "user_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "group_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "group_memberships",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 4 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 518503768,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 209445370,
+      "outputTableName": "m",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "organization_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "message",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [
+        {
+          "sql": "? = 'ORGANIZATION_LEADER'",
+          "values": [
+            {
+              "column": "role_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 378594320,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "organization_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "account_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "roles",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 5 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 50211887,
+      "sources": [
+        0,
+        1,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 134988142,
+      "outputTableName": "users",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "family_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "users",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 367912637,
+      "outputTableName": "families",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "families",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 249133436,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "user_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "auth_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "user_auth_mappings",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 230646996,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "family_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "users",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 8 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 84136847,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 454629191,
+      "outputTableName": "events",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "events",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 283859073,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "event_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "event_users",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 9 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 243129021,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 105399988,
+      "outputTableName": "u",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "public",
+        "table": "users",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 88350941,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "organization_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "public",
+        "table": "user_organization_map",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 343817501,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "user_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "organization_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "public",
+        "table": "user_organization_map",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 10 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 437667704,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 268156404,
+      "outputTableName": "a",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "public",
+        "table": "addresses",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 88350941,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "organization_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "public",
+        "table": "user_organization_map",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 343817501,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "user_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "organization_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "public",
+        "table": "user_organization_map",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 392582824,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "address_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "public",
+        "table": "users",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.' || 'app_metadata.user_id'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 1,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 2,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 2,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 11 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 162955439,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 494167431,
+      "outputTableName": "t",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "ticket",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 369143364,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "ticket_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "ticket_detail_item",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > joins feedback > response 13 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 8299255,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 26563318,
+      "outputTableName": "c",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "checkpoint",
+      },
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 496369348,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "assignment_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "user_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "user_assignment_scope",
+      },
+    },
+    {
+      "filters": [
+        {
+          "sql": "? = TRUE",
+          "values": [
+            {
+              "column": "active",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "hash": 189091889,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "assignment",
+      },
+    },
+    {
+      "filters": [],
+      "hash": 532009492,
+      "output": [
+        {
+          "sql": "?",
+          "values": [
+            {
+              "column": "checkpoint_id",
+              "sqlPosition": [
+                0,
+                1,
+              ],
+            },
+          ],
+        },
+      ],
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "assignment_id",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "assignment_checkpoint",
+      },
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "sql": "? ->> '$.sub'",
+                      "values": [
+                        {
+                          "request": "auth",
+                          "sqlPosition": [
+                            0,
+                            1,
+                          ],
+                        },
+                      ],
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 1,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 2,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 2,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
+exports[`new sync stream features > order-independent parameters 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 8009051,
+      "sources": [
+        0,
+        1,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 449161944,
+      "outputTableName": "stores",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "region",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "org",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "stores",
+      },
+    },
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 319690968,
+      "outputTableName": "products",
+      "partition_by": [
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "region",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+        {
+          "expr": {
+            "sql": "?",
+            "values": [
+              {
+                "column": "org",
+                "sqlPosition": [
+                  0,
+                  1,
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "products",
+      },
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'region'",
+                "values": [
+                  {
+                    "request": "subscription",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
+                ],
+              },
+              "type": "request",
+            },
+            {
+              "expr": {
+                "sql": "? ->> '$.' || 'org'",
+                "values": [
+                  {
+                    "request": "auth",
+                    "sqlPosition": [
+                      0,
+                      1,
+                    ],
+                  },
+                ],
+              },
+              "type": "request",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
