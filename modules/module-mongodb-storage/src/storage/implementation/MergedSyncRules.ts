@@ -1,17 +1,21 @@
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { SourceTable } from '@powersync/service-core';
 import {
   BucketDataSource,
-  buildBucketInfo,
   CompatibilityContext,
   EvaluatedParameters,
+  EvaluatedParametersResult,
   EvaluatedRow,
   EvaluateRowOptions,
   EvaluationError,
   EvaluationResult,
+  hydrateEvaluateParameterRow,
+  hydrateEvaluateRow,
+  isEvaluatedParameters,
   isEvaluatedRow,
   isEvaluationError,
   ParameterIndexLookupCreator,
   RowProcessor,
-  SOURCE,
   SourceTableInterface,
   SqlEventDescriptor,
   SqliteInputValue,
@@ -21,27 +25,40 @@ import {
   TablePattern
 } from '@powersync/service-sync-rules';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
-import { SourceTable } from '@powersync/service-core';
-import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 
 type EvaluateRowFn = (options: EvaluateRowOptions) => EvaluationResult[];
+type EvaluateParameterRowFn = (sourceTable: SourceTableInterface, row: SqliteRow) => EvaluatedParametersResult[];
 
 interface ResolvedDataSource {
   source: BucketDataSource;
   evaluate: EvaluateRowFn;
   id: number;
 }
+interface ResolvedParameterLookupSource {
+  source: ParameterIndexLookupCreator;
+  id: number;
+  evaluate: EvaluateParameterRowFn;
+}
+
+/**
+ * This is like HydratedSyncRules, but merges multiple sources together, and only implements the methods
+ * required for replication.
+ *
+ * This should be moved to a re-usable location, possibly merged with HydratedSyncRules logic.
+ */
 export class MergedSyncRules implements RowProcessor {
   static merge(sources: MongoPersistedSyncRules[]): MergedSyncRules {
     return new MergedSyncRules(sources);
   }
 
   private resolvedDataSources: Map<number, ResolvedDataSource>;
+  private resolvedParameterLookupSources: Map<number, ResolvedParameterLookupSource>;
   private sourcePatterns: TablePattern[];
   private allSyncRules: SqlSyncRules[];
 
   constructor(sources: MongoPersistedSyncRules[]) {
     let resolvedDataSources = new Map<number, ResolvedDataSource>();
+    let resolvedParameterLookupSources = new Map<number, ResolvedParameterLookupSource>();
     let sourcePatternMap = new Map<string, TablePattern>();
 
     this.allSyncRules = [];
@@ -50,29 +67,14 @@ export class MergedSyncRules implements RowProcessor {
       const mapping = source.mapping;
       const hydrationState = source.hydrationState;
       const dataSources = syncRules.bucketDataSources;
+      const bucketParameterLookupSources = syncRules.bucketParameterLookupSources;
       this.allSyncRules.push(syncRules);
       for (let source of dataSources) {
-        const scope = hydrationState.getBucketSourceScope(source);
         const id = mapping.bucketSourceId(source);
         if (resolvedDataSources.has(id)) {
           continue;
         }
-
-        const evaluate: EvaluateRowFn = (options: EvaluateRowOptions): EvaluationResult[] => {
-          return source.evaluateRow(options).map((result) => {
-            if (isEvaluationError(result)) {
-              return result;
-            }
-            const info = buildBucketInfo(scope, result.serializedBucketParameters);
-            return {
-              bucket: info.bucket,
-              id: result.id,
-              table: result.table,
-              data: result.data,
-              source: info[SOURCE]
-            } satisfies EvaluatedRow;
-          });
-        };
+        const evaluate = hydrateEvaluateRow(hydrationState, source);
         resolvedDataSources.set(id, { source, evaluate, id });
       }
 
@@ -82,11 +84,27 @@ export class MergedSyncRules implements RowProcessor {
           sourcePatternMap.set(key, pattern);
         }
       }
+
+      for (let source of bucketParameterLookupSources) {
+        const id = mapping.parameterLookupId(source);
+        if (resolvedParameterLookupSources.has(id)) {
+          continue;
+        }
+
+        const withScope = hydrateEvaluateParameterRow(hydrationState, source);
+        resolvedParameterLookupSources.set(id, { source, id, evaluate: withScope });
+      }
     }
     this.resolvedDataSources = resolvedDataSources;
+    this.resolvedParameterLookupSources = resolvedParameterLookupSources;
     this.sourcePatterns = Array.from(sourcePatternMap.values());
   }
 
+  /**
+   *
+   * @param table The source database table definition, _not_ the individually derived SourceTables.
+   * @returns
+   */
   getMatchingSources(table: SourceTableInterface): {
     bucketDataSources: BucketDataSource[];
     parameterIndexLookupCreators: ParameterIndexLookupCreator[];
@@ -94,11 +112,15 @@ export class MergedSyncRules implements RowProcessor {
     const bucketDataSources = [...this.resolvedDataSources.values()]
       .map((dataSource) => dataSource.source)
       .filter((ds) => ds.tableSyncsData(table));
+
+    const parameterIndexLookupCreators: ParameterIndexLookupCreator[] = [
+      ...this.resolvedParameterLookupSources.values()
+    ]
+      .map((dataSource) => dataSource.source)
+      .filter((ds) => ds.tableSyncsParameters(table));
     return {
-      bucketDataSources: bucketDataSources,
-      parameterIndexLookupCreators: [
-        // FIXME: implement
-      ]
+      bucketDataSources,
+      parameterIndexLookupCreators
     };
   }
 
@@ -109,33 +131,11 @@ export class MergedSyncRules implements RowProcessor {
     return this.sourcePatterns;
   }
 
-  tableTriggersEvent(table: SourceTableInterface): boolean {
-    throw new Error('Method not implemented.');
-  }
-
-  tableSyncsData(table: SourceTableInterface): boolean {
-    throw new Error('Method not implemented.');
-  }
-  tableSyncsParameters(table: SourceTableInterface): boolean {
-    throw new Error('Method not implemented.');
-  }
-
   applyRowContext<MaybeToast extends undefined = never>(
     source: SqliteRow<SqliteInputValue | MaybeToast>
   ): SqliteRow<SqliteValue | MaybeToast> {
     // FIXME: This may be different per sync rules - need to handle that
     return this.allSyncRules[this.allSyncRules.length - 1].applyRowContext(source);
-  }
-
-  /**
-   * Throws errors.
-   */
-  evaluateRow(options: EvaluateRowOptions): EvaluatedRow[] {
-    const { results, errors } = this.evaluateRowWithErrors(options);
-    if (errors.length > 0) {
-      throw new Error(errors[0].error);
-    }
-    return results;
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
@@ -161,13 +161,18 @@ export class MergedSyncRules implements RowProcessor {
     return { results, errors };
   }
 
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[] {
-    throw new Error('Method not implemented.');
-  }
   evaluateParameterRowWithErrors(
     table: SourceTableInterface,
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
-    throw new Error('Method not implemented.');
+    const parameterIndexLookupCreators = [...this.resolvedParameterLookupSources.values()].filter((ds) =>
+      ds.source.tableSyncsParameters(table)
+    );
+    const rawResults: EvaluatedParametersResult[] = parameterIndexLookupCreators.flatMap((creator) =>
+      creator.evaluate(table, row)
+    );
+    const results = rawResults.filter(isEvaluatedParameters) as EvaluatedParameters[];
+    const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
+    return { results, errors };
   }
 }

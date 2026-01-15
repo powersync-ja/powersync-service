@@ -32,10 +32,6 @@ export interface RowProcessor {
 
   getSourceTables(): TablePattern[];
 
-  tableTriggersEvent(table: SourceTableInterface): boolean;
-
-  tableSyncsData(table: SourceTableInterface): boolean;
-  tableSyncsParameters(table: SourceTableInterface): boolean;
   getMatchingSources(table: SourceTableInterface): {
     bucketDataSources: BucketDataSource[];
     parameterIndexLookupCreators: ParameterIndexLookupCreator[];
@@ -45,17 +41,8 @@ export interface RowProcessor {
     source: SqliteRow<SqliteInputValue | MaybeToast>
   ): SqliteRow<SqliteValue | MaybeToast>;
 
-  /**
-   * Throws errors.
-   */
-  evaluateRow(options: EvaluateRowOptions): EvaluatedRow[];
-
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] };
 
-  /**
-   * Throws errors.
-   */
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[];
   evaluateParameterRowWithErrors(
     table: SourceTableInterface,
     row: SqliteRow
