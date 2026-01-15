@@ -1,13 +1,3 @@
-import { defineConfig } from 'vitest/config';
+import { serviceIntegrationTestConfig } from '../test_config';
 
-export default defineConfig({
-  test: {
-    setupFiles: './test/src/setup.ts',
-    poolOptions: {
-      threads: {
-        singleThread: true
-      }
-    },
-    pool: 'threads'
-  }
-});
+export default serviceIntegrationTestConfig(__dirname);

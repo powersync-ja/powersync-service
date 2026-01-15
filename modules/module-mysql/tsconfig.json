@@ -20,6 +20,9 @@
       "path": "../../packages/service-core"
     },
     {
+      "path": "../../packages/jsonbig"
+    },
+    {
       "path": "../../libs/lib-services"
     }
   ]

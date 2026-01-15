@@ -862,6 +862,103 @@ WHERE
         })
       ).toStrictEqual(['1#stream|0["foo"]']);
     });
+
+    test('subquery IN static array', async () => {
+      // https://discord.com/channels/1138230179878154300/1458877905898701013/1461078568711749715
+      const users = new TestSourceTable('users');
+      const teamMembers = new TestSourceTable('team_members');
+      const schema = new StaticSchema([
+        {
+          tag: DEFAULT_TAG,
+          schemas: [
+            {
+              name: 'test_schema',
+              tables: [
+                {
+                  name: 'users',
+                  columns: [
+                    { name: 'id', pg_type: 'uuid' },
+                    { name: 'first_name', pg_type: 'text' },
+                    { name: 'last_name', pg_type: 'text' },
+                    { name: 'profile_image_url', pg_type: 'text' }
+                  ]
+                },
+                {
+                  name: 'team_members',
+                  columns: [
+                    { name: 'user_id', pg_type: 'uuid' },
+                    { name: 'team_id', pg_type: 'uuid' },
+                    { name: 'role', pg_type: 'text' },
+                    { name: 'deleted_at', pg_type: 'text' }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]);
+
+      const desc = parseStream(
+        `SELECT id, first_name, last_name, profile_image_url
+          FROM users
+          WHERE id IN (
+            SELECT user_id FROM team_members
+            WHERE team_id = connection.parameter('team_id')
+            AND role IN '["owner", "member"]'
+            AND deleted_at IS NULL
+          )
+        `,
+        'stream',
+        { ...options, schema }
+      );
+
+      expect(evaluateBucketIds(desc, users, { id: 'user', first_name: 'Test', last_name: 'User' })).toStrictEqual([
+        '1#stream|0["user"]'
+      ]);
+
+      expect(
+        desc.parameterIndexLookupCreators[0].evaluateParameterRow(teamMembers, {
+          user_id: 'user',
+          team_id: 'team',
+          role: 'owner'
+        })
+      ).toStrictEqual([
+        {
+          lookup: UnscopedParameterLookup.normalized(['team']),
+          bucketParameters: [
+            {
+              result: 'user'
+            }
+          ]
+        }
+      ]);
+      expect(
+        desc.parameterIndexLookupCreators[0].evaluateParameterRow(teamMembers, {
+          user_id: 'user',
+          team_id: 'team',
+          role: 'another'
+        })
+      ).toStrictEqual([]);
+      expect(
+        desc.parameterIndexLookupCreators[0].evaluateParameterRow(teamMembers, {
+          user_id: 'user',
+          team_id: 'team',
+          role: 'owner',
+          deleted_at: '1'
+        })
+      ).toStrictEqual([]);
+
+      expect(
+        await queryBucketIds(desc, {
+          parameters: { project: 'foo' },
+          globalParameters: { team_id: 'team' },
+          getParameterSets(lookups) {
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['team'])]);
+            return [{ result: 'user' }];
+          }
+        })
+      ).toStrictEqual(['1#stream|0["user"]']);
+    });
   });
 
   test('variants with custom hydrationState', async () => {
@@ -1043,6 +1140,7 @@ function bucketIds(result: EvaluationResult[]): string[] {
 
 interface TestQuerierOptions {
   token?: Record<string, any>;
+  globalParameters?: Record<string, any>;
   parameters?: Record<string, any>;
   getParameterSets?: (lookups: ScopedParameterLookup[]) => SqliteJsonRow[];
   hydrationState?: HydrationState;
@@ -1062,7 +1160,7 @@ async function createQueriers(
         sub: 'test-user',
         ...options?.token
       },
-      {}
+      { ...options?.globalParameters }
     ),
     streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] }
   };
