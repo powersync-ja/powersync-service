@@ -1,16 +1,16 @@
-import * as types from '@module/types/types.js';
-import { createRandomServerId, getMySQLVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
-import * as mongo_storage from '@powersync/service-module-mongodb-storage';
-import * as postgres_storage from '@powersync/service-module-postgres-storage';
-import mysqlPromise from 'mysql2/promise';
-import { env } from './env.js';
-import { describe, TestOptions } from 'vitest';
-import { TestStorageFactory } from '@powersync/service-core';
+import * as common from '@module/common/common-index.js';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange } from '@module/replication/zongji/BinLogListener.js';
+import * as types from '@module/types/types.js';
+import { createRandomServerId, getMySQLVersion, isVersionAtLeast } from '@module/utils/mysql-utils.js';
 import { TableMapEntry } from '@powersync/mysql-zongji';
-import * as common from '@module/common/common-index.js';
+import { TestStorageConfig } from '@powersync/service-core';
+import * as mongo_storage from '@powersync/service-module-mongodb-storage';
+import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { TablePattern } from '@powersync/service-sync-rules';
+import mysqlPromise from 'mysql2/promise';
+import { describe, TestOptions } from 'vitest';
+import { env } from './env.js';
 
 export const TEST_URI = env.MYSQL_TEST_URI;
 
@@ -24,11 +24,11 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoT
   isCI: env.CI
 });
 
-export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestStorageFactoryGenerator({
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL
 });
 
-export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageFactory) => void) {
+export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageConfig) => void) {
   describe.skipIf(!env.TEST_MONGO_STORAGE)(`mongodb storage`, options, function () {
     fn(INITIALIZED_MONGO_STORAGE_FACTORY);
   });
