@@ -284,7 +284,8 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       replicaIdColumns: ref.replicaIdColumns,
       snapshotComplete: doc.snapshot_done ?? true,
       bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
-      parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? []
+      parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? [],
+      pattern: ref.pattern
     });
     sourceTable.snapshotStatus =
       doc.snapshot_status == null
@@ -302,11 +303,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    const sources = this.rowProcessor.getMatchingSources({
-      connectionTag: options.connection_tag,
-      name: options.entity_descriptor.name,
-      schema: options.entity_descriptor.schema
-    });
+    const sources = this.rowProcessor.getMatchingSources(options.pattern);
     const bucketDataSourceIds = sources.bucketDataSources.map((source) => this.mapping.bucketSourceId(source));
     const parameterLookupSourceIds = sources.parameterIndexLookupCreators.map((source) =>
       this.mapping.parameterLookupId(source)
@@ -390,7 +387,8 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           replicaIdColumns: replicaIdColumns,
           snapshotComplete: doc.snapshot_done ?? true,
           bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
-          parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? []
+          parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? [],
+          pattern: options.pattern
         });
         sourceTable.snapshotStatus =
           doc.snapshot_status == null

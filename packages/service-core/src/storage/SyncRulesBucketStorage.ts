@@ -3,7 +3,8 @@ import {
   BucketDataSource,
   HydratedSyncRules,
   ScopedParameterLookup,
-  SqliteJsonRow
+  SqliteJsonRow,
+  TablePattern
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
@@ -169,6 +170,7 @@ export interface ResolveTablesOptions {
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
+  pattern: TablePattern;
 }
 
 export interface ResolveTableOptions {

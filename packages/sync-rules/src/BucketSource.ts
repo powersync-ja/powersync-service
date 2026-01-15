@@ -105,6 +105,7 @@ export interface BucketDataSource {
   readonly bucketParameters: string[];
 
   getSourceTables(): TablePattern[];
+
   tableSyncsData(table: SourceTableInterface): boolean;
 
   /**

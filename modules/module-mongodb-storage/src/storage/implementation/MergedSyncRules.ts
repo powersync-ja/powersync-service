@@ -105,19 +105,19 @@ export class MergedSyncRules implements RowProcessor {
    * @param table The source database table definition, _not_ the individually derived SourceTables.
    * @returns
    */
-  getMatchingSources(table: SourceTableInterface): {
+  getMatchingSources(pattern: TablePattern): {
     bucketDataSources: BucketDataSource[];
     parameterIndexLookupCreators: ParameterIndexLookupCreator[];
   } {
     const bucketDataSources = [...this.resolvedDataSources.values()]
       .map((dataSource) => dataSource.source)
-      .filter((ds) => ds.tableSyncsData(table));
+      .filter((ds) => ds.getSourceTables().some((table) => table.equals(pattern)));
 
     const parameterIndexLookupCreators: ParameterIndexLookupCreator[] = [
       ...this.resolvedParameterLookupSources.values()
     ]
       .map((dataSource) => dataSource.source)
-      .filter((ds) => ds.tableSyncsParameters(table));
+      .filter((ds) => ds.getSourceTables().some((table) => table.equals(pattern)));
     return {
       bucketDataSources,
       parameterIndexLookupCreators

@@ -1,6 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { bson } from '@powersync/service-core';
+import { MongoExpression } from '@powersync/service-sync-rules';
 
 /**
  * Performs a collection snapshot query, chunking by ranges of _id.
@@ -13,12 +14,19 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   private lastCursor: mongo.FindCursor | null = null;
   private collection: mongo.Collection;
   private batchSize: number;
+  private filter: MongoExpression | null = null;
 
-  public constructor(options: { collection: mongo.Collection; batchSize: number; key?: Uint8Array | null }) {
+  public constructor(options: {
+    collection: mongo.Collection;
+    batchSize: number;
+    key?: Uint8Array | null;
+    filter?: MongoExpression;
+  }) {
     this.lastKey = options.key ? bson.deserialize(options.key, { useBigInt64: true })._id : null;
     this.lastCursor = null;
     this.collection = options.collection;
     this.batchSize = options.batchSize;
+    this.filter = options.filter ?? null;
   }
 
   async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {
@@ -35,8 +43,17 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       // any parsing as an operator.
       // Starting in MongoDB 5.0, this filter can use the _id index. Source:
       // https://www.mongodb.com/docs/manual/release-notes/5.0/#general-aggregation-improvements
-      const filter: mongo.Filter<mongo.Document> =
-        this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
+      let filter: mongo.Filter<mongo.Document>;
+      if (this.lastKey == null) {
+        filter = this.filter == null ? {} : { $expr: this.filter };
+      } else {
+        if (this.filter == null) {
+          filter = { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
+        } else {
+          filter = { $and: [{ $expr: { $gt: ['$_id', { $literal: this.lastKey }] } }, { $expr: this.filter }] };
+        }
+      }
+
       cursor = this.collection.find(filter, {
         readConcern: 'majority',
         limit: this.batchSize,

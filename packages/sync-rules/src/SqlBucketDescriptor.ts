@@ -193,7 +193,7 @@ export class BucketDefinitionDataSource implements BucketDataSource {
   getSourceTables(): TablePattern[] {
     let result: TablePattern[] = [];
     for (let query of this.descriptor.dataQueries) {
-      result.push(query.sourceTable);
+      result.push(query.sourceTable.withFilter(query.filter.staticFilter));
     }
     return result;
   }

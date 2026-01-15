@@ -82,7 +82,8 @@ export function composeRowValues<T extends Record<string, RowValueClause>>(optio
     },
     getColumnDefinition: function (schema: QuerySchema): ColumnDefinition | undefined {
       return options.getColumnDefinition(schema);
-    }
+    },
+    staticFilter: { any: true }
   };
 }
 
@@ -127,6 +128,11 @@ export function compileStaticOperator(op: string, left: RowValueClause, right: R
         name: '?',
         type
       };
+    },
+    staticFilter: {
+      operator: op as any,
+      left: left.staticFilter,
+      right: right.staticFilter
     }
   };
 }
@@ -135,15 +141,20 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
   // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
   // clause.
   if (isRowValueClause(a) && isRowValueClause(b)) {
-    return composeRowValues({
-      values: { a, b },
-      compose(values) {
-        return sqliteBool(sqliteBool(values.a) && sqliteBool(values.b));
-      },
-      getColumnDefinition() {
-        return { name: 'and', type: ExpressionType.INTEGER };
+    return {
+      ...composeRowValues({
+        values: { a, b },
+        compose(values) {
+          return sqliteBool(sqliteBool(values.a) && sqliteBool(values.b));
+        },
+        getColumnDefinition() {
+          return { name: 'and', type: ExpressionType.INTEGER };
+        }
+      }),
+      staticFilter: {
+        and: [a.staticFilter, b.staticFilter]
       }
-    });
+    };
   }
   if (isParameterValueClause(a) && isParameterValueClause(b)) {
     return composeParameterValues({
@@ -197,6 +208,9 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
     visitChildren: (visitor) => {
       visitor(aFilter);
       visitor(bFilter);
+    },
+    staticFilter: {
+      and: [aFilter.staticFilter, bFilter.staticFilter]
     }
   } satisfies ParameterMatchClause;
 }
@@ -205,15 +219,20 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
   // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
   // clause.
   if (isRowValueClause(a) && isRowValueClause(b)) {
-    return composeRowValues({
-      values: { a, b },
-      compose(values) {
-        return sqliteBool(sqliteBool(values.a) || sqliteBool(values.b));
-      },
-      getColumnDefinition() {
-        return { name: 'or', type: ExpressionType.INTEGER };
+    return {
+      ...composeRowValues({
+        values: { a, b },
+        compose(values) {
+          return sqliteBool(sqliteBool(values.a) || sqliteBool(values.b));
+        },
+        getColumnDefinition() {
+          return { name: 'or', type: ExpressionType.INTEGER };
+        }
+      }),
+      staticFilter: {
+        or: [a.staticFilter, b.staticFilter]
       }
-    });
+    };
   }
   if (isParameterValueClause(a) && isParameterValueClause(b)) {
     return composeParameterValues({
@@ -265,6 +284,9 @@ export function orParameterSetClauses(a: ParameterMatchClause, b: ParameterMatch
     visitChildren: (v) => {
       v(a);
       v(b);
+    },
+    staticFilter: {
+      or: [a.staticFilter, b.staticFilter]
     }
   } satisfies ParameterMatchClause;
 }
@@ -286,7 +308,8 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
         const value = sqliteBool(clause.evaluate(tables));
         return value ? MATCH_CONST_TRUE : MATCH_CONST_FALSE;
       },
-      visitChildren: (v) => v(clause)
+      visitChildren: (v) => v(clause),
+      staticFilter: clause.staticFilter
     } satisfies ParameterMatchClause;
   } else if (isClauseError(clause)) {
     return {
@@ -296,7 +319,8 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
         throw new Error('invalid clause');
       },
-      visitChildren: (v) => v(clause)
+      visitChildren: (v) => v(clause),
+      staticFilter: { any: true }
     } satisfies ParameterMatchClause;
   } else {
     // Equivalent to `bucket.param = true`
@@ -321,7 +345,8 @@ export function toBooleanParameterSetClause(clause: CompiledClause): ParameterMa
       filterRow(tables: QueryParameters): TrueIfParametersMatch {
         return [{ [key]: SQLITE_TRUE }];
       },
-      visitChildren: (v) => v(clause)
+      visitChildren: (v) => v(clause),
+      staticFilter: { any: true }
     } satisfies ParameterMatchClause;
   }
 }

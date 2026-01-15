@@ -357,6 +357,54 @@ export interface BaseClause {
   visitChildren?: (visitor: (clause: CompiledClause) => void) => void;
 }
 
+export type StaticFilter =
+  | StaticOperator
+  | AndOperator
+  | OrOperator
+  | AnyOperator
+  | StaticColumnExpression
+  | StaticValue;
+
+export interface AnyOperator {
+  any: true;
+}
+
+export function isAny(filter: StaticFilter): filter is AnyOperator {
+  return (filter as AnyOperator).any === true;
+}
+
+export interface StaticOperator {
+  left: StaticFilter;
+  operator: string; // '=' | '!=' | '<' | '<=' | '>' | '>=' | 'IS' | 'IS NOT' | 'IN';
+  right: StaticFilter;
+}
+
+export interface StaticValue {
+  value: SqliteValue;
+}
+
+export interface StaticColumnExpression {
+  column: string;
+}
+
+export interface AndOperator {
+  and: StaticFilter[];
+}
+
+export interface OrOperator {
+  or: StaticFilter[];
+}
+
+export type MongoExpression =
+  | Record<string, unknown>
+  | unknown[]
+  | string
+  | number
+  | boolean
+  | null
+  | bigint
+  | Uint8Array;
+
 /**
  * This is a clause that matches row and parameter values for equality.
  *
@@ -367,6 +415,13 @@ export interface BaseClause {
  */
 export interface ParameterMatchClause extends BaseClause {
   error: boolean;
+
+  /**
+   * This is a filter that can be applied "statically" on the row, to pre-filter rows.
+   *
+   * This may be under-specific, i.e. it may include rows that do not actually match the full filter.
+   */
+  staticFilter: StaticFilter;
 
   specialType?: 'or';
 
@@ -456,6 +511,7 @@ export interface QuerySchema {
 export interface RowValueClause extends BaseClause {
   evaluate(tables: QueryParameters): SqliteValue;
   getColumnDefinition(schema: QuerySchema): ColumnDefinition | undefined;
+  staticFilter: StaticFilter;
 }
 
 /**

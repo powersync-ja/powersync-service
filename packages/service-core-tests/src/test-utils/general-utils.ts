@@ -143,7 +143,6 @@ export function bucketRequest(
     throw new Error('Failed to find global bucket');
   }
   const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
-  console.log('query for bucket', bucketName);
   return {
     bucket: bucketName,
     start: BigInt(start ?? 0n),
