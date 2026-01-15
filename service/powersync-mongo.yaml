@@ -1,0 +1,68 @@
+# powersync.yaml
+# Very similar to the config on Collide, but a little more low-level
+migrations:
+  disable_auto_migrate: true
+
+# Settings for telemetry reporting
+# See https://docs.powersync.com/self-hosting/telemetry
+telemetry:
+  # Opt out of reporting to PowerSync telemetry service
+  disable_telemetry_sharing: true
+  # Additional Open Telemetry metrics endpoints
+  client_endpoints: []
+  # Override default JourneyApps telemetry endpoint
+  #  internal_service_endpoint: pulse.staging.journeyapps.com:443
+  internal_service_endpoint: http://localhost:4318/v1/metrics
+
+replication:
+  connections:
+    - type: postgresql
+      # The PowerSync server can access the Postgres DB via the DB's service name
+      uri: postgres://localhost:5431/postgres
+      sslmode: disable # okay for local/private network, not for public network
+      hostname: localhost # From the Docker Compose service name
+      port: 5431
+      database: postgres # TODO Match this with Docker config if changed
+      username: postgres # TODO Match this with Docker config if changed
+      password: postgres # TODO Match this with Docker config if changed
+# This is valid if using the `mongo` service defined in `ps-mongo.yaml`
+storage:
+  type: mongodb
+  uri: !env PS_MONGO_URI
+
+port: !env PS_PORT
+
+sync_rules:
+  path: sync_rules.yaml
+# Client authentication settings
+client_auth:
+  # JWKS URIs can be specified here
+  jwks_uri: "http://localhost:6060/api/auth/keys"
+
+  audience: ["powersync-dev", "powersync"]
+    # Public keys can be added directly as below
+    # This is the matching public key DEMO_JWKS_PUBLIC_KEY in the `.env` file
+    #
+    # The demo backend generates JWTs using the private key.
+    #   https://github.com/powersync-ja/powersync-nodejs-backend-todolist-demo/blob/5420b1a04dcb496a91a8528a523bd4ae75711bf8/src/api/auth.js#L15
+  # The demo client app uses these JWTs to authenticate with the PowerSync service
+  #  ./demo-app/src/library/powersync/DemoConnector.ts
+  # SSL settings
+  # Defaults to verify-full
+  # sslmode: 'verify-full' or 'verify-ca' or 'disable'
+  # Required for verify-ca, optional for verify-full
+  # cacert:
+  # Include a certificate here for HTTPs
+  # client_certificate:
+  # client_private_key:
+  # Expose "execute-sql"
+  debug_api: true
+# Development settings
+# dev:
+# demo_auth: true
+# demo_password:
+# crud_api: true
+# demo_client: true
+api:
+  tokens:
+    - dev
