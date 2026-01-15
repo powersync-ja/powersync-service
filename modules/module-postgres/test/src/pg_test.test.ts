@@ -1,8 +1,8 @@
-import { WalStream } from '@module/replication/WalStream.js';
 import { PostgresTypeResolver } from '@module/types/resolver.js';
 import * as dns from 'node:dns';
 import type { LookupFunction } from 'node:net';
 
+import { PostgresSnapshotter } from '@module/replication/PostgresSnapshotter.js';
 import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyRowContext,
@@ -725,5 +725,5 @@ async function interpretResults(db: pgwire.PgClient, results: pgwire.PgResult) {
   const typeCache = new PostgresTypeResolver(db);
   await typeCache.fetchTypesForSchema();
 
-  return results.rows.map((row) => WalStream.decodeRow(row, typeCache));
+  return results.rows.map((row) => PostgresSnapshotter.decodeRow(row, typeCache));
 }
