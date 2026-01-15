@@ -58,6 +58,7 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       }
     }
     this.lockAlerted = false;
+    logger.info(`Sync rules: ${sync_rules.id} has been locked for replication with lock ID ${lockId}.`);
     return new MongoSyncRulesLock(db, sync_rules.id, lockId);
   }
 
