@@ -14,6 +14,7 @@ import { ChangeStream } from '@module/replication/ChangeStream.js';
 import { constructAfterRecord } from '@module/replication/MongoRelation.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
+import { MongoSnapshotter } from '@module/replication/MongoSnapshotter.js';
 
 describe('mongo data types', () => {
   async function setupTable(db: mongo.Db) {
@@ -266,7 +267,7 @@ describe('mongo data types', () => {
         .toArray();
       // It is tricky to save "undefined" with mongo, so we check that it succeeded.
       expect(rawResults[4].undefined).toBeUndefined();
-      const transformed = [...ChangeStream.getQueryData(rawResults)];
+      const transformed = [...MongoSnapshotter.getQueryData(rawResults)];
       checkResults(transformed);
     } finally {
       await client.close();
@@ -287,7 +288,7 @@ describe('mongo data types', () => {
         .find({}, { sort: { _id: 1 } })
         .toArray();
       expect(rawResults[3].undefined).toEqual([undefined]);
-      const transformed = [...ChangeStream.getQueryData(rawResults)];
+      const transformed = [...MongoSnapshotter.getQueryData(rawResults)];
 
       checkResultsNested(transformed);
     } finally {
@@ -548,7 +549,7 @@ bucket_definitions:
         .collection('test_data')
         .find({}, { sort: { _id: 1 } })
         .toArray();
-      const [row] = [...ChangeStream.getQueryData(rawResults)];
+      const [row] = [...MongoSnapshotter.getQueryData(rawResults)];
 
       const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
       expect(oldFormat).toMatchObject({
