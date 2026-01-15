@@ -128,6 +128,7 @@ export class MergedSyncRules implements RowProcessor {
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   getSourceTables(): TablePattern[] {
+    console.log('tables', this.sourcePatterns);
     return this.sourcePatterns;
   }
 

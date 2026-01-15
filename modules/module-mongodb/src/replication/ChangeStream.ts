@@ -9,6 +9,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  BucketDataWriter,
   BucketStorageFactory,
   MetricsEngine,
   SaveOperationTag,
@@ -208,13 +209,17 @@ export class ChangeStream {
     return this.abortSignal.aborted;
   }
 
-  private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
-    const sourceTables = this.substreams.flatMap((s) => s.syncRules.getSourceTables());
+  private getSourceNamespaceFilters(writer: BucketDataWriter): {
+    $match: any;
+    multipleDatabases: boolean;
+  } {
+    const sourceTables = writer.rowProcessor.getSourceTables();
 
     let $inFilters: { db: string; coll: string }[] = [
       { db: this.defaultDb.databaseName, coll: CHECKPOINTS_COLLECTION }
     ];
     let $refilters: { 'ns.db': string; 'ns.coll': RegExp }[] = [];
+    let filters: any[] = [];
     let multipleDatabases = false;
     for (let tablePattern of sourceTables) {
       if (tablePattern.connectionTag != this.connections.connectionTag) {
@@ -230,6 +235,10 @@ export class ChangeStream {
           'ns.db': tablePattern.schema,
           'ns.coll': new RegExp('^' + escapeRegExp(tablePattern.tablePrefix))
         });
+        filters.push({
+          'ns.db': tablePattern.schema,
+          'ns.coll': new RegExp('^' + escapeRegExp(tablePattern.tablePrefix))
+        });
       } else {
         $inFilters.push({
           db: tablePattern.schema,
@@ -237,6 +246,8 @@ export class ChangeStream {
         });
       }
     }
+
+    // FIXME: deduplicate filters
 
     // When we have a large number of collections, the performance of the pipeline
     // depends a lot on how the filters here are specified.
@@ -398,12 +409,12 @@ export class ChangeStream {
     }
   }
 
-  private openChangeStream(options: { lsn: string | null; maxAwaitTimeMs?: number }) {
+  private openChangeStream(writer: BucketDataWriter, options: { lsn: string | null; maxAwaitTimeMs?: number }) {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
     const resumeAfter = lastLsn?.resumeToken;
 
-    const filters = this.getSourceNamespaceFilters();
+    const filters = this.getSourceNamespaceFilters(writer);
 
     const pipeline: mongo.Document[] = [
       {
@@ -577,7 +588,7 @@ export class ChangeStream {
 
     this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}  | Token age: ${tokenAgeSeconds}s`);
 
-    await using streamManager = this.openChangeStream({ lsn: resumeFromLsn });
+    await using streamManager = this.openChangeStream(writer, { lsn: resumeFromLsn });
     const { stream, filters } = streamManager;
     if (this.abortSignal.aborted) {
       await stream.close();

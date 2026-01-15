@@ -25,6 +25,10 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql(['category'], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
+    expect(query.filter.staticFilter).toEqual({
+      any: true
+    });
+
     expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
       {
         serializedBucketParameters: '["red"]',
@@ -46,6 +50,12 @@ describe('data queries', () => {
     const query = SqlDataQuery.fromSql([], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
 
+    expect(query.filter.staticFilter).toEqual({
+      operator: 'IN',
+      left: { value: 'green' },
+      right: { column: 'categories' }
+    });
+
     expect(query.evaluateRow(ASSETS, { id: 'asset1', categories: JSON.stringify(['red', 'green']) })).toMatchObject([
       {
         serializedBucketParameters: '[]',
@@ -61,6 +71,11 @@ describe('data queries', () => {
     const sql = `SELECT * FROM assets WHERE assets.condition IN '["good","great"]'`;
     const query = SqlDataQuery.fromSql([], sql, PARSE_OPTIONS, compatibility);
     expect(query.errors).toEqual([]);
+    expect(query.filter.staticFilter).toEqual({
+      operator: 'IN',
+      left: { column: 'condition' },
+      right: { value: '["good","great"]' }
+    });
 
     expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'good' })).toMatchObject([
       {
@@ -71,6 +86,26 @@ describe('data queries', () => {
     ]);
 
     expect(query.evaluateRow(ASSETS, { id: 'asset1', condition: 'bad' })).toEqual([]);
+  });
+
+  test('AND query', function () {
+    const sql = `SELECT * FROM assets WHERE archived = false AND condition > 5`;
+    const query = SqlDataQuery.fromSql([], sql, PARSE_OPTIONS, compatibility);
+    expect(query.errors).toEqual([]);
+    expect(query.filter.staticFilter).toEqual({
+      and: [
+        {
+          operator: '=',
+          left: { column: 'archived' },
+          right: { value: 0n }
+        },
+        {
+          operator: '>',
+          left: { column: 'condition' },
+          right: { value: 5n }
+        }
+      ]
+    });
   });
 
   test('table alias', function () {

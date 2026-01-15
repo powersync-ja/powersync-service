@@ -83,6 +83,7 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+  filter?: string;
 }
 
 export interface SourceTableDocumentSnapshotStatus {

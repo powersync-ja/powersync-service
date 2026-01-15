@@ -42,6 +42,7 @@ import {
   QuerySchema,
   RowValueClause,
   SqliteValue,
+  StaticFilter,
   StaticValueClause,
   TrueIfParametersMatch
 } from './types.js';
@@ -277,6 +278,9 @@ export class SqlTools {
           },
           getColumnDefinition(schema) {
             return schema.getColumn(table.nameInSchema, column);
+          },
+          staticFilter: {
+            column: column
           }
         } satisfies RowValueClause;
       } else {
@@ -495,7 +499,8 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        visitChildren: (v) => v(leftFilter)
+        visitChildren: (v) => v(leftFilter),
+        staticFilter: { any: true }
       } satisfies ParameterMatchClause;
     } else if (
       this.supportsExpandingParameters &&
@@ -530,7 +535,8 @@ export class SqlTools {
           }
           return [{ [inputParam.key]: value }];
         },
-        visitChildren: (v) => v(rightFilter)
+        visitChildren: (v) => v(rightFilter),
+        staticFilter: { any: true }
       } satisfies ParameterMatchClause;
     } else {
       // Not supported, return the error previously computed
@@ -578,7 +584,9 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        visitChildren: (v) => v(leftFilter)
+        visitChildren: (v) => v(leftFilter),
+
+        staticFilter: { any: true }
       } satisfies ParameterMatchClause;
     } else if (
       this.supportsExpandingParameters &&
@@ -620,7 +628,8 @@ export class SqlTools {
             return { [inputParam.key]: value };
           });
         },
-        visitChildren: (v) => v(rightFilter)
+        visitChildren: (v) => v(rightFilter),
+        staticFilter: { any: true }
       } satisfies ParameterMatchClause;
     } else {
       // Not supported, return the error previously computed
@@ -649,7 +658,8 @@ export class SqlTools {
 
         return [{ [inputParam.key]: value }];
       },
-      visitChildren: (v) => v(otherFilter)
+      visitChildren: (v) => v(otherFilter),
+      staticFilter: { any: true }
     } satisfies ParameterMatchClause;
   }
 
@@ -841,6 +851,11 @@ export class SqlTools {
       const evaluated = fnImpl.call(...args);
       return staticValueClause(evaluated);
     } else if (argsType == 'row') {
+      let staticFilter: StaticFilter = { any: true };
+      if (fnImpl.staticFilter != null) {
+        const rowValueClauses = argClauses.map((e) => e as RowValueClause);
+        staticFilter = fnImpl.staticFilter(...rowValueClauses.map((arg) => arg.staticFilter));
+      }
       return {
         evaluate: (tables) => {
           const args = argClauses.map((e) => (e as RowValueClause).evaluate(tables));
@@ -851,7 +866,8 @@ export class SqlTools {
             (e) => (e as RowValueClause).getColumnDefinition(schema)?.type ?? ExpressionType.NONE
           );
           return { name: `${fnImpl}()`, type: fnImpl.getReturnType(argTypes) };
-        }
+        },
+        staticFilter
       } satisfies RowValueClause;
     } else if (argsType == 'param') {
       const argStrings = argClauses.map((e) => (e as ParameterValueClause).key);
@@ -972,6 +988,9 @@ function staticValueClause(value: SqliteValue): StaticValueClause {
     key: JSONBig.stringify(value),
     lookupParameterValue(_parameters) {
       return value;
+    },
+    staticFilter: {
+      value: value
     }
   };
 }

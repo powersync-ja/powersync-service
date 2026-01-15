@@ -357,6 +357,170 @@ export interface BaseClause {
   visitChildren?: (visitor: (clause: CompiledClause) => void) => void;
 }
 
+export type StaticFilter =
+  | StaticOperator
+  | AndOperator
+  | OrOperator
+  | AnyOperator
+  | StaticColumnExpression
+  | StaticValue;
+
+export interface AnyOperator {
+  any: true;
+}
+
+export function isAny(filter: StaticFilter): filter is AnyOperator {
+  return (filter as AnyOperator).any === true;
+}
+
+export interface StaticOperator {
+  left: StaticFilter;
+  operator: string; // '=' | '!=' | '<' | '<=' | '>' | '>=' | 'IS' | 'IS NOT' | 'IN';
+  right: StaticFilter;
+}
+
+export interface StaticValue {
+  value: SqliteValue;
+}
+
+export interface StaticColumnExpression {
+  column: string;
+}
+
+export interface AndOperator {
+  and: StaticFilter[];
+}
+
+export interface OrOperator {
+  or: StaticFilter[];
+}
+
+export type MongoExpression =
+  | Record<string, unknown>
+  | unknown[]
+  | string
+  | number
+  | boolean
+  | null
+  | bigint
+  | Uint8Array;
+
+export interface StaticFilterToMongoOptions {
+  mapValue?: (value: SqliteValue) => unknown;
+  parseJsonArrayForIn?: boolean;
+}
+
+export function staticFilterToMongoExpression(
+  filter: StaticFilter,
+  options: StaticFilterToMongoOptions = {}
+): MongoExpression {
+  const mapValue = options.mapValue ?? ((value: SqliteValue) => value);
+  const parseJsonArrayForIn = options.parseJsonArrayForIn ?? true;
+  // Marker for "cannot prefilter" so we avoid over-restricting the query.
+  const ANY = Symbol('static-filter-any');
+
+  const literalValue = (value: SqliteValue): MongoExpression => ({ $literal: mapValue(value) });
+
+  const toExpr = (node: StaticFilter): MongoExpression | typeof ANY => {
+    if (isAny(node)) {
+      return ANY;
+    }
+
+    if ('and' in node) {
+      const parts = node.and.map(toExpr).filter((part) => part !== ANY) as MongoExpression[];
+      if (parts.length === 0) {
+        return ANY;
+      }
+      if (parts.length === 1) {
+        return parts[0];
+      }
+      return { $and: parts };
+    }
+
+    if ('or' in node) {
+      const parts = node.or.map(toExpr);
+      if (parts.some((part) => part === ANY)) {
+        return ANY;
+      }
+      const expressions = parts.filter((part) => part !== ANY) as MongoExpression[];
+      if (expressions.length === 0) {
+        return { $const: false };
+      }
+      if (expressions.length === 1) {
+        return expressions[0];
+      }
+      return { $or: expressions };
+    }
+
+    if ('operator' in node) {
+      const left = toExpr(node.left);
+      const right = toExpr(node.right);
+      if (left === ANY || right === ANY) {
+        return ANY;
+      }
+
+      const leftExpr = left as MongoExpression;
+      let rightExpr = right as MongoExpression;
+      const operator = node.operator.toUpperCase();
+
+      switch (operator) {
+        case '=':
+        case '==':
+          return { $eq: [leftExpr, rightExpr] };
+        case '!=':
+        case '<>':
+          return { $ne: [leftExpr, rightExpr] };
+        case '<':
+          return { $lt: [leftExpr, rightExpr] };
+        case '<=':
+          return { $lte: [leftExpr, rightExpr] };
+        case '>':
+          return { $gt: [leftExpr, rightExpr] };
+        case '>=':
+          return { $gte: [leftExpr, rightExpr] };
+        case 'IS':
+          return { $eq: [leftExpr, rightExpr] };
+        case 'IS NOT':
+          return { $ne: [leftExpr, rightExpr] };
+        case 'IN': {
+          if (parseJsonArrayForIn && 'value' in node.right) {
+            const value = node.right.value;
+            if (typeof value !== 'string') {
+              throw new Error('IN operator expects JSON array literal');
+            }
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(value);
+            } catch {
+              throw new Error('IN operator expects JSON array literal');
+            }
+            if (!Array.isArray(parsed)) {
+              throw new Error('IN operator expects JSON array literal');
+            }
+            rightExpr = { $literal: parsed };
+          }
+          return { $in: [leftExpr, rightExpr] };
+        }
+        default:
+          throw new Error(`Operator not supported: ${node.operator}`);
+      }
+    }
+
+    if ('column' in node) {
+      return `$${node.column}`;
+    }
+
+    if ('value' in node) {
+      return literalValue(node.value);
+    }
+
+    throw new Error('Unsupported static filter');
+  };
+
+  const result = toExpr(filter);
+  return result === ANY ? { $const: true } : result;
+}
+
 /**
  * This is a clause that matches row and parameter values for equality.
  *
@@ -367,6 +531,13 @@ export interface BaseClause {
  */
 export interface ParameterMatchClause extends BaseClause {
   error: boolean;
+
+  /**
+   * This is a filter that can be applied "statically" on the row, to pre-filter rows.
+   *
+   * This may be under-specific, i.e. it may include rows that do not actually match the full filter.
+   */
+  staticFilter: StaticFilter;
 
   specialType?: 'or';
 
@@ -456,6 +627,7 @@ export interface QuerySchema {
 export interface RowValueClause extends BaseClause {
   evaluate(tables: QueryParameters): SqliteValue;
   getColumnDefinition(schema: QuerySchema): ColumnDefinition | undefined;
+  staticFilter: StaticFilter;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
-import { SqliteInputValue, SqliteValue } from './types.js';
+import { isAny, SqliteInputValue, SqliteValue, StaticFilter } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
 // This allows for consumers of this lib to resolve types correctly
@@ -39,6 +39,7 @@ export interface SqlFunction {
   readonly debugName: string;
   call: (...args: SqliteValue[]) => SqliteValue;
   getReturnType(args: ExpressionType[]): ExpressionType;
+  staticFilter?: (...args: StaticFilter[]) => StaticFilter;
 }
 
 export interface DocumentedSqlFunction extends SqlFunction {
@@ -55,6 +56,16 @@ export function getOperatorFunction(op: string): SqlFunction {
     },
     getReturnType(args) {
       return getOperatorReturnType(op, args[0], args[1]);
+    },
+    staticFilter(...args: StaticFilter[]) {
+      if (isAny(args[0]) || isAny(args[1])) {
+        return { any: true };
+      }
+      return {
+        operator: op as any,
+        left: args[0],
+        right: args[1]
+      };
     }
   };
 }

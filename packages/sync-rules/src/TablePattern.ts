@@ -1,4 +1,6 @@
+import { JSONBig } from '@powersync/service-jsonbig';
 import { SourceTableInterface } from './SourceTableInterface.js';
+import { ParameterMatchClause, StaticFilter } from './types.js';
 
 export const DEFAULT_TAG = 'default';
 
@@ -11,7 +13,9 @@ export class TablePattern {
   public readonly schema: string;
   public readonly tablePattern: string;
 
-  constructor(schema: string, tablePattern: string) {
+  public readonly filter?: StaticFilter;
+
+  constructor(schema: string, tablePattern: string, filter?: StaticFilter) {
     const splitSchema = schema.split('.');
     if (splitSchema.length > 2) {
       throw new Error(`Invalid schema: ${schema}`);
@@ -24,13 +28,14 @@ export class TablePattern {
       this.schema = schema;
     }
     this.tablePattern = tablePattern;
+    this.filter = filter;
   }
 
   /**
    * Unique lookup key for this pattern. For in-memory use only - no gaurantee of stability across restarts.
    */
   get key(): string {
-    return JSON.stringify([this.connectionTag, this.schema, this.tablePattern]);
+    return JSONBig.stringify([this.connectionTag, this.schema, this.tablePattern, this.filter]);
   }
 
   equals(other: TablePattern): boolean {
@@ -53,6 +58,14 @@ export class TablePattern {
       throw new Error('Cannot get name for wildcard table');
     }
     return this.tablePattern;
+  }
+
+  withFilter(filter: StaticFilter | undefined): TablePattern {
+    return new TablePattern(
+      this.connectionTag == DEFAULT_TAG ? this.schema : `${this.connectionTag}.${this.schema}`,
+      this.tablePattern,
+      filter
+    );
   }
 
   matches(table: SourceTableInterface) {

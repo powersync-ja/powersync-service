@@ -169,6 +169,7 @@ export interface ResolveTablesOptions {
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
+  filter?: string;
 }
 
 export interface ResolveTableOptions {
