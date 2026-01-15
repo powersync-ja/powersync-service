@@ -16,7 +16,8 @@
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
     "build:ts": "tsc -b",
-    "build": "pnpm build:ts && node ./dist/scripts/compile-json-schema.js"
+    "build": "pnpm build:ts && pnpm run build:extra",
+    "build:extra": "node ./dist/scripts/compile-json-schema.js"
   },
   "dependencies": {},
   "devDependencies": {
