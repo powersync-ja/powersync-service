@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.30.0
+
+### Minor Changes
+
+- e578245: [Internal] Refactor sync rule representation to split out the parsed definitions from the hydrated state.
+
 ## 0.29.10
 
 ### Patch Changes
