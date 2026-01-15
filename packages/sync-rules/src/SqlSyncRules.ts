@@ -398,15 +398,10 @@ export class SqlSyncRules {
    *
    * @param params.hydrationState Transforms bucket ids based on persisted state. May omit for tests.
    */
-  hydrate(params?: CreateSourceParams): HydratedSyncRules {
-    let hydrationState = params?.hydrationState;
-    if (hydrationState == null || !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
-      hydrationState = DEFAULT_HYDRATION_STATE;
-    }
-    const resolvedParams = { hydrationState };
+  hydrate(params: CreateSourceParams): HydratedSyncRules {
     return new HydratedSyncRules({
       definition: this,
-      createParams: resolvedParams,
+      createParams: params,
       bucketDataSources: this.bucketDataSources,
       bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
       eventDescriptors: this.eventDescriptors,
@@ -424,21 +419,18 @@ export class SqlSyncRules {
     const sourceTables = new Map<String, TablePattern>();
     for (const bucket of this.bucketDataSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key, r);
       }
     }
     for (const bucket of this.bucketParameterLookupSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key, r);
       }
     }
 
     for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key, r);
       }
     }
 

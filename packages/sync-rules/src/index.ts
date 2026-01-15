@@ -29,3 +29,4 @@ export * from './types/time.js';
 export * from './utils.js';
 export { versionedHydrationState } from './HydrationState.js';
 export * from './HydratedSyncRules.js';
+export * from './HydrationState.js';

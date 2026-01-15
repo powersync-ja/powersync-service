@@ -1,9 +1,21 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
+import {
+  EvaluatedParameters,
+  EvaluatedRow,
+  RowProcessor,
+  SqliteRow,
+  ToastableSqliteRow
+} from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
-import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
+import { SourceTable, SourceTableId, TableSnapshotStatus } from './SourceTable.js';
+import {
+  BatchedCustomWriteCheckpointOptions,
+  ResolveTableOptions,
+  ResolveTableResult,
+  ResolveTablesOptions,
+  ResolveTablesResult
+} from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
@@ -11,7 +23,23 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
   oldestUncommittedChange: null
 };
 
-export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
+export interface BucketDataWriter extends BucketDataWriterBase, AsyncDisposable {
+  readonly rowProcessor: RowProcessor;
+
+  keepaliveAll(lsn: string): Promise<boolean>;
+  commitAll(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
+  setAllResumeLsn(lsn: string): Promise<void>;
+
+  /**
+   * Resolve a table, keeping track of it internally.
+   */
+  resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
+  getTable(ref: SourceTable): Promise<SourceTable | null>;
+}
+
+export interface BucketDataWriterBase {
+  readonly resumeFromLsn: string | null;
+
   /**
    * Save an op, and potentially flush.
    *
@@ -40,6 +68,22 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * @returns null if there are no changes to flush.
    */
   flush(options?: BatchBucketFlushOptions): Promise<FlushedResult | null>;
+
+  markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
+  markTableSnapshotRequired(table: SourceTable): Promise<void>;
+  markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+
+  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
+}
+
+export interface BucketStorageBatch
+  extends ObserverClient<BucketBatchStorageListener>,
+    AsyncDisposable,
+    BucketDataWriterBase {
+  /**
+   * Alias for [Symbol.asyncDispose]
+   */
+  dispose(): Promise<void>;
 
   /**
    * Flush and commit any saved ops. This creates a new checkpoint by default.
@@ -82,12 +126,6 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Not relevant for streams where the source keeps track of replication progress, such as Postgres.
    */
   resumeFromLsn: string | null;
-
-  markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
-  markTableSnapshotRequired(table: SourceTable): Promise<void>;
-  markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
-
-  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.

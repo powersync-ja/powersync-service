@@ -1,9 +1,14 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  HydratedSyncRules,
+  ScopedParameterLookup,
+  SqliteJsonRow
+} from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
+import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
@@ -20,19 +25,36 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
 
   /**
-   * Resolve a table, keeping track of it internally.
-   */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
-
-  /**
    * Use this to get access to update storage data.
+   *
+   * @deprecated Use `createWriter` instead.
    */
   startBatch(
     options: StartBatchOptions,
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
-  getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
+  /**
+   * @deprecated use `createWriter()` instead, with its `resolveTables` method.
+   */
+  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
+
+  /**
+   * Create a new writer - an alternative to `startBatch`.
+   *
+   * The writer is stateful. It is not safe to use the same writer concurrently from multiple places,
+   * but different writers can be used concurrently.
+   *
+   * The writer must be flushed and disposed when done.
+   */
+  createWriter(options: StartBatchOptions): Promise<BucketStorageBatch>;
+
+  getHydratedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
+
+  /**
+   * For tests only.
+   */
+  getParsedSyncRules(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   /**
    * Terminate the sync rules.
@@ -103,7 +125,7 @@ export interface SyncRulesBucketStorage
    */
   getBucketDataBatch(
     checkpoint: util.InternalOpId,
-    dataBuckets: Map<string, util.InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk>;
 
@@ -115,7 +137,7 @@ export interface SyncRulesBucketStorage
    * This may be slow, depending on the size of the buckets.
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
-  getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
+  getChecksums(checkpoint: util.InternalOpId, buckets: BucketChecksumRequest[]): Promise<util.ChecksumMap>;
 
   /**
    * Clear checksum cache. Primarily intended for tests.
@@ -127,19 +149,38 @@ export interface SyncRulesBucketStorageListener {
   batchStarted: (batch: BucketStorageBatch) => void;
 }
 
+export interface BucketDataRequest {
+  bucket: string;
+  start: util.InternalOpId;
+  source: BucketDataSource;
+}
+export interface BucketChecksumRequest {
+  bucket: string;
+  source: BucketDataSource;
+}
+
 export interface SyncRuleStatus {
   checkpoint_lsn: string | null;
   active: boolean;
   snapshot_done: boolean;
   snapshot_lsn: string | null;
 }
-export interface ResolveTableOptions {
-  group_id: number;
+export interface ResolveTablesOptions {
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
+}
 
+export interface ResolveTableOptions {
+  connection_id: number;
+  connection_tag: string;
+  entity_descriptor: SourceEntityDescriptor;
   sync_rules: HydratedSyncRules;
+}
+
+export interface ResolveTablesResult {
+  tables: SourceTable[];
+  dropTables: SourceTable[];
 }
 
 export interface ResolveTableResult {

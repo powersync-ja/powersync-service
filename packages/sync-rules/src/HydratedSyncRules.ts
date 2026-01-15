@@ -1,10 +1,6 @@
-import { Scope } from 'ajv/dist/compile/codegen/scope.js';
 import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
-import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
 import {
-  ParameterIndexLookupCreator,
   BucketParameterQuerier,
-  buildBucketName,
   CompatibilityContext,
   EvaluatedParameters,
   EvaluatedRow,
@@ -17,22 +13,47 @@ import {
   mergeBucketParameterQueriers,
   mergeDataSources,
   mergeParameterIndexLookupCreators,
+  ParameterIndexLookupCreator,
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
   SqlEventDescriptor,
   SqliteInputValue,
   SqliteValue,
-  SqlSyncRules
+  SqlSyncRules,
+  TablePattern
 } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
+
+export interface RowProcessor {
+  readonly eventDescriptors: SqlEventDescriptor[];
+  readonly compatibility: CompatibilityContext;
+
+  getSourceTables(): TablePattern[];
+
+  getMatchingSources(table: SourceTableInterface): {
+    bucketDataSources: BucketDataSource[];
+    parameterIndexLookupCreators: ParameterIndexLookupCreator[];
+  };
+
+  applyRowContext<MaybeToast extends undefined = never>(
+    source: SqliteRow<SqliteInputValue | MaybeToast>
+  ): SqliteRow<SqliteValue | MaybeToast>;
+
+  evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] };
+
+  evaluateParameterRowWithErrors(
+    table: SourceTableInterface,
+    row: SqliteRow
+  ): { results: EvaluatedParameters[]; errors: EvaluationError[] };
+}
 
 /**
  * Hydrated sync rules is sync rule definitions along with persisted state. Currently, the persisted state
  * specifically affects bucket names.
  */
-export class HydratedSyncRules {
+export class HydratedSyncRules implements RowProcessor {
   bucketSources: HydratedBucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
@@ -41,6 +62,8 @@ export class HydratedSyncRules {
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
+  private readonly bucketDataSources: BucketDataSource[];
+  private readonly bucketParameterIndexLookupCreators: ParameterIndexLookupCreator[];
 
   constructor(params: {
     definition: SqlSyncRules;
@@ -53,6 +76,8 @@ export class HydratedSyncRules {
     const hydrationState = params.createParams.hydrationState;
 
     this.definition = params.definition;
+    this.bucketDataSources = params.bucketDataSources;
+    this.bucketParameterIndexLookupCreators = params.bucketParameterIndexLookupCreators;
     this.innerEvaluateRow = mergeDataSources(hydrationState, params.bucketDataSources).evaluateRow;
     this.innerEvaluateParameterRow = mergeParameterIndexLookupCreators(
       hydrationState,
@@ -67,6 +92,20 @@ export class HydratedSyncRules {
     }
 
     this.bucketSources = this.definition.bucketSources.map((source) => source.hydrate(params.createParams));
+  }
+
+  getMatchingSources(table: SourceTableInterface): {
+    bucketDataSources: BucketDataSource[];
+    parameterIndexLookupCreators: ParameterIndexLookupCreator[];
+  } {
+    const bucketDataSources = this.bucketDataSources.filter((ds) => ds.tableSyncsData(table));
+    const parameterIndexLookupCreators: ParameterIndexLookupCreator[] = this.bucketParameterIndexLookupCreators.filter(
+      (ds) => ds.tableSyncsParameters(table)
+    );
+    return {
+      bucketDataSources,
+      parameterIndexLookupCreators
+    };
   }
 
   // These methods do not depend on hydration, so we can just forward them to the definition.

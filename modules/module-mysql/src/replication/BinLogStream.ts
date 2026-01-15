@@ -89,7 +89,7 @@ export class BinLogStream {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.connections = options.connections;
-    this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: this.defaultSchema });
+    this.syncRules = options.storage.getHydratedSyncRules({ defaultSchema: this.defaultSchema });
     this.groupId = options.storage.group_id;
     this.abortSignal = options.abortSignal;
   }
@@ -128,7 +128,6 @@ export class BinLogStream {
 
   async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
     const result = await this.storage.resolveTable({
-      group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: entity,

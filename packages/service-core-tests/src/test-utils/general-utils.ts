@@ -1,6 +1,6 @@
-import { storage, utils } from '@powersync/service-core';
+import { BucketDataRequest, InternalOpId, storage, sync, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { versionedHydrationState } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
@@ -29,7 +29,8 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
         slot_name: 'test',
         hydratedSyncRules() {
           return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(1) });
-        }
+        },
+        hydrationState: versionedHydrationState(1)
       };
     },
     lock() {
@@ -117,5 +118,35 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
     globalParameters,
     hasDefaultStreams: true,
     streams: {}
+  };
+}
+
+function isParsedSyncRules(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
+): syncRules is storage.PersistedSyncRules {
+  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
+}
+
+export function bucketRequest(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
+  bucket?: string,
+  start?: InternalOpId | string | number
+): BucketDataRequest {
+  const parsed = isParsedSyncRules(syncRules) ? syncRules : syncRules.parsed(PARSE_OPTIONS);
+  const hydrationState = parsed.hydrationState;
+  bucket ??= 'global[]';
+  const definitionName = bucket.substring(0, bucket.indexOf('['));
+  const parameters = bucket.substring(bucket.indexOf('['));
+  const source = parsed.sync_rules.bucketDataSources.find((b) => b.uniqueName === definitionName);
+
+  if (source == null) {
+    throw new Error('Failed to find global bucket');
+  }
+  const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
+  console.log('query for bucket', bucketName);
+  return {
+    bucket: bucketName,
+    start: BigInt(start ?? 0n),
+    source: source
   };
 }

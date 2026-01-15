@@ -110,7 +110,7 @@ export class CDCStream {
   constructor(private options: CDCStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
-    this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: options.connections.schema });
+    this.syncRules = options.storage.getHydratedSyncRules({ defaultSchema: options.connections.schema });
     this.connections = options.connections;
     this.abortSignal = options.abortSignal;
   }
@@ -241,7 +241,6 @@ export class CDCStream {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
     }
     const resolved = await this.storage.resolveTable({
-      group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: table,

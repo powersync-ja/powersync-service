@@ -1,5 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
@@ -75,7 +75,7 @@ describe('sync - mongodb', () => {
     const options: storage.BucketDataBatchOptions = {};
 
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(sync_rules, 'global[]', 0n)], options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -90,7 +90,7 @@ describe('sync - mongodb', () => {
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([['global[]', BigInt(batch1[0].chunkData.next_after)]]),
+        [bucketRequest(sync_rules, 'global[]', batch1[0].chunkData.next_after)],
         options
       )
     );
@@ -106,7 +106,7 @@ describe('sync - mongodb', () => {
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([['global[]', BigInt(batch2[0].chunkData.next_after)]]),
+        [bucketRequest(sync_rules, 'global[]', batch2[0].chunkData.next_after)],
         options
       )
     );

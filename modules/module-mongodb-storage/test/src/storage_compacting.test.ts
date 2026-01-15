@@ -53,11 +53,11 @@ bucket_definitions:
       const bucketStorage = factory.getInstance(syncRules);
       const { checkpoint } = await populate(bucketStorage);
 
-      return { bucketStorage, checkpoint, factory };
+      return { bucketStorage, checkpoint, factory, syncRules };
     };
 
     test('full compact', async () => {
-      const { bucketStorage, checkpoint, factory } = await setup();
+      const { bucketStorage, checkpoint, factory, syncRules } = await setup();
 
       // Simulate bucket_state from old version not being available
       await factory.db.bucket_state.deleteMany({});
@@ -71,14 +71,17 @@ bucket_definitions:
         signal: null as any
       });
 
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['by_user["u1"]', 'by_user["u2"]']);
-      expect(checksumAfter.get('by_user["u1"]')).toEqual({
-        bucket: 'by_user["u1"]',
+      const users = ['u1', 'u2'];
+      const userRequests = users.map((user) => test_utils.bucketRequest(syncRules, `by_user["${user}"]`));
+      const [u1Request, u2Request] = userRequests;
+      const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
+      expect(checksumAfter.get(u1Request.bucket)).toEqual({
+        bucket: u1Request.bucket,
         checksum: -659469718,
         count: 1
       });
-      expect(checksumAfter.get('by_user["u2"]')).toEqual({
-        bucket: 'by_user["u2"]',
+      expect(checksumAfter.get(u2Request.bucket)).toEqual({
+        bucket: u2Request.bucket,
         checksum: 430217650,
         count: 1
       });
@@ -122,14 +125,17 @@ bucket_definitions:
       });
       expect(result2.buckets).toEqual(0);
 
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['by_user2["u1"]', 'by_user2["u2"]']);
-      expect(checksumAfter.get('by_user2["u1"]')).toEqual({
-        bucket: 'by_user2["u1"]',
+      const users = ['u1', 'u2'];
+      const userRequests = users.map((user) => test_utils.bucketRequest(syncRules, `by_user2["${user}"]`));
+      const [u1Request, u2Request] = userRequests;
+      const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
+      expect(checksumAfter.get(u1Request.bucket)).toEqual({
+        bucket: u1Request.bucket,
         checksum: -659469718,
         count: 1
       });
-      expect(checksumAfter.get('by_user2["u2"]')).toEqual({
-        bucket: 'by_user2["u2"]',
+      expect(checksumAfter.get(u2Request.bucket)).toEqual({
+        bucket: u2Request.bucket,
         checksum: 430217650,
         count: 1
       });

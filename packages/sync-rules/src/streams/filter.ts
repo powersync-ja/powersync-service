@@ -540,17 +540,16 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
     private streamName: string
   ) {}
 
-  public get defaultLookupScope() {
+  public get defaultLookupScope(): ParameterLookupScope {
     return {
       lookupName: this.streamName,
-      queryId: this.defaultQueryId
+      queryId: this.defaultQueryId,
+      source: this
     };
   }
 
-  getSourceTables(): Set<TablePattern> {
-    let result = new Set<TablePattern>();
-    result.add(this.parameterTable);
-    return result;
+  getSourceTables() {
+    return [this.parameterTable];
   }
 
   /**
