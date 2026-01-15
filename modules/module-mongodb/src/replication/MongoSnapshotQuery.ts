@@ -1,8 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { bson } from '@powersync/service-core';
-import { MongoExpression, StaticFilter } from '@powersync/service-sync-rules';
-import { staticFilterToMongoExpression } from './staticFilters.js';
+import { MongoExpression } from '@powersync/service-sync-rules';
 
 /**
  * Performs a collection snapshot query, chunking by ranges of _id.
@@ -21,15 +20,13 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
     collection: mongo.Collection;
     batchSize: number;
     key?: Uint8Array | null;
-    filter?: StaticFilter;
+    filter?: MongoExpression;
   }) {
     this.lastKey = options.key ? bson.deserialize(options.key, { useBigInt64: true })._id : null;
     this.lastCursor = null;
     this.collection = options.collection;
     this.batchSize = options.batchSize;
-    if (options.filter) {
-      this.filter = staticFilterToMongoExpression(options.filter);
-    }
+    this.filter = options.filter ?? null;
   }
 
   async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {

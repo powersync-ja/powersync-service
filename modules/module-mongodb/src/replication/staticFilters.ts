@@ -72,9 +72,23 @@ export function staticFilterToMongoExpression(
       switch (operator) {
         case '=':
         case '==':
+        case 'IS':
+          // Big hack to support boolean values coerced to integers.
+          if ('value' in node.right && node.right.value == 0n) {
+            return { $in: [leftExpr, [0n, false]] };
+          } else if ('value' in node.right && node.right.value == 1n) {
+            return { $in: [leftExpr, [1n, true]] };
+          }
           return { $eq: [leftExpr, rightExpr] };
         case '!=':
         case '<>':
+        case 'IS NOT':
+          // Big hack to support boolean values coerced to integers.
+          if ('value' in node.right && node.right.value == 0n) {
+            return { $nin: [leftExpr, [0n, false]] };
+          } else if ('value' in node.right && node.right.value == 1n) {
+            return { $nin: [leftExpr, [1n, true]] };
+          }
           return { $ne: [leftExpr, rightExpr] };
         case '<':
           return { $lt: [leftExpr, rightExpr] };
@@ -84,10 +98,6 @@ export function staticFilterToMongoExpression(
           return { $gt: [leftExpr, rightExpr] };
         case '>=':
           return { $gte: [leftExpr, rightExpr] };
-        case 'IS':
-          return { $eq: [leftExpr, rightExpr] };
-        case 'IS NOT':
-          return { $ne: [leftExpr, rightExpr] };
         case 'IN': {
           if (parseJsonArrayForIn && 'value' in node.right) {
             const value = node.right.value;
@@ -108,7 +118,7 @@ export function staticFilterToMongoExpression(
           return { $in: [leftExpr, rightExpr] };
         }
         default:
-          throw new Error(`Operator not supported: ${node.operator}`);
+          return ANY;
       }
     }
 

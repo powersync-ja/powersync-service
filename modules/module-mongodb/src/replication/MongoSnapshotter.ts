@@ -20,6 +20,8 @@ import { MongoManager } from './MongoManager.js';
 import { constructAfterRecord, createCheckpoint, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
+import { staticFilterToMongoExpression } from './staticFilters.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 
 export interface MongoSnapshotterOptions {
   connections: MongoManager;
@@ -281,19 +283,22 @@ export class MongoSnapshotter {
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
     const collection = db.collection(table.name);
-    console.log('snapshot with filter', table.pattern?.filter, table.pattern);
+
+    const mongoFilter = table.pattern?.filter ? staticFilterToMongoExpression(table.pattern.filter) : null;
+    const filterLog = mongoFilter ? ` | filter: ${JSONBig.stringify(mongoFilter)}` : '';
+
     await using query = new ChunkedSnapshotQuery({
       collection,
       key: table.snapshotStatus?.lastKey,
       batchSize: this.snapshotChunkLength,
-      filter: table.pattern?.filter
+      filter: mongoFilter
     });
     if (query.lastKey != null) {
       this.logger.info(
-        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming at _id > ${query.lastKey}`
+        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} - resuming at _id > ${query.lastKey}${filterLog}`
       );
     } else {
-      this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+      this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}${filterLog}`);
     }
 
     let lastBatch = performance.now();
@@ -353,21 +358,6 @@ export class MongoSnapshotter {
   private constructAfterRecord(rowProcessor: RowProcessor, document: mongo.Document): SqliteRow {
     const inputRow = constructAfterRecord(document);
     return rowProcessor.applyRowContext<never>(inputRow);
-  }
-
-  private async getCollectionInfo(db: string, name: string): Promise<mongo.CollectionInfo | undefined> {
-    const collection = (
-      await this.client
-        .db(db)
-        .listCollections(
-          {
-            name: name
-          },
-          { nameOnly: false }
-        )
-        .toArray()
-    )[0];
-    return collection;
   }
 
   private async checkPostImages(db: string, collectionInfo: mongo.CollectionInfo) {
