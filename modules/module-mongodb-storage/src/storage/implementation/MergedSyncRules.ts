@@ -145,7 +145,6 @@ export class MergedSyncRules implements RowProcessor {
     //    In that case, we don't want to re-evaluate all existing sources, only the new one.
 
     // FIXME: Fix performance - don't scan all sources
-    // And maybe re-use getMatchingSources?
     const table = options.sourceTable;
     if (!(table instanceof SourceTable)) {
       throw new ReplicationAssertionError(`Expected SourceTable instance`);
@@ -165,8 +164,13 @@ export class MergedSyncRules implements RowProcessor {
     table: SourceTableInterface,
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
+    // FIXME: Fix performance - don't scan all sources
+
+    if (!(table instanceof SourceTable)) {
+      throw new ReplicationAssertionError(`Expected SourceTable instance`);
+    }
     const parameterIndexLookupCreators = [...this.resolvedParameterLookupSources.values()].filter((ds) =>
-      ds.source.tableSyncsParameters(table)
+      table.parameterLookupSourceIds.includes(ds.id)
     );
     const rawResults: EvaluatedParametersResult[] = parameterIndexLookupCreators.flatMap((creator) =>
       creator.evaluate(table, row)
