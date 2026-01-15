@@ -17,15 +17,73 @@ const POWERSYNC_SOCKET_CONNECT_TIMEOUT = 20_000;
 // This can help detect dead connections earlier.
 const POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY = 40_000;
 
+/**
+ * Connection parameters extracted from PostgreSQL connection string query parameters.
+ * These correspond to libpq connection parameters.
+ * @see https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
+ */
+export interface PostgresConnectionParameters {
+  /**
+   * Maximum time to wait while connecting, in seconds.
+   * Zero, negative, or not specified means wait indefinitely.
+   */
+  connect_timeout?: number;
+
+  /**
+   * Controls whether client-side TCP keepalives are used.
+   * 1 = enabled, 0 = disabled. Default is 1.
+   */
+  keepalives?: number;
+
+  /**
+   * Time of inactivity (in seconds) after which TCP should send a keepalive message.
+   */
+  keepalives_idle?: number;
+
+  /**
+   * Time (in seconds) between TCP keepalive retransmits.
+   */
+  keepalives_interval?: number;
+
+  /**
+   * Maximum number of TCP keepalive retransmits before considering the connection dead.
+   */
+  keepalives_count?: number;
+}
+
 export interface ConnectOptions {
   host: string;
   port: number;
   tlsOptions?: tls.ConnectionOptions | false;
   lookup?: net.LookupFunction;
+  /**
+   * Additional connection parameters from the PostgreSQL connection string.
+   */
+  connectionParameters?: PostgresConnectionParameters;
 }
 
 export class SocketAdapter {
   static async connect(options: ConnectOptions) {
+    const connParams = options.connectionParameters;
+
+    // Determine keepalive settings from connection parameters or use defaults
+    // keepalives: 1 = enabled (default), 0 = disabled
+    const keepAliveEnabled = connParams?.keepalives !== 0;
+
+    // keepalives_idle is in seconds, convert to milliseconds
+    // Default to POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY if not specified
+    const keepAliveInitialDelay =
+      connParams?.keepalives_idle != null
+        ? connParams.keepalives_idle * 1000
+        : POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY;
+
+    // connect_timeout is in seconds, convert to milliseconds
+    // Default to POWERSYNC_SOCKET_CONNECT_TIMEOUT if not specified or <= 0
+    const connectTimeout =
+      connParams?.connect_timeout != null && connParams.connect_timeout > 0
+        ? connParams.connect_timeout * 1000
+        : POWERSYNC_SOCKET_CONNECT_TIMEOUT;
+
     // Custom timeout handling
     const socket = net.connect({
       host: options.host,
@@ -37,15 +95,16 @@ export class SocketAdapter {
       timeout: POWERSYNC_SOCKET_DEFAULT_TIMEOUT,
 
       // This configures TCP keepalive.
-      keepAlive: true,
-      keepAliveInitialDelay: POWERSYNC_SOCKET_KEEPALIVE_INITIAL_DELAY
+      keepAlive: keepAliveEnabled,
+      keepAliveInitialDelay: keepAliveInitialDelay
       // Unfortunately it is not possible to set tcp_keepalive_intvl or
-      // tcp_keepalive_probes here.
+      // tcp_keepalive_probes here via Node.js socket options.
+      // keepalives_interval and keepalives_count are OS-level settings.
     });
     try {
       const timeout = setTimeout(() => {
         socket.destroy(new Error(`Timeout while connecting to ${options.host}:${options.port}`));
-      }, POWERSYNC_SOCKET_CONNECT_TIMEOUT);
+      }, connectTimeout);
       await once(socket, 'connect');
       clearTimeout(timeout);
       return new SocketAdapter(socket, options);

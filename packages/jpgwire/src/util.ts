@@ -4,8 +4,11 @@ import * as tls from 'node:tls';
 import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType, postgresTimeOptions } from './pgwire_types.js';
-import { ConnectOptions } from './socket_adapter.js';
+import { ConnectOptions, PostgresConnectionParameters } from './socket_adapter.js';
 import { DateTimeValue } from '@powersync/service-sync-rules';
+
+// Re-export PostgresConnectionParameters for external consumers
+export type { PostgresConnectionParameters } from './socket_adapter.js';
 
 // TODO this is duplicated, but maybe that is ok
 export interface NormalizedConnectionConfig {
@@ -36,6 +39,11 @@ export interface NormalizedConnectionConfig {
 
   client_certificate: string | undefined;
   client_private_key: string | undefined;
+
+  /**
+   * Additional connection parameters from the connection string query parameters.
+   */
+  connection_parameters?: PostgresConnectionParameters;
 }
 
 type Mutable<T> = {
@@ -141,6 +149,7 @@ function patchConnection(connection: pgwire.PgConnection, config: PgWireConnecti
   const connectOptions = (connection as any)._socketOptions as ConnectOptions;
   connectOptions.tlsOptions = makeTlsOptions(config);
   connectOptions.lookup = config.lookup;
+  connectOptions.connectionParameters = config.connection_parameters;
 
   // Hack for safety: We always want to be responsible for decoding values ourselves, and NEVER
   // use the PgType.decode implementation from pgwire. We can use our own implementation by using
