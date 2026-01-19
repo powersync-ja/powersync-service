@@ -1,5 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { RequestParameters, ScopedParameterLookup } from '@powersync/service-sync-rules';
+import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { TEST_TABLE } from './util.js';
@@ -508,21 +508,25 @@ bucket_definitions:
     const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
     // Test final values - the important part
+    const foundLookups: ScopedParameterLookup[] = [];
+    const parameter_sets: SqliteJsonRow[] = [];
     const buckets = (
       await querier.queryDynamicBucketDescriptions({
         async getParameterSets(lookups) {
-          expect(lookups).toEqual([
-            ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1' }, []),
-            ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '2' }, ['u1'])
-          ]);
-          const parameter_sets = await checkpoint.getParameterSets(lookups);
-          parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-          expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
-
-          return parameter_sets;
+          foundLookups.push(...lookups);
+          const output = await checkpoint.getParameterSets(lookups);
+          parameter_sets.push(...output);
+          return output;
         }
       })
     ).map((e) => e.bucket);
+    expect(foundLookups).toEqual([
+      ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1' }, []),
+      ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '2' }, ['u1'])
+    ]);
+    parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
+
     buckets.sort();
     expect(buckets).toEqual(['by_workspace["workspace1"]', 'by_workspace["workspace3"]']);
   });
