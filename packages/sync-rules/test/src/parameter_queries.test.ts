@@ -9,10 +9,17 @@ import {
   GetQuerierOptions,
   RequestParameters,
   ScopedParameterLookup,
-  mergeParameterIndexLookupCreators
+  mergeParameterIndexLookupCreators,
+  SqliteJsonRow
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { BASIC_SCHEMA, EMPTY_DATA_SOURCE, normalizeTokenParameters, PARSE_OPTIONS } from './util.js';
+import {
+  BASIC_SCHEMA,
+  EMPTY_DATA_SOURCE,
+  findQuerierLookups,
+  normalizeTokenParameters,
+  PARSE_OPTIONS
+} from './util.js';
 import { HydrationState } from '../../src/HydrationState.js';
 
 describe('parameter queries', () => {
@@ -915,7 +922,7 @@ describe('parameter queries', () => {
       ]);
     });
 
-    test('for queries', function () {
+    test('for queries', async function () {
       const hydrated = query.createParameterQuerierSource({ hydrationState });
 
       const queriers: BucketParameterQuerier[] = [];
@@ -939,8 +946,8 @@ describe('parameter queries', () => {
       expect(queriers.length).toBe(1);
 
       const querier = queriers[0];
-
-      expect(querier.parameterQueryLookups).toEqual([
+      expect(querier.hasDynamicBuckets).toBeTruthy();
+      expect(await findQuerierLookups(querier)).toEqual([
         ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, ['test-user'])
       ]);
     });

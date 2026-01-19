@@ -194,7 +194,6 @@ export class StaticSqlParameterQuery {
         const staticQuerier = {
           staticBuckets,
           hasDynamicBuckets: false,
-          parameterQueryLookups: [],
           queryDynamicBucketDescriptions: async () => []
         } satisfies BucketParameterQuerier;
         result.queriers.push(staticQuerier);
