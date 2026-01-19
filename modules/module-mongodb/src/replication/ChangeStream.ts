@@ -474,13 +474,14 @@ export class ChangeStream {
       // Ignore the postImages check in this case.
     }
 
-    // FIXME: Optimize - avoid scanning all source tables
-    const patterns = writer.rowProcessor.getSourceTables().filter((t) => {
-      return t.matches({
-        connectionTag: this.connections.connectionTag,
-        schema: descriptor.schema,
-        name: descriptor.name
-      });
+    // In common cases, there would be at most one matching pattern, since patterns
+    // are de-duplicated. However, there may be multiple if:
+    // 1. There is overlap with direct name matching and wildcard matching.
+    // 2. There are multiple patterns with different replication config.
+    const patterns = writer.rowProcessor.getMatchingTablePatterns({
+      connectionTag: this.connections.connectionTag,
+      schema: descriptor.schema,
+      name: descriptor.name
     });
 
     let allTables: SourceTable[] = [];
@@ -493,7 +494,6 @@ export class ChangeStream {
       });
 
       const snapshot = options.snapshot;
-      this.relationCache.set(getCacheIdentifier(descriptor), result.tables);
 
       // Drop conflicting collections.
       // This is generally not expected for MongoDB source dbs, so we log an error.
@@ -517,6 +517,7 @@ export class ChangeStream {
       }
       allTables.push(...result.tables);
     }
+    this.relationCache.set(getCacheIdentifier(descriptor), allTables);
 
     return allTables;
   }

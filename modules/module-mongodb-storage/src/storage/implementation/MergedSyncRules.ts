@@ -22,6 +22,7 @@ import {
   SqliteRow,
   SqliteValue,
   SqlSyncRules,
+  TableDataSources,
   TablePattern
 } from '@powersync/service-sync-rules';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
@@ -53,8 +54,21 @@ export class MergedSyncRules implements RowProcessor {
 
   private resolvedDataSources: Map<number, ResolvedDataSource>;
   private resolvedParameterLookupSources: Map<number, ResolvedParameterLookupSource>;
-  private sourcePatterns: TablePattern[];
+
+  // keyed by TablePattern.key
+  private tableDataSources: Map<string, TableDataSources> = new Map();
+
   private allSyncRules: SqlSyncRules[];
+
+  // all table patterns
+  private sourcePatterns: TablePattern[];
+  // sourcePatterns, non-wildcard, keyed by patternKey()
+  private indexedPatterns: Map<string, TablePattern[]> = new Map();
+  // all wildcard patterns
+  private wildcardPatterns: TablePattern[] = [];
+
+  eventDescriptors: SqlEventDescriptor[] = [];
+  compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   constructor(sources: MongoPersistedSyncRules[]) {
     let resolvedDataSources = new Map<number, ResolvedDataSource>();
@@ -76,12 +90,12 @@ export class MergedSyncRules implements RowProcessor {
         }
         const evaluate = hydrateEvaluateRow(hydrationState, source);
         resolvedDataSources.set(id, { source, evaluate, id });
-      }
 
-      for (let pattern of syncRules.getSourceTables()) {
-        const key = pattern.key;
-        if (!sourcePatternMap.has(key)) {
-          sourcePatternMap.set(key, pattern);
+        for (let pattern of source.getSourceTables()) {
+          if (!this.tableDataSources.has(pattern.key)) {
+            this.tableDataSources.set(pattern.key, { bucketDataSources: [], parameterIndexLookupCreators: [] });
+          }
+          this.tableDataSources.get(pattern.key)!.bucketDataSources.push(source);
         }
       }
 
@@ -93,11 +107,37 @@ export class MergedSyncRules implements RowProcessor {
 
         const withScope = hydrateEvaluateParameterRow(hydrationState, source);
         resolvedParameterLookupSources.set(id, { source, id, evaluate: withScope });
+
+        for (let pattern of source.getSourceTables()) {
+          if (!this.tableDataSources.has(pattern.key)) {
+            this.tableDataSources.set(pattern.key, { bucketDataSources: [], parameterIndexLookupCreators: [] });
+          }
+          this.tableDataSources.get(pattern.key)!.parameterIndexLookupCreators.push(source);
+        }
+      }
+
+      for (let pattern of syncRules.getSourceTables()) {
+        const key = pattern.key;
+        if (!sourcePatternMap.has(key)) {
+          sourcePatternMap.set(key, pattern);
+        }
       }
     }
     this.resolvedDataSources = resolvedDataSources;
     this.resolvedParameterLookupSources = resolvedParameterLookupSources;
     this.sourcePatterns = Array.from(sourcePatternMap.values());
+
+    for (let pattern of this.sourcePatterns) {
+      if (pattern.isWildcard) {
+        this.wildcardPatterns.push(pattern);
+      } else {
+        const key = patternKey(pattern);
+        if (!this.indexedPatterns.has(key)) {
+          this.indexedPatterns.set(key, []);
+        }
+        this.indexedPatterns.get(key)!.push(pattern);
+      }
+    }
   }
 
   /**
@@ -105,31 +145,25 @@ export class MergedSyncRules implements RowProcessor {
    * @param pattern The source database table definition, _not_ the individually derived SourceTables.
    * @returns
    */
-  getMatchingSources(pattern: TablePattern): {
-    bucketDataSources: BucketDataSource[];
-    parameterIndexLookupCreators: ParameterIndexLookupCreator[];
-  } {
-    // FIXME: Fix performance - don't scan all sources
-    const bucketDataSources = [...this.resolvedDataSources.values()]
-      .map((dataSource) => dataSource.source)
-      .filter((ds) => ds.getSourceTables().some((table) => table.equals(pattern)));
-
-    const parameterIndexLookupCreators: ParameterIndexLookupCreator[] = [
-      ...this.resolvedParameterLookupSources.values()
-    ]
-      .map((dataSource) => dataSource.source)
-      .filter((ds) => ds.getSourceTables().some((table) => table.equals(pattern)));
-    return {
-      bucketDataSources,
-      parameterIndexLookupCreators
-    };
+  getMatchingSources(pattern: TablePattern): TableDataSources {
+    return this.tableDataSources.get(pattern.key) ?? { bucketDataSources: [], parameterIndexLookupCreators: [] };
   }
-
-  eventDescriptors: SqlEventDescriptor[] = [];
-  compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   getSourceTables(): TablePattern[] {
     return this.sourcePatterns;
+  }
+
+  getMatchingTablePatterns(table: SourceTableInterface): TablePattern[] {
+    // Equivalent to:
+    // return this.sourcePatterns.filter((pattern) => pattern.matches(table));
+    const tables = this.indexedPatterns.get(patternKey(table)) ?? [];
+    if (this.wildcardPatterns.length === 0) {
+      // Fast path - no wildcards
+      return tables;
+    } else {
+      const matchedPatterns = this.wildcardPatterns.filter((pattern) => pattern.matches(table));
+      return [...tables, ...matchedPatterns];
+    }
   }
 
   applyRowContext<MaybeToast extends undefined = never>(
@@ -145,14 +179,18 @@ export class MergedSyncRules implements RowProcessor {
     // 2. For re-replication: We may take a snapshot when adding a new source, with a new SourceTable.
     //    In that case, we don't want to re-evaluate all existing sources, only the new one.
 
-    // FIXME: Fix performance - don't scan all sources
     const table = options.sourceTable;
+    // FIXME: Fix API to not require this type assertion
     if (!(table instanceof SourceTable)) {
       throw new ReplicationAssertionError(`Expected SourceTable instance`);
     }
-    const bucketDataSources = [...this.resolvedDataSources.values()].filter((ds) =>
-      table.bucketDataSourceIds.includes(ds.id)
-    );
+    const bucketDataSources: ResolvedDataSource[] = [];
+    for (let sourceId of table.bucketDataSourceIds) {
+      const ds = this.resolvedDataSources.get(sourceId);
+      if (ds) {
+        bucketDataSources.push(ds);
+      }
+    }
 
     const rawResults: EvaluationResult[] = bucketDataSources.flatMap((dataSource) => dataSource.evaluate(options));
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
@@ -165,14 +203,17 @@ export class MergedSyncRules implements RowProcessor {
     table: SourceTableInterface,
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
-    // FIXME: Fix performance - don't scan all sources
-
+    // FIXME: Fix API to not require this type assertion
     if (!(table instanceof SourceTable)) {
       throw new ReplicationAssertionError(`Expected SourceTable instance`);
     }
-    const parameterIndexLookupCreators = [...this.resolvedParameterLookupSources.values()].filter((ds) =>
-      table.parameterLookupSourceIds.includes(ds.id)
-    );
+    let parameterIndexLookupCreators: ResolvedParameterLookupSource[] = [];
+    for (let sourceId of table.parameterLookupSourceIds) {
+      const ds = this.resolvedParameterLookupSources.get(sourceId);
+      if (ds) {
+        parameterIndexLookupCreators.push(ds);
+      }
+    }
     const rawResults: EvaluatedParametersResult[] = parameterIndexLookupCreators.flatMap((creator) =>
       creator.evaluate(table, row)
     );
@@ -180,4 +221,13 @@ export class MergedSyncRules implements RowProcessor {
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
     return { results, errors };
   }
+}
+
+/**
+ * Key for a pattern or source table.
+ *
+ * Does not support wildcard patterns.
+ */
+function patternKey(pattern: TablePattern | SourceTableInterface): string {
+  return JSON.stringify([pattern.connectionTag, pattern.schema, pattern.name]);
 }

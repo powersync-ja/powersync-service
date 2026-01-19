@@ -32,10 +32,9 @@ export interface RowProcessor {
 
   getSourceTables(): TablePattern[];
 
-  getMatchingSources(pattern: TablePattern): {
-    bucketDataSources: BucketDataSource[];
-    parameterIndexLookupCreators: ParameterIndexLookupCreator[];
-  };
+  getMatchingTablePatterns(table: SourceTableInterface): TablePattern[];
+
+  getMatchingSources(pattern: TablePattern): TableDataSources;
 
   applyRowContext<MaybeToast extends undefined = never>(
     source: SqliteRow<SqliteInputValue | MaybeToast>
@@ -47,6 +46,11 @@ export interface RowProcessor {
     table: SourceTableInterface,
     row: SqliteRow
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] };
+}
+
+export interface TableDataSources {
+  bucketDataSources: BucketDataSource[];
+  parameterIndexLookupCreators: ParameterIndexLookupCreator[];
 }
 
 /**
@@ -109,6 +113,12 @@ export class HydratedSyncRules implements RowProcessor {
       bucketDataSources,
       parameterIndexLookupCreators
     };
+  }
+
+  getMatchingTablePatterns(table: SourceTableInterface): TablePattern[] {
+    return this.definition.getSourceTables().filter((pattern) => {
+      return pattern.matches(table);
+    });
   }
 
   // These methods do not depend on hydration, so we can just forward them to the definition.

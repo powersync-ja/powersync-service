@@ -443,10 +443,11 @@ bucket_definitions:
     const data = await context.getBucketData('global[]');
     // Either case is valid here
     if (data.length == 3) {
-      expect(data).toMatchObject([
+      expect(data.sort((a, b) => a.object_id?.localeCompare(b.object_id!) ?? 0)).toMatchObject([
         // An extra op here, since this triggers a snapshot in addition to getting the event.
-        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
+        // Can be either test1, test2, test2 or test2, test1, test2
         test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
         test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
       ]);
     } else {
