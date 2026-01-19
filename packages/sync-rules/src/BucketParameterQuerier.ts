@@ -22,13 +22,12 @@ export interface BucketParameterQuerier {
   /**
    * True if there are dynamic buckets, meaning queryDynamicBucketDescriptions() should be used.
    *
-   * If this is false, queryDynamicBucketDescriptions() will always return an empty array,
-   * and parameterQueryLookups.length == 0.
+   * If this is false, queryDynamicBucketDescriptions() will always return an empty array.
    */
   readonly hasDynamicBuckets: boolean;
 
   /**
-   * These buckets depend on parameter storage, and needs to be retrieved dynamically for each checkpoint.
+   * These buckets depend on parameter storage, and need to be retrieved dynamically for each checkpoint.
    *
    * The ParameterLookupSource should perform the query for the current checkpoint - that is not passed
    * as a parameter.
@@ -36,6 +35,24 @@ export interface BucketParameterQuerier {
    * This includes parameter queries such as:
    *
    *     select id as user_id from users where users.id = request.user_id()
+   *
+   * Implementations can fetch lookup results by invoking {@link ParameterLookupSource.getParameterSets}. A single
+   * querier is allowed to invoke that method multiple times. Used {@link ScopedParameterLookup} must be deterministic
+   * and only depend on:
+   *
+   *  - static connection data (auth, global request and subscription parameters)
+   *  - outputs of {@link ParameterLookupSource.getParameterSets} that were invoked earlier but in the same
+   *    {@link queryDynamicBucketDescriptions} call.
+   *
+   * In particular, it is invalid to:
+   *
+   *  - keep state in queriers between multiple {@link queryDynamicBucketDescriptions} calls.
+   *  - pass say the current time as an input when fetching parameter sets, since the implicit dependency on the current
+   *    time would not get tracked.
+   *
+   * This allows tracking dependencies when fetching bucket descriptions: Within a single connection (where parameters
+   * can't change), this method is invoked on new checkpoints if any of the lookups used in the previous call has
+   * changed.
    */
   queryDynamicBucketDescriptions(source: ParameterLookupSource): Promise<ResolvedBucket[]>;
 }
