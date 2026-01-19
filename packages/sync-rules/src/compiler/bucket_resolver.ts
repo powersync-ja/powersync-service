@@ -27,7 +27,7 @@ export class StreamResolver {
       return false;
     }
 
-    if (!equalsIgnoringResultSetUnordered.equals(this.requestFilters, this.requestFilters)) {
+    if (!equalsIgnoringResultSetUnordered.equals(other.requestFilters, this.requestFilters)) {
       return false;
     }
 

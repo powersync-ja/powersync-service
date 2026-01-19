@@ -126,12 +126,11 @@ export class CompilerModelToSyncPlan {
       sql: expression.sql,
       values: expression.instantiation.map((e) => {
         const value = e.value;
-        const sqlPosition: [number, number] = [e.startOffset, e.length];
 
         if (value instanceof ColumnInRow) {
-          return { column: value.column, sqlPosition } satisfies plan.ColumnSqlParameterValue;
+          return { column: value.column } satisfies plan.ColumnSqlParameterValue;
         } else {
-          return { request: value.source, sqlPosition } satisfies plan.RequestSqlParameterValue;
+          return { request: value.source } satisfies plan.RequestSqlParameterValue;
         }
       }) as unknown[] as T[]
     };

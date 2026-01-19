@@ -45,7 +45,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         table: serializeTablePattern(source.sourceTable),
         outputTableName: source.outputTableName,
         filters: source.filters,
-        partition_by: source.parameters,
+        partitionBy: source.parameters,
         columns: source.columns
       } satisfies SerializedDataSource;
     });
@@ -59,7 +59,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
         filters: source.filters,
-        partition_by: source.parameters,
+        partitionBy: source.parameters,
         output: source.outputs
       } satisfies SerializedParameterIndexLookupCreator;
     });
@@ -162,7 +162,7 @@ interface SerializedDataSource {
   hash: number;
   columns: ColumnSource[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
-  partition_by: PartitionKey[];
+  partitionBy: PartitionKey[];
 }
 
 interface SerializedParameterIndexLookupCreator {
@@ -170,7 +170,7 @@ interface SerializedParameterIndexLookupCreator {
   hash: number;
   output: SqlExpression<ColumnSqlParameterValue>[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
-  partition_by: PartitionKey[];
+  partitionBy: PartitionKey[];
 }
 
 interface SerializedStream {

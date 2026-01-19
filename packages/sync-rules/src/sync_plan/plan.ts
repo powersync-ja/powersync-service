@@ -181,19 +181,12 @@ export interface SqlExpression<T extends SqlParameterValue> {
   values: T[];
 }
 
-export interface SqlParameterValue {
-  /**
-   * The start index and length of the parameter in {@link SqlExpression.sql} that this parameter is instantiating.
-   *
-   * This allows merging equal parameters, which is useful to compose SQL expressions.
-   */
-  sqlPosition: [number, number];
-}
+export type SqlParameterValue = ColumnSqlParameterValue | RequestSqlParameterValue;
 
 /**
  * A value that resolves to a given column in a row being processed.
  */
-export interface ColumnSqlParameterValue extends SqlParameterValue {
+export interface ColumnSqlParameterValue {
   column: string;
 }
 
@@ -203,7 +196,7 @@ export type ConnectionParameterSource = 'auth' | 'subscription' | 'connection';
  * A value that resolves to either the current subscription parameters, the JWT of the connecting user or global
  * request parameters.
  */
-export interface RequestSqlParameterValue extends SqlParameterValue {
+export interface RequestSqlParameterValue {
   request: ConnectionParameterSource;
 }
 

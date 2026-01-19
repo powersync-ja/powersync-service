@@ -1,6 +1,5 @@
 import { assignChanged, astMapper, BinaryOperator, Expr } from 'pgsql-ast-parser';
 import { And, BaseTerm, EqualsClause, isBaseTerm, Or, SingleDependencyExpression } from './filter.js';
-import { ParsingErrorListener } from './compiler.js';
 import { PostgresToSqlite } from './sqlite.js';
 import { ExpressionInput, SyncExpression } from './expression.js';
 import { expandNodeLocations } from '../errors.js';
