@@ -140,10 +140,9 @@ export function bucketRequest(
   const source = parsed.sync_rules.bucketDataSources.find((b) => b.uniqueName === definitionName);
 
   if (source == null) {
-    throw new Error('Failed to find global bucket');
+    throw new Error(`Failed to find global bucket ${bucket}`);
   }
   const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
-  console.log('query for bucket', bucketName);
   return {
     bucket: bucketName,
     start: BigInt(start ?? 0n),

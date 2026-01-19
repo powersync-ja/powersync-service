@@ -266,7 +266,8 @@ export class MongoSnapshotter {
       const sourceTables = await writer.resolveTables({
         connection_id: this.connection_id,
         connection_tag: this.connections.connectionTag,
-        entity_descriptor: getMongoRelation({ db: schema, coll: collection.name })
+        entity_descriptor: getMongoRelation({ db: schema, coll: collection.name }),
+        pattern: tablePattern
       });
       // TODO: dropTables?
       result.push(...sourceTables.tables);

@@ -474,37 +474,51 @@ export class ChangeStream {
       // Ignore the postImages check in this case.
     }
 
-    const result = await writer.resolveTables({
-      connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor
+    // FIXME: Optimize - avoid scanning all source tables
+    const patterns = writer.rowProcessor.getSourceTables().filter((t) => {
+      return t.matches({
+        connectionTag: this.connections.connectionTag,
+        schema: descriptor.schema,
+        name: descriptor.name
+      });
     });
 
-    const snapshot = options.snapshot;
-    this.relationCache.set(getCacheIdentifier(descriptor), result.tables);
+    let allTables: SourceTable[] = [];
+    for (let pattern of patterns) {
+      const result = await writer.resolveTables({
+        connection_id: this.connection_id,
+        connection_tag: this.connections.connectionTag,
+        entity_descriptor: descriptor,
+        pattern
+      });
 
-    // Drop conflicting collections.
-    // This is generally not expected for MongoDB source dbs, so we log an error.
-    if (result.dropTables.length > 0) {
-      this.logger.error(
-        `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
-      );
-      await writer.drop(result.dropTables);
-    }
+      const snapshot = options.snapshot;
+      this.relationCache.set(getCacheIdentifier(descriptor), result.tables);
 
-    // Snapshot if:
-    // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
-    // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
-    for (let table of result.tables) {
-      const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
-      if (shouldSnapshot) {
-        this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
-        await this.snapshotter.queueSnapshot(writer, table);
+      // Drop conflicting collections.
+      // This is generally not expected for MongoDB source dbs, so we log an error.
+      if (result.dropTables.length > 0) {
+        this.logger.error(
+          `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
+        );
+        await writer.drop(result.dropTables);
       }
+
+      // Snapshot if:
+      // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
+      // 2. Snapshot is not already done, AND:
+      // 3. The table is used in sync rules.
+      for (let table of result.tables) {
+        const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
+        if (shouldSnapshot) {
+          this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
+          await this.snapshotter.queueSnapshot(writer, table);
+        }
+      }
+      allTables.push(...result.tables);
     }
 
-    return result.tables;
+    return allTables;
   }
 
   private async drop(writer: storage.BucketDataWriter, entity: SourceEntityDescriptor): Promise<void> {
