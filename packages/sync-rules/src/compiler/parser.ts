@@ -211,7 +211,7 @@ export class StreamQueryParser {
 
       return {
         resultColumns,
-        tables: [...this.resultSets.values()],
+        tables: this.resultSets,
         where: this.where.length == 0 ? null : composeExpressionNodes(this.nodeLocations, 'and', this.where)
       };
     } else {
@@ -263,21 +263,42 @@ export class StreamQueryParser {
     this.where.push(this.parseExpression(expr).node);
   }
 
+  private addSubquery(source: SyntacticResultSetSource, subquery: PreparedSubquery) {
+    subquery.tables.forEach((v, k) => this.resultSets.set(k, v));
+    if (subquery.where) {
+      this.where.push(subquery.where);
+    }
+
+    this.subqueryResultSets.set(source, subquery);
+  }
+
   private processFrom(from: From) {
     const scope = this.statementScope;
     if (from.type == 'table') {
+      const name = from.name.alias ?? from.name.name;
       const source = new SyntacticResultSetSource(from.name, from.name.alias ?? null);
-      const resultSet = new PhysicalSourceResultSet(
-        new TablePattern(from.name.schema ?? this.compiler.defaultSchema, from.name.name),
-        source
-      );
-      scope.registerResultSet(this.errors, from.name.alias ?? from.name.name, source);
-      this.resultSets.set(source, resultSet);
+      scope.registerResultSet(this.errors, name, source);
+
+      // If this references a CTE in scope, use that instead of names.
+      const cte = from.name.schema == null ? scope.resolveCommonTableExpression(from.name.name) : null;
+      if (cte) {
+        this.addSubquery(source, cte);
+      } else {
+        // Not a CTE, so treat it as a source database table.
+        const resultSet = new PhysicalSourceResultSet(
+          new TablePattern(from.name.schema ?? this.compiler.defaultSchema, from.name.name),
+          source
+        );
+
+        this.resultSets.set(source, resultSet);
+      }
     } else if (from.type == 'call') {
       const source = new SyntacticResultSetSource(from, from.alias?.name ?? null);
       scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       this.resultSets.set(source, this.resolveTableValued(from, source));
     } else if (from.type == 'statement') {
+      const source = new SyntacticResultSetSource(from, from.alias);
+
       const parseInner = this.nestedParser(this.statementScope);
       const parsedSubquery = parseInner.parseAsSubquery(
         from.statement,
@@ -285,15 +306,8 @@ export class StreamQueryParser {
       );
 
       if (parsedSubquery) {
-        parseInner.resultSets.forEach((v, k) => this.resultSets.set(k, v));
-
-        if (parsedSubquery.where) {
-          this.where.push(parsedSubquery.where);
-        }
-
-        const source = new SyntacticResultSetSource(from, from.alias);
         scope.registerResultSet(this.errors, from.alias, source);
-        this.subqueryResultSets.set(source, parsedSubquery);
+        this.addSubquery(source, parsedSubquery);
       }
     }
 

@@ -11,6 +11,7 @@ import {
 interface SyncStreamInput {
   name: string;
   queries: string[];
+  ctes?: Record<string, string>;
 }
 
 interface TranslationError {
@@ -51,18 +52,27 @@ export function compileToSyncPlan(inputs: SyncStreamInput[]): [TranslationError[
   const compiler = new SyncStreamsCompiler('test_schema');
   const errors: TranslationError[] = [];
 
+  function errorListenerOnSql(sql: string): ParsingErrorListener {
+    return {
+      report(message, location) {
+        const resolved = getLocation(location);
+        errors.push({ message, source: sql.substring(resolved?.start ?? 0, resolved?.end) });
+      }
+    };
+  }
+
   for (const input of inputs) {
     const builder = compiler.stream({ name: input.name, isSubscribedByDefault: true, priority: 3 });
 
-    for (const sql of input.queries) {
-      const listener: ParsingErrorListener = {
-        report(message, location) {
-          const resolved = getLocation(location);
-          errors.push({ message, source: sql.substring(resolved?.start ?? 0, resolved?.end) });
-        }
-      };
+    for (const [name, sql] of Object.entries(input.ctes ?? {})) {
+      const cte = compiler.commonTableExpression(sql, errorListenerOnSql(sql));
+      if (cte) {
+        builder.registerCommonTableExpression(name, cte);
+      }
+    }
 
-      builder.addQuery(sql, listener);
+    for (const sql of input.queries) {
+      builder.addQuery(sql, errorListenerOnSql(sql));
     }
 
     builder.finish();

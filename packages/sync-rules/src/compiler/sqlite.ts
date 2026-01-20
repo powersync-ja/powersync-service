@@ -19,7 +19,7 @@ import {
 } from '../sync_plan/expression.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
-import { BaseSourceResultSet, SourceResultSet } from './table.js';
+import { BaseSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
 
 export interface ResolvedSubqueryExpression {
   filters: SqlExpression<ExpressionInput>[];
@@ -38,7 +38,7 @@ export interface PreparedSubquery {
   /**
    * Tables the subquery selects from.
    */
-  tables: SourceResultSet[];
+  tables: Map<SyntacticResultSetSource, SourceResultSet>;
 
   /**
    * Filters affecting the subquery.
