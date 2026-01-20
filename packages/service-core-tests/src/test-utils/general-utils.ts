@@ -1,5 +1,5 @@
 import { BucketDataRequest, InternalOpId, storage, sync, utils } from '@powersync/service-core';
-import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import { GetQuerierOptions, RequestParameters, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { versionedHydrationState } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
@@ -56,6 +56,42 @@ export function makeTestTable(
     replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
     snapshotComplete: true
   });
+}
+
+export async function resolveTestTable(
+  writer: storage.BucketDataWriter,
+  name: string,
+  replicaIdColumns: string[] | undefined,
+  options: { tableIdStrings: boolean },
+  idIndex: number = 1
+) {
+  const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
+  const idString = '6544e3899293153fa7b383' + (30 + idIndex).toString().padStart(2, '0');
+
+  const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;
+  let didGenerateId = false;
+  const result = await writer.resolveTables({
+    connection_id: 1,
+    connection_tag: storage.SourceTable.DEFAULT_TAG,
+
+    entity_descriptor: {
+      name: name,
+      schema: 'public',
+      objectId: relId,
+
+      replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 }))
+    },
+    pattern: new TablePattern('public', name),
+    idGenerator: () => {
+      if (didGenerateId) {
+        throw new Error('idGenerator called multiple times - not supported in tests');
+      }
+      didGenerateId = true;
+      console.log('got id', name, id);
+      return id;
+    }
+  });
+  return result.tables[0];
 }
 
 export function getBatchData(

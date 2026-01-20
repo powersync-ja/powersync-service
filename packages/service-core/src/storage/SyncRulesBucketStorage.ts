@@ -13,6 +13,7 @@ import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesC
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
+import { bson } from '../index.js';
 
 /**
  * Storage for a specific copy of sync rules.
@@ -171,6 +172,10 @@ export interface ResolveTablesOptions {
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
   pattern: TablePattern;
+  /**
+   * For tests only - custom id generator.
+   */
+  idGenerator?: () => string | bson.ObjectId;
 }
 
 export interface ResolveTableOptions {

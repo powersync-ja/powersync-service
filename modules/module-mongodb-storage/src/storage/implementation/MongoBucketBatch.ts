@@ -359,8 +359,9 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
         (id) => !coveredParameterLookupSourceIds.has(id)
       );
       if (pendingBucketDataSourceIds.length > 0 || pendingParameterLookupSourceIds.length > 0) {
+        const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
         const doc: SourceTableDocument = {
-          _id: new bson.ObjectId(),
+          _id: id,
           connection_id: connection_id,
           relation_id: objectId,
           schema_name: schema,
