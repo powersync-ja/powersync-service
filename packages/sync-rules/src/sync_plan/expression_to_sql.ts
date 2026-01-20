@@ -194,8 +194,7 @@ enum Precedence {
 const binaryPrecedence: Record<BinaryOperator, Precedence> = {
   or: Precedence.or,
   and: Precedence.and,
-  '==': Precedence.equals,
-  '!=': Precedence.equals,
+  '=': Precedence.equals,
   is: Precedence.equals,
   '<': Precedence.comparison,
   '>': Precedence.comparison,

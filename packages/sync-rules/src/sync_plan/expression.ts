@@ -2,6 +2,10 @@
  * An enumeration of all scalar SQL expressions supported by the sync service.
  *
  * Note that these expressions can be serialized, and the evaluation of serialized expressions must be stable.
+ *
+ * The `Data` type parameter encodes what external data references an {@link ExternalData} node may reference: Bucket
+ * data sources can only reference row data (e.g. to evaluate filters), while queriers can only reference connection
+ * data. Adding the parameter to expressions ensures the entire subtree can only reference expected sources.
  */
 export type SqlExpression<Data> =
   | ExternalData<Data>
@@ -33,8 +37,7 @@ export type UnaryExpression<Data> = {
 export type BinaryOperator =
   | 'or'
   | 'and'
-  | '=='
-  | '!='
+  | '='
   | 'is'
   | '<'
   | '<='
@@ -52,8 +55,12 @@ export type BinaryOperator =
   | '||';
 
 /**
+ * A binary expression in SQLite, `$left $op $right`.
+ *
  * Note that the `LIKE`, `GLOB`, `REGEXP` and `MATCH`, `->` and `->>` operators are not represented as binary
  * expressions but rather as the functions SQLite [would call for them](https://www.sqlite.org/lang_expr.html#the_like_glob_regexp_match_and_extract_operators).
+ * Also, note that negated operators (e.g. `!=` or `NOT IN`) are represented by wrapping the expression in a unary
+ * `NOT`. This makes transformations to DNF easier.
  */
 export type BinaryExpression<Data> = {
   type: 'binary';

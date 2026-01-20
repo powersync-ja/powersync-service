@@ -95,7 +95,7 @@ export class FilterConditionSimplifier {
           ...base.right.expression.instantiation
         ])
       ) {
-        return this.composeExpressions('==', base.left, base.right);
+        return this.composeExpressions('=', base.left, base.right);
       }
     }
 

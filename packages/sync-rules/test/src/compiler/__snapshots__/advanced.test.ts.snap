@@ -281,7 +281,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
             },
             "type": "data",
           },
-          "operator": "==",
+          "operator": "=",
           "right": {
             "type": "lit_string",
             "value": "ORGANIZATION_LEADER",
@@ -289,7 +289,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 192243309,
+      "hash": 378594320,
       "output": [
         {
           "source": {
@@ -1257,7 +1257,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
             },
             "type": "data",
           },
-          "operator": "==",
+          "operator": "=",
           "right": {
             "base10": "1",
             "type": "lit_int",
@@ -1265,7 +1265,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 121342855,
+      "hash": 221457926,
       "output": [
         {
           "source": {

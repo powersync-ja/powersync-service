@@ -121,6 +121,13 @@ export class ConnectionParameter implements EqualsIgnoringResultSet {
   }
 }
 
+/**
+ * Tracks the original source location for translated {@link SqlExpression} nodes.
+ *
+ * We want to serialize translated expressions for sync plan, so embedding source offsets in them expands the size of
+ * sync plans and is tedious. We only need access to node locations while compiling sync streams, which we store in this
+ * in-memory map.
+ */
 export class NodeLocations {
   readonly sourceForNode = new Map<SqlExpression<ExpressionInput>, PGNode | NodeLocation>();
 

@@ -406,7 +406,7 @@ export class StreamQueryParser {
 
   private mapBaseExpression(pending: PendingBaseTerm): BaseTerm {
     if (pending.inner.type == 'binary') {
-      if (pending.inner.operator == '==') {
+      if (pending.inner.operator == '=') {
         // The expression is of the form A = B. This introduces a parameter, allow A and B to reference different
         // result sets.
         const left = new SyncExpression(pending.inner.left, this.nodeLocations);

@@ -73,7 +73,7 @@ exports[`old streams test > OR in subquery 1`] = `
             },
             "type": "data",
           },
-          "operator": "==",
+          "operator": "=",
           "right": {
             "type": "lit_string",
             "value": "test",
@@ -81,7 +81,7 @@ exports[`old streams test > OR in subquery 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 34974435,
+      "hash": 139759831,
       "output": [
         {
           "source": {
@@ -1432,7 +1432,7 @@ exports[`old streams test > normalization > negated and 1`] = `
       "uniqueName": "stream|0",
     },
     {
-      "hash": 430648484,
+      "hash": 120391031,
       "sources": [
         1,
       ],
@@ -1482,7 +1482,7 @@ exports[`old streams test > normalization > negated and 1`] = `
               ],
               "type": "function",
             },
-            "operator": "==",
+            "operator": "=",
             "right": {
               "base10": "5",
               "type": "lit_int",
@@ -1493,7 +1493,7 @@ exports[`old streams test > normalization > negated and 1`] = `
           "type": "unary",
         },
       ],
-      "hash": 154053672,
+      "hash": 395918337,
       "outputTableName": "comments",
       "partitionBy": [],
       "table": {
@@ -1600,7 +1600,7 @@ exports[`old streams test > normalization > negated or 1`] = `
 {
   "buckets": [
     {
-      "hash": 169204168,
+      "hash": 117838948,
       "sources": [
         0,
       ],
@@ -1627,7 +1627,7 @@ exports[`old streams test > normalization > negated or 1`] = `
               ],
               "type": "function",
             },
-            "operator": "==",
+            "operator": "=",
             "right": {
               "base10": "5",
               "type": "lit_int",
@@ -1638,7 +1638,7 @@ exports[`old streams test > normalization > negated or 1`] = `
           "type": "unary",
         },
       ],
-      "hash": 193499335,
+      "hash": 261122324,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -1877,7 +1877,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
       "uniqueName": "stream|0",
     },
     {
-      "hash": 135966139,
+      "hash": 111478030,
       "sources": [
         1,
       ],
@@ -1926,7 +1926,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
             ],
             "type": "function",
           },
-          "operator": "==",
+          "operator": "=",
           "right": {
             "base10": "3",
             "type": "lit_int",
@@ -1934,7 +1934,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 318368379,
+      "hash": 280456815,
       "outputTableName": "issues",
       "partitionBy": [],
       "table": {

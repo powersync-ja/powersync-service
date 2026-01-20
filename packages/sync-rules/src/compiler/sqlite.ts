@@ -190,6 +190,12 @@ export class PostgresToSqlite {
             operator: 'not',
             operand: { type: 'function', function: 'like', parameters: [left, right] }
           };
+        } else if (expr.op === '!=') {
+          return {
+            type: 'unary',
+            operator: 'not',
+            operand: { type: 'binary', left, right, operator: '=' }
+          };
         }
 
         const supported = supportedBinaryOperators[expr.op];
@@ -335,7 +341,7 @@ export class PostgresToSqlite {
 
     let replacement: SqlExpression<ExpressionInput> = {
       type: 'binary',
-      operator: '==',
+      operator: '=',
       left: this.translateNodeWithLocation(left),
       right: resolved.output
     };
@@ -408,8 +414,7 @@ export class PostgresToSqlite {
 const supportedBinaryOperators: Partial<Record<BinaryOperator, SupportedBinaryOperator>> = {
   OR: 'or',
   AND: 'and',
-  '=': '==',
-  '!=': '!=',
+  '=': '=',
   '<': '<',
   '>': '>',
   '<=': '<=',
