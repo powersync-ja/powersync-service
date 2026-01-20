@@ -1182,7 +1182,7 @@ export class MongoBucketBatch
    *
    * This is set when creating the batch, but may not be updated afterwards.
    */
-  public resumeFromLsn: string | null = null;
+  public readonly resumeFromLsn: string | null = null;
 
   private needsActivation = true;
 

@@ -103,6 +103,7 @@ export class HydratedSyncRules implements RowProcessor {
     parameterIndexLookupCreators: ParameterIndexLookupCreator[];
   } {
     // FIXME: Fix performance - don't scan all sources
+    // Or just merge implementations with MergedSyncRules
     const bucketDataSources = this.bucketDataSources.filter((ds) =>
       ds.getSourceTables().some((table) => table.equals(pattern))
     );
