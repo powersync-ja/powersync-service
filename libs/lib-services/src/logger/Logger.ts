@@ -19,10 +19,13 @@ export namespace LogFormat {
   export const production = winston.format.combine(prefixFormat(), winston.format.timestamp(), winston.format.json());
 }
 
+const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
+
 export const logger = winston.createLogger();
 
 // Configure logging to console as the default
 logger.configure({
+  level: LOG_LEVEL,
   format: process.env.NODE_ENV == 'production' ? LogFormat.production : LogFormat.development,
   transports: [new winston.transports.Console()]
 });
