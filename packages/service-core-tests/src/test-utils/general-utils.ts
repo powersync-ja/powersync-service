@@ -70,6 +70,17 @@ export async function resolveTestTable(
 
   const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;
   let didGenerateId = false;
+  const patterns = writer.rowProcessor.getMatchingTablePatterns({
+    schema: 'public',
+    name: name,
+    connectionTag: storage.SourceTable.DEFAULT_TAG
+  });
+  if (patterns.length == 0) {
+    throw new Error(`Table ${name} not found in sync rules`);
+  } else if (patterns.length > 1) {
+    throw new Error(`Multiple patterns match table ${name} - not supported in test`);
+  }
+  const pattern = patterns[0];
   const result = await writer.resolveTables({
     connection_id: 1,
     connection_tag: storage.SourceTable.DEFAULT_TAG,
@@ -81,7 +92,7 @@ export async function resolveTestTable(
 
       replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 }))
     },
-    pattern: new TablePattern('public', name),
+    pattern,
     idGenerator: () => {
       if (didGenerateId) {
         throw new Error('idGenerator called multiple times - not supported in tests');
@@ -91,6 +102,10 @@ export async function resolveTestTable(
       return id;
     }
   });
+  const table = result.tables[0];
+  if (table == null) {
+    throw new Error(`Failed to resolve test table ${name}`);
+  }
   return result.tables[0];
 }
 
