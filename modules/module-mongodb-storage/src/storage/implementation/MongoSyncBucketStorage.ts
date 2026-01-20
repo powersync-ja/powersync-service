@@ -675,7 +675,7 @@ export class MongoSyncBucketStorage
     await new MongoCompactor(this, this.db, { ...options, maxOpId }).compact();
 
     if (maxOpId != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+      await new MongoParameterCompactor(this.db, this, maxOpId, options).compact();
     }
   }
 

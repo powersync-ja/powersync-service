@@ -1,10 +1,10 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
 import { PowerSyncMongo } from './db.js';
-import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketParameterDocument } from './models.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
@@ -16,13 +16,13 @@ import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 export class MongoParameterCompactor {
   constructor(
     private db: PowerSyncMongo,
-    private group_id: number,
+    private storage: MongoSyncBucketStorage,
     private checkpoint: InternalOpId,
     private options: CompactOptions
   ) {}
 
   async compact() {
-    logger.info(`Compacting parameters for group ${this.group_id} up to checkpoint ${this.checkpoint}`);
+    logger.info(`Compacting parameters for group ${this.storage.group_id} up to checkpoint ${this.checkpoint}`);
     // This is the currently-active checkpoint.
     // We do not remove any data that may be used by this checkpoint.
     // snapshot queries ensure that if any clients are still using older checkpoints, they would
@@ -33,9 +33,12 @@ export class MongoParameterCompactor {
     // In theory, we could let MongoDB do more of the work here, by grouping by (key, lookup)
     // in MongoDB already. However, that risks running into cases where MongoDB needs to process
     // very large amounts of data before returning results, which could lead to timeouts.
+
+    // Note: This does _not_ currently filter by sync rules version.
+    // We may need to change the storage structure to group by parameter index lookup creator id in the future.
     const cursor = this.db.bucket_parameters.find(
       {
-        'key.g': this.group_id
+        'key.g': 0
       },
       {
         sort: { lookup: 1, _id: 1 },

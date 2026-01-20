@@ -36,7 +36,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "mybucket[]",
+      "bucket": "10002[]",
       "data": [
         {
           "checksum": -93886621,
@@ -54,7 +54,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
       "removed_buckets": [],
       "updated_buckets": [
         {
-          "bucket": "mybucket[]",
+          "bucket": "10002[]",
           "checksum": 499012468,
           "count": 4,
           "priority": 3,
@@ -71,7 +71,7 @@ exports[`sync - mongodb > compacting data - invalidate checkpoint 2`] = `
   {
     "data": {
       "after": "2",
-      "bucket": "mybucket[]",
+      "bucket": "10002[]",
       "data": [
         {
           "checksum": 1859363232,

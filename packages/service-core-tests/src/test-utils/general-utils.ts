@@ -104,7 +104,6 @@ export async function resolveTestTable(
         throw new Error('idGenerator called multiple times - not supported in tests');
       }
       didGenerateId = true;
-      console.log('got id', name, id);
       return id;
     }
   });
