@@ -2,12 +2,14 @@ import { Expr, parse } from 'pgsql-ast-parser';
 import { PostgresToSqlite } from '../../../src/compiler/sqlite.js';
 import { describe, expect, test } from 'vitest';
 import { getLocation } from '../../../src/errors.js';
+import { ExpressionToSqlite } from '../../../src/sync_plan/expression_to_sql.js';
+import { NodeLocations } from '../../../src/compiler/expression.js';
 
 describe('sqlite conversion', () => {
   test('literals', () => {
     expectNoErrors('null', 'NULL');
-    expectNoErrors('true', 'TRUE');
-    expectNoErrors('false', 'FALSE');
+    expectNoErrors('true', '1');
+    expectNoErrors('false', '0');
 
     expectNoErrors("''", "''");
     expectNoErrors("'hello world'", "'hello world'");
@@ -26,8 +28,10 @@ describe('sqlite conversion', () => {
   });
 
   test('in values', () => {
-    expectNoErrors('"intrinsic:contains"(1)', 'FALSE');
-    expectNoErrors('"intrinsic:contains"(1, 2, 3, 4)', '1 IN (2, 3, 4)');
+    expectNoErrors('1 IN ARRAY[1,2,3]', '1 IN (1, 2, 3)');
+    expectNoErrors('1 IN ARRAY[]', 'FALSE');
+
+    expectNoErrors('1 NOT IN ROW(1, 2, 3)', 'not 1 IN (1, 2, 3)');
   });
 
   test('precedence', () => {
@@ -51,13 +55,13 @@ describe('sqlite conversion', () => {
   });
 
   test('extract', () => {
-    expectNoErrors('1 ->> 2', '1 ->> 2');
-    expectNoErrors("1 -> '$.foo'", "1 -> '$.foo'");
+    expectNoErrors('1 ->> 2', '"->>"(1, 2)');
+    expectNoErrors("1 -> '$.foo'", `"->"(1, '$.foo')`);
   });
 
   test('unary', () => {
-    expectNoErrors('1 IS NOT NULL', '1 IS NOT NULL');
-    expectNoErrors('NOT 1', 'NOT 1');
+    expectNoErrors('1 IS NOT NULL', 'not 1 is NULL');
+    expectNoErrors('NOT 1', 'not 1');
   });
 
   describe('errors', () => {
@@ -183,17 +187,29 @@ function translate(source: string): [string, TranslationError[]] {
   const expr = parse(source, { entry: 'expr', locationTracking: true })[0] as Expr;
   const errors: TranslationError[] = [];
 
-  const translator = new PostgresToSqlite(
-    source,
-    {
+  const translator = new PostgresToSqlite({
+    originalText: source,
+    errors: {
       report: (message, location) => {
         const resolved = getLocation(location);
 
         errors.push({ message, source: source.substring(resolved?.start ?? 0, resolved?.end) });
       }
     },
-    []
-  );
-  translator.addExpression(expr);
-  return [translator.sql, errors];
+    locations: new NodeLocations(),
+    resolveTableName() {
+      throw new Error('unsupported in tests');
+    },
+    generateTableAlias() {
+      throw new Error('unsupported in tests');
+    },
+    joinSubqueryExpression(expr) {
+      return null;
+    }
+  });
+
+  const expression = translator.translateExpression(expr);
+  const toSql = ExpressionToSqlite.toSqlite(expression.node);
+
+  return [toSql, errors];
 }

@@ -1,169 +1,157 @@
-import { BinaryOperator, Expr, ExprCall, UnaryOperator } from 'pgsql-ast-parser';
-import { ParsingErrorListener } from './compiler.js';
+import {
+  BinaryOperator,
+  Expr,
+  ExprBinary,
+  ExprCall,
+  ExprRef,
+  nil,
+  PGNode,
+  SelectFromStatement
+} from 'pgsql-ast-parser';
 import { CAST_TYPES } from '../sql_functions.js';
-import { ExpressionInput, ExpressionInputWithSpan } from './expression.js';
+import { ColumnInRow, ConnectionParameter, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
+import {
+  BetweenExpression,
+  LiteralExpression,
+  SqlExpression,
+  supportedFunctions,
+  BinaryOperator as SupportedBinaryOperator
+} from '../sync_plan/expression.js';
+import { ConnectionParameterSource } from '../sync_plan/plan.js';
+import { ParsingErrorListener } from './compiler.js';
+import { SourceResultSet } from './table.js';
 
-export const intrinsicContains = 'intrinsic:contains';
+export interface ResolvedSubqueryExpression {
+  filters: SqlExpression<ExpressionInput>[];
+  output: SqlExpression<ExpressionInput>;
+}
+
+export interface PostgresToSqliteOptions {
+  readonly originalText: string;
+  readonly errors: ParsingErrorListener;
+  readonly locations: NodeLocations;
+
+  /**
+   * Attempt to resolve a table name in scope, returning the resolved result set.
+   *
+   * Should report an error if resolving the table failed, using `node` as the source location for the error.
+   */
+  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | null;
+
+  /**
+   * Generates a table alias for synthetic subqueries like those generated to desugar `IN` expressions to `json_each`
+   * subqueries.
+   */
+  generateTableAlias(): string;
+
+  /**
+   * Turns the given subquery into a join added to the main `FROM` section.
+   *
+   * Returns the parsed subquery expression, or null if resolving the subquery failed. In that case, this method should
+   * report an error.
+   */
+  joinSubqueryExpression(expr: SelectFromStatement): ResolvedSubqueryExpression | null;
+}
 
 /**
- * Utility for translating Postgres expressions to SQLite expressions.
+ * Validates and lowers a Postgres expression into a scalar SQL expression.
  *
  * Unsupported Postgres features are reported as errors.
  */
 export class PostgresToSqlite {
-  sql = '';
-  inputs: ExpressionInputWithSpan[] = [];
+  constructor(private readonly options: PostgresToSqliteOptions) {}
 
-  private needsSpace = false;
-
-  constructor(
-    private readonly originalSource: string,
-    private readonly errors: ParsingErrorListener,
-    private readonly parameters: ExpressionInput[]
-  ) {}
-
-  private space() {
-    this.sql += ' ';
+  translateExpression(source: Expr): SyncExpression {
+    return new SyncExpression(this.translateNodeWithLocation(source), this.options.locations);
   }
 
-  private addLexeme(text: string, options?: { spaceLeft?: boolean; spaceRight?: boolean }): number {
-    const spaceLeft = options?.spaceLeft ?? true;
-    const spaceRight = options?.spaceRight ?? true;
-
-    if (this.needsSpace && spaceLeft) {
-      this.space();
-    }
-
-    const startOffset = this.sql.length;
-    this.sql += text;
-    this.needsSpace = spaceRight;
-    return startOffset;
+  private translateNodeWithLocation(expr: Expr): SqlExpression<ExpressionInput> {
+    const translated = this.translateToNode(expr);
+    this.options.locations.sourceForNode.set(translated, expr);
+    return translated;
   }
 
-  private identifier(name: string) {
-    this.addLexeme(`"${name.replaceAll('"', '""')}"`);
-  }
-
-  private string(name: string) {
-    this.addLexeme(`'${name.replaceAll("'", "''")}'`);
-  }
-
-  private bogusExpression() {
-    this.addLexeme('NULL');
-  }
-
-  private commaSeparated(exprList: Iterable<Expr>) {
-    let first = true;
-    for (const expr of exprList) {
-      if (!first) {
-        this.addLexeme(',', { spaceLeft: false });
-      }
-
-      this.addExpression(expr);
-      first = false;
-    }
-  }
-
-  private intrinsicContains(call: ExprCall, outerPrecedence: Precedence | 0) {
-    const [left, ...right] = call.args;
-    if (right.length == 0) {
-      this.addLexeme('FALSE');
-      return;
-    }
-
-    this.maybeParenthesis(outerPrecedence, Precedence.equals, () => {
-      this.addExpression(left, Precedence.equals);
-      this.addLexeme('IN');
-      this.parenthesis(() => this.commaSeparated(right));
-    });
-  }
-
-  private parenthesis(inner: () => void) {
-    this.addLexeme('(', { spaceRight: false });
-    inner();
-    this.addLexeme(')', { spaceLeft: false });
-  }
-
-  private maybeParenthesis(outerPrecedence: Precedence | 0, innerPrecedence: Precedence, inner: () => void) {
-    if (outerPrecedence > innerPrecedence) {
-      this.parenthesis(inner);
-    } else {
-      inner();
-    }
-  }
-
-  addExpression(expr: Expr, outerPrecedence: Precedence | 0 = 0) {
-    // export type Expr =  |  ExprExtract | ExprMember  ;
+  private translateToNode(expr: Expr): SqlExpression<ExpressionInput> {
     switch (expr.type) {
       case 'null':
-        this.addLexeme('NULL');
-        break;
+        return { type: 'lit_null' };
       case 'boolean':
-        this.addLexeme(expr.value ? 'TRUE' : 'FALSE');
-        break;
+        return { type: 'lit_int', base10: expr.value ? '1' : '0' };
       case 'string':
-        this.string(expr.value);
-        break;
-      case 'numeric':
+        return { type: 'lit_string', value: expr.value };
+      case 'numeric': {
+        return { type: 'lit_double', value: expr.value };
+      }
       case 'integer': {
-        // JavaScript does not have a number type that can represent SQLite values, so we try to reuse the source.
+        // JavaScript does not have a number type that can represent SQLite ints, so we try to reuse the source.
         if (expr._location) {
-          this.addLexeme(this.originalSource.substring(expr._location.start, expr._location.end));
+          return {
+            type: 'lit_int',
+            base10: this.options.originalText.substring(expr._location.start, expr._location.end)
+          };
         } else {
-          this.addLexeme(expr.value.toString());
+          return { type: 'lit_int', base10: expr.value.toString() };
         }
-        break;
       }
-      case 'ref':
-        this.bogusExpression();
-        this.errors.report('Internal error: Dependency should have been extracted', expr);
-        break;
-      case 'parameter':
-        // The name is going to be ?<index>
-        const index = Number(expr.name.substring(1));
-        const value = this.parameters[index - 1];
-        if (value == null) {
-          throw new Error('Internal error: No value given for parameter');
-        }
-        const start = this.addLexeme('?');
-        this.inputs.push(new ExpressionInputWithSpan(value, start, 1));
-        break;
-      case 'substring': {
-        const args = [expr.value, expr.from ?? { type: 'numeric', value: 1 }];
-        if (expr.for != null) {
-          args.push(expr.for);
-        }
-        this.addExpression({
-          type: 'call',
-          function: { name: 'substr' },
-          args
-        });
-        break;
-      }
-      case 'call': {
-        if (expr.function.name == intrinsicContains) {
-          // Calls to this function should be lowered to a IN (x, y, z). We can't represent that in Postgres AST.
-          return this.intrinsicContains(expr, outerPrecedence);
+      case 'ref': {
+        const resultSet = this.options.resolveTableName(expr, expr.table?.name);
+        if (resultSet == null) {
+          // resolveTableName will have logged an error, transform with a bogus value to keep going.
+          return { type: 'lit_null' };
         }
 
-        if (expr.function.schema) {
-          this.errors.report('Invalid schema in function name', expr.function);
-          return this.bogusExpression();
+        if (expr.name == '*') {
+          return this.invalidExpression(expr, '* columns are not supported here');
         }
+
+        const instantiation = new ColumnInRow(expr, resultSet, expr.name);
+        return {
+          type: 'data',
+          source: instantiation
+        };
+      }
+      case 'parameter':
+        return this.invalidExpression(
+          expr,
+          'SQL parameters are not allowed. Use parameter functions instead: https://docs.powersync.com/usage/sync-streams#accessing-parameters'
+        );
+      case 'substring': {
+        const mappedArgs = [this.translateNodeWithLocation(expr.value)];
+        if (expr.from) {
+          mappedArgs.push(this.translateNodeWithLocation(expr.from));
+        } else {
+          mappedArgs.push({ type: 'lit_int', base10: '1' });
+        }
+        if (expr.for) {
+          mappedArgs.push(this.translateNodeWithLocation(expr.for));
+        }
+
+        return { type: 'function', function: 'substr', parameters: mappedArgs };
+      }
+      case 'call': {
+        const schemaName = expr.function.schema;
+        const source: ConnectionParameterSource | null =
+          schemaName === 'auth' || schemaName === 'subscription' || schemaName === 'connection' ? schemaName : null;
+
+        if (schemaName) {
+          if (source) {
+            return this.translateRequestParameter(source, expr);
+          } else {
+            return this.invalidExpression(expr.function, 'Invalid schema in function name');
+          }
+        }
+
         if (expr.distinct != null || expr.orderBy != null || expr.filter != null || expr.over != null) {
-          this.errors.report('DISTINCT, ORDER BY, FILTER and OVER clauses are not supported', expr.function);
-          return this.bogusExpression();
+          return this.invalidExpression(expr.function, 'DISTINCT, ORDER BY, FILTER and OVER clauses are not supported');
         }
 
         const forbiddenReason = forbiddenFunctions[expr.function.name];
         if (forbiddenReason) {
-          this.errors.report(`Forbidden call: ${forbiddenReason}`, expr.function);
-          return this.bogusExpression();
+          return this.invalidExpression(expr.function, `Forbidden call: ${forbiddenReason}`);
         }
         let allowedArgs = supportedFunctions[expr.function.name];
         if (allowedArgs == null) {
-          this.errors.report('Unknown function', expr.function);
-          return this.bogusExpression();
+          return this.invalidExpression(expr.function, 'Unknown function');
         } else {
           if (typeof allowedArgs == 'number') {
             allowedArgs = { min: allowedArgs, max: allowedArgs };
@@ -171,101 +159,123 @@ export class PostgresToSqlite {
 
           const actualArgs = expr.args.length;
           if (actualArgs < allowedArgs.min) {
-            this.errors.report(`Expected at least ${allowedArgs.min} arguments`, expr);
+            this.options.errors.report(`Expected at least ${allowedArgs.min} arguments`, expr);
           } else if (allowedArgs.max && actualArgs > allowedArgs.max) {
-            this.errors.report(`Expected at most ${allowedArgs.max} arguments`, expr);
+            this.options.errors.report(`Expected at most ${allowedArgs.max} arguments`, expr);
           } else if (allowedArgs.mustBeEven && actualArgs % 2 == 1) {
-            this.errors.report(`Expected an even amount of arguments`, expr);
+            this.options.errors.report(`Expected an even amount of arguments`, expr);
           } else if (allowedArgs.mustBeOdd && actualArgs % 2 == 0) {
-            this.errors.report(`Expected an odd amount of arguments`, expr);
+            this.options.errors.report(`Expected an odd amount of arguments`, expr);
           }
         }
 
-        this.identifier(expr.function.name);
-        this.addLexeme('(', { spaceLeft: false, spaceRight: false });
-        this.commaSeparated(expr.args);
-        this.addLexeme(')', { spaceLeft: false });
-        break;
+        return {
+          type: 'function',
+          function: expr.function.name,
+          parameters: expr.args.map((a) => this.translateNodeWithLocation(a))
+        };
       }
       case 'binary': {
-        const precedence = supportedBinaryOperators[expr.op];
-        if (precedence == null) {
-          this.bogusExpression();
-          this.errors.report('Unsupported binary operator', expr);
-        } else {
-          this.maybeParenthesis(outerPrecedence, precedence, () => {
-            this.addExpression(expr.left, precedence);
-            this.addLexeme(expr.op);
-            this.addExpression(expr.right, precedence);
-          });
+        if (expr.op === 'IN' || expr.op === 'NOT IN') {
+          return this.translateInExpression(expr);
         }
-        break;
+
+        const left = this.translateNodeWithLocation(expr.left);
+        const right = this.translateNodeWithLocation(expr.right);
+        if (expr.op === 'LIKE') {
+          return { type: 'function', function: 'like', parameters: [left, right] };
+        } else if (expr.op === 'NOT LIKE') {
+          return {
+            type: 'unary',
+            operator: 'not',
+            operand: { type: 'function', function: 'like', parameters: [left, right] }
+          };
+        }
+
+        const supported = supportedBinaryOperators[expr.op];
+        if (supported == null) {
+          return this.invalidExpression(expr, 'Unsupported binary operator');
+        } else {
+          return { type: 'binary', left, right, operator: supported };
+        }
       }
       case 'unary': {
-        const [isSuffix, precedence] = supportedUnaryOperators[expr.op];
+        let not = false;
+        let rightHandSideOfIs: SqlExpression<ExpressionInput>;
 
-        this.maybeParenthesis(outerPrecedence, precedence, () => {
-          if (!isSuffix) this.addLexeme(expr.op);
-          this.addExpression(expr.operand, precedence);
-          if (isSuffix) this.addLexeme(expr.op);
-        });
-        break;
+        switch (expr.op) {
+          case '+':
+          case '-':
+            return { type: 'unary', operator: expr.op, operand: this.translateNodeWithLocation(expr.operand) };
+          case 'NOT':
+            return { type: 'unary', operator: 'not', operand: this.translateNodeWithLocation(expr.operand) };
+          case 'IS NOT NULL':
+            not = true;
+          case 'IS NULL': // fallthrough
+            rightHandSideOfIs = { type: 'lit_null' };
+            break;
+          case 'IS NOT TRUE':
+            not = true;
+          case 'IS TRUE': // fallthrough
+            rightHandSideOfIs = { type: 'lit_int', base10: '1' };
+            break;
+          case 'IS NOT FALSE': // fallthrough
+            not = true;
+          case 'IS FALSE':
+            rightHandSideOfIs = { type: 'lit_int', base10: '0' };
+            break;
+        }
+
+        const mappedIs: SqlExpression<ExpressionInput> = {
+          type: 'binary',
+          left: this.translateNodeWithLocation(expr.operand),
+          operator: 'is',
+          right: rightHandSideOfIs
+        };
+
+        return not ? { type: 'unary', operator: 'not', operand: mappedIs } : mappedIs;
       }
       case 'cast': {
         const to = (expr.to as any)?.name?.toLowerCase() as string | undefined;
         if (to == null || !CAST_TYPES.has(to)) {
-          this.errors.report('Invalid SQLite cast', expr.to);
-          return this.bogusExpression();
+          return this.invalidExpression(expr.to, 'Invalid SQLite cast');
         } else {
-          this.addLexeme('CAST(', { spaceRight: false });
-          this.addExpression(expr.operand);
-          this.addLexeme('AS');
-          this.addLexeme(to);
-          this.addLexeme(')', { spaceLeft: false });
+          return { type: 'cast', operand: this.translateNodeWithLocation(expr.operand), cast_as: to as any };
         }
-
-        break;
       }
       case 'ternary': {
-        this.maybeParenthesis(outerPrecedence, Precedence.equals, () => {
-          this.addExpression(expr.value, Precedence.equals);
-          this.addLexeme(expr.op);
-          this.addExpression(expr.lo, Precedence.equals);
-          this.addLexeme('AND');
-          this.addExpression(expr.hi, Precedence.equals);
-        });
-        break;
+        const between: BetweenExpression<ExpressionInput> = {
+          type: 'between',
+          value: this.translateNodeWithLocation(expr.value),
+          low: this.translateNodeWithLocation(expr.lo),
+          high: this.translateNodeWithLocation(expr.hi)
+        };
+
+        return expr.op === 'BETWEEN' ? between : { type: 'unary', operator: 'not', operand: between };
       }
       case 'case': {
-        this.addLexeme('CASE');
-        if (expr.value) {
-          this.addExpression(expr.value);
-        }
-        for (const when of expr.whens) {
-          this.addLexeme('WHEN');
-          this.addExpression(when.when);
-          this.addLexeme('THEN');
-          this.addExpression(when.value);
-        }
-
-        if (expr.else) {
-          this.addLexeme('ELSE');
-          this.addExpression(expr.else);
-        }
-        this.addLexeme('END');
-        break;
+        return {
+          type: 'case_when',
+          operand: expr.value ? this.translateNodeWithLocation(expr.value) : undefined,
+          whens: expr.whens.map((when) => ({
+            when: this.translateNodeWithLocation(when.when),
+            then: this.translateNodeWithLocation(when.value)
+          })),
+          else: expr.else ? this.translateNodeWithLocation(expr.else) : undefined
+        };
       }
       case 'member': {
-        this.maybeParenthesis(outerPrecedence, Precedence.concat, () => {
-          this.addExpression(expr.operand, Precedence.concat);
-          this.addLexeme(expr.op);
-          if (typeof expr.member == 'number') {
-            this.addExpression({ type: 'integer', value: expr.member });
-          } else {
-            this.addExpression({ type: 'string', value: expr.member });
-          }
-        });
-        break;
+        const operand = this.translateNodeWithLocation(expr.operand);
+        return {
+          type: 'function',
+          function: expr.op,
+          parameters: [
+            operand,
+            typeof expr.member == 'number'
+              ? { type: 'lit_int', base10: expr.member.toString() }
+              : { type: 'lit_string', value: expr.member }
+          ]
+        };
       }
       case 'select':
       case 'union':
@@ -273,135 +283,147 @@ export class PostgresToSqlite {
       case 'with':
       case 'with recursive':
         // Should have been desugared.
-        this.bogusExpression();
-        this.errors.report('Invalid position for subqueries. Subqueries are only supported in WHERE clauses.', expr);
-        break;
+        return this.invalidExpression(
+          expr,
+          'Invalid position for subqueries. Subqueries are only supported in WHERE clauses.'
+        );
       default:
-        expr.type;
-        this.bogusExpression();
-        this.errors.report('This expression is not supported by PowerSync', expr);
+        return this.invalidExpression(expr, 'This expression is not supported by PowerSync');
+    }
+  }
+
+  private invalidExpression(source: PGNode, message: string): LiteralExpression {
+    this.options.errors.report(message, source);
+    return { type: 'lit_null' };
+  }
+
+  private translateInExpression(expr: ExprBinary): SqlExpression<ExpressionInput> {
+    const negated = expr.op === 'NOT IN';
+    const right = expr.right;
+
+    if (right.type == 'select') {
+      return this.desugarInSubquery(negated, expr, right);
+    } else if (right.type == 'array') {
+      return this.desugarInValues(negated, expr.left, right.expressions);
+    } else if (right.type == 'call' && right.function.name.toLowerCase() == 'row') {
+      return this.desugarInValues(negated, expr.left, right.args);
+    } else {
+      return this.desugarInScalar(negated, expr, right);
+    }
+  }
+
+  private desugarInValues(negated: boolean, left: Expr, right: Expr[]): SqlExpression<ExpressionInput> {
+    const scalarIn: SqlExpression<ExpressionInput> = {
+      type: 'scalar_in',
+      target: this.translateNodeWithLocation(left),
+      in: right.map((e) => this.translateNodeWithLocation(e))
+    };
+    return negated ? { type: 'unary', operator: 'not', operand: scalarIn } : scalarIn;
+  }
+
+  private desugarInSubquery(
+    negated: boolean,
+    binary: ExprBinary,
+    right: SelectFromStatement
+  ): SqlExpression<ExpressionInput> {
+    const left = binary.left;
+    const resolved = this.options.joinSubqueryExpression(right);
+    if (resolved == null) {
+      // An error would have been logged.
+      return { type: 'lit_null' };
+    }
+
+    let replacement: SqlExpression<ExpressionInput> = {
+      type: 'binary',
+      operator: '==',
+      left: this.translateNodeWithLocation(left),
+      right: resolved.output
+    };
+    this.options.locations.sourceForNode.set(replacement, binary);
+
+    replacement = resolved.filters.reduce(
+      (left, right) => ({ type: 'binary', operator: 'and', left, right }),
+      replacement
+    );
+
+    if (negated) {
+      replacement = { type: 'unary', operator: 'not', operand: replacement };
+    }
+
+    return replacement;
+  }
+
+  /**
+   * Desugar `$left IN $right`, where `$right` is a scalar expression. This is not valid SQL, but in PowerSync we
+   * interpret that as `left IN (SELECT value FROM json_each(right))`.
+   */
+  private desugarInScalar(negated: boolean, binary: ExprBinary, right: Expr): SqlExpression<ExpressionInput> {
+    const name = this.options.generateTableAlias();
+    return this.desugarInSubquery(negated, binary, {
+      type: 'select',
+      columns: [{ expr: { type: 'ref', name: 'value', table: { name } } }],
+      from: [{ type: 'call', function: { name: 'json_each' }, args: [right], alias: { name } }]
+    });
+  }
+
+  private translateRequestParameter(source: ConnectionParameterSource, expr: ExprCall): SqlExpression<ExpressionInput> {
+    const parameter = new ConnectionParameter(expr, source);
+    const replacement: SqlExpression<ExpressionInput> = {
+      type: 'data',
+      source: parameter
+    };
+    this.options.locations.sourceForNode.set(replacement, expr.function);
+
+    switch (expr.function.name.toLowerCase()) {
+      case 'parameters':
+        return replacement;
+      case 'parameter':
+        // Desugar .param(x) into .parameters() ->> '$.' || x
+        if (expr.args.length == 1) {
+          return {
+            type: 'function',
+            function: '->>',
+            parameters: [replacement, this.translateNodeWithLocation(expr.args[0])]
+          };
+        } else {
+          return this.invalidExpression(expr.function, 'Expected a single argument here');
+        }
+      case 'user_id':
+        if (source == 'auth') {
+          // Desugar auth.user_id() into auth.parameters() ->> '$.sub'
+          return {
+            type: 'function',
+            function: '->>',
+            parameters: [replacement, { type: 'lit_string', value: '$.sub' }]
+          };
+        } else {
+          return this.invalidExpression(expr.function, '.user_id() is only available on auth schema');
+        }
+      default:
+        return this.invalidExpression(expr.function, 'Unknown request function');
     }
   }
 }
 
-enum Precedence {
-  or = 1,
-  and = 2,
-  not = 3,
-  equals = 4,
-  comparison = 5,
-  binary = 6,
-  addition = 7,
-  multiplication = 8,
-  concat = 9,
-  collate = 10,
-  unary = 11
-}
-
-type ArgumentCount = number | { min: number; max?: number; mustBeEven?: boolean; mustBeOdd?: boolean };
-
-const supportedFunctions: Record<string, ArgumentCount> = {
-  // https://sqlite.org/lang_corefunc.html#list_of_core_functions
-  abs: 1,
-  char: { min: 0 },
-  coalesce: { min: 2 },
-  concat: { min: 1 },
-  concat_ws: { min: 2 },
-  format: { min: 1 },
-  glob: 2,
-  hex: 1,
-  ifnull: { min: 2 },
-  if: { min: 2 },
-  iif: { min: 2 },
-  instr: 2,
-  length: 1,
-  like: { min: 2, max: 3 },
-  likelihood: 2,
-  likely: 1,
-  lower: 1,
-  ltrim: { min: 1, max: 2 },
-  max: { min: 2 },
-  min: { min: 2 },
-  nullif: 2,
-  octet_length: 1,
-  printf: { min: 1 },
-  quote: 1,
-  replace: 3,
-  round: { min: 1, max: 2 },
-  rtrim: { min: 1, max: 2 },
-  sign: 1,
-  substr: { min: 2, max: 3 },
-  substring: { min: 2, max: 3 },
-  trim: { min: 1, max: 2 },
-  typeof: 1,
-  unhex: { min: 1, max: 2 },
-  unicode: 1,
-  unistr: 1,
-  unistr_quote: 1,
-  unlikely: 1,
-  upper: 1,
-  zeroblob: 1,
-  // Scalar functions from https://sqlite.org/json1.html#overview
-  json: 1,
-  jsonb: 1,
-  json_array: { min: 0 },
-  jsonb_array: { min: 0 },
-  json_array_length: { min: 1, max: 2 },
-  json_error_position: 1,
-  json_extract: { min: 2 },
-  jsonb_extract: { min: 2 },
-  json_insert: { min: 3, mustBeOdd: true },
-  jsonb_insert: { min: 3, mustBeOdd: true },
-  json_object: { min: 0, mustBeEven: true },
-  jsonb_object: { min: 0, mustBeEven: true },
-  json_patch: 2,
-  jsonb_patch: 2,
-  json_pretty: 1,
-  json_remove: { min: 2 },
-  jsonb_remove: { min: 2 },
-  json_replace: { min: 3, mustBeOdd: true },
-  jsonb_replace: { min: 3, mustBeOdd: true },
-  json_set: { min: 3, mustBeOdd: true },
-  jsonb_set: { min: 3, mustBeOdd: true },
-  json_type: { min: 1, max: 2 },
-  json_valid: { min: 1, max: 2 },
-  json_quote: { min: 1 }
-};
-
-const supportedBinaryOperators: Partial<Record<BinaryOperator, Precedence>> = {
-  OR: Precedence.or,
-  AND: Precedence.and,
-  '=': Precedence.equals,
-  '!=': Precedence.equals,
-  LIKE: Precedence.equals,
-  '<': Precedence.comparison,
-  '>': Precedence.comparison,
-  '<=': Precedence.comparison,
-  '>=': Precedence.comparison,
-  '&': Precedence.binary,
-  '|': Precedence.binary,
-  '<<': Precedence.binary,
-  '>>': Precedence.binary,
-  '+': Precedence.addition,
-  '-': Precedence.addition,
-  '*': Precedence.multiplication,
-  '/': Precedence.multiplication,
-  '%': Precedence.multiplication,
-  '||': Precedence.concat,
-  ['->' as BinaryOperator]: Precedence.concat,
-  ['->>' as BinaryOperator]: Precedence.concat
-};
-
-const supportedUnaryOperators: Record<UnaryOperator, [boolean, Precedence]> = {
-  NOT: [false, Precedence.not],
-  'IS NULL': [true, Precedence.equals],
-  'IS NOT NULL': [true, Precedence.equals],
-  'IS FALSE': [true, Precedence.equals],
-  'IS NOT FALSE': [true, Precedence.equals],
-  'IS TRUE': [true, Precedence.equals],
-  'IS NOT TRUE': [true, Precedence.equals],
-  '+': [false, Precedence.unary],
-  '-': [false, Precedence.unary]
+const supportedBinaryOperators: Partial<Record<BinaryOperator, SupportedBinaryOperator>> = {
+  OR: 'or',
+  AND: 'and',
+  '=': '==',
+  '!=': '!=',
+  '<': '<',
+  '>': '>',
+  '<=': '<=',
+  '>=': '>=',
+  '&': '&',
+  '|': '|',
+  '<<': '<<',
+  '>>': '>>',
+  '+': '+',
+  '-': '-',
+  '*': '*',
+  '/': '/',
+  '%': '%',
+  '||': '||'
 };
 
 const forbiddenFunctions: Record<string, string> = {

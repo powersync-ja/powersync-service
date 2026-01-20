@@ -2,6 +2,7 @@ import { BucketPriority } from '../BucketDescription.js';
 import { ParameterLookupScope } from '../HydrationState.js';
 import { TablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
+import { SqlExpression } from './expression.js';
 
 /**
  * A compiled "sync plan", a description for
@@ -160,25 +161,6 @@ export interface StreamQuerier {
    */
   bucket: StreamBucketDataSource;
   sourceInstantiation: ParameterValue[];
-}
-
-/**
- * An expression that can be evaluated by SQLite.
- *
- * The type parameter `T` describes which values this expression uses. For instance, an expression in a
- * {@link TableProcessor} would only use {@link ColumnSqlParameterValue}s since no request is available in that context.
- */
-export interface SqlExpression<T extends SqlParameterValue> {
-  /**
-   * To SQL expression to evaluate.
-   *
-   * The expression is guaranteed to not contain any column references. All dependencies to row data are encoded as SQL
-   * parameters that have an instantiation in {@link instantiation}.
-   *
-   * For instance, the stream `SELECT UPPER(name) FROM users;` would have `UPPER(?1)` as SQL and a
-   */
-  sql: string;
-  values: T[];
 }
 
 export type SqlParameterValue = ColumnSqlParameterValue | RequestSqlParameterValue;

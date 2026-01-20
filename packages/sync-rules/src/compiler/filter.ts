@@ -45,7 +45,7 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
 
   constructor(expression: SyncExpression | SingleDependencyExpression) {
     if (expression instanceof SyncExpression) {
-      const checked = SingleDependencyExpression.extractSingleDependency(expression.instantiationValues());
+      const checked = SingleDependencyExpression.extractSingleDependency(expression.instantiation);
       if (checked == null) {
         throw new InvalidExpressionError('Expression with multiple dependencies passed to SingleDependencyExpression');
       }
@@ -133,7 +133,7 @@ export class EqualsClause {
   ) {}
 
   get location(): NodeLocation | undefined {
-    return expandNodeLocations([this.left.expression.node, this.right.expression.node]);
+    return expandNodeLocations([this.left.expression.location, this.right.expression.location]);
   }
 }
 

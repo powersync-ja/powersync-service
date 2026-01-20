@@ -1,4 +1,5 @@
 import { TablePattern } from '../TablePattern.js';
+import { SqlExpression } from './expression.js';
 import {
   ColumnSource,
   ColumnSqlParameterValue,
@@ -6,7 +7,6 @@ import {
   ParameterValue,
   PartitionKey,
   RequestSqlParameterValue,
-  SqlExpression,
   StreamBucketDataSource,
   StreamDataSource,
   StreamOptions,
