@@ -300,7 +300,8 @@ export class StreamQueryParser {
     } else if (from.type == 'statement') {
       const source = new SyntacticResultSetSource(from, from.alias);
 
-      const parseInner = this.nestedParser(this.statementScope);
+      // For subqueries in FROM, existing expressions are not in scope. So fork from the root scope instead.
+      const parseInner = this.nestedParser(scope.rootScope);
       const parsedSubquery = parseInner.parseAsSubquery(
         from.statement,
         from.columnNames?.map((c) => c.name)
