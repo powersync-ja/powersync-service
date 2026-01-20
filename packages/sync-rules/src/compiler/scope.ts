@@ -14,6 +14,15 @@ export class SqlScope {
     this.parent = options.parent;
   }
 
+  get rootScope(): SqlScope {
+    let maybeRoot: SqlScope = this;
+    while (maybeRoot.parent) {
+      maybeRoot = maybeRoot.parent;
+    }
+
+    return maybeRoot;
+  }
+
   get resultSets(): SyntacticResultSetSource[] {
     return [...this.nameToResultSet.values()];
   }

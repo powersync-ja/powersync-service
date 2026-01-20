@@ -7,6 +7,7 @@ import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
 import { QuerierGraphBuilder } from './querier_graph.js';
 import { StreamQueryParser } from './parser.js';
 import { NodeLocations } from './expression.js';
+import { SqlScope } from './scope.js';
 
 /**
  * State for compiling sync streams.
@@ -33,6 +34,7 @@ export class SyncStreamsCompiler {
    */
   stream(options: StreamOptions): IndividualSyncStreamCompiler {
     const builder = new QuerierGraphBuilder(this, options);
+    const rootScope = new SqlScope({});
 
     return {
       addQuery: (sql: string, errors: ParsingErrorListener) => {
@@ -41,6 +43,7 @@ export class SyncStreamsCompiler {
           compiler: this,
           originalText: sql,
           locations: new NodeLocations(),
+          parentScope: rootScope,
           errors
         });
         const query = parser.parse(stmt);

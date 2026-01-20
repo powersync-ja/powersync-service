@@ -19,11 +19,31 @@ import {
 } from '../sync_plan/expression.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
-import { SourceResultSet } from './table.js';
+import { BaseSourceResultSet, SourceResultSet } from './table.js';
 
 export interface ResolvedSubqueryExpression {
   filters: SqlExpression<ExpressionInput>[];
   output: SqlExpression<ExpressionInput>;
+}
+
+/**
+ * A prepared subquery or common table expression.
+ */
+export interface PreparedSubquery {
+  /**
+   * Columns selected by the query, indexed by their name.
+   */
+  resultColumns: Record<string, SqlExpression<ExpressionInput>>;
+
+  /**
+   * Tables the subquery selects from.
+   */
+  tables: SourceResultSet[];
+
+  /**
+   * Filters affecting the subquery.
+   */
+  where: SqlExpression<ExpressionInput> | null;
 }
 
 export interface PostgresToSqliteOptions {
@@ -36,7 +56,7 @@ export interface PostgresToSqliteOptions {
    *
    * Should report an error if resolving the table failed, using `node` as the source location for the error.
    */
-  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | null;
+  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | PreparedSubquery | null;
 
   /**
    * Generates a table alias for synthetic subqueries like those generated to desugar `IN` expressions to `json_each`
@@ -104,11 +124,22 @@ export class PostgresToSqlite {
           return this.invalidExpression(expr, '* columns are not supported here');
         }
 
-        const instantiation = new ColumnInRow(expr, resultSet, expr.name);
-        return {
-          type: 'data',
-          source: instantiation
-        };
+        if (resultSet instanceof BaseSourceResultSet) {
+          // This is an actual result set.
+          const instantiation = new ColumnInRow(expr, resultSet, expr.name);
+          return {
+            type: 'data',
+            source: instantiation
+          };
+        } else {
+          // Resolved to a subquery, inline the reference.
+          const expression = resultSet.resultColumns[expr.name];
+          if (expression == null) {
+            return this.invalidExpression(expr, 'Column not found in subquery.');
+          }
+
+          return expression;
+        }
       }
       case 'parameter':
         return this.invalidExpression(
