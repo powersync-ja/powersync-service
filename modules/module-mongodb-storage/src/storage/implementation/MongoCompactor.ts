@@ -14,9 +14,11 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
-import { BucketDataSource } from '@powersync/service-sync-rules';
+import { BucketDataSource, SqlSyncRules } from '@powersync/service-sync-rules';
 
 interface CurrentBucketState {
+  def: number;
+
   /** Bucket name */
   bucket: string;
 
@@ -80,14 +82,12 @@ export class MongoCompactor {
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
-  private group_id: number;
 
   constructor(
     private storage: MongoSyncBucketStorage,
     private db: PowerSyncMongo,
     options?: MongoCompactOptions
   ) {
-    this.group_id = storage.group_id;
     this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
@@ -105,18 +105,23 @@ export class MongoCompactor {
    */
   async compact() {
     if (this.buckets) {
-      for (let bucket of this.buckets) {
-        // We can make this more efficient later on by iterating
-        // through the buckets in a single query.
-        // That makes batching more tricky, so we leave for later.
-        await this.compactSingleBucket(bucket);
-      }
+      throw new Error('Compacting specific buckets is not implemented currently');
+      // for (let bucket of this.buckets) {
+      //   // We can make this more efficient later on by iterating
+      //   // through the buckets in a single query.
+      //   // That makes batching more tricky, so we leave for later.
+      //   await this.compactSingleBucket(bucket);
+      // }
     } else {
       await this.compactDirtyBuckets();
     }
   }
 
   private async compactDirtyBuckets() {
+    const persistedSyncRules = this.storage.sync_rules.parsed({ defaultSchema: 'n/a' });
+    const hydrated = persistedSyncRules.hydratedSyncRules();
+    const sqlSyncRules = hydrated.definition;
+
     while (!this.signal?.aborted) {
       // Process all buckets with 10 or more changes since last time.
       // We exclude the last 100 compacted buckets, to avoid repeatedly re-compacting the same buckets over and over
@@ -125,6 +130,7 @@ export class MongoCompactor {
 
       let recentlyCompacted: string[] = [];
       const buckets = await this.dirtyBucketBatch({
+        sqlSyncRules,
         minBucketChanges: this.minBucketChanges,
         exclude: recentlyCompacted
       });
@@ -132,8 +138,8 @@ export class MongoCompactor {
         // All done
         break;
       }
-      for (let { bucket } of buckets) {
-        await this.compactSingleBucket(bucket);
+      for (let { bucket, def } of buckets) {
+        await this.compactSingleBucket(def, bucket);
         recentlyCompacted.push(bucket);
       }
       if (recentlyCompacted.length > TRACK_RECENTLY_COMPACTED_NUMBER) {
@@ -142,10 +148,11 @@ export class MongoCompactor {
     }
   }
 
-  private async compactSingleBucket(bucket: string) {
+  private async compactSingleBucket(def: number, bucket: string) {
     const idLimitBytes = this.idLimitBytes;
 
     let currentState: CurrentBucketState = {
+      def,
       bucket,
       seen: new Map(),
       trackingSize: 0,
@@ -159,14 +166,14 @@ export class MongoCompactor {
 
     // Constant lower bound
     const lowerBound: BucketDataKey = {
-      g: this.group_id,
+      g: def,
       b: bucket,
       o: new mongo.MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
-      g: this.group_id,
+      g: def,
       b: bucket,
       o: new mongo.MaxKey() as any
     };
@@ -294,7 +301,7 @@ export class MongoCompactor {
     currentState.seen.clear();
     if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
       logger.info(
-        `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
+        `Inserting CLEAR at ${currentState.def}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
       );
       // Need flush() before clear()
       await this.flush();
@@ -321,7 +328,7 @@ export class MongoCompactor {
       updateOne: {
         filter: {
           _id: {
-            g: this.group_id,
+            g: state.def,
             b: state.bucket
           }
         },
@@ -384,12 +391,12 @@ export class MongoCompactor {
     const opFilter = {
       _id: {
         $gte: {
-          g: this.group_id,
+          g: currentState.def,
           b: bucket,
           o: new mongo.MinKey() as any
         },
         $lte: {
-          g: this.group_id,
+          g: currentState.def,
           b: bucket,
           o: clearOp
         }
@@ -451,7 +458,7 @@ export class MongoCompactor {
               {
                 _id: {
                   $gte: {
-                    g: this.group_id,
+                    g: currentState.def,
                     b: bucket,
                     o: new mongo.MinKey() as any
                   },
@@ -491,9 +498,10 @@ export class MongoCompactor {
    * Subset of compact, only populating checksums where relevant.
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
+    const sqlSyncRules = this.storage.sync_rules.parsed({ defaultSchema: 'n/a' }).hydratedSyncRules().definition;
     let count = 0;
     while (!this.signal?.aborted) {
-      const buckets = await this.dirtyBucketBatch(options);
+      const buckets = await this.dirtyBucketBatch({ ...options, sqlSyncRules });
       if (buckets.length == 0) {
         // All done
         break;
@@ -525,17 +533,26 @@ export class MongoCompactor {
    * set estimate_since_compact.count: 0 when done, before fetching the next batch.
    */
   private async dirtyBucketBatch(options: {
+    sqlSyncRules: SqlSyncRules;
     minBucketChanges: number;
     exclude?: string[];
-  }): Promise<{ bucket: string; estimatedCount: number; source: BucketDataSource }[]> {
+  }): Promise<{ def: number; bucket: string; estimatedCount: number; source: BucketDataSource }[]> {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
+
+    const mapping = this.storage.sync_rules.mapping;
+    let definitions = new Map<number, BucketDataSource>();
+    for (let source of options.sqlSyncRules.bucketDataSources) {
+      const id = mapping.bucketSourceId(source);
+      definitions.set(id, source);
+    }
+
     // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
     const dirtyBuckets = await this.db.bucket_state
       .find(
         {
-          '_id.g': this.group_id,
+          '_id.g': { $in: [...definitions.keys()] },
           'estimate_since_compact.count': { $gte: options.minBucketChanges },
           '_id.b': { $nin: options.exclude ?? [] }
         },
@@ -555,13 +572,16 @@ export class MongoCompactor {
       .toArray();
 
     return dirtyBuckets.map((bucket) => ({
+      def: bucket._id.g,
       bucket: bucket._id.b,
       estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0),
-      source: null as any // FIXME: Implement this
+      source: definitions.get(bucket._id.g)!
     }));
   }
 
   private async updateChecksumsBatch(buckets: BucketChecksumRequest[]) {
+    const sourceMap = new Map<string, BucketDataSource>(buckets.map((b) => [b.bucket, b.source]));
+
     const checksums = await this.storage.checksums.computePartialChecksumsDirect(
       buckets.map((bucket) => {
         return {
@@ -573,6 +593,11 @@ export class MongoCompactor {
     );
 
     for (let bucketChecksum of checksums.values()) {
+      const source = sourceMap.get(bucketChecksum.bucket);
+      if (!source) {
+        throw new ServiceAssertionError(`Unknown source for bucket ${bucketChecksum.bucket}`);
+      }
+      const sourceId = this.storage.sync_rules.mapping.bucketSourceId(source);
       if (isPartialChecksum(bucketChecksum)) {
         // Should never happen since we don't specify `start`
         throw new ServiceAssertionError(`Full checksum expected, got ${JSON.stringify(bucketChecksum)}`);
@@ -582,7 +607,7 @@ export class MongoCompactor {
         updateOne: {
           filter: {
             _id: {
-              g: this.group_id,
+              g: sourceId,
               b: bucketChecksum.bucket
             }
           },

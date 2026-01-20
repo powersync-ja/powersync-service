@@ -1,5 +1,5 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDataSource, ParameterIndexLookupCreator } from '@powersync/service-sync-rules';
+import { BucketDataSource, ParameterIndexLookupCreator, SqlSyncRules } from '@powersync/service-sync-rules';
 import { SyncRuleDocument } from './models.js';
 
 export class BucketDefinitionMapping {

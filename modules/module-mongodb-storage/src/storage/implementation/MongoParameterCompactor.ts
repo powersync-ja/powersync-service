@@ -4,6 +4,7 @@ import { LRUCache } from 'lru-cache';
 import { PowerSyncMongo } from './db.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketParameterDocument } from './models.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).

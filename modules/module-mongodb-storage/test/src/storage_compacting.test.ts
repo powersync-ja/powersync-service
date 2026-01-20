@@ -6,36 +6,41 @@ import { storage, SyncRulesBucketStorage } from '@powersync/service-core';
 describe('Mongo Sync Bucket Storage Compact', () => {
   register.registerCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
-
   describe('with blank bucket_state', () => {
     // This can happen when migrating from older service versions, that did not populate bucket_state yet.
-    const populate = async (bucketStorage: SyncRulesBucketStorage) => {
-      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-        await batch.markAllSnapshotDone('1/1');
+    const populate = async (bucketStorage: SyncRulesBucketStorage, sourceTableIndex: number) => {
+      await using writer = await bucketStorage.factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
 
-        await batch.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 't1',
-            owner_id: 'u1'
-          },
-          afterReplicaId: test_utils.rid('t1')
-        });
+      const sourceTable = await test_utils.resolveTestTable(
+        writer,
+        'test',
+        ['id'],
+        INITIALIZED_MONGO_STORAGE_FACTORY,
+        sourceTableIndex
+      );
+      await writer.markAllSnapshotDone('1/1');
 
-        await batch.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 't2',
-            owner_id: 'u2'
-          },
-          afterReplicaId: test_utils.rid('t2')
-        });
-
-        await batch.commit('1/1');
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't1',
+          owner_id: 'u1'
+        },
+        afterReplicaId: test_utils.rid('t1')
       });
+
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't2',
+          owner_id: 'u2'
+        },
+        afterReplicaId: test_utils.rid('t2')
+      });
+
+      await writer.commitAll('1/1');
 
       return bucketStorage.getCheckpoint();
     };
@@ -51,7 +56,7 @@ bucket_definitions:
     `
       });
       const bucketStorage = factory.getInstance(syncRules);
-      const { checkpoint } = await populate(bucketStorage);
+      const { checkpoint } = await populate(bucketStorage, 1);
 
       return { bucketStorage, checkpoint, factory, syncRules };
     };
@@ -91,7 +96,7 @@ bucket_definitions:
       // Populate old sync rules version
       const { factory } = await setup();
 
-      // Not populate another version (bucket definition name changed)
+      // Now populate another version (bucket definition name changed)
       const syncRules = await factory.updateSyncRules({
         content: `
 bucket_definitions:
@@ -102,7 +107,7 @@ bucket_definitions:
       });
       const bucketStorage = factory.getInstance(syncRules);
 
-      await populate(bucketStorage);
+      await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
 
       // Default is to small small numbers - should be a no-op
