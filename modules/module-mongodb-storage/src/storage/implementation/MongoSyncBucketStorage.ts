@@ -918,7 +918,10 @@ export class MongoSyncBucketStorage
       .find(
         {
           // We have an index on (_id.g, last_op).
-          '_id.g': this.group_id,
+          // We cannot do a plain filter this on _id.g anymore, since that depends on the bucket definition.
+          // For now we leave out the filter. But we may need to either:
+          //  1. Add a new index purely on last_op, or
+          //  2. Use an $in on all relevant _id.g values (from the sync rules mapping).
           last_op: { $gt: options.lastCheckpoint.checkpoint }
         },
         {
