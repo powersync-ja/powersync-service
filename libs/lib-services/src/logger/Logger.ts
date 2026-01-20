@@ -19,7 +19,7 @@ export namespace LogFormat {
   export const production = winston.format.combine(prefixFormat(), winston.format.timestamp(), winston.format.json());
 }
 
-const LOG_LEVEL = process.env.LOG_LEVEL ?? 'info';
+const LOG_LEVEL = process.env.PS_LOG_LEVEL ?? 'info';
 
 export const logger = winston.createLogger();
 
