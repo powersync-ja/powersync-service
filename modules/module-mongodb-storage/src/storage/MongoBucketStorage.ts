@@ -90,7 +90,8 @@ export class MongoBucketStorage
       rowProcessor: mergedProcessor,
       skipExistingRows: options.skipExistingRows ?? false,
       slotName: '',
-      storeCurrentData: options.storeCurrentData
+      storeCurrentData: options.storeCurrentData,
+      logger: options.logger
     });
 
     for (let storage of mongoStorages) {

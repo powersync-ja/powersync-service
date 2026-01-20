@@ -131,7 +131,9 @@ export class SourceTable implements SourceEntityDescriptor {
       name: this.name,
       replicaIdColumns: this.replicaIdColumns,
       snapshotComplete: this.snapshotComplete,
-      pattern: this.pattern
+      pattern: this.pattern,
+      bucketDataSourceIds: this.bucketDataSourceIds,
+      parameterLookupSourceIds: this.parameterLookupSourceIds
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
