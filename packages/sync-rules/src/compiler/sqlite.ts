@@ -20,6 +20,7 @@ import {
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
 import { BaseSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
+import { SqlScope } from './scope.js';
 
 export interface ResolvedSubqueryExpression {
   filters: SqlExpression<ExpressionInput>[];
@@ -48,6 +49,7 @@ export interface PreparedSubquery {
 
 export interface PostgresToSqliteOptions {
   readonly originalText: string;
+  readonly scope: SqlScope;
   readonly errors: ParsingErrorListener;
   readonly locations: NodeLocations;
 
@@ -345,6 +347,14 @@ export class PostgresToSqlite {
     } else if (right.type == 'call' && right.function.name.toLowerCase() == 'row') {
       return this.desugarInValues(negated, expr.left, right.args);
     } else {
+      if (right.type == 'ref' && right.table == null) {
+        const cte = this.options.scope.resolveCommonTableExpression(right.name);
+        if (cte) {
+          // Something of the form x IN $cte.
+          return this.desugarInCte(negated, expr, right.name, cte);
+        }
+      }
+
       return this.desugarInScalar(negated, expr, right);
     }
   }
@@ -400,6 +410,28 @@ export class PostgresToSqlite {
       type: 'select',
       columns: [{ expr: { type: 'ref', name: 'value', table: { name } } }],
       from: [{ type: 'call', function: { name: 'json_each' }, args: [right], alias: { name } }]
+    });
+  }
+
+  /**
+   * Desugar `$left IN cteName` to `$left IN (SELECT cteName.onlyColumn FROM cteName)`.
+   */
+  private desugarInCte(
+    negated: boolean,
+    binary: ExprBinary,
+    cteName: string,
+    cte: PreparedSubquery
+  ): SqlExpression<ExpressionInput> {
+    const columns = Object.keys(cte.resultColumns);
+    if (columns.length != 1) {
+      return this.invalidExpression(binary.right, 'Common-table expression must return a single column');
+    }
+
+    const name = columns[0];
+    return this.desugarInSubquery(negated, binary, {
+      type: 'select',
+      columns: [{ expr: { type: 'ref', name, table: { name: cteName } } }],
+      from: [{ type: 'table', name: { name: cteName } }]
     });
   }
 

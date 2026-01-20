@@ -44,11 +44,11 @@ export class SqlScope {
   }
 
   registerCommonTableExpression(name: string, subquery: PreparedSubquery) {
-    this.commonTableExpressions.set(name, subquery);
+    this.commonTableExpressions.set(name.toLowerCase(), subquery);
   }
 
   resolveCommonTableExpression(name: string): PreparedSubquery | null {
-    const inThisScope = this.commonTableExpressions.get(name);
+    const inThisScope = this.commonTableExpressions.get(name.toLowerCase());
     if (inThisScope) {
       return inThisScope;
     }

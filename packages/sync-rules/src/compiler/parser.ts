@@ -119,6 +119,7 @@ export class StreamQueryParser {
       originalText: this.originalText,
       errors: this.errors,
       locations: this.nodeLocations,
+      scope: this.statementScope,
       resolveTableName: this.resolveTableName.bind(this),
       generateTableAlias: () => {
         const counter = this.syntheticSubqueryCounter++;
@@ -294,8 +295,8 @@ export class StreamQueryParser {
       }
     } else if (from.type == 'call') {
       const source = new SyntacticResultSetSource(from, from.alias?.name ?? null);
-      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       this.resultSets.set(source, this.resolveTableValued(from, source));
+      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
     } else if (from.type == 'statement') {
       const source = new SyntacticResultSetSource(from, from.alias);
 
