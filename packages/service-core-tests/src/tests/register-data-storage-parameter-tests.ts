@@ -16,8 +16,7 @@ import * as test_utils from '../test-utils/test-utils-index.js';
  */
 export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
-  const MYBUCKET_1: ParameterLookupScope = { lookupName: 'mybucket', queryId: '1', source: null as any };
+  const MYBUCKET_1: ParameterLookupScope = { lookupName: '20002', queryId: '', source: null as any };
 
   test('save and load parameters', async () => {
     await using factory = await generateStorageFactory();
@@ -31,36 +30,43 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
+    const MYBUCKET_1: ParameterLookupScope = { lookupName: '20002', queryId: '', source: null as any };
+    // We could get the scope automatically like this:
+    // const parsed = syncRules.parsed(test_utils.PARSE_OPTIONS);
+    // const hydrated = parsed.hydratedSyncRules();
+    // const parameterSource = hydrated.definition.bucketParameterLookupSources[0];
+    // const parameterLookupScope = parsed.hydrationState.getParameterIndexLookupScope(parameterSource);
 
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't2',
-          id1: 'user3',
-          id2: 'user4',
-          group_id: 'group2a'
-        },
-        afterReplicaId: test_utils.rid('t2')
-      });
+    await writer.markAllSnapshotDone('1/1');
 
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1',
-          id1: 'user1',
-          id2: 'user2',
-          group_id: 'group1a'
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
-
-      await batch.commit('1/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't2',
+        id1: 'user3',
+        id2: 'user4',
+        group_id: 'group2a'
+      },
+      afterReplicaId: test_utils.rid('t2')
     });
+
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1',
+        id1: 'user1',
+        id2: 'user2',
+        group_id: 'group1a'
+      },
+      afterReplicaId: test_utils.rid('t1')
+    });
+
+    await writer.commitAll('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
@@ -83,33 +89,31 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'user1',
-          group_id: 'group1'
-        },
-        afterReplicaId: test_utils.rid('user1')
-      });
-      await batch.commit('1/1');
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'user1',
+        group_id: 'group1'
+      },
+      afterReplicaId: test_utils.rid('user1')
     });
+    await writer.commitAll('1/1');
     const checkpoint1 = await bucketStorage.getCheckpoint();
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'user1',
-          group_id: 'group2'
-        },
-        afterReplicaId: test_utils.rid('user1')
-      });
-      await batch.commit('1/2');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'user1',
+        group_id: 'group2'
+      },
+      afterReplicaId: test_utils.rid('user1')
     });
+    await writer.commitAll('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
 
     const parameters = await checkpoint2.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
@@ -143,47 +147,44 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
 
-    const table = test_utils.makeTestTable('todos', ['id', 'list_id'], config);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const table = await test_utils.resolveTestTable(writer, 'todos', ['id', 'list_id'], config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      // Create two todos which initially belong to different lists
-      await batch.save({
-        sourceTable: table,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'todo1',
-          list_id: 'list1'
-        },
-        afterReplicaId: test_utils.rid('todo1')
-      });
-      await batch.save({
-        sourceTable: table,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'todo2',
-          list_id: 'list2'
-        },
-        afterReplicaId: test_utils.rid('todo2')
-      });
-
-      await batch.commit('1/1');
+    await writer.markAllSnapshotDone('1/1');
+    // Create two todos which initially belong to different lists
+    await writer.save({
+      sourceTable: table,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'todo1',
+        list_id: 'list1'
+      },
+      afterReplicaId: test_utils.rid('todo1')
+    });
+    await writer.save({
+      sourceTable: table,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'todo2',
+        list_id: 'list2'
+      },
+      afterReplicaId: test_utils.rid('todo2')
     });
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      // Update the second todo item to now belong to list 1
-      await batch.save({
-        sourceTable: table,
-        tag: storage.SaveOperationTag.UPDATE,
-        after: {
-          id: 'todo2',
-          list_id: 'list1'
-        },
-        afterReplicaId: test_utils.rid('todo2')
-      });
+    await writer.commitAll('1/1');
 
-      await batch.commit('1/1');
+    // Update the second todo item to now belong to list 1
+    await writer.save({
+      sourceTable: table,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 'todo2',
+        list_id: 'list1'
+      },
+      afterReplicaId: test_utils.rid('todo2')
     });
+
+    await writer.commitAll('1/1');
 
     // We specifically request the todo_ids for both lists.
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
@@ -216,24 +217,24 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1',
-          group_id: 'group1',
-          n1: 314n,
-          f2: 314,
-          f3: 3.14
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
-
-      await batch.commit('1/1');
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1',
+        group_id: 'group1',
+        n1: 314n,
+        f2: 314,
+        f3: 3.14
+      },
+      afterReplicaId: test_utils.rid('t1')
     });
+
+    await writer.commitAll('1/1');
 
     const TEST_PARAMS = { group_id: 'group1' };
 
@@ -267,35 +268,35 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1',
-          group_id: 'group1',
-          n1: 1152921504606846976n // 2^60
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
-
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.UPDATE,
-        after: {
-          id: 't1',
-          group_id: 'group1',
-          // Simulate a TOAST value, even though it can't happen for values like this
-          // in practice.
-          n1: undefined
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
-
-      await batch.commit('1/1');
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1',
+        group_id: 'group1',
+        n1: 1152921504606846976n // 2^60
+      },
+      afterReplicaId: test_utils.rid('t1')
     });
+
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 't1',
+        group_id: 'group1',
+        // Simulate a TOAST value, even though it can't happen for values like this
+        // in practice.
+        n1: undefined
+      },
+      afterReplicaId: test_utils.rid('t1')
+    });
+
+    await writer.commitAll('1/1');
 
     const TEST_PARAMS = { group_id: 'group1' };
 
@@ -308,8 +309,6 @@ bucket_definitions:
   });
 
   test('save and load parameters with workspaceId', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', ['id'], config);
-
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
       content: `
@@ -323,20 +322,20 @@ bucket_definitions:
     });
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', ['id'], config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace1',
-          userId: 'u1'
-        },
-        afterReplicaId: test_utils.rid('workspace1')
-      });
-      await batch.commit('1/1');
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace1',
+        userId: 'u1'
+      },
+      afterReplicaId: test_utils.rid('workspace1')
     });
+    await writer.commitAll('1/1');
     const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
@@ -345,7 +344,7 @@ bucket_definitions:
 
     const lookups = querier.parameterQueryLookups;
     expect(lookups).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1', source: null as any }, ['u1'])
+      ScopedParameterLookup.direct({ lookupName: '20002', queryId: '', source: null as any }, ['u1'])
     ]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
@@ -356,14 +355,12 @@ bucket_definitions:
         return checkpoint.getParameterSets(lookups);
       }
     });
-    expect(buckets).toEqual([
-      { bucket: 'by_workspace["workspace1"]', priority: 3, definition: 'by_workspace', inclusion_reasons: ['default'] }
+    expect(buckets.map(test_utils.removeSourceSymbol)).toEqual([
+      { bucket: '10002["workspace1"]', priority: 3, definition: 'by_workspace', inclusion_reasons: ['default'] }
     ]);
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
-
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
       content: `
@@ -377,41 +374,41 @@ bucket_definitions:
     });
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace1',
-          visibility: 'public'
-        },
-        afterReplicaId: test_utils.rid('workspace1')
-      });
-
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace2',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace2')
-      });
-
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace3',
-          visibility: 'public'
-        },
-        afterReplicaId: test_utils.rid('workspace3')
-      });
-
-      await batch.commit('1/1');
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace1',
+        visibility: 'public'
+      },
+      afterReplicaId: test_utils.rid('workspace1')
     });
+
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace2',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace2')
+    });
+
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace3',
+        visibility: 'public'
+      },
+      afterReplicaId: test_utils.rid('workspace3')
+    });
+
+    await writer.commitAll('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
@@ -421,7 +418,7 @@ bucket_definitions:
 
     const lookups = querier.parameterQueryLookups;
     expect(lookups).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'by_public_workspace', queryId: '1', source: null as any }, [])
+      ScopedParameterLookup.direct({ lookupName: '20002', queryId: '', source: null as any }, [])
     ]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
@@ -434,15 +431,15 @@ bucket_definitions:
       }
     });
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
-    expect(buckets).toEqual([
+    expect(buckets.map(test_utils.removeSourceSymbol)).toEqual([
       {
-        bucket: 'by_public_workspace["workspace1"]',
+        bucket: '10002["workspace1"]',
         priority: 3,
         definition: 'by_public_workspace',
         inclusion_reasons: ['default']
       },
       {
-        bucket: 'by_public_workspace["workspace3"]',
+        bucket: '10002["workspace3"]',
         priority: 3,
         definition: 'by_public_workspace',
         inclusion_reasons: ['default']
@@ -451,8 +448,6 @@ bucket_definitions:
   });
 
   test('multiple parameter queries', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
-
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
       content: `
@@ -468,53 +463,53 @@ bucket_definitions:
     });
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace1',
-          visibility: 'public'
-        },
-        afterReplicaId: test_utils.rid('workspace1')
-      });
-
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace2',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace2')
-      });
-
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace3',
-          user_id: 'u1',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace3')
-      });
-
-      await batch.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace4',
-          user_id: 'u2',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace4')
-      });
-
-      await batch.commit('1/1');
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace1',
+        visibility: 'public'
+      },
+      afterReplicaId: test_utils.rid('workspace1')
     });
+
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace2',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace2')
+    });
+
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace3',
+        user_id: 'u1',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace3')
+    });
+
+    await writer.save({
+      sourceTable: workspaceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace4',
+        user_id: 'u2',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace4')
+    });
+
+    await writer.commitAll('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
@@ -525,8 +520,8 @@ bucket_definitions:
 
     const lookups = querier.parameterQueryLookups;
     expect(lookups).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1', source: null as any }, []),
-      ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '2', source: null as any }, ['u1'])
+      ScopedParameterLookup.direct({ lookupName: '20003', queryId: '', source: null as any }, []),
+      ScopedParameterLookup.direct({ lookupName: '20004', queryId: '', source: null as any }, ['u1'])
     ]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
@@ -542,7 +537,7 @@ bucket_definitions:
       })
     ).map((e) => e.bucket);
     buckets.sort();
-    expect(buckets).toEqual(['by_workspace["workspace1"]', 'by_workspace["workspace3"]']);
+    expect(buckets).toEqual(['10003["workspace1"]', '10003["workspace3"]']);
   });
 
   test('truncate parameters', async () => {
@@ -557,23 +552,24 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't2',
-          id1: 'user3',
-          id2: 'user4',
-          group_id: 'group2a'
-        },
-        afterReplicaId: test_utils.rid('t2')
-      });
-
-      await batch.truncate([TEST_TABLE]);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't2',
+        id1: 'user3',
+        id2: 'user4',
+        group_id: 'group2a'
+      },
+      afterReplicaId: test_utils.rid('t2')
     });
+
+    await writer.truncate([testTable]);
+    await writer.flush();
 
     const checkpoint = await bucketStorage.getCheckpoint();
 

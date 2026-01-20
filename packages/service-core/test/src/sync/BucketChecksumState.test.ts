@@ -17,12 +17,12 @@ import {
   DEFAULT_HYDRATION_STATE,
   RequestJwtPayload,
   ScopedParameterLookup,
-  SOURCE,
   SqliteJsonRow,
-  SqlSyncRules
+  SqlSyncRules,
+  versionedHydrationState
 } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
+import { removeSource, removeSourceSymbol } from '../utils.js';
 
 describe('BucketChecksumState', () => {
   // Single global[] bucket.
@@ -891,24 +891,4 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
       }
     };
   }
-}
-
-/**
- * Removes the source property from an object.
- *
- * This is for tests where we don't care about this value, and it adds a lot of noise in the output.
- */
-export function removeSource<T extends { source?: any }>(obj: T): Omit<T, 'source'> {
-  const { source, ...rest } = obj;
-  return rest;
-}
-
-/**
- * Removes the [SOURCE] symbol property from an object.
- *
- * This is for tests where we don't care about this value, and it adds a lot of noise in the output.
- */
-export function removeSourceSymbol<T extends { [SOURCE]: any }>(obj: T): Omit<T, typeof SOURCE> {
-  const { [SOURCE]: source, ...rest } = obj;
-  return rest;
 }

@@ -3,7 +3,7 @@ import { addChecksums, BucketChecksum, InternalOpId, PartialChecksum } from '@/u
 import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as crypto from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { removeSource } from './sync/BucketChecksumState.test.js';
+import { removeSource } from './utils.js';
 
 /**
  * Create a deterministic BucketChecksum based on the bucket name and checkpoint for testing purposes.
