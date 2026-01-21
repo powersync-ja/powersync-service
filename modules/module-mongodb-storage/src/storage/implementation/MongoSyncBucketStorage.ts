@@ -174,21 +174,6 @@ export class MongoSyncBucketStorage
     return writer.subWriters[0];
   }
 
-  async startBatch(
-    options: storage.StartBatchOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
-    await using batch = await this.createWriter(options);
-
-    await callback(batch);
-    await batch.flush();
-    if (batch.last_flushed_op != null) {
-      return { flushed_op: batch.last_flushed_op };
-    } else {
-      return null;
-    }
-  }
-
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     throw new Error('Method deprecated and not implemented.');
   }

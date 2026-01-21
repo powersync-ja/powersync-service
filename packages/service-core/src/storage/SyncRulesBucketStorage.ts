@@ -27,22 +27,12 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
 
   /**
-   * Use this to get access to update storage data.
-   *
-   * @deprecated Use `createWriter` instead.
-   */
-  startBatch(
-    options: StartBatchOptions,
-    callback: (batch: BucketStorageBatch) => Promise<void>
-  ): Promise<FlushedResult | null>;
-
-  /**
    * @deprecated use `createWriter()` instead, with its `resolveTables` method.
    */
   resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
 
   /**
-   * Create a new writer - an alternative to `startBatch`.
+   * Create a new writer.
    *
    * The writer is stateful. It is not safe to use the same writer concurrently from multiple places,
    * but different writers can be used concurrently.

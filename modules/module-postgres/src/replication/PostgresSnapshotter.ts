@@ -380,20 +380,17 @@ export class PostgresSnapshotter {
     const db = await this.connections.snapshotConnection();
     await using _ = { [Symbol.asyncDispose]: () => db.end() };
 
-    const flushResults = await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: ZERO_LSN,
-        defaultSchema: POSTGRES_DEFAULT_SCHEMA,
-        storeCurrentData: true,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-        const globalLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
-        await batch.markAllSnapshotDone(globalLsnNotBefore);
-      }
-    );
+    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      logger: this.logger,
+      zeroLSN: ZERO_LSN,
+      defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+      storeCurrentData: true
+    });
+
+    const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+    const globalLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
+    await writer.markAllSnapshotDone(globalLsnNotBefore);
+
     /**
      * Send a keepalive message after initial replication.
      * In some edge cases we wait for a keepalive after the initial snapshot.
@@ -404,16 +401,17 @@ export class PostgresSnapshotter {
      */
     await sendKeepAlive(db);
 
-    const lastOp = flushResults?.flushed_op;
-    if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
-      // TODO: only run this after initial replication, not after each table.
-      await this.storage.populatePersistentChecksumCache({
-        // No checkpoint yet, but we do have the opId.
-        maxOpId: lastOp,
-        signal: this.abortSignal
-      });
-    }
+    // FIXME: Implement this again
+    // const lastOp = flushResults?.flushed_op;
+    // if (lastOp != null) {
+    //   // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+    //   // TODO: only run this after initial replication, not after each table.
+    //   await this.storage.populatePersistentChecksumCache({
+    //     // No checkpoint yet, but we do have the opId.
+    //     maxOpId: lastOp,
+    //     signal: this.abortSignal
+    //   });
+    // }
   }
 
   /**
