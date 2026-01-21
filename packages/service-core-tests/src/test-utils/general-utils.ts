@@ -21,49 +21,6 @@ export const BATCH_OPTIONS: storage.StartBatchOptions = {
   storeCurrentData: true
 };
 
-export function testRules(content: string): storage.PersistedSyncRulesContent {
-  return {
-    id: 1,
-    sync_rules_content: content,
-    slot_name: 'test',
-    active: true,
-    last_checkpoint_lsn: '',
-    parsed(options) {
-      return {
-        id: 1,
-        sync_rules: SqlSyncRules.fromYaml(content, options),
-        slot_name: 'test',
-        hydratedSyncRules() {
-          return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(1) });
-        },
-        hydrationState: versionedHydrationState(1)
-      };
-    },
-    lock() {
-      throw new Error('Not implemented');
-    }
-  };
-}
-
-export function makeTestTable(
-  name: string,
-  replicaIdColumns: string[] | undefined,
-  options: { tableIdStrings: boolean }
-) {
-  const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  const id =
-    options.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
-  return new storage.SourceTable({
-    id: id,
-    connectionTag: storage.SourceTable.DEFAULT_TAG,
-    objectId: relId,
-    schema: 'public',
-    name: name,
-    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
-    snapshotComplete: true
-  });
-}
-
 export async function resolveTestTable(
   writer: storage.BucketDataWriter,
   name: string,
@@ -72,6 +29,8 @@ export async function resolveTestTable(
   idIndex: number = 1
 ) {
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
+  // Semi-hardcoded id for tests, to get consistent output.
+  // If the same test uses multiple tables, pass idIndex to get different ids.
   const idString = '6544e3899293153fa7b383' + (30 + idIndex).toString().padStart(2, '0');
 
   const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;

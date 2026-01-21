@@ -24,70 +24,70 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await POSTGRES_STORAGE_FACTORY.factory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
     bucket_definitions:
       global:
         data:
           - SELECT id, description FROM "%"
     `
-    );
-    await using factory = await POSTGRES_STORAGE_FACTORY.factory();
-    const bucketStorage = factory.getInstance(sync_rules);
-
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      const sourceTable = test_utils.makeTestTable('test', ['id'], POSTGRES_STORAGE_FACTORY);
-
-      const largeDescription = '0123456789'.repeat(2_000_00);
-
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test1',
-          description: 'test1'
-        },
-        afterReplicaId: test_utils.rid('test1')
-      });
-
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large1',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large1')
-      });
-
-      // Large enough to split the returned batch
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large2',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large2')
-      });
-
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test3',
-          description: 'test3'
-        },
-        afterReplicaId: test_utils.rid('test3')
-      });
     });
+    const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], POSTGRES_STORAGE_FACTORY);
+
+    const largeDescription = '0123456789'.repeat(2_000_00);
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test1',
+        description: 'test1'
+      },
+      afterReplicaId: test_utils.rid('test1')
+    });
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'large1',
+        description: largeDescription
+      },
+      afterReplicaId: test_utils.rid('large1')
+    });
+
+    // Large enough to split the returned batch
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'large2',
+        description: largeDescription
+      },
+      afterReplicaId: test_utils.rid('large2')
+    });
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test3',
+        description: 'test3'
+      },
+      afterReplicaId: test_utils.rid('test3')
+    });
+
+    const result = await writer.flush();
 
     const checkpoint = result!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
 
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(sync_rules, 'global[]', 0n)], options)
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)], options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
@@ -101,7 +101,7 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        [bucketRequest(sync_rules, 'global[]', batch1[0].chunkData.next_after)],
+        [bucketRequest(syncRules, 'global[]', batch1[0].chunkData.next_after)],
         options
       )
     );
@@ -117,7 +117,7 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        [bucketRequest(sync_rules, 'global[]', batch2[0].chunkData.next_after)],
+        [bucketRequest(syncRules, 'global[]', batch2[0].chunkData.next_after)],
         options
       )
     );
@@ -133,7 +133,7 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     const batch4 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        [bucketRequest(sync_rules, 'global[]', batch3[0].chunkData.next_after)],
+        [bucketRequest(syncRules, 'global[]', batch3[0].chunkData.next_after)],
         options
       )
     );
