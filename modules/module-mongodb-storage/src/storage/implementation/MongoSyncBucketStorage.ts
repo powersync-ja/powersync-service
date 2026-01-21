@@ -174,10 +174,6 @@ export class MongoSyncBucketStorage
     return writer.subWriters[0];
   }
 
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    throw new Error('Method deprecated and not implemented.');
-  }
-
   async getParameterSets(
     checkpoint: MongoReplicationCheckpoint,
     lookups: ScopedParameterLookup[]

@@ -27,11 +27,6 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
 
   /**
-   * @deprecated use `createWriter()` instead, with its `resolveTables` method.
-   */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
-
-  /**
    * Create a new writer.
    *
    * The writer is stateful. It is not safe to use the same writer concurrently from multiple places,
