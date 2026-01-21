@@ -212,12 +212,14 @@ export class PostgresWriter implements storage.BucketDataWriter {
     }
   }
 
-  updateTableProgress(
+  async updateTableProgress(
     table: storage.SourceTable,
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
     const writer = this.subWriterForTable(table);
-    return writer.updateTableProgress(table, progress);
+    const updatedTable = await writer.updateTableProgress(table, progress);
+    this.sourceTableMap.set(updatedTable, writer);
+    return updatedTable;
   }
 
   async [Symbol.asyncDispose]() {
