@@ -124,7 +124,7 @@ export class WalStream {
    */
   private isStartingReplication = true;
 
-  constructor(private options: WalStreamOptions) {
+  constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
     this.metrics = options.metrics;

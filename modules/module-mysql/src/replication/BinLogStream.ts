@@ -72,7 +72,7 @@ export class BinLogStream {
 
   private readonly logger: Logger;
 
-  private tableCache = new Map<string | number, storage.SourceTable>();
+  private tableCache = new Map<string | number, storage.SourceTable[]>();
 
   /**
    * Time of the oldest uncommitted change, according to the source db.
@@ -126,58 +126,92 @@ export class BinLogStream {
     return this.connections.databaseName;
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
-    const result = await this.storage.resolveTable({
+  private async handleRelationSetup(
+    writer: storage.BucketDataWriter,
+    entity: storage.SourceEntityDescriptor,
+    pattern: sync_rules.TablePattern
+  ) {
+    const result = await writer.resolveTables({
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: entity,
-      sync_rules: this.syncRules
+      pattern
     });
-    // Since we create the objectId ourselves, this is always defined
-    this.tableCache.set(entity.objectId!, result.table);
 
     // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
-    await batch.drop(result.dropTables);
+    await writer.drop(result.dropTables);
 
-    // Snapshot if:
-    // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
-    // 2. Snapshot is not done yet, AND:
-    // 3. The table is used in sync rules.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
+    return result.tables;
+  }
 
-    if (shouldSnapshot) {
-      // Truncate this table in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
+  async handleChangeRelation(writer: storage.BucketDataWriter, entity: storage.SourceEntityDescriptor) {
+    // In common cases, there would be at most one matching pattern, since patterns
+    // are de-duplicated. However, there may be multiple if:
+    // 1. There is overlap with direct name matching and wildcard matching.
+    // 2. There are multiple patterns with different replication config.
+    const patterns = writer.rowProcessor.getMatchingTablePatterns({
+      connectionTag: this.connections.connectionTag,
+      schema: entity.schema,
+      name: entity.name
+    });
 
-      let gtid: common.ReplicatedGTID;
-      // Start the snapshot inside a transaction.
-      // We use a dedicated connection for this.
-      const connection = await this.connections.getStreamingConnection();
+    let allTables: SourceTable[] = [];
+    for (let pattern of patterns) {
+      const result = await writer.resolveTables({
+        connection_id: this.connectionId,
+        connection_tag: this.connectionTag,
+        entity_descriptor: entity,
+        pattern
+      });
 
-      const promiseConnection = (connection as mysql.Connection).promise();
-      try {
-        await promiseConnection.query(`SET time_zone = '+00:00'`);
-        await promiseConnection.query('START TRANSACTION');
-        try {
-          gtid = await common.readExecutedGtid(promiseConnection);
-          await this.snapshotTable(connection as mysql.Connection, batch, result.table);
-          await promiseConnection.query('COMMIT');
-        } catch (e) {
-          await this.tryRollback(promiseConnection);
-          throw e;
+      // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
+      await writer.drop(result.dropTables);
+
+      for (let table of result.tables) {
+        // Snapshot if:
+        // 1. Snapshot is not done yet, AND:
+        // 2. The table is used in sync rules.
+        const shouldSnapshot = !table.snapshotComplete && table.syncAny;
+
+        if (shouldSnapshot) {
+          // Truncate this table in case a previous snapshot was interrupted.
+          await writer.truncate([table]);
+
+          let gtid: common.ReplicatedGTID;
+          // Start the snapshot inside a transaction.
+          // We use a dedicated connection for this.
+          const connection = await this.connections.getStreamingConnection();
+
+          const promiseConnection = (connection as mysql.Connection).promise();
+          try {
+            await promiseConnection.query(`SET time_zone = '+00:00'`);
+            await promiseConnection.query('START TRANSACTION');
+            try {
+              gtid = await common.readExecutedGtid(promiseConnection);
+              await this.snapshotTable(connection as mysql.Connection, writer, table);
+              await promiseConnection.query('COMMIT');
+            } catch (e) {
+              await this.tryRollback(promiseConnection);
+              throw e;
+            }
+          } finally {
+            connection.release();
+          }
+          const [updatedTable] = await writer.markTableSnapshotDone([table], gtid.comparable);
+          allTables.push(updatedTable);
+        } else {
+          allTables.push(table);
         }
-      } finally {
-        connection.release();
       }
-      const [table] = await batch.markTableSnapshotDone([result.table], gtid.comparable);
-      return table;
     }
 
-    return result.table;
+    // Since we create the objectId ourselves, this is always defined
+    this.tableCache.set(entity.objectId!, allTables);
+    return allTables;
   }
 
   async getQualifiedTableNames(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     tablePattern: sync_rules.TablePattern
   ): Promise<storage.SourceTable[]> {
     if (tablePattern.connectionTag != this.connectionTag) {
@@ -188,24 +222,24 @@ export class BinLogStream {
     const matchedTables: string[] = await common.getTablesFromPattern(connection, tablePattern);
     connection.release();
 
-    const tables: storage.SourceTable[] = [];
+    const allTables: storage.SourceTable[] = [];
     for (const matchedTable of matchedTables) {
       const replicaIdColumns = await this.getReplicaIdColumns(matchedTable, tablePattern.schema);
 
-      const table = await this.handleRelation(
-        batch,
+      const resolvedTables = await this.handleRelationSetup(
+        writer,
         {
           name: matchedTable,
           schema: tablePattern.schema,
           objectId: createTableId(tablePattern.schema, matchedTable),
           replicaIdColumns: replicaIdColumns
         },
-        false
+        tablePattern
       );
 
-      tables.push(table);
+      allTables.push(...resolvedTables);
     }
-    return tables;
+    return allTables;
   }
 
   /**
@@ -262,27 +296,25 @@ export class BinLogStream {
       await promiseConnection.query(`SET time_zone = '+00:00'`);
 
       const sourceTables = this.syncRules.getSourceTables();
-      const flushResults = await this.storage.startBatch(
-        {
-          logger: this.logger,
-          zeroLSN: common.ReplicatedGTID.ZERO.comparable,
-          defaultSchema: this.defaultSchema,
-          storeCurrentData: true
-        },
-        async (batch) => {
-          for (let tablePattern of sourceTables) {
-            const tables = await this.getQualifiedTableNames(batch, tablePattern);
-            for (let table of tables) {
-              await this.snapshotTable(connection as mysql.Connection, batch, table);
-              await batch.markTableSnapshotDone([table], headGTID.comparable);
-              await framework.container.probes.touch();
-            }
-          }
-          const snapshotDoneGtid = await common.readExecutedGtid(promiseConnection);
-          await batch.markAllSnapshotDone(snapshotDoneGtid.comparable);
-          await batch.commit(headGTID.comparable);
+      await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+        logger: this.logger,
+        zeroLSN: common.ReplicatedGTID.ZERO.comparable,
+        defaultSchema: this.defaultSchema,
+        storeCurrentData: true
+      });
+      for (let tablePattern of sourceTables) {
+        const tables = await this.getQualifiedTableNames(writer, tablePattern);
+        for (let table of tables) {
+          await this.snapshotTable(connection as mysql.Connection, writer, table);
+          await writer.markTableSnapshotDone([table], headGTID.comparable);
+          await framework.container.probes.touch();
         }
-      );
+      }
+      const snapshotDoneGtid = await common.readExecutedGtid(promiseConnection);
+      await writer.markAllSnapshotDone(snapshotDoneGtid.comparable);
+      const flushResults = await writer.flush();
+      await writer.commitAll(headGTID.comparable);
+
       lastOp = flushResults?.flushed_op ?? null;
       this.logger.info(`Initial replication done`);
       await promiseConnection.query('COMMIT');
@@ -305,7 +337,7 @@ export class BinLogStream {
 
   private async snapshotTable(
     connection: mysql.Connection,
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     table: storage.SourceTable
   ) {
     this.logger.info(`Replicating ${qualifiedMySQLTable(table)}`);
@@ -334,7 +366,7 @@ export class BinLogStream {
       }
 
       const record = this.toSQLiteRow(row, columns!);
-      await batch.save({
+      await writer.save({
         tag: storage.SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
@@ -345,7 +377,7 @@ export class BinLogStream {
 
       this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     }
-    await batch.flush();
+    await writer.flush();
   }
 
   async replicate() {
@@ -377,30 +409,26 @@ export class BinLogStream {
       // We need to find the existing tables, to populate our table cache.
       // This is needed for includeSchema to work correctly.
       const sourceTables = this.syncRules.getSourceTables();
-      await this.storage.startBatch(
-        {
-          logger: this.logger,
-          zeroLSN: common.ReplicatedGTID.ZERO.comparable,
-          defaultSchema: this.defaultSchema,
-          storeCurrentData: true
-        },
-        async (batch) => {
-          for (let tablePattern of sourceTables) {
-            await this.getQualifiedTableNames(batch, tablePattern);
-          }
-        }
-      );
+      await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+        logger: this.logger,
+        zeroLSN: common.ReplicatedGTID.ZERO.comparable,
+        defaultSchema: this.defaultSchema,
+        storeCurrentData: true
+      });
+      for (let tablePattern of sourceTables) {
+        await this.getQualifiedTableNames(writer, tablePattern);
+      }
     }
   }
 
-  private getTable(tableId: string): storage.SourceTable {
-    const table = this.tableCache.get(tableId);
-    if (table == null) {
+  private getTables(tableId: string): storage.SourceTable[] {
+    const tables = this.tableCache.get(tableId);
+    if (tables == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
       throw new ReplicationAssertionError(`Missing relation cache for ${tableId}`);
     }
-    return table;
+    return tables;
   }
 
   async streamChanges() {
@@ -417,38 +445,39 @@ export class BinLogStream {
     connection.release();
 
     if (!this.stopped) {
-      await this.storage.startBatch(
-        { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
-        async (batch) => {
-          const binlogEventHandler = this.createBinlogEventHandler(batch);
-          const binlogListener = new BinLogListener({
-            logger: this.logger,
-            sourceTables: this.syncRules.getSourceTables(),
-            startGTID: fromGTID,
-            connectionManager: this.connections,
-            serverId: serverId,
-            eventHandler: binlogEventHandler
-          });
+      await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+        zeroLSN: common.ReplicatedGTID.ZERO.comparable,
+        defaultSchema: this.defaultSchema,
+        storeCurrentData: true
+      });
 
-          this.abortSignal.addEventListener(
-            'abort',
-            async () => {
-              await binlogListener.stop();
-            },
-            { once: true }
-          );
+      const binlogEventHandler = this.createBinlogEventHandler(writer);
+      const binlogListener = new BinLogListener({
+        logger: this.logger,
+        sourceTables: this.syncRules.getSourceTables(),
+        startGTID: fromGTID,
+        connectionManager: this.connections,
+        serverId: serverId,
+        eventHandler: binlogEventHandler
+      });
 
-          await binlogListener.start();
-          await binlogListener.replicateUntilStopped();
-        }
+      this.abortSignal.addEventListener(
+        'abort',
+        async () => {
+          await binlogListener.stop();
+        },
+        { once: true }
       );
+
+      await binlogListener.start();
+      await binlogListener.replicateUntilStopped();
     }
   }
 
-  private createBinlogEventHandler(batch: storage.BucketStorageBatch): BinLogEventHandler {
+  private createBinlogEventHandler(writer: storage.BucketDataWriter): BinLogEventHandler {
     return {
       onWrite: async (rows: Row[], tableMap: TableMapEntry) => {
-        await this.writeChanges(batch, {
+        await this.writeChanges(writer, {
           type: storage.SaveOperationTag.INSERT,
           rows: rows,
           tableEntry: tableMap
@@ -456,7 +485,7 @@ export class BinLogStream {
       },
 
       onUpdate: async (rowsAfter: Row[], rowsBefore: Row[], tableMap: TableMapEntry) => {
-        await this.writeChanges(batch, {
+        await this.writeChanges(writer, {
           type: storage.SaveOperationTag.UPDATE,
           rows: rowsAfter,
           rows_before: rowsBefore,
@@ -464,21 +493,21 @@ export class BinLogStream {
         });
       },
       onDelete: async (rows: Row[], tableMap: TableMapEntry) => {
-        await this.writeChanges(batch, {
+        await this.writeChanges(writer, {
           type: storage.SaveOperationTag.DELETE,
           rows: rows,
           tableEntry: tableMap
         });
       },
       onKeepAlive: async (lsn: string) => {
-        const didCommit = await batch.keepalive(lsn);
+        const didCommit = await writer.keepaliveAll(lsn);
         if (didCommit) {
           this.oldestUncommittedChange = null;
         }
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-        const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+        const didCommit = await writer.commitAll(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
         if (didCommit) {
           this.oldestUncommittedChange = null;
           this.isStartingReplication = false;
@@ -493,41 +522,42 @@ export class BinLogStream {
         this.isStartingReplication = false;
       },
       onSchemaChange: async (change: SchemaChange) => {
-        await this.handleSchemaChange(batch, change);
+        await this.handleSchemaChange(writer, change);
       }
     };
   }
 
-  private async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
+  private async handleSchemaChange(writer: storage.BucketDataWriter, change: SchemaChange): Promise<void> {
     if (change.type === SchemaChangeType.RENAME_TABLE) {
       const fromTableId = createTableId(change.schema, change.table);
 
-      const fromTable = this.tableCache.get(fromTableId);
+      const fromTables = this.tableCache.get(fromTableId);
       // Old table needs to be cleaned up
-      if (fromTable) {
-        await batch.drop([fromTable]);
+      if (fromTables != null) {
+        await writer.drop(fromTables);
         this.tableCache.delete(fromTableId);
       }
+
       // The new table matched a table in the sync rules
       if (change.newTable) {
-        await this.handleCreateOrUpdateTable(batch, change.newTable!, change.schema);
+        await this.handleCreateOrUpdateTable(writer, change.newTable!, change.schema);
       }
     } else {
       const tableId = createTableId(change.schema, change.table);
 
-      const table = this.getTable(tableId);
+      const tables = this.getTables(tableId);
 
       switch (change.type) {
         case SchemaChangeType.ALTER_TABLE_COLUMN:
         case SchemaChangeType.REPLICATION_IDENTITY:
           // For these changes, we need to update the table if the replication identity columns have changed.
-          await this.handleCreateOrUpdateTable(batch, change.table, change.schema);
+          await this.handleCreateOrUpdateTable(writer, change.table, change.schema);
           break;
         case SchemaChangeType.TRUNCATE_TABLE:
-          await batch.truncate([table]);
+          await writer.truncate(tables);
           break;
         case SchemaChangeType.DROP_TABLE:
-          await batch.drop([table]);
+          await writer.drop(tables);
           this.tableCache.delete(tableId);
           break;
         default:
@@ -550,25 +580,21 @@ export class BinLogStream {
   }
 
   private async handleCreateOrUpdateTable(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     tableName: string,
     schema: string
-  ): Promise<SourceTable> {
+  ): Promise<SourceTable[]> {
     const replicaIdColumns = await this.getReplicaIdColumns(tableName, schema);
-    return await this.handleRelation(
-      batch,
-      {
-        name: tableName,
-        schema: schema,
-        objectId: createTableId(schema, tableName),
-        replicaIdColumns: replicaIdColumns
-      },
-      true
-    );
+    return await this.handleChangeRelation(writer, {
+      name: tableName,
+      schema: schema,
+      objectId: createTableId(schema, tableName),
+      replicaIdColumns: replicaIdColumns
+    });
   }
 
   private async writeChanges(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     msg: {
       type: storage.SaveOperationTag;
       rows: Row[];
@@ -579,23 +605,25 @@ export class BinLogStream {
     const columns = common.toColumnDescriptors(msg.tableEntry);
     const tableId = createTableId(msg.tableEntry.parentSchema, msg.tableEntry.tableName);
 
-    let table = this.tableCache.get(tableId);
-    if (table == null) {
+    let tables = this.tableCache.get(tableId);
+    if (tables == null) {
       // This is an insert for a new table that matches a table in the sync rules
       // We need to create the table in the storage and cache it.
-      table = await this.handleCreateOrUpdateTable(batch, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
+      tables = await this.handleCreateOrUpdateTable(writer, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
     }
 
     for (const [index, row] of msg.rows.entries()) {
-      await this.writeChange(batch, {
-        type: msg.type,
-        database: msg.tableEntry.parentSchema,
-        sourceTable: table!,
-        table: msg.tableEntry.tableName,
-        columns: columns,
-        row: row,
-        previous_row: msg.rows_before?.[index]
-      });
+      for (let table of tables) {
+        await this.writeChange(writer, {
+          type: msg.type,
+          database: msg.tableEntry.parentSchema,
+          sourceTable: table!,
+          table: msg.tableEntry.tableName,
+          columns: columns,
+          row: row,
+          previous_row: msg.rows_before?.[index]
+        });
+      }
     }
     return null;
   }
@@ -606,14 +634,14 @@ export class BinLogStream {
   }
 
   private async writeChange(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     payload: WriteChangePayload
   ): Promise<storage.FlushedResult | null> {
     switch (payload.type) {
       case storage.SaveOperationTag.INSERT:
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const record = this.toSQLiteRow(payload.row, payload.columns);
-        return await batch.save({
+        return await writer.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: payload.sourceTable,
           before: undefined,
@@ -630,7 +658,7 @@ export class BinLogStream {
           : undefined;
         const after = this.toSQLiteRow(payload.row, payload.columns);
 
-        return await batch.save({
+        return await writer.save({
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: payload.sourceTable,
           before: beforeUpdated,
@@ -645,7 +673,7 @@ export class BinLogStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const beforeDeleted = this.toSQLiteRow(payload.row, payload.columns);
 
-        return await batch.save({
+        return await writer.save({
           tag: storage.SaveOperationTag.DELETE,
           sourceTable: payload.sourceTable,
           before: beforeDeleted,
