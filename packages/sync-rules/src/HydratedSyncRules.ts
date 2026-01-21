@@ -204,3 +204,75 @@ export class HydratedSyncRules implements RowProcessor {
     return { querier, errors };
   }
 }
+
+/**
+ * Combines multiple hydrated sync rules into a single row processor.
+ *
+ * Does not merge any definitions; simply forwards calls to all contained sync rules.
+ */
+export class MultiSyncRules implements RowProcessor {
+  private readonly syncRules: HydratedSyncRules[];
+
+  constructor(syncRules: HydratedSyncRules[]) {
+    this.syncRules = syncRules;
+  }
+
+  get eventDescriptors(): SqlEventDescriptor[] {
+    return this.syncRules.flatMap((sr) => sr.eventDescriptors);
+  }
+
+  get compatibility(): CompatibilityContext {
+    // FIXME
+    return this.syncRules[0].compatibility;
+  }
+
+  getSourceTables(): TablePattern[] {
+    return this.syncRules.flatMap((sr) => sr.getSourceTables());
+  }
+
+  getMatchingTablePatterns(table: SourceTableInterface): TablePattern[] {
+    return this.syncRules.flatMap((sr) => sr.getMatchingTablePatterns(table));
+  }
+
+  getMatchingSources(pattern: TablePattern): TableDataSources {
+    let result: TableDataSources = { bucketDataSources: [], parameterIndexLookupCreators: [] };
+    for (let sr of this.syncRules) {
+      const sources = sr.getMatchingSources(pattern);
+      result.bucketDataSources.push(...sources.bucketDataSources);
+      result.parameterIndexLookupCreators.push(...sources.parameterIndexLookupCreators);
+    }
+    return result;
+  }
+
+  applyRowContext<MaybeToast extends undefined = never>(
+    source: SqliteRow<SqliteInputValue | MaybeToast>
+  ): SqliteRow<SqliteValue | MaybeToast> {
+    // FIXME
+    return this.syncRules[0].applyRowContext(source);
+  }
+
+  evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
+    let results: EvaluatedRow[] = [];
+    let errors: EvaluationError[] = [];
+    for (let sr of this.syncRules) {
+      const { results: srResults, errors: srErrors } = sr.evaluateRowWithErrors(options);
+      results.push(...srResults);
+      errors.push(...srErrors);
+    }
+    return { results, errors };
+  }
+
+  evaluateParameterRowWithErrors(
+    table: SourceTableInterface,
+    row: SqliteRow
+  ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
+    let results: EvaluatedParameters[] = [];
+    let errors: EvaluationError[] = [];
+    for (let sr of this.syncRules) {
+      const { results: srResults, errors: srErrors } = sr.evaluateParameterRowWithErrors(table, row);
+      results.push(...srResults);
+      errors.push(...srErrors);
+    }
+    return { results, errors };
+  }
+}

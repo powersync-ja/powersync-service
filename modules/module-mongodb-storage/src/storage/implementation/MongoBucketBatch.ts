@@ -1,11 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import {
-  RowProcessor,
-  SourceTableInterface,
-  SqlEventDescriptor,
-  SqliteRow,
-  SqliteValue
-} from '@powersync/service-sync-rules';
+import { RowProcessor, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -26,7 +20,6 @@ import {
   maxLsn,
   SaveOperationTag,
   SourceTable,
-  SourceTableId,
   storage,
   SyncRuleState,
   utils

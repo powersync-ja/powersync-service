@@ -21,10 +21,12 @@ import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteC
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PostgresPersistedBatch, postgresTableId } from './PostgresPersistedBatch.js';
 import { bigint } from '../../types/codecs.js';
+import { PostgresSyncRulesStorage } from '../PostgresSyncRulesStorage.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;
   db: lib_postgres.DatabaseClient;
+  storage: PostgresSyncRulesStorage;
   sync_rules: sync_rules.HydratedSyncRules;
   group_id: number;
   slot_name: string;
@@ -58,7 +60,6 @@ const CheckpointWithStatus = StatefulCheckpoint.and(
     created_checkpoint: t.boolean
   })
 );
-type CheckpointWithStatusDecoded = t.Decoded<typeof CheckpointWithStatus>;
 
 /**
  * 15MB. Currently matches MongoDB.
@@ -79,11 +80,12 @@ export class PostgresBucketBatch
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
   protected last_checkpoint_lsn: string | null;
+  public readonly storage: PostgresSyncRulesStorage;
 
   protected persisted_op: InternalOpId | null;
 
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[];
-  protected readonly sync_rules: sync_rules.HydratedSyncRules;
+  public readonly sync_rules: sync_rules.HydratedSyncRules;
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
@@ -94,6 +96,7 @@ export class PostgresBucketBatch
     super();
     this.logger = options.logger;
     this.db = options.db;
+    this.storage = options.storage;
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
     this.resumeFromLsn = options.resumeFromLsn;

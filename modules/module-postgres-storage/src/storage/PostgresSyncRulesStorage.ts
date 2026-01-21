@@ -359,6 +359,7 @@ export class PostgresSyncRulesStorage
     const batch = new PostgresBucketBatch({
       logger: options.logger ?? framework.logger,
       db: this.db,
+      storage: this,
       sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
       group_id: this.group_id,
       slot_name: this.slot_name,
@@ -378,7 +379,7 @@ export class PostgresSyncRulesStorage
     options: storage.StartBatchOptions,
     callback: (batch: storage.BucketStorageBatch) => Promise<void>
   ): Promise<storage.FlushedResult | null> {
-    const batch = await this.createWriter(options);
+    await using batch = await this.createWriter(options);
 
     await callback(batch);
     await batch.flush();

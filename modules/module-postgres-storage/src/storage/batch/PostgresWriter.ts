@@ -1,0 +1,178 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
+import { Logger, ReplicationAssertionError, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { BucketStorageMarkRecordUnavailable, maxLsn, storage } from '@powersync/service-core';
+import { RowProcessor } from '@powersync/service-sync-rules';
+import { OperationBatch } from './OperationBatch.js';
+import { PostgresBucketBatch } from './PostgresBucketBatch.js';
+
+export interface PostgresWriterOptions {
+  db: lib_postgres.DatabaseClient;
+  rowProcessor: RowProcessor;
+  storeCurrentData: boolean;
+  skipExistingRows: boolean;
+  logger?: Logger;
+  markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
+}
+
+export class PostgresWriter implements storage.BucketDataWriter {
+  private batch: OperationBatch | null = null;
+  public readonly rowProcessor: RowProcessor;
+  write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+
+  protected db: lib_postgres.DatabaseClient;
+  private readonly logger: Logger;
+  private readonly storeCurrentData: boolean;
+  private readonly skipExistingRows: boolean;
+
+  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  public subWriters: PostgresBucketBatch[] = [];
+
+  private sourceTableMap = new WeakMap<storage.SourceTable, PostgresBucketBatch>();
+
+  constructor(options: PostgresWriterOptions) {
+    this.db = options.db;
+    this.rowProcessor = options.rowProcessor;
+    this.storeCurrentData = options.storeCurrentData;
+    this.skipExistingRows = options.skipExistingRows;
+    this.logger = options.logger ?? defaultLogger;
+    this.markRecordUnavailable = options.markRecordUnavailable;
+  }
+
+  addSubWriter(subWriter: PostgresBucketBatch) {
+    this.subWriters.push(subWriter);
+  }
+
+  get resumeFromLsn(): string | null {
+    // FIXME: check the logic here when there are multiple batches
+    let lsn: string | null = null;
+    for (let sub of this.subWriters) {
+      // TODO: should this be min instead?
+      lsn = maxLsn(lsn, sub.resumeFromLsn);
+    }
+    return lsn;
+  }
+
+  async keepaliveAll(lsn: string): Promise<boolean> {
+    let didAny = false;
+    for (let batch of this.subWriters) {
+      const didBatchKeepalive = await batch.keepalive(lsn);
+      didAny ||= didBatchKeepalive;
+    }
+    return didAny;
+  }
+
+  async commitAll(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+    let didCommit = false;
+    for (let batch of this.subWriters) {
+      const didWriterCommit = await batch.commit(lsn, options);
+      didCommit ||= didWriterCommit;
+    }
+    return didCommit;
+  }
+
+  async setAllResumeLsn(lsn: string): Promise<void> {
+    for (let batch of this.subWriters) {
+      await batch.setResumeLsn(lsn);
+    }
+  }
+
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    let result: storage.ResolveTablesResult = {
+      tables: [],
+      dropTables: []
+    };
+    for (let subWriter of this.subWriters) {
+      const subResult = await subWriter.storage.resolveTable({
+        connection_id: options.connection_id,
+        connection_tag: options.connection_tag,
+        entity_descriptor: options.entity_descriptor,
+        sync_rules: subWriter.sync_rules
+      });
+      result.tables.push(subResult.table);
+      this.sourceTableMap.set(subResult.table, subWriter);
+      result.dropTables.push(...subResult.dropTables);
+    }
+    return result;
+  }
+
+  private subWriterForTable(table: storage.SourceTable): PostgresBucketBatch {
+    // FIXME: store on the SourceTable instead?
+    const mapped = this.sourceTableMap.get(table);
+    if (mapped != null) {
+      return mapped;
+    }
+    throw new ReplicationAssertionError(`No sub-writer found for source table ${table.qualifiedName}`);
+  }
+
+  getTable(ref: storage.SourceTable): Promise<storage.SourceTable | null> {
+    throw new Error('Method not implemented.');
+  }
+  async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    const writer = this.subWriterForTable(record.sourceTable);
+    return writer.save(record);
+  }
+
+  async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    for (let table of sourceTables) {
+      const writer = this.subWriterForTable(table);
+      await writer.truncate([table]);
+    }
+    // FIXME: do we need the result?
+    return null;
+  }
+
+  async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    for (let table of sourceTables) {
+      const writer = this.subWriterForTable(table);
+      await writer.drop([table]);
+    }
+    // FIXME: do we need the result?
+    return null;
+  }
+
+  async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
+    for (let writer of this.subWriters) {
+      await writer.flush();
+    }
+    // FIXME: do we need the result?
+    return null;
+  }
+
+  async markTableSnapshotDone(
+    tables: storage.SourceTable[],
+    no_checkpoint_before_lsn?: string
+  ): Promise<storage.SourceTable[]> {
+    let result: storage.SourceTable[] = [];
+    for (let table of tables) {
+      const writer = this.subWriterForTable(table);
+      const mapped = await writer.markTableSnapshotDone([table], no_checkpoint_before_lsn);
+      result.push(...mapped);
+    }
+    return result;
+  }
+
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    const writer = this.subWriterForTable(table);
+    await writer.markTableSnapshotRequired(table);
+  }
+
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    for (let writer of this.subWriters) {
+      await writer.markAllSnapshotDone(no_checkpoint_before_lsn);
+    }
+  }
+
+  updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    const writer = this.subWriterForTable(table);
+    return writer.updateTableProgress(table, progress);
+  }
+
+  async [Symbol.asyncDispose]() {
+    for (let writer of this.subWriters) {
+      await writer[Symbol.asyncDispose]();
+    }
+  }
+}

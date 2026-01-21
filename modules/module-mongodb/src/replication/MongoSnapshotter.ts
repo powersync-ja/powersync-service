@@ -10,7 +10,6 @@ import {
 import { InternalOpId, MetricsEngine, SaveOperationTag, SourceTable, storage } from '@powersync/service-core';
 import { DatabaseInputRow, RowProcessor, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
-import * as timers from 'node:timers/promises';
 import pDefer, { DeferredPromise } from 'p-defer';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
@@ -369,21 +368,6 @@ export class MongoSnapshotter {
   private constructAfterRecord(rowProcessor: RowProcessor, document: mongo.Document): SqliteRow {
     const inputRow = constructAfterRecord(document);
     return rowProcessor.applyRowContext<never>(inputRow);
-  }
-
-  private async getCollectionInfo(db: string, name: string): Promise<mongo.CollectionInfo | undefined> {
-    const collection = (
-      await this.client
-        .db(db)
-        .listCollections(
-          {
-            name: name
-          },
-          { nameOnly: false }
-        )
-        .toArray()
-    )[0];
-    return collection;
   }
 
   private async checkPostImages(db: string, collectionInfo: mongo.CollectionInfo) {

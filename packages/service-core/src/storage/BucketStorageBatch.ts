@@ -7,16 +7,10 @@ import {
   ToastableSqliteRow
 } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
-import { ReplicationEventPayload } from './ReplicationEventPayload.js';
-import { SourceTable, SourceTableId, TableSnapshotStatus } from './SourceTable.js';
-import {
-  BatchedCustomWriteCheckpointOptions,
-  ResolveTableOptions,
-  ResolveTableResult,
-  ResolveTablesOptions,
-  ResolveTablesResult
-} from './storage-index.js';
 import { InternalOpId } from '../util/utils.js';
+import { ReplicationEventPayload } from './ReplicationEventPayload.js';
+import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
+import { BatchedCustomWriteCheckpointOptions, ResolveTablesOptions, ResolveTablesResult } from './storage-index.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,

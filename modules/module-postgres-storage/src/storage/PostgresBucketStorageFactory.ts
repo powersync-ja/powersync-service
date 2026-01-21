@@ -9,10 +9,11 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { models, NormalizedPostgresStorageConfig } from '../types/types.js';
 
 import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
-import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
+import { notifySyncRulesUpdate, PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedSyncRulesContent } from './sync-rules/PostgresPersistedSyncRulesContent.js';
 import { getStorageApplicationName } from '../utils/application-name.js';
+import { PostgresWriter } from './batch/PostgresWriter.js';
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -43,11 +44,27 @@ export class PostgresBucketStorageFactory
     });
   }
 
-  createCombinedWriter(
-    storage: SyncRulesBucketStorage[],
+  async createCombinedWriter(
+    storages: SyncRulesBucketStorage[],
     options: storage.StartBatchOptions
   ): Promise<storage.BucketDataWriter> {
-    throw new Error('Not implemented yet');
+    const syncRules = storages.map((s) => s.getHydratedSyncRules(options));
+
+    const rowProcessor = new sync_rules.MultiSyncRules(syncRules);
+    const writer = new PostgresWriter({
+      ...options,
+      db: this.db,
+      rowProcessor,
+      storeCurrentData: options.storeCurrentData ?? true,
+      skipExistingRows: options.skipExistingRows ?? false
+    });
+
+    for (let storage of storages) {
+      const bucketBatch = (await storage.createWriter(options)) as PostgresBucketBatch;
+      writer.addSubWriter(bucketBatch);
+    }
+
+    return writer;
   }
 
   async [Symbol.asyncDispose]() {
