@@ -165,7 +165,7 @@ exports[`sync - mongodb > encodes sync rules id in buckets for streams 2`] = `
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "10002[]",
+          "bucket": "20002[]",
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
@@ -181,7 +181,7 @@ exports[`sync - mongodb > encodes sync rules id in buckets for streams 2`] = `
         {
           "errors": [],
           "is_default": true,
-          "name": "test",
+          "name": "test2",
         },
       ],
       "write_checkpoint": undefined,
@@ -190,7 +190,7 @@ exports[`sync - mongodb > encodes sync rules id in buckets for streams 2`] = `
   {
     "data": {
       "after": "0",
-      "bucket": "2#test|0[]",
+      "bucket": "20002[]",
       "data": [
         {
           "checksum": 920318466,
@@ -199,7 +199,7 @@ exports[`sync - mongodb > encodes sync rules id in buckets for streams 2`] = `
           "object_type": "test",
           "op": "PUT",
           "op_id": "2",
-          "subkey": "e5aa2ddc-1328-58fa-a000-0b5ed31eaf1a",
+          "subkey": "bfe6a7fc-1a36-5a95-877f-518ff63ecb56",
         },
       ],
       "has_more": false,

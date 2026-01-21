@@ -1201,7 +1201,10 @@ bucket_definitions:
 
   test('encodes sync rules id in buckets for streams', async () => {
     await using f = await factory();
-    const rules = `
+    // This test relies making an actual update to sync rules to test the different bucket names.
+    // The actual naming scheme may change, as long as the two buckets have different names.
+    const rules = [
+      `
 streams:
   test:
     auto_subscribe: true
@@ -1209,15 +1212,26 @@ streams:
 
 config:
   edition: 2
-`;
+`,
+      `
+streams:
+  test2:
+    auto_subscribe: true
+    query: SELECT * FROM test WHERE 1;
+
+config:
+  edition: 2
+`
+    ];
 
     for (let i = 0; i < 2; i++) {
       const syncRules = await f.updateSyncRules({
-        content: rules
+        content: rules[i]
       });
       const bucketStorage = f.getInstance(syncRules);
       await using writer = await f.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
-      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
+      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config, i + 1);
 
       await writer.markAllSnapshotDone('0/1');
       await writer.save({
