@@ -109,12 +109,7 @@ export class WalStream {
   private initPromise: Promise<void> | null = null;
   private snapshotter: PostgresSnapshotter;
 
-  private relationCache = new RelationCache((relation: number | SourceTable) => {
-    if (typeof relation == 'number') {
-      return relation;
-    }
-    return relation.objectId!;
-  });
+  public readonly relationCache = new Map<string | number, SourceTable[]>();
 
   private startedStreaming = false;
 
@@ -183,35 +178,51 @@ export class WalStream {
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
-    const result = await this.storage.resolveTable({
-      connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      sync_rules: this.sync_rules
+    // In common cases, there would be at most one matching pattern, since patterns
+    // are de-duplicated. However, there may be multiple if:
+    // 1. There is overlap with direct name matching and wildcard matching.
+    // 2. There are multiple patterns with different replication config.
+    const patterns = writer.rowProcessor.getMatchingTablePatterns({
+      connectionTag: this.connections.connectionTag,
+      schema: descriptor.schema,
+      name: descriptor.name
     });
-    this.relationCache.update(result.table);
 
-    // Drop conflicting tables. This includes for example renamed tables.
-    if (result.dropTables.length > 0) {
-      this.logger.info(`Dropping conflicting tables: ${result.dropTables.map((t) => t.qualifiedName).join(', ')}`);
-      await writer.drop(result.dropTables);
+    let allTables: SourceTable[] = [];
+    for (let pattern of patterns) {
+      const result = await writer.resolveTables({
+        connection_id: this.connection_id,
+        connection_tag: this.connections.connectionTag,
+        entity_descriptor: descriptor,
+        pattern
+      });
+
+      // Drop conflicting tables. This includes for example renamed tables.
+      if (result.dropTables.length > 0) {
+        this.logger.info(`Dropping conflicting tables: ${result.dropTables.map((t) => t.qualifiedName).join(', ')}`);
+        await writer.drop(result.dropTables);
+      }
+
+      // Ensure we have a description for custom types referenced in the table.
+      await this.connections.types.fetchTypes(referencedTypeIds);
+
+      // Snapshot if:
+      // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
+      // 2. Snapshot is not already done, AND:
+      // 3. The table is used in sync rules.
+      for (let table of result.tables) {
+        const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
+        if (shouldSnapshot) {
+          this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
+          await this.snapshotter.queueSnapshot(writer, table);
+        }
+      }
+
+      allTables.push(...result.tables);
     }
+    this.relationCache.set(descriptor.objectId, allTables);
 
-    // Ensure we have a description for custom types referenced in the table.
-    await this.connections.types.fetchTypes(referencedTypeIds);
-
-    // Snapshot if:
-    // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
-    // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
-
-    if (shouldSnapshot) {
-      this.logger.info(`Queuing snapshot for new table ${result.table.qualifiedName}`);
-      await this.snapshotter.queueSnapshot(writer, result.table);
-    }
-
-    return result.table;
+    return allTables;
   }
 
   /**
@@ -250,14 +261,14 @@ export class WalStream {
     }
   }
 
-  private getTable(relationId: number): storage.SourceTable {
-    const table = this.relationCache.get(relationId);
-    if (table == null) {
+  private getTable(relationId: number): storage.SourceTable[] {
+    const tables = this.relationCache.get(relationId);
+    if (tables == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
       throw new ReplicationAssertionError(`Missing relation cache for ${relationId}`);
     }
-    return table;
+    return tables;
   }
 
   private syncRulesRecord(row: SqliteInputRow): SqliteRow;
@@ -282,55 +293,54 @@ export class WalStream {
       return null;
     }
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
-      const table = this.getTable(getRelId(msg.relation));
-      if (!table.syncAny) {
-        this.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
-        return null;
-      }
+      const tables = this.getTable(getRelId(msg.relation));
+      const filtered = tables.filter((t) => t.syncAny);
 
-      if (msg.tag == 'insert') {
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await writer.save({
-          tag: storage.SaveOperationTag.INSERT,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: undefined,
-          after: baseRecord,
-          afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
-        });
-      } else if (msg.tag == 'update') {
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        // "before" may be null if the replica id columns are unchanged
-        // It's fine to treat that the same as an insert.
-        const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
-        const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await writer.save({
-          tag: storage.SaveOperationTag.UPDATE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
-          after: after,
-          afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
-        });
-      } else if (msg.tag == 'delete') {
-        this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
-        const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
+      for (let table of filtered) {
+        if (msg.tag == 'insert') {
+          this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
+          const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
+          return await writer.save({
+            tag: storage.SaveOperationTag.INSERT,
+            sourceTable: table,
+            before: undefined,
+            beforeReplicaId: undefined,
+            after: baseRecord,
+            afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
+          });
+        } else if (msg.tag == 'update') {
+          this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
+          // "before" may be null if the replica id columns are unchanged
+          // It's fine to treat that the same as an insert.
+          const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
+          const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
+          return await writer.save({
+            tag: storage.SaveOperationTag.UPDATE,
+            sourceTable: table,
+            before: before,
+            beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
+            after: after,
+            afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
+          });
+        } else if (msg.tag == 'delete') {
+          this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
+          const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
 
-        return await writer.save({
-          tag: storage.SaveOperationTag.DELETE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
-          after: undefined,
-          afterReplicaId: undefined
-        });
+          return await writer.save({
+            tag: storage.SaveOperationTag.DELETE,
+            sourceTable: table,
+            before: before,
+            beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
+            after: undefined,
+            afterReplicaId: undefined
+          });
+        }
       }
     } else if (msg.tag == 'truncate') {
       let tables: storage.SourceTable[] = [];
       for (let relation of msg.relations) {
-        const table = this.getTable(getRelId(relation));
-        tables.push(table);
+        const relTables = this.getTable(getRelId(relation));
+        tables.push(...relTables);
       }
       return await writer.truncate(tables);
     }

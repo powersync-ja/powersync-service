@@ -25,7 +25,7 @@ import {
 
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
-import pDefer from 'p-defer';
+import pDefer, { DeferredPromise } from 'p-defer';
 import { PostgresTypeResolver } from '../types/resolver.js';
 import { PgManager } from './PgManager.js';
 import {
@@ -83,6 +83,7 @@ export class PostgresSnapshotter {
   });
 
   private queue = new Set<SourceTable>();
+  private nextItemQueued: DeferredPromise<void> | null = null;
   private initialSnapshotDone = pDefer<void>();
 
   constructor(options: WalStreamOptions) {
@@ -96,6 +97,11 @@ export class PostgresSnapshotter {
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
 
     this.abortSignal = options.abort_signal;
+
+    this.abortSignal.addEventListener('abort', () => {
+      // Wake up the queue if is waiting for items
+      this.nextItemQueued?.resolve();
+    });
   }
 
   async getQualifiedTableNames(
@@ -175,15 +181,33 @@ export class PostgresSnapshotter {
         this.logger.warn(`Could not check RLS access for ${tablePattern.schema}.${name}`, e);
       }
 
-      const table = await this.handleRelation({
-        writer,
-        db,
-        name,
-        schema,
-        relId: relid
+      const cresult = await getReplicationIdentityColumns(db, relid);
+      const columnTypesResult = await db.query({
+        statement: `SELECT DISTINCT atttypid
+              FROM pg_attribute
+              WHERE attnum > 0 AND NOT attisdropped AND attrelid = $1`,
+        params: [{ type: 'int4', value: relid }]
       });
 
-      result.push(table);
+      const columnTypes = columnTypesResult.rows.map((row) => Number(row.decodeWithoutCustomTypes(0)));
+
+      const resolvedResult = await writer.resolveTables({
+        connection_id: this.connection_id,
+        connection_tag: this.connections.connectionTag,
+        entity_descriptor: {
+          schema: schema,
+          name: name,
+          objectId: relid,
+          replicaIdColumns: cresult.replicationColumns
+        },
+        pattern: tablePattern
+      });
+
+      // Ensure we have a description for custom types referenced in the table.
+      await this.connections.types.fetchTypes(columnTypes);
+
+      // TODO: dropTables?
+      result.push(...resolvedResult.tables);
     }
     return result;
   }
@@ -313,13 +337,13 @@ export class PostgresSnapshotter {
     });
 
     // Get fresh table info, in case it was updated while queuing
-    const table = await this.handleRelation({
-      writer,
-      db: db,
-      name: requestTable.name,
-      schema: requestTable.schema,
-      relId: requestTable.objectId as number
-    });
+    const table = await writer.getTable(requestTable);
+    if (table == null) {
+      return;
+    }
+    if (table.snapshotComplete) {
+      return;
+    }
     await this.snapshotTableInTx(writer, db, table);
     // This commit ensures we set keepalive_op.
     // It may be better if that is automatically set when flushing.
@@ -343,7 +367,12 @@ export class PostgresSnapshotter {
         const table = this.queue.values().next().value;
         if (table == null) {
           this.initialSnapshotDone.resolve();
-          await timers.setTimeout(500, { signal: this.abortSignal });
+          // There must be no await in between checking the queue above and creating this deferred promise,
+          // otherwise we may miss new items being queued.
+          this.nextItemQueued = pDefer<void>();
+          await this.nextItemQueued.promise;
+          this.nextItemQueued = null;
+          // At this point, either we have have a new item in the queue, or we are aborted.
           continue;
         }
 
@@ -432,7 +461,7 @@ export class PostgresSnapshotter {
 
         this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
 
-        this.queue.add(table);
+        this.queueTable(table);
       }
     }
   }
@@ -443,9 +472,14 @@ export class PostgresSnapshotter {
     }
   }
 
+  private queueTable(table: storage.SourceTable) {
+    this.queue.add(table);
+    this.nextItemQueued?.resolve();
+  }
+
   public async queueSnapshot(writer: storage.BucketDataWriter, table: storage.SourceTable) {
     await writer.markTableSnapshotRequired(table);
-    this.queue.add(table);
+    this.queueTable(table);
   }
 
   public async snapshotTableInTx(
@@ -597,47 +631,6 @@ export class PostgresSnapshotter {
         throw new ReplicationAbortedError(`Table snapshot interrupted`, this.abortSignal.reason);
       }
     }
-  }
-
-  private async handleRelation(options: {
-    writer: storage.BucketDataWriter;
-    db: pgwire.PgConnection;
-    name: string;
-    schema: string;
-    relId: number;
-  }) {
-    const { writer, db, name, schema, relId } = options;
-
-    const cresult = await getReplicationIdentityColumns(db, relId);
-    const columnTypesResult = await db.query({
-      statement: `SELECT DISTINCT atttypid
-            FROM pg_attribute
-            WHERE attnum > 0 AND NOT attisdropped AND attrelid = $1`,
-      params: [{ type: 'int4', value: relId }]
-    });
-
-    const columnTypes = columnTypesResult.rows.map((row) => Number(row.decodeWithoutCustomTypes(0)));
-
-    const result = await this.storage.resolveTable({
-      connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: {
-        name,
-        schema,
-        objectId: relId,
-        replicaIdColumns: cresult.replicationColumns
-      },
-      sync_rules: this.sync_rules
-    });
-    this.relationCache.update(result.table);
-
-    // Drop conflicting tables. This includes for example renamed tables.
-    await writer.drop(result.dropTables);
-
-    // Ensure we have a description for custom types referenced in the table.
-    await this.connections.types.fetchTypes(columnTypes);
-
-    return result.table;
   }
 
   private touch() {
