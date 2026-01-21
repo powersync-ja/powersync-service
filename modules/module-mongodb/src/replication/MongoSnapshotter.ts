@@ -11,7 +11,7 @@ import { InternalOpId, MetricsEngine, SaveOperationTag, SourceTable, storage } f
 import { DatabaseInputRow, RowProcessor, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
-import pDefer from 'p-defer';
+import pDefer, { DeferredPromise } from 'p-defer';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -60,6 +60,7 @@ export class MongoSnapshotter {
   private changeStreamTimeout: number;
 
   private queue = new Set<SourceTable>();
+  private nextItemQueued: DeferredPromise<void> | null = null;
   private initialSnapshotDone = pDefer<void>();
   private lastSnapshotOpId: InternalOpId | null = null;
 
@@ -75,6 +76,11 @@ export class MongoSnapshotter {
     this.logger = options.logger ?? defaultLogger;
     this.checkpointStreamId = options.checkpointStreamId;
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
+
+    this.abortSignal.addEventListener('abort', () => {
+      // Wake up the queue if is waiting for items
+      this.nextItemQueued?.resolve();
+    });
   }
 
   private get usePostImages() {
@@ -130,6 +136,7 @@ export class MongoSnapshotter {
     for (let table of tablesWithStatus) {
       this.queue.add(table);
     }
+    this.nextItemQueued?.resolve();
   }
 
   async waitForInitialSnapshot() {
@@ -147,7 +154,12 @@ export class MongoSnapshotter {
         const table = this.queue.values().next().value;
         if (table == null) {
           this.initialSnapshotDone.resolve();
-          await timers.setTimeout(500, { signal: this.abortSignal });
+          // There must be no await in between checking the queue above and creating this deferred promise,
+          // otherwise we may miss new items being queued.
+          this.nextItemQueued = pDefer<void>();
+          await this.nextItemQueued.promise;
+          this.nextItemQueued = null;
+          // At this point, either we have have a new item in the queue, or we are aborted.
           continue;
         }
 
@@ -214,9 +226,15 @@ export class MongoSnapshotter {
     this.logger.info(`Flushed snapshot at ${this.lastSnapshotOpId}`);
   }
 
+  private queueTable(table: storage.SourceTable) {
+    // These two operations must be atomic to avoid race conditions
+    this.queue.add(table);
+    this.nextItemQueued?.resolve();
+  }
+
   async queueSnapshot(writer: storage.BucketDataWriter, table: storage.SourceTable) {
     await writer.markTableSnapshotRequired(table);
-    this.queue.add(table);
+    this.queueTable(table);
   }
 
   async estimatedCount(table: storage.SourceTable): Promise<string> {
