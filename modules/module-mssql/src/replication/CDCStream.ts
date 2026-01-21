@@ -167,26 +167,23 @@ export class CDCStream {
 
   async populateTableCache() {
     const sourceTables = this.syncRules.getSourceTables();
-    await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: LSN.ZERO,
-        defaultSchema: this.defaultSchema,
-        storeCurrentData: true
-      },
-      async (batch) => {
-        for (let tablePattern of sourceTables) {
-          const tables = await this.getQualifiedTableNames(batch, tablePattern);
-          for (const table of tables) {
-            this.tableCache.set(table);
-          }
-        }
+    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      logger: this.logger,
+      zeroLSN: LSN.ZERO,
+      defaultSchema: this.defaultSchema,
+      storeCurrentData: true
+    });
+
+    for (let tablePattern of sourceTables) {
+      const tables = await this.getQualifiedTableNames(writer, tablePattern);
+      for (const table of tables) {
+        this.tableCache.set(table);
       }
-    );
+    }
   }
 
   async getQualifiedTableNames(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     tablePattern: TablePattern
   ): Promise<MSSQLSourceTable[]> {
     if (tablePattern.connectionTag != this.connections.connectionTag) {
@@ -216,83 +213,93 @@ export class CDCStream {
         schema: matchedTable.schema
       });
 
-      const table = await this.processTable(
-        batch,
+      const tables = await this.processTable(
+        writer,
         {
           name: matchedTable.name,
           schema: matchedTable.schema,
           objectId: matchedTable.objectId,
           replicaIdColumns: replicaIdColumns.columns
         },
-        false
+        false,
+        tablePattern
       );
 
-      tables.push(table);
+      tables.push(...tables);
     }
     return tables;
   }
 
   async processTable(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     table: SourceEntityDescriptor,
-    snapshot: boolean
-  ): Promise<MSSQLSourceTable> {
+    snapshot: boolean,
+    pattern: TablePattern
+  ): Promise<MSSQLSourceTable[]> {
     if (!table.objectId && typeof table.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
     }
-    const resolved = await this.storage.resolveTable({
+
+    const resolved = await writer.resolveTables({
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: table,
-      sync_rules: this.syncRules
-    });
-    const captureInstance = await getCaptureInstance({
-      connectionManager: this.connections,
-      tableName: resolved.table.name,
-      schema: resolved.table.schema
-    });
-    if (!captureInstance) {
-      throw new ServiceAssertionError(
-        `Missing capture instance for table ${toQualifiedTableName(resolved.table.schema, resolved.table.name)}`
-      );
-    }
-    const resolvedTable = new MSSQLSourceTable({
-      sourceTable: resolved.table,
-      captureInstance: captureInstance
+      pattern
     });
 
     // Drop conflicting tables. This includes for example renamed tables.
-    await batch.drop(resolved.dropTables);
+    await writer.drop(resolved.dropTables);
 
-    // Snapshot if:
-    // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
-    // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
-    const shouldSnapshot = snapshot && !resolved.table.snapshotComplete && resolved.table.syncAny;
+    let resultingTables: MSSQLSourceTable[] = [];
 
-    if (shouldSnapshot) {
-      // Truncate this table in case a previous snapshot was interrupted.
-      await batch.truncate([resolved.table]);
-
-      // Start the snapshot inside a transaction.
-      try {
-        await this.snapshotTableInTx(batch, resolvedTable);
-      } finally {
-        // TODO Cleanup?
+    for (let table of resolved.tables) {
+      const captureInstance = await getCaptureInstance({
+        connectionManager: this.connections,
+        tableName: table.name,
+        schema: table.schema
+      });
+      if (!captureInstance) {
+        throw new ServiceAssertionError(
+          `Missing capture instance for table ${toQualifiedTableName(table.schema, table.name)}`
+        );
       }
+      const resolvedTable = new MSSQLSourceTable({
+        sourceTable: table,
+        captureInstance: captureInstance
+      });
+
+      // Snapshot if:
+      // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
+      // 2. Snapshot is not already done, AND:
+      // 3. The table is used in sync rules.
+      const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
+
+      if (shouldSnapshot) {
+        // Truncate this table in case a previous snapshot was interrupted.
+        await writer.truncate([table]);
+
+        // Start the snapshot inside a transaction.
+        try {
+          await this.snapshotTableInTx(writer, resolvedTable);
+        } finally {
+          // TODO Cleanup?
+        }
+      }
+
+      resultingTables.push(resolvedTable);
     }
 
-    return resolvedTable;
+    return resultingTables;
   }
 
-  private async snapshotTableInTx(batch: storage.BucketStorageBatch, table: MSSQLSourceTable): Promise<void> {
+  private async snapshotTableInTx(writer: storage.BucketDataWriter, table: MSSQLSourceTable): Promise<void> {
     // Note: We use the "Read Committed" isolation level here, not snapshot isolation.
     // The data may change during the transaction, but that is compensated for in the streaming
     // replication afterward.
     const transaction = await this.connections.createTransaction();
     await transaction.begin(sql.ISOLATION_LEVEL.READ_COMMITTED);
     try {
-      await this.snapshotTable(batch, transaction, table);
+      await this.snapshotTable(writer, transaction, table);
 
       // Get the current LSN.
       // The data will only be consistent once incremental replication has passed that point.
@@ -309,7 +316,7 @@ export class CDCStream {
       const postSnapshotLSN = await getLatestLSN(this.connections);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await transaction.commit();
-      const [updatedSourceTable] = await batch.markTableSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
+      const [updatedSourceTable] = await writer.markTableSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
       this.tableCache.updateSourceTable(updatedSourceTable);
     } catch (e) {
       await transaction.rollback();
@@ -317,11 +324,7 @@ export class CDCStream {
     }
   }
 
-  private async snapshotTable(
-    batch: storage.BucketStorageBatch,
-    transaction: sql.Transaction,
-    table: MSSQLSourceTable
-  ) {
+  private async snapshotTable(writer: storage.BucketDataWriter, transaction: sql.Transaction, table: MSSQLSourceTable) {
     let totalEstimatedCount = table.sourceTable.snapshotStatus?.totalEstimatedCount;
     let replicatedCount = table.sourceTable.snapshotStatus?.replicatedCount ?? 0;
     let lastCountTime = 0;
@@ -377,7 +380,7 @@ export class CDCStream {
           const inputRow: SqliteInputRow = toSqliteInputRow(result, columns);
           const row = this.syncRules.applyRowContext<never>(inputRow);
           // This auto-flushes when the batch reaches its size limit
-          await batch.save({
+          await writer.save({
             tag: storage.SaveOperationTag.INSERT,
             sourceTable: table.sourceTable,
             before: undefined,
@@ -395,7 +398,7 @@ export class CDCStream {
       }
 
       // Important: flush before marking progress
-      await batch.flush();
+      await writer.flush();
 
       let lastKey: Uint8Array | undefined;
       if (query instanceof BatchedSnapshotQuery) {
@@ -409,7 +412,7 @@ export class CDCStream {
         totalEstimatedCount = await this.estimatedCountNumber(table, transaction);
         lastCountTime = performance.now();
       }
-      const updatedSourceTable = await batch.updateTableProgress(table.sourceTable, {
+      const updatedSourceTable = await writer.updateTableProgress(table.sourceTable, {
         lastKey: lastKey,
         replicatedCount: replicatedCount,
         totalEstimatedCount: totalEstimatedCount
@@ -462,56 +465,52 @@ export class CDCStream {
       await this.storage.clear({ signal: this.abortSignal });
     }
 
-    await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: LSN.ZERO,
-        defaultSchema: this.defaultSchema,
-        storeCurrentData: false,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        if (snapshotLSN == null) {
-          // First replication attempt - set the snapshot LSN to the current LSN before starting
-          snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
-          await batch.setResumeLsn(snapshotLSN);
-          const latestLSN = (await getLatestLSN(this.connections)).toString();
-          this.logger.info(`Marking snapshot at ${snapshotLSN}, Latest DB LSN ${latestLSN}.`);
-        } else {
-          this.logger.info(`Resuming snapshot at ${snapshotLSN}.`);
-        }
+    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      logger: this.logger,
+      zeroLSN: LSN.ZERO,
+      defaultSchema: this.defaultSchema,
+      storeCurrentData: false,
+      skipExistingRows: true
+    });
+    if (snapshotLSN == null) {
+      // First replication attempt - set the snapshot LSN to the current LSN before starting
+      snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
+      await writer.setAllResumeLsn(snapshotLSN);
+      const latestLSN = (await getLatestLSN(this.connections)).toString();
+      this.logger.info(`Marking snapshot at ${snapshotLSN}, Latest DB LSN ${latestLSN}.`);
+    } else {
+      this.logger.info(`Resuming snapshot at ${snapshotLSN}.`);
+    }
 
-        const tablesToSnapshot: MSSQLSourceTable[] = [];
-        for (const table of this.tableCache.getAll()) {
-          if (table.sourceTable.snapshotComplete) {
-            this.logger.info(`Skipping table [${table.toQualifiedName()}] - snapshot already done.`);
-            continue;
-          }
-
-          const count = await this.estimatedCountNumber(table);
-          const updatedSourceTable = await batch.updateTableProgress(table.sourceTable, {
-            totalEstimatedCount: count
-          });
-          this.tableCache.updateSourceTable(updatedSourceTable);
-          tablesToSnapshot.push(table);
-
-          this.logger.info(`To replicate: ${table.toQualifiedName()} ${table.sourceTable.formatSnapshotProgress()}`);
-        }
-
-        for (const table of tablesToSnapshot) {
-          await this.snapshotTableInTx(batch, table);
-          this.touch();
-        }
-
-        // This will not create a consistent checkpoint yet, but will persist the op.
-        // Actual checkpoint will be created when streaming replication caught up.
-        const postSnapshotLSN = await getLatestLSN(this.connections);
-        await batch.markAllSnapshotDone(postSnapshotLSN.toString());
-        await batch.commit(snapshotLSN);
-
-        this.logger.info(`Snapshot done. Need to replicate from ${snapshotLSN} to ${postSnapshotLSN} to be consistent`);
+    const tablesToSnapshot: MSSQLSourceTable[] = [];
+    for (const table of this.tableCache.getAll()) {
+      if (table.sourceTable.snapshotComplete) {
+        this.logger.info(`Skipping table [${table.toQualifiedName()}] - snapshot already done.`);
+        continue;
       }
-    );
+
+      const count = await this.estimatedCountNumber(table);
+      const updatedSourceTable = await writer.updateTableProgress(table.sourceTable, {
+        totalEstimatedCount: count
+      });
+      this.tableCache.updateSourceTable(updatedSourceTable);
+      tablesToSnapshot.push(table);
+
+      this.logger.info(`To replicate: ${table.toQualifiedName()} ${table.sourceTable.formatSnapshotProgress()}`);
+    }
+
+    for (const table of tablesToSnapshot) {
+      await this.snapshotTableInTx(writer, table);
+      this.touch();
+    }
+
+    // This will not create a consistent checkpoint yet, but will persist the op.
+    // Actual checkpoint will be created when streaming replication caught up.
+    const postSnapshotLSN = await getLatestLSN(this.connections);
+    await writer.markAllSnapshotDone(postSnapshotLSN.toString());
+    await writer.commitAll(snapshotLSN);
+
+    this.logger.info(`Snapshot done. Need to replicate from ${snapshotLSN} to ${postSnapshotLSN} to be consistent`);
   }
 
   async initReplication() {
@@ -557,52 +556,49 @@ export class CDCStream {
   }
 
   async streamChanges() {
-    await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: LSN.ZERO,
-        defaultSchema: this.defaultSchema,
-        storeCurrentData: false,
-        skipExistingRows: false
+    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      logger: this.logger,
+      zeroLSN: LSN.ZERO,
+      defaultSchema: this.defaultSchema,
+      storeCurrentData: false,
+      skipExistingRows: false
+    });
+
+    if (writer.resumeFromLsn == null) {
+      throw new ReplicationAssertionError(`No LSN found to resume replication from.`);
+    }
+    const startLSN = LSN.fromString(writer.resumeFromLsn);
+    const sourceTables: MSSQLSourceTable[] = this.tableCache.getAll();
+    const eventHandler = this.createEventHandler(writer);
+
+    const poller = new CDCPoller({
+      connectionManager: this.connections,
+      eventHandler,
+      sourceTables,
+      startLSN,
+      logger: this.logger,
+      additionalConfig: this.options.additionalConfig
+    });
+
+    this.abortSignal.addEventListener(
+      'abort',
+      async () => {
+        await poller.stop();
       },
-      async (batch) => {
-        if (batch.resumeFromLsn == null) {
-          throw new ReplicationAssertionError(`No LSN found to resume replication from.`);
-        }
-        const startLSN = LSN.fromString(batch.resumeFromLsn);
-        const sourceTables: MSSQLSourceTable[] = this.tableCache.getAll();
-        const eventHandler = this.createEventHandler(batch);
-
-        const poller = new CDCPoller({
-          connectionManager: this.connections,
-          eventHandler,
-          sourceTables,
-          startLSN,
-          logger: this.logger,
-          additionalConfig: this.options.additionalConfig
-        });
-
-        this.abortSignal.addEventListener(
-          'abort',
-          async () => {
-            await poller.stop();
-          },
-          { once: true }
-        );
-
-        await createCheckpoint(this.connections);
-
-        this.logger.info(`Streaming changes from: ${startLSN}`);
-        await poller.replicateUntilStopped();
-      }
+      { once: true }
     );
+
+    await createCheckpoint(this.connections);
+
+    this.logger.info(`Streaming changes from: ${startLSN}`);
+    await poller.replicateUntilStopped();
   }
 
-  private createEventHandler(batch: storage.BucketStorageBatch): CDCEventHandler {
+  private createEventHandler(writer: storage.BucketDataWriter): CDCEventHandler {
     return {
       onInsert: async (row: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => {
         const afterRow = this.toSqliteRow(row, columns);
-        await batch.save({
+        await writer.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: table.sourceTable,
           before: undefined,
@@ -615,7 +611,7 @@ export class CDCStream {
       onUpdate: async (rowAfter: any, rowBefore: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => {
         const beforeRow = this.toSqliteRow(rowBefore, columns);
         const afterRow = this.toSqliteRow(rowAfter, columns);
-        await batch.save({
+        await writer.save({
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: table.sourceTable,
           before: beforeRow,
@@ -627,7 +623,7 @@ export class CDCStream {
       },
       onDelete: async (row: any, table: MSSQLSourceTable, columns: sql.IColumnMetadata) => {
         const beforeRow = this.toSqliteRow(row, columns);
-        await batch.save({
+        await writer.save({
           tag: storage.SaveOperationTag.DELETE,
           sourceTable: table.sourceTable,
           before: beforeRow,
@@ -638,7 +634,7 @@ export class CDCStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
       },
       onCommit: async (lsn: string, transactionCount: number) => {
-        await batch.commit(lsn);
+        await writer.commitAll(lsn);
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionCount);
         this.isStartingReplication = false;
       },

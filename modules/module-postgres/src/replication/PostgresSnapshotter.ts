@@ -5,13 +5,7 @@ import {
   ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import {
-  getUuidReplicaIdentityBson,
-  MetricsEngine,
-  RelationCache,
-  SourceTable,
-  storage
-} from '@powersync/service-core';
+import { getUuidReplicaIdentityBson, MetricsEngine, SourceTable, storage } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import {
   DatabaseInputRow,
@@ -24,7 +18,6 @@ import {
 } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
-import * as timers from 'node:timers/promises';
 import pDefer, { DeferredPromise } from 'p-defer';
 import { PostgresTypeResolver } from '../types/resolver.js';
 import { PgManager } from './PgManager.js';
@@ -74,13 +67,6 @@ export class PostgresSnapshotter {
   private abortSignal: AbortSignal;
 
   private snapshotChunkLength: number;
-
-  private relationCache = new RelationCache((relation: number | SourceTable) => {
-    if (typeof relation == 'number') {
-      return relation;
-    }
-    return relation.objectId!;
-  });
 
   private queue = new Set<SourceTable>();
   private nextItemQueued: DeferredPromise<void> | null = null;
@@ -457,7 +443,6 @@ export class PostgresSnapshotter {
         }
         const count = await this.estimatedCountNumber(db, table);
         table = await writer.updateTableProgress(table, { totalEstimatedCount: count });
-        this.relationCache.update(table);
 
         this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
 
@@ -515,7 +500,6 @@ export class PostgresSnapshotter {
       await db.query('COMMIT');
       this.logger.info(`Snapshot complete for table ${table.qualifiedName}, resume at ${tableLsnNotBefore}`);
       const [resultTable] = await writer.markTableSnapshotDone([table], tableLsnNotBefore);
-      this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
       await db.query('ROLLBACK');
@@ -619,7 +603,6 @@ export class PostgresSnapshotter {
           replicatedCount: at,
           totalEstimatedCount: totalEstimatedCount
         });
-        this.relationCache.update(table);
 
         this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
       } else {
