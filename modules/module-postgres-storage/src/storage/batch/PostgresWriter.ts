@@ -4,6 +4,8 @@ import { BucketStorageMarkRecordUnavailable, maxLsn, storage } from '@powersync/
 import { RowProcessor } from '@powersync/service-sync-rules';
 import { OperationBatch } from './OperationBatch.js';
 import { PostgresBucketBatch } from './PostgresBucketBatch.js';
+import { models } from '../../types/types.js';
+import { postgresTableId } from './PostgresPersistedBatch.js';
 
 export interface PostgresWriterOptions {
   db: lib_postgres.DatabaseClient;
@@ -105,9 +107,56 @@ export class PostgresWriter implements storage.BucketDataWriter {
     throw new ReplicationAssertionError(`No sub-writer found for source table ${table.qualifiedName}`);
   }
 
-  getTable(ref: storage.SourceTable): Promise<storage.SourceTable | null> {
-    throw new Error('Method not implemented.');
+  async getTable(ref: storage.SourceTable): Promise<storage.SourceTable | null> {
+    const sourceTableRow = await this.db.sql`
+      SELECT
+        *
+      FROM
+        source_tables
+      WHERE
+        id = ${{ type: 'varchar', value: postgresTableId(ref.id) }}
+    `
+      .decoded(models.SourceTable)
+      .first();
+    if (sourceTableRow == null) {
+      return null;
+    }
+
+    const subWriter = this.subWriters.find((sw) => sw.storage.group_id === sourceTableRow.group_id);
+    if (subWriter == null) {
+      throw new ReplicationAssertionError(
+        `No sub-writer found for source table ${ref.qualifiedName} with group ID ${sourceTableRow.group_id}`
+      );
+    }
+
+    const sourceTable = new storage.SourceTable({
+      // Immutable values
+      id: sourceTableRow.id,
+      connectionTag: ref.connectionTag,
+      objectId: ref.objectId,
+      schema: ref.schema,
+      name: ref.name,
+      replicaIdColumns: ref.replicaIdColumns,
+      pattern: ref.pattern,
+
+      // Table state
+      snapshotComplete: sourceTableRow!.snapshot_done ?? true
+    });
+    if (!sourceTable.snapshotComplete) {
+      sourceTable.snapshotStatus = {
+        totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
+        replicatedCount: Number(sourceTableRow!.snapshot_replicated_count ?? 0n),
+        lastKey: sourceTableRow!.snapshot_last_key
+      };
+    }
+    // Immutable
+    sourceTable.syncEvent = ref.syncEvent;
+    sourceTable.syncData = ref.syncData;
+    sourceTable.syncParameters = ref.syncParameters;
+    this.sourceTableMap.set(sourceTable, subWriter);
+    return sourceTable;
   }
+
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const writer = this.subWriterForTable(record.sourceTable);
     return writer.save(record);
