@@ -99,7 +99,7 @@ export class PostgresSnapshotter {
   }
 
   async getQualifiedTableNames(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     db: pgwire.PgConnection,
     tablePattern: TablePattern
   ): Promise<storage.SourceTable[]> {
@@ -176,7 +176,7 @@ export class PostgresSnapshotter {
       }
 
       const table = await this.handleRelation({
-        batch,
+        writer,
         db,
         name,
         schema,
@@ -303,34 +303,30 @@ export class PostgresSnapshotter {
 
   async replicateTable(requestTable: SourceTable) {
     const db = await this.connections.snapshotConnection();
-    try {
-      const flushResults = await this.storage.startBatch(
-        {
-          logger: this.logger,
-          zeroLSN: ZERO_LSN,
-          defaultSchema: POSTGRES_DEFAULT_SCHEMA,
-          storeCurrentData: true,
-          skipExistingRows: true
-        },
-        async (batch) => {
-          // Get fresh table info, in case it was updated while queuing
-          const table = await this.handleRelation({
-            batch,
-            db: db,
-            name: requestTable.name,
-            schema: requestTable.schema,
-            relId: requestTable.objectId as number
-          });
-          await this.snapshotTableInTx(batch, db, table);
-          // This commit ensures we set keepalive_op.
-          // It may be better if that is automatically set when flushing.
-          await batch.commit(ZERO_LSN);
-        }
-      );
-      this.logger.info(`Flushed snapshot at ${flushResults?.flushed_op}`);
-    } finally {
-      await db.end();
-    }
+    await using _ = { [Symbol.asyncDispose]: () => db.end() };
+    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      logger: this.logger,
+      zeroLSN: ZERO_LSN,
+      defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+      storeCurrentData: true,
+      skipExistingRows: true
+    });
+
+    // Get fresh table info, in case it was updated while queuing
+    const table = await this.handleRelation({
+      writer,
+      db: db,
+      name: requestTable.name,
+      schema: requestTable.schema,
+      relId: requestTable.objectId as number
+    });
+    await this.snapshotTableInTx(writer, db, table);
+    // This commit ensures we set keepalive_op.
+    // It may be better if that is automatically set when flushing.
+    const flushResults = await writer.flush();
+    await writer.commitAll(ZERO_LSN);
+
+    this.logger.info(`Flushed snapshot at ${flushResults?.flushed_op}`);
   }
 
   async waitForInitialSnapshot() {
@@ -414,34 +410,31 @@ export class PostgresSnapshotter {
   async queueSnapshotTables(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
 
-    await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: ZERO_LSN,
-        defaultSchema: POSTGRES_DEFAULT_SCHEMA,
-        storeCurrentData: true,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        for (let tablePattern of sourceTables) {
-          const tables = await this.getQualifiedTableNames(batch, db, tablePattern);
-          // Pre-get counts
-          for (let table of tables) {
-            if (table.snapshotComplete) {
-              this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
-              continue;
-            }
-            const count = await this.estimatedCountNumber(db, table);
-            table = await batch.updateTableProgress(table, { totalEstimatedCount: count });
-            this.relationCache.update(table);
+    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      logger: this.logger,
+      zeroLSN: ZERO_LSN,
+      defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+      storeCurrentData: true,
+      skipExistingRows: true
+    });
 
-            this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
-
-            this.queue.add(table);
-          }
+    for (let tablePattern of sourceTables) {
+      const tables = await this.getQualifiedTableNames(writer, db, tablePattern);
+      // Pre-get counts
+      for (let table of tables) {
+        if (table.snapshotComplete) {
+          this.logger.info(`Skipping ${table.qualifiedName} - snapshot already done`);
+          continue;
         }
+        const count = await this.estimatedCountNumber(db, table);
+        table = await writer.updateTableProgress(table, { totalEstimatedCount: count });
+        this.relationCache.update(table);
+
+        this.logger.info(`To replicate: ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+
+        this.queue.add(table);
       }
-    );
+    }
   }
 
   static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
@@ -450,13 +443,13 @@ export class PostgresSnapshotter {
     }
   }
 
-  public async queueSnapshot(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
-    await batch.markTableSnapshotRequired(table);
+  public async queueSnapshot(writer: storage.BucketDataWriter, table: storage.SourceTable) {
+    await writer.markTableSnapshotRequired(table);
     this.queue.add(table);
   }
 
   public async snapshotTableInTx(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     db: pgwire.PgConnection,
     table: storage.SourceTable,
     limited?: PrimaryKeyValue[]
@@ -467,7 +460,7 @@ export class PostgresSnapshotter {
     await db.query('BEGIN');
     try {
       let tableLsnNotBefore: string;
-      await this.snapshotTable(batch, db, table, limited);
+      await this.snapshotTable(writer, db, table, limited);
 
       // Get the current LSN.
       // The data will only be consistent once incremental replication has passed that point.
@@ -487,7 +480,7 @@ export class PostgresSnapshotter {
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
       this.logger.info(`Snapshot complete for table ${table.qualifiedName}, resume at ${tableLsnNotBefore}`);
-      const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
+      const [resultTable] = await writer.markTableSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
@@ -497,7 +490,7 @@ export class PostgresSnapshotter {
   }
 
   private async snapshotTable(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     db: pgwire.PgConnection,
     table: storage.SourceTable,
     limited?: PrimaryKeyValue[]
@@ -556,7 +549,7 @@ export class PostgresSnapshotter {
           );
 
           // This auto-flushes when the batch reaches its size limit
-          await batch.save({
+          await writer.save({
             tag: storage.SaveOperationTag.INSERT,
             sourceTable: table,
             before: undefined,
@@ -573,7 +566,7 @@ export class PostgresSnapshotter {
       }
 
       // Important: flush before marking progress
-      await batch.flush();
+      await writer.flush();
       if (limited == null) {
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {
@@ -587,7 +580,7 @@ export class PostgresSnapshotter {
           totalEstimatedCount = await this.estimatedCountNumber(db, table);
           lastCountTime = performance.now();
         }
-        table = await batch.updateTableProgress(table, {
+        table = await writer.updateTableProgress(table, {
           lastKey: lastKey,
           replicatedCount: at,
           totalEstimatedCount: totalEstimatedCount
@@ -607,13 +600,13 @@ export class PostgresSnapshotter {
   }
 
   private async handleRelation(options: {
-    batch: storage.BucketStorageBatch;
+    writer: storage.BucketDataWriter;
     db: pgwire.PgConnection;
     name: string;
     schema: string;
     relId: number;
   }) {
-    const { batch, db, name, schema, relId } = options;
+    const { writer, db, name, schema, relId } = options;
 
     const cresult = await getReplicationIdentityColumns(db, relId);
     const columnTypesResult = await db.query({
@@ -639,7 +632,7 @@ export class PostgresSnapshotter {
     this.relationCache.update(result.table);
 
     // Drop conflicting tables. This includes for example renamed tables.
-    await batch.drop(result.dropTables);
+    await writer.drop(result.dropTables);
 
     // Ensure we have a description for custom types referenced in the table.
     await this.connections.types.fetchTypes(columnTypes);

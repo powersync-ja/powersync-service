@@ -7,6 +7,7 @@ import {
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import {
+  BucketDataWriter,
   BucketStorageBatch,
   getUuidReplicaIdentityBson,
   MetricsEngine,
@@ -172,12 +173,12 @@ export class WalStream {
   }
 
   async handleRelation(options: {
-    batch: storage.BucketStorageBatch;
+    writer: storage.BucketDataWriter;
     descriptor: SourceEntityDescriptor;
     snapshot: boolean;
     referencedTypeIds: number[];
   }) {
-    const { batch, descriptor, snapshot, referencedTypeIds } = options;
+    const { writer, descriptor, snapshot, referencedTypeIds } = options;
 
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
@@ -193,7 +194,7 @@ export class WalStream {
     // Drop conflicting tables. This includes for example renamed tables.
     if (result.dropTables.length > 0) {
       this.logger.info(`Dropping conflicting tables: ${result.dropTables.map((t) => t.qualifiedName).join(', ')}`);
-      await batch.drop(result.dropTables);
+      await writer.drop(result.dropTables);
     }
 
     // Ensure we have a description for custom types referenced in the table.
@@ -207,7 +208,7 @@ export class WalStream {
 
     if (shouldSnapshot) {
       this.logger.info(`Queuing snapshot for new table ${result.table.qualifiedName}`);
-      await this.snapshotter.queueSnapshot(batch, result.table);
+      await this.snapshotter.queueSnapshot(writer, result.table);
     }
 
     return result.table;
@@ -221,7 +222,7 @@ export class WalStream {
    * We handle this similar to an inline table snapshot, but limited to the specific
    * set of rows.
    */
-  private async resnapshot(batch: BucketStorageBatch, rows: MissingRow[]) {
+  private async resnapshot(writer: BucketDataWriter, rows: MissingRow[]) {
     const byTable = new Map<number, MissingRow[]>();
     for (let row of rows) {
       const relId = row.table.objectId as number; // always a number for postgres
@@ -235,7 +236,7 @@ export class WalStream {
       for (let rows of byTable.values()) {
         const table = rows[0].table;
         await this.snapshotter.snapshotTableInTx(
-          batch,
+          writer,
           db,
           table,
           rows.map((r) => r.key)
@@ -274,7 +275,7 @@ export class WalStream {
   }
 
   async writeChange(
-    batch: storage.BucketStorageBatch,
+    writer: storage.BucketDataWriter,
     msg: pgwire.PgoutputMessage
   ): Promise<storage.FlushedResult | null> {
     if (msg.lsn == null) {
@@ -290,7 +291,7 @@ export class WalStream {
       if (msg.tag == 'insert') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
+        return await writer.save({
           tag: storage.SaveOperationTag.INSERT,
           sourceTable: table,
           before: undefined,
@@ -304,7 +305,7 @@ export class WalStream {
         // It's fine to treat that the same as an insert.
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
         const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
+        return await writer.save({
           tag: storage.SaveOperationTag.UPDATE,
           sourceTable: table,
           before: before,
@@ -316,7 +317,7 @@ export class WalStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
 
-        return await batch.save({
+        return await writer.save({
           tag: storage.SaveOperationTag.DELETE,
           sourceTable: table,
           before: before,
@@ -331,7 +332,7 @@ export class WalStream {
         const table = this.getTable(getRelId(relation));
         tables.push(table);
       }
-      return await batch.truncate(tables);
+      return await writer.truncate(tables);
     }
     return null;
   }
@@ -487,138 +488,135 @@ export class WalStream {
       });
     };
 
-    await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: ZERO_LSN,
-        defaultSchema: POSTGRES_DEFAULT_SCHEMA,
-        storeCurrentData: true,
-        skipExistingRows: false,
-        markRecordUnavailable
-      },
-      async (batch) => {
-        // We don't handle any plain keepalive messages while we have transactions.
-        // While we have transactions, we use that to advance the position.
-        // Replication never starts in the middle of a transaction, so this starts as false.
-        let skipKeepalive = false;
-        let count = 0;
+    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      logger: this.logger,
+      zeroLSN: ZERO_LSN,
+      defaultSchema: POSTGRES_DEFAULT_SCHEMA,
+      storeCurrentData: true,
+      skipExistingRows: false,
+      markRecordUnavailable
+    });
 
-        for await (const chunk of replicationStream.pgoutputDecode()) {
-          this.touch();
+    // We don't handle any plain keepalive messages while we have transactions.
+    // While we have transactions, we use that to advance the position.
+    // Replication never starts in the middle of a transaction, so this starts as false.
+    let skipKeepalive = false;
+    let count = 0;
 
-          if (this.abortSignal.aborted) {
-            break;
+    for await (const chunk of replicationStream.pgoutputDecode()) {
+      this.touch();
+
+      if (this.abortSignal.aborted) {
+        break;
+      }
+
+      // chunkLastLsn may come from normal messages in the chunk,
+      // or from a PrimaryKeepalive message.
+      const { messages, lastLsn: chunkLastLsn } = chunk;
+
+      /**
+       * We can check if an explicit keepalive was sent if `exposesLogicalMessages == true`.
+       * If we can't check the logical messages, we should assume a keepalive if we
+       * receive an empty array of messages in a replication event.
+       */
+      const assumeKeepAlive = !exposesLogicalMessages;
+      let keepAliveDetected = false;
+      const lastCommit = messages.findLast((msg) => msg.tag == 'commit');
+
+      for (const msg of messages) {
+        if (msg.tag == 'relation') {
+          await this.handleRelation({
+            writer,
+            descriptor: getPgOutputRelation(msg),
+            snapshot: true,
+            referencedTypeIds: referencedColumnTypeIds(msg)
+          });
+        } else if (msg.tag == 'begin') {
+          // This may span multiple transactions in the same chunk, or even across chunks.
+          skipKeepalive = true;
+          if (this.oldestUncommittedChange == null) {
+            this.oldestUncommittedChange = new Date(Number(msg.commitTime / 1000n));
           }
-
-          // chunkLastLsn may come from normal messages in the chunk,
-          // or from a PrimaryKeepalive message.
-          const { messages, lastLsn: chunkLastLsn } = chunk;
-
-          /**
-           * We can check if an explicit keepalive was sent if `exposesLogicalMessages == true`.
-           * If we can't check the logical messages, we should assume a keepalive if we
-           * receive an empty array of messages in a replication event.
-           */
-          const assumeKeepAlive = !exposesLogicalMessages;
-          let keepAliveDetected = false;
-          const lastCommit = messages.findLast((msg) => msg.tag == 'commit');
-
-          for (const msg of messages) {
-            if (msg.tag == 'relation') {
-              await this.handleRelation({
-                batch,
-                descriptor: getPgOutputRelation(msg),
-                snapshot: true,
-                referencedTypeIds: referencedColumnTypeIds(msg)
-              });
-            } else if (msg.tag == 'begin') {
-              // This may span multiple transactions in the same chunk, or even across chunks.
-              skipKeepalive = true;
-              if (this.oldestUncommittedChange == null) {
-                this.oldestUncommittedChange = new Date(Number(msg.commitTime / 1000n));
-              }
-            } else if (msg.tag == 'commit') {
-              this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-              if (msg == lastCommit) {
-                // Only commit if this is the last commit in the chunk.
-                // This effectively lets us batch multiple transactions within the same chunk
-                // into a single flush, increasing throughput for many small transactions.
-                skipKeepalive = false;
-                // flush() must be before the resnapshot check - that is
-                // typically what reports the resnapshot records.
-                await batch.flush({ oldestUncommittedChange: this.oldestUncommittedChange });
-                // This _must_ be checked after the flush(), and before
-                // commit() or ack(). We never persist the resnapshot list,
-                // so we have to process it before marking our progress.
-                if (resnapshot.length > 0) {
-                  await this.resnapshot(batch, resnapshot);
-                  resnapshot = [];
-                }
-                const didCommit = await batch.commit(msg.lsn!, {
-                  createEmptyCheckpoints,
-                  oldestUncommittedChange: this.oldestUncommittedChange
-                });
-                await this.ack(msg.lsn!, replicationStream);
-                if (didCommit) {
-                  this.oldestUncommittedChange = null;
-                  this.isStartingReplication = false;
-                }
-              }
-            } else {
-              if (count % 100 == 0) {
-                this.logger.info(`Replicating op ${count} ${msg.lsn}`);
-              }
-
-              /**
-               * If we can see the contents of logical messages, then we can check if a keepalive
-               * message is present. We only perform a keepalive (below) if we explicitly detect a keepalive message.
-               * If we can't see the contents of logical messages, then we should assume a keepalive is required
-               * due to the default value of `assumeKeepalive`.
-               */
-              if (exposesLogicalMessages && isKeepAliveMessage(msg)) {
-                keepAliveDetected = true;
-              }
-
-              count += 1;
-              const flushResult = await this.writeChange(batch, msg);
-              if (flushResult != null && resnapshot.length > 0) {
-                // If we have large transactions, we also need to flush the resnapshot list
-                // periodically.
-                // TODO: make sure this bit is actually triggered
-                await this.resnapshot(batch, resnapshot);
-                resnapshot = [];
-              }
+        } else if (msg.tag == 'commit') {
+          this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
+          if (msg == lastCommit) {
+            // Only commit if this is the last commit in the chunk.
+            // This effectively lets us batch multiple transactions within the same chunk
+            // into a single flush, increasing throughput for many small transactions.
+            skipKeepalive = false;
+            // flush() must be before the resnapshot check - that is
+            // typically what reports the resnapshot records.
+            await writer.flush({ oldestUncommittedChange: this.oldestUncommittedChange });
+            // This _must_ be checked after the flush(), and before
+            // commit() or ack(). We never persist the resnapshot list,
+            // so we have to process it before marking our progress.
+            if (resnapshot.length > 0) {
+              await this.resnapshot(writer, resnapshot);
+              resnapshot = [];
             }
-          }
-
-          if (!skipKeepalive) {
-            if (assumeKeepAlive || keepAliveDetected) {
-              // Reset the detection flag.
-              keepAliveDetected = false;
-
-              // In a transaction, we ack and commit according to the transaction progress.
-              // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
-              // Big caveat: This _must not_ be used to skip individual messages, since this LSN
-              // may be in the middle of the next transaction.
-              // It must only be used to associate checkpoints with LSNs.
-
-              const didCommit = await batch.keepalive(chunkLastLsn);
-              if (didCommit) {
-                this.oldestUncommittedChange = null;
-              }
-
+            const didCommit = await writer.commitAll(msg.lsn!, {
+              createEmptyCheckpoints,
+              oldestUncommittedChange: this.oldestUncommittedChange
+            });
+            await this.ack(msg.lsn!, replicationStream);
+            if (didCommit) {
+              this.oldestUncommittedChange = null;
               this.isStartingReplication = false;
             }
-
-            // We receive chunks with empty messages often (about each second).
-            // Acknowledging here progresses the slot past these and frees up resources.
-            await this.ack(chunkLastLsn, replicationStream);
+          }
+        } else {
+          if (count % 100 == 0) {
+            this.logger.info(`Replicating op ${count} ${msg.lsn}`);
           }
 
-          this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED).add(1);
+          /**
+           * If we can see the contents of logical messages, then we can check if a keepalive
+           * message is present. We only perform a keepalive (below) if we explicitly detect a keepalive message.
+           * If we can't see the contents of logical messages, then we should assume a keepalive is required
+           * due to the default value of `assumeKeepalive`.
+           */
+          if (exposesLogicalMessages && isKeepAliveMessage(msg)) {
+            keepAliveDetected = true;
+          }
+
+          count += 1;
+          const flushResult = await this.writeChange(writer, msg);
+          if (flushResult != null && resnapshot.length > 0) {
+            // If we have large transactions, we also need to flush the resnapshot list
+            // periodically.
+            // TODO: make sure this bit is actually triggered
+            await this.resnapshot(writer, resnapshot);
+            resnapshot = [];
+          }
         }
       }
-    );
+
+      if (!skipKeepalive) {
+        if (assumeKeepAlive || keepAliveDetected) {
+          // Reset the detection flag.
+          keepAliveDetected = false;
+
+          // In a transaction, we ack and commit according to the transaction progress.
+          // Outside transactions, we use the PrimaryKeepalive messages to advance progress.
+          // Big caveat: This _must not_ be used to skip individual messages, since this LSN
+          // may be in the middle of the next transaction.
+          // It must only be used to associate checkpoints with LSNs.
+
+          const didCommit = await writer.keepaliveAll(chunkLastLsn);
+          if (didCommit) {
+            this.oldestUncommittedChange = null;
+          }
+
+          this.isStartingReplication = false;
+        }
+
+        // We receive chunks with empty messages often (about each second).
+        // Acknowledging here progresses the slot past these and frees up resources.
+        await this.ack(chunkLastLsn, replicationStream);
+      }
+
+      this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED).add(1);
+    }
 
     throw new ReplicationAbortedError(`Replication stream aborted`, this.abortSignal.reason);
   }

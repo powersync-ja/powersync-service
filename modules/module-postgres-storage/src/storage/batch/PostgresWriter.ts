@@ -163,29 +163,32 @@ export class PostgresWriter implements storage.BucketDataWriter {
   }
 
   async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    let flushedResult: storage.FlushedResult | null = null;
     for (let table of sourceTables) {
       const writer = this.subWriterForTable(table);
-      await writer.truncate([table]);
+      const subResult = await writer.truncate([table]);
+      flushedResult = maxFlushedResult(flushedResult, subResult);
     }
-    // FIXME: do we need the result?
-    return null;
+    return flushedResult;
   }
 
   async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    let flushedResult: storage.FlushedResult | null = null;
     for (let table of sourceTables) {
       const writer = this.subWriterForTable(table);
-      await writer.drop([table]);
+      const subResult = await writer.drop([table]);
+      flushedResult = maxFlushedResult(flushedResult, subResult);
     }
-    // FIXME: do we need the result?
-    return null;
+    return flushedResult;
   }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
+    let flushedResult: storage.FlushedResult | null = null;
     for (let writer of this.subWriters) {
-      await writer.flush();
+      const subResult = await writer.flush();
+      flushedResult = maxFlushedResult(flushedResult, subResult);
     }
-    // FIXME: do we need the result?
-    return null;
+    return flushedResult;
   }
 
   async markTableSnapshotDone(
@@ -227,4 +230,17 @@ export class PostgresWriter implements storage.BucketDataWriter {
       await writer[Symbol.asyncDispose]();
     }
   }
+}
+
+function maxFlushedResult(
+  a: storage.FlushedResult | null,
+  b: storage.FlushedResult | null
+): storage.FlushedResult | null {
+  if (a == null) {
+    return b;
+  }
+  if (b == null) {
+    return a;
+  }
+  return a.flushed_op > b.flushed_op ? a : b;
 }
