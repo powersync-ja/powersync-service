@@ -86,7 +86,8 @@ export class PostgresWriter implements storage.BucketDataWriter {
         connection_id: options.connection_id,
         connection_tag: options.connection_tag,
         entity_descriptor: options.entity_descriptor,
-        sync_rules: subWriter.sync_rules
+        sync_rules: subWriter.sync_rules,
+        idGenerator: options.idGenerator
       });
       result.tables.push(subResult.table);
       this.sourceTableMap.set(subResult.table, subWriter);

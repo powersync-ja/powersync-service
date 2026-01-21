@@ -38,6 +38,7 @@ import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
+import { postgresTableId } from './batch/PostgresPersistedBatch.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -224,6 +225,7 @@ export class PostgresSyncRulesStorage
       }
 
       if (sourceTableRow == null) {
+        const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
         const row = await db.sql`
           INSERT INTO
             source_tables (
@@ -237,7 +239,7 @@ export class PostgresSyncRulesStorage
             )
           VALUES
             (
-              ${{ type: 'varchar', value: uuid.v4() }},
+              ${{ type: 'varchar', value: id }},
               ${{ type: 'int4', value: group_id }},
               ${{ type: 'int4', value: connection_id }},
               --- The objectId can be string | number | undefined, we store it as jsonb value

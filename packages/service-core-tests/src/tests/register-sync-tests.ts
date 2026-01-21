@@ -800,9 +800,11 @@ bucket_definitions:
     await writer.commitAll('0/1');
 
     const checkpoint2 = await getCheckpointLines(iter);
+
+    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['10002["user1"]']);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
@@ -855,9 +857,9 @@ bucket_definitions:
     });
 
     const checkpoint1 = await getCheckpointLines(iter);
-    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([
-      '10002["user1"]' // FIXME: don't hardcode
-    ]);
+
+    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
+    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([bucket]);
     expect(checkpoint1).toMatchSnapshot();
 
     await writer.save({
@@ -876,7 +878,7 @@ bucket_definitions:
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['10002["user1"]']);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
@@ -945,10 +947,12 @@ bucket_definitions:
 
     await writer.commitAll('0/1');
 
+    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
+
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['10002["user1"]']); // TODO: don't hardcode bucket name
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 

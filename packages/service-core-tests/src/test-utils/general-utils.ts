@@ -142,6 +142,10 @@ function isParsedSyncRules(
   return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
 }
 
+/**
+ * Bucket names no longer purely depend on the sync rules.
+ * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
+ */
 export function bucketRequest(
   syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
   bucket?: string,

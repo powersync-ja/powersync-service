@@ -173,7 +173,7 @@ export interface ResolveTablesOptions {
   entity_descriptor: SourceEntityDescriptor;
   pattern: TablePattern;
   /**
-   * For tests only - custom id generator.
+   * For tests only - custom id generator for stable ids.
    */
   idGenerator?: () => string | bson.ObjectId;
 }
@@ -183,6 +183,10 @@ export interface ResolveTableOptions {
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
   sync_rules: HydratedSyncRules;
+  /**
+   * For tests only - custom id generator for stable ids.
+   */
+  idGenerator?: () => string | bson.ObjectId;
 }
 
 export interface ResolveTablesResult {
