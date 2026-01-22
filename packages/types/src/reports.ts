@@ -1,7 +1,8 @@
 export enum EventsEngineEventType {
   SDK_CONNECT_EVENT = 'sdk-connect-event',
   SDK_DISCONNECT_EVENT = 'sdk-disconnect-event',
-  SDK_DELETE_OLD = 'sdk-delete-old'
+  SDK_DELETE_OLD = 'sdk-delete-old',
+  SYNC_ANALYTICS_EVENT = 'sync-analytics-event'
 }
 
 /**
@@ -12,6 +13,7 @@ export type SubscribeEvents = {
   [EventsEngineEventType.SDK_CONNECT_EVENT]: ClientConnectionEventData;
   [EventsEngineEventType.SDK_DISCONNECT_EVENT]: ClientDisconnectionEventData;
   [EventsEngineEventType.SDK_DELETE_OLD]: DeleteOldConnectionData;
+  [EventsEngineEventType.SYNC_ANALYTICS_EVENT]: SyncAnalyticsEventData;
 };
 
 /**
@@ -52,6 +54,12 @@ export type ClientConnectionBucketData = {
   /** parsed sdk version from the user agent. */
   sdk: string;
 } & ConnectedUserData;
+
+export type SyncAnalyticsEventData = {
+  client_id: string;
+  user_id: string;
+  data: any;
+};
 
 export type ClientDisconnectionEventData = {
   disconnected_at: Date;

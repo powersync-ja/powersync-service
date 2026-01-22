@@ -81,6 +81,7 @@ export const syncStreamed = routeDefinition({
       ? limitParamsForLogging(payload.params.app_metadata)
       : undefined;
 
+    console.log(payload.params.app_metadata);
     logger.info('Sync stream started', {
       app_metadata: formattedAppMetadata,
       client_params: payload.params.parameters ? limitParamsForLogging(payload.params.parameters) : undefined
