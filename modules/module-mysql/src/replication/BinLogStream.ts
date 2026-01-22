@@ -138,8 +138,11 @@ export class BinLogStream {
       pattern
     });
 
-    // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
+    // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage,
+    // so this should be a no-op.
     await writer.drop(result.dropTables);
+
+    this.tableCache.set(entity.objectId!, result.tables);
 
     return result.tables;
   }
@@ -164,7 +167,8 @@ export class BinLogStream {
         pattern
       });
 
-      // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
+      // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage,
+      // so this should be a no-op.
       await writer.drop(result.dropTables);
 
       for (let table of result.tables) {
@@ -531,6 +535,7 @@ export class BinLogStream {
     if (change.type === SchemaChangeType.RENAME_TABLE) {
       const fromTableId = createTableId(change.schema, change.table);
 
+      // FIXME: we should use tables from the storage, not from the cache.
       const fromTables = this.tableCache.get(fromTableId);
       // Old table needs to be cleaned up
       if (fromTables != null) {

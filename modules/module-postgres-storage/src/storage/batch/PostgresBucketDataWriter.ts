@@ -10,6 +10,7 @@ import { RowProcessor } from '@powersync/service-sync-rules';
 import { models } from '../../types/types.js';
 import { PostgresBucketBatch } from './PostgresBucketBatch.js';
 import { postgresTableId } from './PostgresPersistedBatch.js';
+import { PostgresSourceTable } from '../PostgresSourceTable.js';
 
 export interface PostgresWriterOptions {
   db: lib_postgres.DatabaseClient;
@@ -27,11 +28,6 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
   protected db: lib_postgres.DatabaseClient;
 
   public subWriters: PostgresBucketBatch[] = [];
-
-  /**
-   * Map table id => relevant PostgresBucketBatch
-   */
-  private sourceTableMap = new Map<string, PostgresBucketBatch>();
 
   constructor(options: PostgresWriterOptions) {
     this.db = options.db;
@@ -90,7 +86,6 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
         idGenerator: options.idGenerator
       });
       result.tables.push(subResult.table);
-      this.sourceTableMap.set(postgresTableId(subResult.table.id), subWriter);
       result.dropTables.push(...subResult.dropTables);
     }
     return result;
@@ -98,11 +93,17 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
 
   private subWriterForTable(table: storage.SourceTable): PostgresBucketBatch {
     // FIXME: store on the SourceTable instead?
-    const mapped = this.sourceTableMap.get(postgresTableId(table.id));
-    if (mapped != null) {
-      return mapped;
+    if (!(table instanceof PostgresSourceTable)) {
+      throw new ReplicationAssertionError(`Source table is not a PostgresSourceTable`);
     }
-    throw new ReplicationAssertionError(`No sub-writer found for source table ${table.qualifiedName}`);
+    const subWriter = this.subWriters.find((sw) => sw.storage.group_id === table.groupId);
+    if (subWriter == null) {
+      throw new ReplicationAssertionError(
+        `No sub-writer found for source table ${table.qualifiedName} with group ID ${table.groupId}`
+      );
+    }
+
+    return subWriter;
   }
 
   async getTable(ref: storage.SourceTable): Promise<storage.SourceTable | null> {
@@ -127,19 +128,22 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
       );
     }
 
-    const sourceTable = new storage.SourceTable({
-      // Immutable values
-      id: sourceTableRow.id,
-      connectionTag: ref.connectionTag,
-      objectId: ref.objectId,
-      schema: ref.schema,
-      name: ref.name,
-      replicaIdColumns: ref.replicaIdColumns,
-      pattern: ref.pattern,
+    const sourceTable = new PostgresSourceTable(
+      {
+        // Immutable values
+        id: sourceTableRow.id,
+        connectionTag: ref.connectionTag,
+        objectId: ref.objectId,
+        schema: ref.schema,
+        name: ref.name,
+        replicaIdColumns: ref.replicaIdColumns,
+        pattern: ref.pattern,
 
-      // Table state
-      snapshotComplete: sourceTableRow!.snapshot_done ?? true
-    });
+        // Table state
+        snapshotComplete: sourceTableRow!.snapshot_done ?? true
+      },
+      { groupId: sourceTableRow.group_id }
+    );
     if (!sourceTable.snapshotComplete) {
       sourceTable.snapshotStatus = {
         totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
@@ -151,7 +155,6 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
     sourceTable.syncEvent = ref.syncEvent;
     sourceTable.syncData = ref.syncData;
     sourceTable.syncParameters = ref.syncParameters;
-    this.sourceTableMap.set(postgresTableId(sourceTable.id), subWriter);
     return sourceTable;
   }
 

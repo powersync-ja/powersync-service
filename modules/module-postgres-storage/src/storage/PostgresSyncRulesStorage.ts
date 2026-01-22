@@ -40,6 +40,7 @@ import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpoin
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
 import { postgresTableId } from './batch/PostgresPersistedBatch.js';
+import { PostgresSourceTable } from './PostgresSourceTable.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -257,15 +258,18 @@ export class PostgresSyncRulesStorage
         sourceTableRow = row;
       }
 
-      const sourceTable = new storage.SourceTable({
-        id: sourceTableRow!.id,
-        connectionTag: connection_tag,
-        objectId: objectId,
-        schema: schema,
-        name: table,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true
-      });
+      const sourceTable = new PostgresSourceTable(
+        {
+          id: sourceTableRow!.id,
+          connectionTag: connection_tag,
+          objectId: objectId,
+          schema: schema,
+          name: table,
+          replicaIdColumns: replicaIdColumns,
+          snapshotComplete: sourceTableRow!.snapshot_done ?? true
+        },
+        { groupId: group_id }
+      );
       if (!sourceTable.snapshotComplete) {
         sourceTable.snapshotStatus = {
           totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
@@ -323,20 +327,23 @@ export class PostgresSyncRulesStorage
         table: sourceTable,
         dropTables: truncatedTables.map(
           (doc) =>
-            new storage.SourceTable({
-              id: doc.id,
-              connectionTag: connection_tag,
-              objectId: doc.relation_id?.object_id ?? 0,
-              schema: doc.schema_name,
-              name: doc.table_name,
-              replicaIdColumns:
-                doc.replica_id_columns?.map((c) => ({
-                  name: c.name,
-                  typeOid: c.typeId,
-                  type: c.type
-                })) ?? [],
-              snapshotComplete: doc.snapshot_done ?? true
-            })
+            new PostgresSourceTable(
+              {
+                id: doc.id,
+                connectionTag: connection_tag,
+                objectId: doc.relation_id?.object_id ?? 0,
+                schema: doc.schema_name,
+                name: doc.table_name,
+                replicaIdColumns:
+                  doc.replica_id_columns?.map((c) => ({
+                    name: c.name,
+                    typeOid: c.typeId,
+                    type: c.type
+                  })) ?? [],
+                snapshotComplete: doc.snapshot_done ?? true
+              },
+              { groupId: group_id }
+            )
         )
       };
     });

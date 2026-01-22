@@ -178,6 +178,9 @@ export class PostgresBucketBatch
     }
   }
 
+  /**
+   * No-op for tables we do not own, although it does still have some overhead.
+   */
   protected async truncateSingle(sourceTable: storage.SourceTable) {
     // To avoid too large transactions, we limit the amount of data we delete per transaction.
     // Since we don't use the record data here, we don't have explicit size limits per batch.
@@ -255,10 +258,12 @@ export class PostgresBucketBatch
 
     await this.db.transaction(async (db) => {
       for (const table of sourceTables) {
+        // Only delete tables we own
         await db.sql`
           DELETE FROM source_tables
           WHERE
             id = ${{ type: 'varchar', value: table.id }}
+            AND group_id = ${{ type: 'int4', value: this.group_id }}
         `.execute();
       }
     });
