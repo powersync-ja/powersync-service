@@ -30,11 +30,11 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
 
 export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageConfig) => void) {
   describe.skipIf(!env.TEST_MONGO_STORAGE)(`mongodb storage`, options, function () {
-    fn(INITIALIZED_MONGO_STORAGE_FACTORY);
+    return fn(INITIALIZED_MONGO_STORAGE_FACTORY);
   });
 
   describe.skipIf(!env.TEST_POSTGRES_STORAGE)(`postgres storage`, options, function () {
-    fn(INITIALIZED_POSTGRES_STORAGE_FACTORY);
+    return fn(INITIALIZED_POSTGRES_STORAGE_FACTORY);
   });
 }
 

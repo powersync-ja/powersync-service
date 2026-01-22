@@ -26,18 +26,19 @@ const PUT_T3 = test_utils.putOp('test_data', { id: 't3', description: 'test3' })
 const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
 const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
-function defineTests(config: storage.TestStorageConfig) {
+async function defineTests(config: storage.TestStorageConfig) {
   const factory = config.factory;
-  let isMySQL57: boolean = false;
 
-  beforeAll(async () => {
+  let isMySQL57: boolean;
+  {
+    // This is similar to a beforeAll() block, but doing it this way ensures the flag is available for skipIf().
     const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
     const connection = await connectionManager.getConnection();
     const version = await getMySQLVersion(connection);
     isMySQL57 = satisfiesVersion(version, '5.7.x');
     connection.release();
     await connectionManager.end();
-  });
+  }
 
   test('Re-create table', async () => {
     await using context = await BinlogStreamTestContext.open(factory);
