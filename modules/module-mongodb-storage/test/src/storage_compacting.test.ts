@@ -9,7 +9,7 @@ describe('Mongo Sync Bucket Storage Compact', () => {
   describe('with blank bucket_state', () => {
     // This can happen when migrating from older service versions, that did not populate bucket_state yet.
     const populate = async (bucketStorage: SyncRulesBucketStorage, sourceTableIndex: number) => {
-      await using writer = await bucketStorage.factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
       const sourceTable = await test_utils.resolveTestTable(
         writer,

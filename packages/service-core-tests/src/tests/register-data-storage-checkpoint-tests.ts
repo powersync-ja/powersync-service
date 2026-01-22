@@ -33,7 +33,7 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
 
     const writeCheckpoint = await bucketStorage.createManagedWriteCheckpoint({
@@ -68,7 +68,7 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
 
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
 
     const abortController = new AbortController();

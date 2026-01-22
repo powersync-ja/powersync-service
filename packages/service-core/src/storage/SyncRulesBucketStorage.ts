@@ -8,7 +8,7 @@ import {
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketDataWriter, BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
-import { BucketStorageFactory } from './BucketStorageFactory.js';
+import { BucketStorageFactory, CreateWriterOptions } from './BucketStorageFactory.js';
 import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
@@ -34,7 +34,7 @@ export interface SyncRulesBucketStorage
    *
    * The writer must be flushed and disposed when done.
    */
-  createWriter(options: StartBatchOptions): Promise<BucketDataWriter>;
+  createWriter(options: CreateWriterOptions): Promise<BucketDataWriter>;
 
   getHydratedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
 
@@ -182,36 +182,6 @@ export interface ResolveTablesResult {
 export interface ResolveTableResult {
   table: SourceTable;
   dropTables: SourceTable[];
-}
-
-export interface StartBatchOptions extends ParseSyncRulesOptions {
-  zeroLSN: string;
-  /**
-   * Whether or not to store a copy of the current data.
-   *
-   * This is needed if we need to apply partial updates, for example
-   * when we get TOAST values from Postgres.
-   *
-   * This is not needed when we get the full document from the source
-   * database, for example from MongoDB.
-   */
-  storeCurrentData: boolean;
-
-  /**
-   * Set to true for initial replication.
-   *
-   * This will avoid creating new operations for rows previously replicated.
-   */
-  skipExistingRows?: boolean;
-
-  /**
-   * Callback called if we streamed an update to a record that we don't have yet.
-   *
-   * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
-   */
-  markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
-
-  logger?: Logger;
 }
 
 export interface CompactOptions {
@@ -365,5 +335,3 @@ export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
   updatedParameterLookups: new Set<string>(),
   invalidateParameterBuckets: true
 };
-
-export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;

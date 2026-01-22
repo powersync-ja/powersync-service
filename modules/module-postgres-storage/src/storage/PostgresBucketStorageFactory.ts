@@ -46,7 +46,7 @@ export class PostgresBucketStorageFactory
 
   async createCombinedWriter(
     storages: SyncRulesBucketStorage[],
-    options: storage.StartBatchOptions
+    options: storage.CreateWriterOptions
   ): Promise<storage.BucketDataWriter> {
     const syncRules = storages.map((s) => s.getHydratedSyncRules(options));
 

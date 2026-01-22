@@ -22,7 +22,7 @@ describe('sync - mongodb', () => {
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 

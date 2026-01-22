@@ -1,10 +1,10 @@
-import { ObserverClient } from '@powersync/lib-services-framework';
+import { Logger, ObserverClient } from '@powersync/lib-services-framework';
+import { BucketDataWriter, SaveUpdate } from './BucketStorageBatch.js';
 import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
-import { StartBatchOptions, SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 import { ReportStorage } from './ReportStorage.js';
-import { BucketDataWriter } from './BucketStorageBatch.js';
+import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 
 /**
  * Represents a configured storage provider.
@@ -27,7 +27,7 @@ export interface BucketStorageFactory extends ObserverClient<BucketStorageFactor
    */
   getInstance(syncRules: PersistedSyncRulesContent, options?: GetIntanceOptions): SyncRulesBucketStorage;
 
-  createCombinedWriter(storage: SyncRulesBucketStorage[], options: StartBatchOptions): Promise<BucketDataWriter>;
+  createCombinedWriter(storage: SyncRulesBucketStorage[], options: CreateWriterOptions): Promise<BucketDataWriter>;
 
   /**
    * Deploy new sync rules.
@@ -174,3 +174,35 @@ export interface TestStorageConfig {
   factory: TestStorageFactory;
   tableIdStrings: boolean;
 }
+
+export interface CreateWriterOptions extends ParseSyncRulesOptions {
+  zeroLSN: string;
+  /**
+   * Whether or not to store a copy of the current data.
+   *
+   * This is needed if we need to apply partial updates, for example
+   * when we get TOAST values from Postgres.
+   *
+   * This is not needed when we get the full document from the source
+   * database, for example from MongoDB.
+   */
+  storeCurrentData: boolean;
+
+  /**
+   * Set to true for initial replication.
+   *
+   * This will avoid creating new operations for rows previously replicated.
+   */
+  skipExistingRows?: boolean;
+
+  /**
+   * Callback called if we streamed an update to a record that we don't have yet.
+   *
+   * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
+   */
+  markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
+
+  logger?: Logger;
+}
+
+export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;

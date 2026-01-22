@@ -16,7 +16,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     const request = bucketRequest(syncRules);
 
@@ -122,7 +122,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
@@ -237,7 +237,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
@@ -324,7 +324,7 @@ bucket_definitions:
               - select * from test where b = bucket.b`
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
@@ -445,7 +445,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
@@ -515,7 +515,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     const request = bucketRequest(syncRules);
 

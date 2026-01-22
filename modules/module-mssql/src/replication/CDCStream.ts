@@ -167,7 +167,7 @@ export class CDCStream {
 
   async populateTableCache() {
     const sourceTables = this.syncRules.getSourceTables();
-    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+    await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: LSN.ZERO,
       defaultSchema: this.defaultSchema,
@@ -465,7 +465,7 @@ export class CDCStream {
       await this.storage.clear({ signal: this.abortSignal });
     }
 
-    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+    await using writer = await await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: LSN.ZERO,
       defaultSchema: this.defaultSchema,
@@ -556,7 +556,7 @@ export class CDCStream {
   }
 
   async streamChanges() {
-    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+    await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: LSN.ZERO,
       defaultSchema: this.defaultSchema,

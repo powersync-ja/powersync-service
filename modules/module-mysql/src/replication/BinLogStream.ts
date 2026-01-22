@@ -296,7 +296,7 @@ export class BinLogStream {
       await promiseConnection.query(`SET time_zone = '+00:00'`);
 
       const sourceTables = this.syncRules.getSourceTables();
-      await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      await using writer = await this.storage.createWriter({
         logger: this.logger,
         zeroLSN: common.ReplicatedGTID.ZERO.comparable,
         defaultSchema: this.defaultSchema,
@@ -409,7 +409,7 @@ export class BinLogStream {
       // We need to find the existing tables, to populate our table cache.
       // This is needed for includeSchema to work correctly.
       const sourceTables = this.syncRules.getSourceTables();
-      await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      await using writer = await this.storage.createWriter({
         logger: this.logger,
         zeroLSN: common.ReplicatedGTID.ZERO.comparable,
         defaultSchema: this.defaultSchema,
@@ -445,7 +445,7 @@ export class BinLogStream {
     connection.release();
 
     if (!this.stopped) {
-      await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+      await using writer = await this.storage.createWriter({
         zeroLSN: common.ReplicatedGTID.ZERO.comparable,
         defaultSchema: this.defaultSchema,
         storeCurrentData: true

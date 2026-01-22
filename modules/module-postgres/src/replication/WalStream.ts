@@ -496,7 +496,7 @@ export class WalStream {
       });
     };
 
-    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+    await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: ZERO_LSN,
       defaultSchema: POSTGRES_DEFAULT_SCHEMA,

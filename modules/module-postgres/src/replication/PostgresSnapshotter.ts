@@ -314,7 +314,7 @@ export class PostgresSnapshotter {
   async replicateTable(requestTable: SourceTable) {
     const db = await this.connections.snapshotConnection();
     await using _ = { [Symbol.asyncDispose]: () => db.end() };
-    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+    await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: ZERO_LSN,
       defaultSchema: POSTGRES_DEFAULT_SCHEMA,
@@ -380,7 +380,7 @@ export class PostgresSnapshotter {
     const db = await this.connections.snapshotConnection();
     await using _ = { [Symbol.asyncDispose]: () => db.end() };
 
-    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+    await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: ZERO_LSN,
       defaultSchema: POSTGRES_DEFAULT_SCHEMA,
@@ -423,7 +423,7 @@ export class PostgresSnapshotter {
   async queueSnapshotTables(db: pgwire.PgConnection) {
     const sourceTables = this.sync_rules.getSourceTables();
 
-    await using writer = await this.storage.factory.createCombinedWriter([this.storage], {
+    await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: ZERO_LSN,
       defaultSchema: POSTGRES_DEFAULT_SCHEMA,

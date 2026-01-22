@@ -34,7 +34,7 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
-    await using writer = await factory.createCombinedWriter([bucketStorage], test_utils.BATCH_OPTIONS);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], POSTGRES_STORAGE_FACTORY);
 
     const largeDescription = '0123456789'.repeat(2_000_00);

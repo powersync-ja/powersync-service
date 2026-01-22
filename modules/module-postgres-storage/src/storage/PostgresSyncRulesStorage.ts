@@ -342,11 +342,11 @@ export class PostgresSyncRulesStorage
     });
   }
 
-  async createWriter(options: storage.StartBatchOptions): Promise<BucketDataWriter> {
+  async createWriter(options: storage.CreateWriterOptions): Promise<BucketDataWriter> {
     return await this.factory.createCombinedWriter([this], options);
   }
 
-  async createBucketBatch(options: storage.StartBatchOptions): Promise<PostgresBucketBatch> {
+  async createBucketBatch(options: storage.CreateWriterOptions): Promise<PostgresBucketBatch> {
     const syncRules = await this.db.sql`
       SELECT
         last_checkpoint_lsn,

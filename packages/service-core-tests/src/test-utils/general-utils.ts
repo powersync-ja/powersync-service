@@ -15,7 +15,7 @@ export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
   defaultSchema: 'public'
 };
 
-export const BATCH_OPTIONS: storage.StartBatchOptions = {
+export const BATCH_OPTIONS: storage.CreateWriterOptions = {
   ...PARSE_OPTIONS,
   zeroLSN: ZERO_LSN,
   storeCurrentData: true

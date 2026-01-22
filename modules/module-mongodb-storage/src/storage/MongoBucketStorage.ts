@@ -1,6 +1,6 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 
-import { GetIntanceOptions, maxLsn, StartBatchOptions, storage } from '@powersync/service-core';
+import { GetIntanceOptions, maxLsn, CreateWriterOptions, storage } from '@powersync/service-core';
 
 import { BaseObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -76,7 +76,7 @@ export class MongoBucketStorage
 
   async createCombinedWriter(
     storages: storage.SyncRulesBucketStorage[],
-    options: StartBatchOptions
+    options: CreateWriterOptions
   ): Promise<MongoBucketDataWriter> {
     const mongoStorages = storages as MongoSyncBucketStorage[];
     const mappings = mongoStorages.map((s) => s.sync_rules.mapping);

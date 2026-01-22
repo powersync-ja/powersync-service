@@ -168,9 +168,8 @@ export class MongoSyncBucketStorage
     });
   }
 
-  async createWriter(options: storage.StartBatchOptions): Promise<storage.BucketDataWriter> {
-    const writer = await this.factory.createCombinedWriter([this], options);
-    return writer;
+  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketDataWriter> {
+    return await this.factory.createCombinedWriter([this], options);
   }
 
   async getParameterSets(
