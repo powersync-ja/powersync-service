@@ -6,7 +6,7 @@ import * as bson from 'bson';
 import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketDataWriter.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
 import {

@@ -86,6 +86,9 @@ export interface BucketDataWriterBase {
   addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }
 
+/**
+ * @deprecated Use BucketDataWriter instead.
+ */
 export interface BucketStorageBatch
   extends ObserverClient<BucketBatchStorageListener>,
     AsyncDisposable,

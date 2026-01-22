@@ -1,5 +1,5 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
-import { BucketDataWriter, SaveUpdate } from './BucketStorageBatch.js';
+import { BucketDataWriter, SaveUpdate } from './BucketDataWriter.js';
 import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';

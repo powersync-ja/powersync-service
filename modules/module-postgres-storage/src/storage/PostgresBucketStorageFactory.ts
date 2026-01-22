@@ -13,7 +13,7 @@ import { notifySyncRulesUpdate, PostgresBucketBatch } from './batch/PostgresBuck
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedSyncRulesContent } from './sync-rules/PostgresPersistedSyncRulesContent.js';
 import { getStorageApplicationName } from '../utils/application-name.js';
-import { PostgresWriter } from './batch/PostgresWriter.js';
+import { PostgresBucketDataWriter } from './batch/PostgresBucketDataWriter.js';
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -51,7 +51,7 @@ export class PostgresBucketStorageFactory
     const syncRules = storages.map((s) => s.getHydratedSyncRules(options));
 
     const rowProcessor = new sync_rules.MultiSyncRules(syncRules);
-    const writer = new PostgresWriter({
+    const writer = new PostgresBucketDataWriter({
       ...options,
       db: this.db,
       rowProcessor,

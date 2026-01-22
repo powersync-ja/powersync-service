@@ -20,7 +20,7 @@ export interface PostgresWriterOptions {
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 }
 
-export class PostgresWriter implements storage.BucketDataWriter {
+export class PostgresBucketDataWriter implements storage.BucketDataWriter {
   public readonly rowProcessor: RowProcessor;
   write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
 

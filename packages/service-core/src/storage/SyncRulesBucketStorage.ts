@@ -7,7 +7,7 @@ import {
   TablePattern
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { BucketDataWriter, BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
+import { BucketDataWriter, BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketDataWriter.js';
 import { BucketStorageFactory, CreateWriterOptions } from './BucketStorageFactory.js';
 import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
