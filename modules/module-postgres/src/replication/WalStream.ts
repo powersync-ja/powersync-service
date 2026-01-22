@@ -8,10 +8,8 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketDataWriter,
-  BucketStorageBatch,
   getUuidReplicaIdentityBson,
   MetricsEngine,
-  RelationCache,
   SaveUpdate,
   SourceEntityDescriptor,
   SourceTable,

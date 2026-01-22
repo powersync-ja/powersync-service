@@ -68,6 +68,11 @@ export interface BucketDataWriterBase {
   markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
+
+  /**
+   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   */
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
 }
 
 export interface BucketStorageBatch

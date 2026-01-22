@@ -60,7 +60,7 @@ export class PostgresBucketStorageFactory
     });
 
     for (let storage of storages) {
-      const bucketBatch = (await storage.createWriter(options)) as PostgresBucketBatch;
+      const bucketBatch = await (storage as PostgresSyncRulesStorage).createBucketBatch(options);
       writer.addSubWriter(bucketBatch);
     }
 

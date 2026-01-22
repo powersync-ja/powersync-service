@@ -35,8 +35,7 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoPersistedSyncRules } from '../storage-index.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
-import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey } from './models.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
@@ -169,9 +168,9 @@ export class MongoSyncBucketStorage
     });
   }
 
-  async createWriter(options: storage.StartBatchOptions): Promise<MongoBucketBatch> {
+  async createWriter(options: storage.StartBatchOptions): Promise<storage.BucketDataWriter> {
     const writer = await this.factory.createCombinedWriter([this], options);
-    return writer.subWriters[0];
+    return writer;
   }
 
   async getParameterSets(

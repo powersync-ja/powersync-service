@@ -4,6 +4,7 @@ import {
   BucketChecksum,
   BucketChecksumRequest,
   BucketDataRequest,
+  BucketDataWriter,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
@@ -341,7 +342,11 @@ export class PostgresSyncRulesStorage
     });
   }
 
-  async createWriter(options: storage.StartBatchOptions): Promise<PostgresBucketBatch> {
+  async createWriter(options: storage.StartBatchOptions): Promise<BucketDataWriter> {
+    return await this.factory.createCombinedWriter([this], options);
+  }
+
+  async createBucketBatch(options: storage.StartBatchOptions): Promise<PostgresBucketBatch> {
     const syncRules = await this.db.sql`
       SELECT
         last_checkpoint_lsn,

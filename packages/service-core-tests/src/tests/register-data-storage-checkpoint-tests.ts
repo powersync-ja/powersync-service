@@ -144,7 +144,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepalive('5/0');
+    await writer.keepaliveAll('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -188,7 +188,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepalive('5/0');
+    await writer.keepaliveAll('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -224,7 +224,7 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await writer.keepalive('5/0');
+    await writer.keepaliveAll('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -242,7 +242,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepalive('6/0');
+    await writer.keepaliveAll('6/0');
 
     let result2 = await iter.next();
     expect(result2).toMatchObject({
@@ -261,7 +261,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepalive('7/0');
+    await writer.keepaliveAll('7/0');
 
     let result3 = await iter.next();
     expect(result3).toMatchObject({

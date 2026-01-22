@@ -1,10 +1,14 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { Logger, ReplicationAssertionError, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { BucketStorageMarkRecordUnavailable, maxLsn, storage } from '@powersync/service-core';
+import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import {
+  BatchedCustomWriteCheckpointOptions,
+  BucketStorageMarkRecordUnavailable,
+  maxLsn,
+  storage
+} from '@powersync/service-core';
 import { RowProcessor } from '@powersync/service-sync-rules';
-import { OperationBatch } from './OperationBatch.js';
-import { PostgresBucketBatch } from './PostgresBucketBatch.js';
 import { models } from '../../types/types.js';
+import { PostgresBucketBatch } from './PostgresBucketBatch.js';
 import { postgresTableId } from './PostgresPersistedBatch.js';
 
 export interface PostgresWriterOptions {
@@ -17,16 +21,11 @@ export interface PostgresWriterOptions {
 }
 
 export class PostgresWriter implements storage.BucketDataWriter {
-  private batch: OperationBatch | null = null;
   public readonly rowProcessor: RowProcessor;
   write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
 
   protected db: lib_postgres.DatabaseClient;
-  private readonly logger: Logger;
-  private readonly storeCurrentData: boolean;
-  private readonly skipExistingRows: boolean;
 
-  private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   public subWriters: PostgresBucketBatch[] = [];
 
   private sourceTableMap = new WeakMap<storage.SourceTable, PostgresBucketBatch>();
@@ -34,10 +33,6 @@ export class PostgresWriter implements storage.BucketDataWriter {
   constructor(options: PostgresWriterOptions) {
     this.db = options.db;
     this.rowProcessor = options.rowProcessor;
-    this.storeCurrentData = options.storeCurrentData;
-    this.skipExistingRows = options.skipExistingRows;
-    this.logger = options.logger ?? defaultLogger;
-    this.markRecordUnavailable = options.markRecordUnavailable;
   }
 
   addSubWriter(subWriter: PostgresBucketBatch) {
@@ -223,6 +218,15 @@ export class PostgresWriter implements storage.BucketDataWriter {
     const updatedTable = await writer.updateTableProgress(table, progress);
     this.sourceTableMap.set(updatedTable, writer);
     return updatedTable;
+  }
+
+  /**
+   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   */
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
+    for (let writer of this.subWriters) {
+      writer.addCustomWriteCheckpoint(checkpoint);
+    }
   }
 
   async [Symbol.asyncDispose]() {

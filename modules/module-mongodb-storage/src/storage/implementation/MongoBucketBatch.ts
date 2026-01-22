@@ -13,6 +13,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  BatchedCustomWriteCheckpointOptions,
   BucketStorageMarkRecordUnavailable,
   deserializeBson,
   InternalOpId,
@@ -438,6 +439,15 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       };
     });
     return result!;
+  }
+
+  /**
+   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   */
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
+    for (let writer of this.subWriters) {
+      writer.addCustomWriteCheckpoint(checkpoint);
+    }
   }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {

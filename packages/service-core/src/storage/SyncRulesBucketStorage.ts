@@ -7,7 +7,7 @@ import {
   TablePattern
 } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
+import { BucketDataWriter, BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
@@ -34,7 +34,7 @@ export interface SyncRulesBucketStorage
    *
    * The writer must be flushed and disposed when done.
    */
-  createWriter(options: StartBatchOptions): Promise<BucketStorageBatch>;
+  createWriter(options: StartBatchOptions): Promise<BucketDataWriter>;
 
   getHydratedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
 
