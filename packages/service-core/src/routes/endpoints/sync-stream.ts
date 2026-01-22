@@ -81,6 +81,7 @@ export const syncStreamed = routeDefinition({
       ? limitParamsForLogging(payload.params.app_metadata)
       : undefined;
 
+    console.log(payload.params.app_metadata);
     logger.info('Sync stream started', {
       app_metadata: formattedAppMetadata,
       client_params: payload.params.parameters ? limitParamsForLogging(payload.params.parameters) : undefined
@@ -137,7 +138,7 @@ export const syncStreamed = routeDefinition({
           logger.error('Streaming sync request failed', error);
         }
       });
-
+      console.log({ encodingHeaders });
       return new router.RouterResponse({
         status: 200,
         headers: {
