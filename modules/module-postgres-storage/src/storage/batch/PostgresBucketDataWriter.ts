@@ -28,7 +28,10 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
 
   public subWriters: PostgresBucketBatch[] = [];
 
-  private sourceTableMap = new WeakMap<storage.SourceTable, PostgresBucketBatch>();
+  /**
+   * Map table id => relevant PostgresBucketBatch
+   */
+  private sourceTableMap = new Map<string, PostgresBucketBatch>();
 
   constructor(options: PostgresWriterOptions) {
     this.db = options.db;
@@ -87,7 +90,7 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
         idGenerator: options.idGenerator
       });
       result.tables.push(subResult.table);
-      this.sourceTableMap.set(subResult.table, subWriter);
+      this.sourceTableMap.set(postgresTableId(subResult.table.id), subWriter);
       result.dropTables.push(...subResult.dropTables);
     }
     return result;
@@ -95,7 +98,7 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
 
   private subWriterForTable(table: storage.SourceTable): PostgresBucketBatch {
     // FIXME: store on the SourceTable instead?
-    const mapped = this.sourceTableMap.get(table);
+    const mapped = this.sourceTableMap.get(postgresTableId(table.id));
     if (mapped != null) {
       return mapped;
     }
@@ -148,7 +151,7 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
     sourceTable.syncEvent = ref.syncEvent;
     sourceTable.syncData = ref.syncData;
     sourceTable.syncParameters = ref.syncParameters;
-    this.sourceTableMap.set(sourceTable, subWriter);
+    this.sourceTableMap.set(postgresTableId(sourceTable.id), subWriter);
     return sourceTable;
   }
 
@@ -215,9 +218,7 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
     progress: Partial<storage.TableSnapshotStatus>
   ): Promise<storage.SourceTable> {
     const writer = this.subWriterForTable(table);
-    const updatedTable = await writer.updateTableProgress(table, progress);
-    this.sourceTableMap.set(updatedTable, writer);
-    return updatedTable;
+    return await writer.updateTableProgress(table, progress);
   }
 
   /**
