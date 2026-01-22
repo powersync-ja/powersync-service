@@ -49,7 +49,7 @@ bucket_definitions:
     });
 
     const result = await writer.flush();
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const checkpoint = result!.flushed_op;
     const request2 = bucketRequest(syncRules);
@@ -163,7 +163,7 @@ bucket_definitions:
     });
 
     const result = await writer.flush();
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const checkpoint = result!.flushed_op;
     const request = bucketRequest(syncRules);
@@ -269,7 +269,7 @@ bucket_definitions:
     });
 
     const result = await writer.flush();
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const checkpoint1 = result!.flushed_op;
     const request = bucketRequest(syncRules);
@@ -284,7 +284,7 @@ bucket_definitions:
       beforeReplicaId: 't2'
     });
     const result2 = await writer.flush();
-    await writer.commitAll('2/1');
+    await writer.commit('2/1');
     const checkpoint2 = result2!.flushed_op;
 
     await bucketStorage.compact({
@@ -391,7 +391,7 @@ bucket_definitions:
         afterReplicaId: test_utils.rid('t2')
       });
 
-      await writer.commitAll('1/1');
+      await writer.commit('1/1');
     }
 
     const checkpoint = (await bucketStorage.getCheckpoint()).checkpoint;
@@ -476,7 +476,7 @@ bucket_definitions:
       beforeReplicaId: 't1'
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     await bucketStorage.compact({
       clearBatchLimit: 2,
@@ -494,7 +494,7 @@ bucket_definitions:
       beforeReplicaId: 't2'
     });
     const result2 = await writer.flush();
-    await writer.commitAll('2/1');
+    await writer.commit('2/1');
     const checkpoint2 = result2!.flushed_op;
     await bucketStorage.clearChecksumCache();
     const request = bucketRequest(syncRules);
@@ -539,7 +539,7 @@ bucket_definitions:
     });
 
     const result = await writer.flush();
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     // Get checksums here just to populate the cache
     await bucketStorage.getChecksums(result!.flushed_op, [request]);
@@ -552,7 +552,7 @@ bucket_definitions:
       beforeReplicaId: 't1'
     });
     const result2 = await writer.flush();
-    await writer.commitAll('2/1');
+    await writer.commit('2/1');
 
     await bucketStorage.compact({
       clearBatchLimit: 20,

@@ -562,7 +562,7 @@ export class WalStream {
               await this.resnapshot(writer, resnapshot);
               resnapshot = [];
             }
-            const didCommit = await writer.commitAll(msg.lsn!, {
+            const didCommit = await writer.commit(msg.lsn!, {
               createEmptyCheckpoints,
               oldestUncommittedChange: this.oldestUncommittedChange
             });
@@ -610,7 +610,7 @@ export class WalStream {
           // may be in the middle of the next transaction.
           // It must only be used to associate checkpoints with LSNs.
 
-          const didCommit = await writer.keepaliveAll(chunkLastLsn);
+          const didCommit = await writer.keepalive(chunkLastLsn);
           if (didCommit) {
             this.oldestUncommittedChange = null;
           }

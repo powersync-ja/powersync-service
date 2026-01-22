@@ -313,7 +313,7 @@ export class BinLogStream {
       const snapshotDoneGtid = await common.readExecutedGtid(promiseConnection);
       await writer.markAllSnapshotDone(snapshotDoneGtid.comparable);
       const flushResults = await writer.flush();
-      await writer.commitAll(headGTID.comparable);
+      await writer.commit(headGTID.comparable);
 
       lastOp = flushResults?.flushed_op ?? null;
       this.logger.info(`Initial replication done`);
@@ -500,14 +500,14 @@ export class BinLogStream {
         });
       },
       onKeepAlive: async (lsn: string) => {
-        const didCommit = await writer.keepaliveAll(lsn);
+        const didCommit = await writer.keepalive(lsn);
         if (didCommit) {
           this.oldestUncommittedChange = null;
         }
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-        const didCommit = await writer.commitAll(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+        const didCommit = await writer.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
         if (didCommit) {
           this.oldestUncommittedChange = null;
           this.isStartingReplication = false;

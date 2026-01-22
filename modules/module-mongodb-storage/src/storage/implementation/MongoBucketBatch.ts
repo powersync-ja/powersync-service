@@ -148,7 +148,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     return lsn;
   }
 
-  async keepaliveAll(lsn: string): Promise<boolean> {
+  async keepalive(lsn: string): Promise<boolean> {
     let didAny = false;
     for (let batch of this.subWriters) {
       const didBatchKeepalive = await batch.keepalive(lsn);
@@ -157,7 +157,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     return didAny;
   }
 
-  async commitAll(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
     let didCommit = false;
     for (let batch of this.subWriters) {
       const didWriterCommit = await batch.commit(lsn, options);
@@ -166,7 +166,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     return didCommit;
   }
 
-  async setAllResumeLsn(lsn: string): Promise<void> {
+  async setResumeLsn(lsn: string): Promise<void> {
     for (let batch of this.subWriters) {
       await batch.setResumeLsn(lsn);
     }

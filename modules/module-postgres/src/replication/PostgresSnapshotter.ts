@@ -334,7 +334,7 @@ export class PostgresSnapshotter {
     // This commit ensures we set keepalive_op.
     // It may be better if that is automatically set when flushing.
     const flushResults = await writer.flush();
-    await writer.commitAll(ZERO_LSN);
+    await writer.commit(ZERO_LSN);
 
     this.logger.info(`Flushed snapshot at ${flushResults?.flushed_op}`);
   }

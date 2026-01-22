@@ -475,7 +475,7 @@ export class CDCStream {
     if (snapshotLSN == null) {
       // First replication attempt - set the snapshot LSN to the current LSN before starting
       snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
-      await writer.setAllResumeLsn(snapshotLSN);
+      await writer.setResumeLsn(snapshotLSN);
       const latestLSN = (await getLatestLSN(this.connections)).toString();
       this.logger.info(`Marking snapshot at ${snapshotLSN}, Latest DB LSN ${latestLSN}.`);
     } else {
@@ -508,7 +508,7 @@ export class CDCStream {
     // Actual checkpoint will be created when streaming replication caught up.
     const postSnapshotLSN = await getLatestLSN(this.connections);
     await writer.markAllSnapshotDone(postSnapshotLSN.toString());
-    await writer.commitAll(snapshotLSN);
+    await writer.commit(snapshotLSN);
 
     this.logger.info(`Snapshot done. Need to replicate from ${snapshotLSN} to ${postSnapshotLSN} to be consistent`);
   }
@@ -634,7 +634,7 @@ export class CDCStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
       },
       onCommit: async (lsn: string, transactionCount: number) => {
-        await writer.commitAll(lsn);
+        await writer.commit(lsn);
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionCount);
         this.isStartingReplication = false;
       },

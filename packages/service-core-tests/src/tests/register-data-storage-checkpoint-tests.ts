@@ -41,7 +41,7 @@ bucket_definitions:
       user_id: 'user1'
     });
 
-    await writer.keepaliveAll('5/0');
+    await writer.keepalive('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -77,7 +77,7 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await writer.keepaliveAll('5/0');
+    await writer.keepalive('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -98,7 +98,7 @@ bucket_definitions:
     // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
     // This is what is effetively triggered with RouteAPI.createReplicationHead().
     // MongoDB storage doesn't explicitly need this anymore.
-    await writer.keepaliveAll('6/0');
+    await writer.keepalive('6/0');
 
     let result2 = await iter.next();
     if (result2.value?.base?.lsn == '5/0') {
@@ -144,7 +144,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepaliveAll('5/0');
+    await writer.keepalive('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -188,7 +188,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepaliveAll('5/0');
+    await writer.keepalive('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -224,7 +224,7 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await writer.keepaliveAll('5/0');
+    await writer.keepalive('5/0');
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -242,7 +242,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepaliveAll('6/0');
+    await writer.keepalive('6/0');
 
     let result2 = await iter.next();
     expect(result2).toMatchObject({
@@ -261,7 +261,7 @@ bucket_definitions:
       user_id: 'user1'
     });
     await writer.flush();
-    await writer.keepaliveAll('7/0');
+    await writer.keepalive('7/0');
 
     let result3 = await iter.next();
     expect(result3).toMatchObject({

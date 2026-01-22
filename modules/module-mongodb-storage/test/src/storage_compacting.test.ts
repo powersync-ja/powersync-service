@@ -40,7 +40,7 @@ describe('Mongo Sync Bucket Storage Compact', () => {
         afterReplicaId: test_utils.rid('t2')
       });
 
-      await writer.commitAll('1/1');
+      await writer.commit('1/1');
 
       return bucketStorage.getCheckpoint();
     };

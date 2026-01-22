@@ -20,9 +20,20 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
 export interface BucketDataWriter extends BucketDataWriterBase, AsyncDisposable {
   readonly rowProcessor: RowProcessor;
 
-  keepaliveAll(lsn: string): Promise<boolean>;
-  commitAll(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
-  setAllResumeLsn(lsn: string): Promise<void>;
+  /**
+   * Perform a keepalive on every replication stream.
+   */
+  keepalive(lsn: string): Promise<boolean>;
+
+  /**
+   * Performs a commit on every replication stream.
+   */
+  commit(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
+
+  /**
+   * Set resume LSN on every replication stream.
+   */
+  setResumeLsn(lsn: string): Promise<void>;
 
   /**
    * Resolve a table, keeping track of it internally.

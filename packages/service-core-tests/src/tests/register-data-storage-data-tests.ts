@@ -56,7 +56,7 @@ bucket_definitions:
       tag: storage.SaveOperationTag.DELETE,
       beforeReplicaId: test_utils.rid('test1')
     });
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
 
@@ -110,7 +110,7 @@ bucket_definitions:
       beforeReplicaId: test_utils.rid('test1')
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     await writer.save({
       sourceTable: testTable,
@@ -121,7 +121,7 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('test1')
     });
-    await writer.commitAll('2/1');
+    await writer.commit('2/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
 
@@ -172,7 +172,7 @@ bucket_definitions:
       beforeReplicaId: test_utils.rid('test1')
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     await writer.save({
       sourceTable: testTable,
@@ -187,7 +187,7 @@ bucket_definitions:
       beforeReplicaId: test_utils.rid('test1'),
       afterReplicaId: test_utils.rid('test1')
     });
-    await writer.commitAll('2/1');
+    await writer.commit('2/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules);
@@ -245,7 +245,7 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('test1')
     });
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules);
@@ -320,7 +320,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('test2')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
     const { checkpoint } = await bucketStorage.getCheckpoint();
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules)]));
     const data = batch[0].chunkData.data.map((d) => {
@@ -371,7 +371,7 @@ bucket_definitions:
       beforeReplicaId: test_utils.rid('test1')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     await writer.save({
       sourceTable: testTable,
@@ -465,7 +465,7 @@ bucket_definitions:
       beforeReplicaId: test_utils.rid('test1')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     await writer.markAllSnapshotDone('1/1');
 
@@ -495,7 +495,7 @@ bucket_definitions:
       beforeReplicaId: test_utils.rid('test1')
     });
 
-    await writer.commitAll('2/1');
+    await writer.commit('2/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules);
@@ -955,7 +955,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('test3')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules);
@@ -1032,7 +1032,7 @@ bucket_definitions:
       });
     }
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules);
@@ -1111,7 +1111,7 @@ bucket_definitions:
         });
       }
 
-      await writer.commitAll('1/1');
+      await writer.commit('1/1');
 
       const { checkpoint } = await bucketStorage.getCheckpoint();
       const global1Request = bucketRequest(syncRules, 'global1[]', 0n);
@@ -1242,7 +1242,7 @@ bucket_definitions:
     const storage = f.getInstance(r.persisted_sync_rules!);
     await using writer = await storage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/0');
-    await writer.keepaliveAll('1/0');
+    await writer.keepalive('1/0');
 
     const metrics2 = await f.getStorageMetrics();
     expect(metrics2.operations_size_bytes).toBeLessThanOrEqual(20_000);
@@ -1323,7 +1323,7 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('test1')
     });
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
     const { checkpoint } = await bucketStorage.getCheckpoint();
     const request = bucketRequest(syncRules);
 
@@ -1348,22 +1348,22 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const cp1 = await bucketStorage.getCheckpoint();
     expect(cp1.lsn).toEqual('1/1');
 
-    await writer.commitAll('2/1', { createEmptyCheckpoints: true });
+    await writer.commit('2/1', { createEmptyCheckpoints: true });
     const cp2 = await bucketStorage.getCheckpoint();
     expect(cp2.lsn).toEqual('2/1');
 
-    await writer.keepaliveAll('3/1');
+    await writer.keepalive('3/1');
     const cp3 = await bucketStorage.getCheckpoint();
     expect(cp3.lsn).toEqual('3/1');
 
     // For the last one, we skip creating empty checkpoints
     // This means the LSN stays at 3/1.
-    await writer.commitAll('4/1', { createEmptyCheckpoints: false });
+    await writer.commit('4/1', { createEmptyCheckpoints: false });
     const cp4 = await bucketStorage.getCheckpoint();
     expect(cp4.lsn).toEqual('3/1');
   });
@@ -1385,9 +1385,9 @@ bucket_definitions:
 
     // We simulate two concurrent batches, but sequential calls are enough for this test.
     await writer1.markAllSnapshotDone('1/1');
-    await writer1.commitAll('1/1');
+    await writer1.commit('1/1');
 
-    await writer1.commitAll('2/1', { createEmptyCheckpoints: false });
+    await writer1.commit('2/1', { createEmptyCheckpoints: false });
     const cp2 = await bucketStorage.getCheckpoint();
     expect(cp2.lsn).toEqual('1/1'); // checkpoint 2/1 skipped
 
@@ -1402,13 +1402,13 @@ bucket_definitions:
     });
     // This simulates what happens on a snapshot processor.
     // This may later change to a flush() rather than commit().
-    await writer2.commitAll(test_utils.BATCH_OPTIONS.zeroLSN);
+    await writer2.commit(test_utils.BATCH_OPTIONS.zeroLSN);
 
     const cp3 = await bucketStorage.getCheckpoint();
     expect(cp3.lsn).toEqual('1/1'); // Still unchanged
 
     // This now needs to advance the LSN, despite {createEmptyCheckpoints: false}
-    await writer1.commitAll('4/1', { createEmptyCheckpoints: false });
+    await writer1.commit('4/1', { createEmptyCheckpoints: false });
     const cp4 = await bucketStorage.getCheckpoint();
     expect(cp4.lsn).toEqual('4/1');
   });
@@ -1444,7 +1444,7 @@ bucket_definitions:
       },
       beforeReplicaId: test_utils.rid('test1')
     });
-    await streamingWriter.commitAll('2/1');
+    await streamingWriter.commit('2/1');
 
     await snapshotWriter.save({
       sourceTable: snapshotTable,
@@ -1456,9 +1456,9 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('test1')
     });
     await snapshotWriter.markAllSnapshotDone('3/1');
-    await snapshotWriter.commitAll('1/1');
+    await snapshotWriter.commit('1/1');
 
-    await streamingWriter.keepaliveAll('3/1');
+    await streamingWriter.keepalive('3/1');
 
     const cp = await bucketStorage.getCheckpoint();
     expect(cp.lsn).toEqual('3/1');
@@ -1507,7 +1507,7 @@ bucket_definitions:
         });
       }
     }
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
     const { checkpoint } = await bucketStorage.getCheckpoint();
 
     bucketStorage.clearChecksumCache();

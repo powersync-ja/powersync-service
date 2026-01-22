@@ -98,7 +98,7 @@ export class MongoSnapshotter {
       // First replication attempt - get a snapshot and store the timestamp
       snapshotLsn = await this.getSnapshotLsn(writer);
       // FIXME: check the logic for resumeLSN.
-      await writer.setAllResumeLsn(snapshotLsn);
+      await writer.setResumeLsn(snapshotLsn);
       this.logger.info(`Marking snapshot at ${snapshotLsn}`);
     } else {
       this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
@@ -216,7 +216,7 @@ export class MongoSnapshotter {
     const resumeLsn = writer.resumeFromLsn ?? MongoLSN.ZERO.comparable;
     // FIXME: Only commit on relevant syncRules?
 
-    await writer.commitAll(resumeLsn);
+    await writer.commit(resumeLsn);
 
     // FIXME: check this
     // if (flushResults?.flushed_op != null) {

@@ -39,7 +39,7 @@ bucket_definitions:
       afterReplicaId: 't2'
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const lookup = ScopedParameterLookup.direct({ lookupName: '20002', queryId: '', source: null as any }, ['t1']);
 
@@ -68,7 +68,7 @@ bucket_definitions:
       },
       beforeReplicaId: 't1'
     });
-    await writer.commitAll('1/2');
+    await writer.commit('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
     const parameters2 = await checkpoint2.getParameterSets([lookup]);
     expect(parameters2).toEqual([]);
@@ -123,7 +123,7 @@ bucket_definitions:
         afterReplicaId: 't2'
       });
 
-      await writer.commitAll('1/1');
+      await writer.commit('1/1');
 
       await writer.save({
         sourceTable: testTable,
@@ -134,7 +134,7 @@ bucket_definitions:
         },
         beforeReplicaId: 't1'
       });
-      await writer.commitAll('2/1');
+      await writer.commit('2/1');
 
       await writer.save({
         sourceTable: testTable,
@@ -145,7 +145,7 @@ bucket_definitions:
         },
         afterReplicaId: 't2'
       });
-      await writer.commitAll('3/1');
+      await writer.commit('3/1');
 
       const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['u1']);
 

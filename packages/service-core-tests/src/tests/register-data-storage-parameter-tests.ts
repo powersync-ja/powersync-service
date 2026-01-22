@@ -66,7 +66,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('t1')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
@@ -102,7 +102,7 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('user1')
     });
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
     const checkpoint1 = await bucketStorage.getCheckpoint();
     await writer.save({
       sourceTable: testTable,
@@ -113,7 +113,7 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('user1')
     });
-    await writer.commitAll('1/2');
+    await writer.commit('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
 
     const parameters = await checkpoint2.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
@@ -171,7 +171,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('todo2')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     // Update the second todo item to now belong to list 1
     await writer.save({
@@ -184,7 +184,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('todo2')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     // We specifically request the todo_ids for both lists.
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
@@ -234,7 +234,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('t1')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const TEST_PARAMS = { group_id: 'group1' };
 
@@ -296,7 +296,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('t1')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const TEST_PARAMS = { group_id: 'group1' };
 
@@ -335,7 +335,7 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('workspace1')
     });
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
     const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
@@ -408,7 +408,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('workspace3')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
@@ -509,7 +509,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('workspace4')
     });
 
-    await writer.commitAll('1/1');
+    await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
 

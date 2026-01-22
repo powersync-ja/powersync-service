@@ -650,7 +650,7 @@ export class ChangeStream {
         // doing a keepalive in the middle of a transaction.
         if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
           const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
-          await writer.keepaliveAll(lsn);
+          await writer.keepalive(lsn);
           this.touch();
           lastEmptyResume = performance.now();
           // Log the token update. This helps as a general "replication is still active" message in the logs.
@@ -780,7 +780,7 @@ export class ChangeStream {
         if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
           waitForCheckpointLsn = null;
         }
-        const didCommit = await writer.commitAll(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+        const didCommit = await writer.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
 
         if (didCommit) {
           this.oldestUncommittedChange = null;
@@ -826,7 +826,7 @@ export class ChangeStream {
               resume_token: changeDocument._id
             });
             this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
-            await writer.setAllResumeLsn(lsn);
+            await writer.setResumeLsn(lsn);
             changesSinceLastCheckpoint = 0;
           }
         }

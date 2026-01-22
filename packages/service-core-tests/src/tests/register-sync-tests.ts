@@ -78,7 +78,7 @@ export function registerSyncTests(config: storage.TestStorageConfig) {
       afterReplicaId: 't2'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -140,7 +140,7 @@ bucket_definitions:
       afterReplicaId: 'earlier'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -204,7 +204,7 @@ bucket_definitions:
       });
     }
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -243,7 +243,7 @@ bucket_definitions:
               afterReplicaId: 'highprio2'
             });
 
-            await writer.commitAll('0/2');
+            await writer.commit('0/2');
           } else {
             // Low-priority sync from the first checkpoint was interrupted. This should not happen before
             // 1000 low-priority items were synchronized.
@@ -313,7 +313,7 @@ bucket_definitions:
       });
     }
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -357,7 +357,7 @@ bucket_definitions:
               afterReplicaId: 'highprio2'
             });
 
-            await writer.commitAll('0/2');
+            await writer.commit('0/2');
           } else {
             expect(sentCheckpoints).toBe(2);
             expect(sentRows).toBe(10002);
@@ -389,7 +389,7 @@ bucket_definitions:
               afterReplicaId: 'highprio3'
             });
 
-            await writer.commitAll('0/3');
+            await writer.commit('0/3');
           }
         }
       }
@@ -451,7 +451,7 @@ bucket_definitions:
       });
     }
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -510,7 +510,7 @@ bucket_definitions:
               afterReplicaId: '2001'
             });
 
-            await writer.commitAll('0/2');
+            await writer.commit('0/2');
           }
 
           if (sentRows >= 1000 && sentRows <= 2001) {
@@ -566,7 +566,7 @@ bucket_definitions:
       },
       afterReplicaId: 't1'
     });
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -597,7 +597,7 @@ bucket_definitions:
           if (receivedCompletions == 1) {
             // Trigger an empty bucket update.
             await bucketStorage.createManagedWriteCheckpoint({ user_id: '', heads: { '1': '1/0' } });
-            await writer.commitAll('1/0');
+            await writer.commit('1/0');
           } else {
             break;
           }
@@ -631,7 +631,7 @@ bucket_definitions:
       afterReplicaId: 't1'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -692,7 +692,7 @@ bucket_definitions:
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     // Activate
     await writer.markAllSnapshotDone('0/0');
-    await writer.keepaliveAll('0/0');
+    await writer.keepalive('0/0');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -724,7 +724,7 @@ bucket_definitions:
       afterReplicaId: 't1'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
@@ -738,7 +738,7 @@ bucket_definitions:
       afterReplicaId: 't2'
     });
 
-    await writer.commitAll('0/2');
+    await writer.commit('0/2');
 
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
   });
@@ -761,7 +761,7 @@ bucket_definitions:
 
     // Activate
     await writer.markAllSnapshotDone('0/0');
-    await writer.keepaliveAll('0/0');
+    await writer.keepalive('0/0');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -797,7 +797,7 @@ bucket_definitions:
       afterReplicaId: 'user1'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const checkpoint2 = await getCheckpointLines(iter);
 
@@ -836,7 +836,7 @@ bucket_definitions:
       afterReplicaId: 'user1'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -873,7 +873,7 @@ bucket_definitions:
       afterReplicaId: 'list1'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
@@ -900,7 +900,7 @@ bucket_definitions:
     const listsTable = await test_utils.resolveTestTable(writer, 'lists', ['id'], config, 2);
     // Activate
     await writer.markAllSnapshotDone('0/0');
-    await writer.keepaliveAll('0/0');
+    await writer.keepalive('0/0');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -945,7 +945,7 @@ bucket_definitions:
       afterReplicaId: 'user1'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
 
@@ -967,7 +967,7 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     // Activate
     await writer.markAllSnapshotDone('0/0');
-    await writer.keepaliveAll('0/0');
+    await writer.keepalive('0/0');
 
     const exp = Date.now() / 1000 + 0.1;
 
@@ -1033,7 +1033,7 @@ bucket_definitions:
       afterReplicaId: 't2'
     });
 
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const stream = sync.streamResponse({
       syncContext,
@@ -1087,7 +1087,7 @@ bucket_definitions:
       afterReplicaId: 't2'
     });
 
-    await writer.commitAll('0/2');
+    await writer.commit('0/2');
 
     await bucketStorage.compact({
       minBucketChanges: 1
@@ -1155,7 +1155,7 @@ bucket_definitions:
 
     await writer.markAllSnapshotDone('0/1');
     // <= the managed write checkpoint LSN below
-    await writer.commitAll('0/1');
+    await writer.commit('0/1');
 
     const checkpoint = await bucketStorage.createManagedWriteCheckpoint({
       user_id: 'test',
@@ -1189,7 +1189,7 @@ bucket_definitions:
 
     await writer.markAllSnapshotDone('0/1');
     // must be >= the managed write checkpoint LSN
-    await writer.commitAll('1/0');
+    await writer.commit('1/0');
 
     // At this point the LSN has advanced, so the write checkpoint should be
     // included in the next checkpoint message.
@@ -1247,7 +1247,7 @@ config:
         },
         afterReplicaId: 't1'
       });
-      await writer.commitAll('0/1');
+      await writer.commit('0/1');
 
       const stream = sync.streamResponse({
         syncContext,
