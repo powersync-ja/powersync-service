@@ -313,6 +313,8 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       type_oid: column.typeId
     }));
     let result: storage.ResolveTablesResult | null = null;
+
+    let currentTableIds: bson.ObjectId[] = [];
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
       let filter: mongo.Filter<SourceTableDocument> = {
@@ -330,6 +332,8 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       let coveredBucketDataSourceIds = new Set<number>();
       let coveredParameterLookupSourceIds = new Set<number>();
 
+      // Use _all_ docs that match the basic table definition, not only ones that match data sources.
+      currentTableIds = docs.map((doc) => doc._id);
       for (let doc of docs) {
         const matchingBucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => bucketDataSourceIds.includes(id));
         const matchingParameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) =>
@@ -367,6 +371,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           bucket_data_source_ids: pendingBucketDataSourceIds,
           parameter_lookup_source_ids: pendingParameterLookupSourceIds
         };
+        currentTableIds.push(doc._id);
 
         await col.insertOne(doc, { session });
         matchingDocs.push(doc);
@@ -400,42 +405,40 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
         return sourceTable;
       });
 
-      // FIXME: dropTables
-      // let dropTables: storage.SourceTable[] = [];
-      // // Detect tables that are either renamed, or have different replica_id_columns
-      // let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
-      // if (objectId != null) {
-      //   // Only detect renames if the source uses relation ids.
-      //   truncateFilter.push({ relation_id: objectId });
-      // }
-      // const truncate = await col
-      //   .find(
-      //     {
-      //       group_id: group_id,
-      //       connection_id: connection_id,
-      //       _id: { $ne: doc._id },
-      //       $or: truncateFilter
-      //     },
-      //     { session }
-      //   )
-      //   .toArray();
-      // dropTables = truncate.map(
-      //   (doc) =>
-      //     new storage.SourceTable({
-      //       id: doc._id,
-      //       connectionTag: connection_tag,
-      //       objectId: doc.relation_id,
-      //       schema: doc.schema_name,
-      //       name: doc.table_name,
-      //       replicaIdColumns:
-      //         doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-      //       snapshotComplete: doc.snapshot_done ?? true
-      //     })
-      // );
+      // Detect tables that are either renamed, or have different replica_id_columns
+      let truncateFilter: mongo.Filter<SourceTableDocument>[] = [{ schema_name: schema, table_name: name }];
+      if (objectId != null) {
+        // Only detect renames if the source uses relation ids.
+        truncateFilter.push({ relation_id: objectId });
+      }
+      const truncate = await col
+        .find(
+          {
+            connection_id: connection_id,
+            _id: { $nin: currentTableIds },
+            $or: truncateFilter
+          },
+          { session }
+        )
+        .toArray();
+      const dropTables = truncate.map(
+        (doc) =>
+          new storage.SourceTable({
+            id: doc._id,
+            connectionTag: connection_tag,
+            objectId: doc.relation_id,
+            schema: doc.schema_name,
+            name: doc.table_name,
+            replicaIdColumns:
+              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+            snapshotComplete: doc.snapshot_done ?? true,
+            pattern: options.pattern
+          })
+      );
 
       result = {
         tables: sourceTables,
-        dropTables: []
+        dropTables: dropTables
       };
     });
     return result!;

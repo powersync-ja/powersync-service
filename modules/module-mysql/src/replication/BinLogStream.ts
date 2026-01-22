@@ -139,7 +139,7 @@ export class BinLogStream {
     });
 
     // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage,
-    // so this should be a no-op.
+    // but changes in replication identity columns can, so this is needed.
     await writer.drop(result.dropTables);
 
     this.tableCache.set(entity.objectId!, result.tables);
@@ -168,7 +168,7 @@ export class BinLogStream {
       });
 
       // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage,
-      // so this should be a no-op.
+      // but changes in replication identity columns can, so this is needed.
       await writer.drop(result.dropTables);
 
       for (let table of result.tables) {
