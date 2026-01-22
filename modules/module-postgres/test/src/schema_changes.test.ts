@@ -629,7 +629,7 @@ config:
       { statement: `UPDATE test_data SET other = ROW(TRUE, 2)::composite;` }
     );
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([
       putOp('test_data', { id: 't1' }),
       putOp('test_data', { id: 't1', other: '{"foo":1,"bar":2}' })

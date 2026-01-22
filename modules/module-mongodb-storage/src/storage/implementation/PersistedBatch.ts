@@ -1,11 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { BucketDataSource, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
+import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketDataWriter.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
 import {
@@ -16,7 +17,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -51,6 +52,7 @@ export class PersistedBatch {
   bucketParameters: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
+  mapping: BucketDefinitionMapping;
 
   /**
    * For debug logging only.
@@ -62,16 +64,13 @@ export class PersistedBatch {
    */
   currentSize = 0;
 
-  constructor(
-    private group_id: number,
-    writtenSize: number,
-    options?: { logger?: Logger }
-  ) {
+  constructor(writtenSize: number, options: { logger: Logger; mapping: BucketDefinitionMapping }) {
     this.currentSize = writtenSize;
-    this.logger = options?.logger ?? defaultLogger;
+    this.logger = options.logger;
+    this.mapping = options.mapping;
   }
 
-  private incrementBucket(bucket: string, op_id: InternalOpId, bytes: number) {
+  private incrementBucket(defId: number, bucket: string, op_id: InternalOpId, bytes: number) {
     let existingState = this.bucketStates.get(bucket);
     if (existingState) {
       existingState.lastOp = op_id;
@@ -81,7 +80,8 @@ export class PersistedBatch {
       this.bucketStates.set(bucket, {
         lastOp: op_id,
         incrementCount: 1,
-        incrementBytes: bytes
+        incrementBytes: bytes,
+        def: defId
       });
     }
   }
@@ -102,7 +102,14 @@ export class PersistedBatch {
     const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
 
     for (const k of options.evaluated) {
-      const key = currentBucketKey(k);
+      const source = k.source;
+      const sourceDefinitionId = this.mapping.bucketSourceId(source);
+      const key = currentBucketKey({
+        bucket: k.bucket,
+        table: k.table,
+        id: k.id,
+        def: sourceDefinitionId
+      });
 
       // INSERT
       const recordData = JSONBig.stringify(k.data);
@@ -127,7 +134,7 @@ export class PersistedBatch {
         insertOne: {
           document: {
             _id: {
-              g: this.group_id,
+              g: sourceDefinitionId,
               b: k.bucket,
               o: op_id
             },
@@ -141,7 +148,7 @@ export class PersistedBatch {
           }
         }
       });
-      this.incrementBucket(k.bucket, op_id, byteEstimate);
+      this.incrementBucket(sourceDefinitionId, k.bucket, op_id, byteEstimate);
     }
 
     for (let bd of remaining_buckets.values()) {
@@ -154,7 +161,7 @@ export class PersistedBatch {
         insertOne: {
           document: {
             _id: {
-              g: this.group_id,
+              g: bd.def,
               b: bd.bucket,
               o: op_id
             },
@@ -169,7 +176,7 @@ export class PersistedBatch {
         }
       });
       this.currentSize += 200;
-      this.incrementBucket(bd.bucket, op_id, 200);
+      this.incrementBucket(bd.def, bd.bucket, op_id, 200);
     }
   }
 
@@ -207,7 +214,7 @@ export class PersistedBatch {
           document: {
             _id: op_id,
             key: {
-              g: this.group_id,
+              g: 0,
               t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
@@ -229,7 +236,7 @@ export class PersistedBatch {
           document: {
             _id: op_id,
             key: {
-              g: this.group_id,
+              g: 0,
               t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
@@ -393,7 +400,7 @@ export class PersistedBatch {
         updateOne: {
           filter: {
             _id: {
-              g: this.group_id,
+              g: state.def,
               b: bucket
             }
           },
@@ -417,4 +424,5 @@ interface BucketStateUpdate {
   lastOp: InternalOpId;
   incrementCount: number;
   incrementBytes: number;
+  def: number;
 }

@@ -42,7 +42,7 @@ import {
   SqliteRow
 } from './types.js';
 import {
-  buildBucketName,
+  buildBucketInfo,
   filterJsonRow,
   isJsonValue,
   isSelectStatement,
@@ -337,7 +337,8 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
   public get defaultLookupScope(): ParameterLookupScope {
     return {
       lookupName: this.descriptorName,
-      queryId: this.queryId
+      queryId: this.queryId,
+      source: this
     };
   }
 
@@ -345,8 +346,8 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     return this.sourceTable.matches(table);
   }
 
-  getSourceTables(): Set<TablePattern> {
-    return new Set([this.sourceTable]);
+  getSourceTables() {
+    return [this.sourceTable];
   }
 
   createParameterQuerierSource(params: CreateSourceParams): BucketParameterQuerierSource {
@@ -442,7 +443,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
         const serializedParameters = serializeBucketParameters(this.bucketParameters, result);
 
         return {
-          bucket: buildBucketName(bucketScope, serializedParameters),
+          ...buildBucketInfo(bucketScope, serializedParameters),
           priority: this.priority
         };
       })

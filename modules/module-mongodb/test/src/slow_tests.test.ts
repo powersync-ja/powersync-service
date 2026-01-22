@@ -7,6 +7,7 @@ import { settledPromise, storage, unsettledPromise } from '@powersync/service-co
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
 import { describeWithStorage } from './util.js';
+import { bucketRequest, PARSE_OPTIONS } from '@powersync/service-core-tests';
 
 describe.runIf(env.CI || env.SLOW_TESTS)('change stream slow tests', { timeout: 60_000 }, function () {
   describeWithStorage({}, defineSlowTests);
@@ -23,13 +24,14 @@ function defineSlowTests(config: storage.TestStorageConfig) {
     // snapshot session.
     await using _ = await setSnapshotHistorySeconds(context.client, 1);
     const { db } = context;
-    await context.updateSyncRules(`
+    const instance = await context.updateSyncRules(`
 bucket_definitions:
   global:
     data:
       - SELECT _id as id, description, num FROM "test_data1"
       - SELECT _id as id, description, num FROM "test_data2"
       `);
+    const syncRules = instance.getParsedSyncRules(PARSE_OPTIONS);
 
     const collection1 = db.collection('test_data1');
     const collection2 = db.collection('test_data2');
@@ -42,7 +44,8 @@ bucket_definitions:
     await collection2.bulkWrite(operations);
 
     await context.initializeReplication();
-    const checksum = await context.getChecksum('global[]');
+    const request = bucketRequest(syncRules, 'global[]');
+    const checksum = await context.getChecksum(request);
     expect(checksum).toMatchObject({
       count: 20_000
     });

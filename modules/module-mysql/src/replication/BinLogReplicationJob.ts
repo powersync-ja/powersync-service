@@ -17,6 +17,10 @@ export class BinLogReplicationJob extends replication.AbstractReplicationJob {
     this.connectionFactory = options.connectionFactory;
   }
 
+  public get storage() {
+    return this.options.storage;
+  }
+
   get slot_name() {
     return this.options.storage.slot_name;
   }
