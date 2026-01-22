@@ -177,7 +177,7 @@ export class PostgresSnapshotter {
 
       const columnTypes = columnTypesResult.rows.map((row) => Number(row.decodeWithoutCustomTypes(0)));
 
-      const resolvedResult = await writer.resolveTables({
+      const resolveOptions = {
         connection_id: this.connection_id,
         connection_tag: this.connections.connectionTag,
         entity_descriptor: {
@@ -187,13 +187,17 @@ export class PostgresSnapshotter {
           replicaIdColumns: cresult.replicationColumns
         },
         pattern: tablePattern
-      });
+      };
+      const resolvedResult = await writer.resolveTables(resolveOptions);
 
       // Ensure we have a description for custom types referenced in the table.
       await this.connections.types.fetchTypes(columnTypes);
 
-      // TODO: dropTables?
-      result.push(...resolvedResult.tables);
+      result.push(...resolvedResult);
+
+      const dropTables = await writer.resolveTablesToDrop(resolveOptions);
+      // TODO: Do this in the replication loop, not when listing the tables
+      await writer.drop(dropTables);
     }
     return result;
   }

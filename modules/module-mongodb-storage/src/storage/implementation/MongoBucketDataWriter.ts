@@ -19,6 +19,7 @@ import {
   InternalOpId,
   isCompleteRow,
   maxLsn,
+  ResolveTableToDropsOptions,
   SaveOperationTag,
   SourceTable,
   storage,
@@ -296,7 +297,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     return sourceTable;
   }
 
-  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<SourceTable[]> {
     const sources = this.rowProcessor.getMatchingSources(options.pattern);
     const bucketDataSourceIds = sources.bucketDataSources.map((source) => this.mapping.bucketSourceId(source));
     const parameterLookupSourceIds = sources.parameterIndexLookupCreators.map((source) =>
@@ -312,7 +313,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       type: column.type,
       type_oid: column.typeId
     }));
-    let result: storage.ResolveTablesResult | null = null;
+    let result: SourceTable[] = [];
 
     let currentTableIds: bson.ObjectId[] = [];
     await this.db.client.withSession(async (session) => {
@@ -406,44 +407,81 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       });
 
       // Detect tables that are either renamed, or have different replica_id_columns
-      let truncateFilter: mongo.Filter<SourceTableDocument>[] = [{ schema_name: schema, table_name: name }];
-      if (objectId != null) {
-        // Only detect renames if the source uses relation ids.
-        truncateFilter.push({ relation_id: objectId });
-      }
-      const truncate = await col
-        .find(
-          {
-            connection_id: connection_id,
-            _id: { $nin: currentTableIds },
-            $or: truncateFilter
-          },
-          { session }
-        )
-        .toArray();
-      const dropTables = truncate.map(
-        (doc) =>
-          new storage.SourceTable({
-            id: doc._id,
-            connectionTag: connection_tag,
-            objectId: doc.relation_id,
-            schema: doc.schema_name,
-            name: doc.table_name,
-            replicaIdColumns:
-              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true,
-            pattern: options.pattern
-          })
-      );
 
-      result = {
-        tables: sourceTables,
-        dropTables: dropTables
-      };
+      result = sourceTables;
     });
-    return result!;
+    return result;
   }
 
+  async resolveTablesToDrop(options: ResolveTableToDropsOptions): Promise<SourceTable[]> {
+    const { connection_id, connection_tag, entity_descriptor } = options;
+    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      type_oid: column.typeId
+    }));
+    const col = this.db.source_tables;
+    let filter: mongo.Filter<SourceTableDocument> = {
+      connection_id: connection_id,
+      schema_name: schema,
+      table_name: name,
+      replica_id_columns2: normalizedReplicaIdColumns
+    };
+    if (objectId != null) {
+      filter.relation_id = objectId;
+    }
+
+    let filters: mongo.Filter<SourceTableDocument>[] = [];
+    // Case 1: name matches, but replica_id_columns2 differs
+    filters.push({
+      connection_id: connection_id,
+      schema_name: schema,
+      table_name: name,
+      replica_id_columns2: { $ne: normalizedReplicaIdColumns }
+    });
+    if (objectId != null) {
+      // Case 2: relation_id differs
+      filters.push({
+        connection_id: connection_id,
+        schema_name: schema,
+        table_name: name,
+        relation_id: { $ne: objectId }
+      });
+      // Case 3: relation_id matches, but name differs
+      filters.push({
+        $nor: [
+          {
+            connection_id: connection_id,
+            schema_name: schema,
+            table_name: name
+          }
+        ],
+        relation_id: objectId
+      });
+    }
+
+    const truncate = await col
+      .find({
+        $or: filters,
+        connection_id: connection_id
+      })
+      .toArray();
+    const dropTables = truncate.map(
+      (doc) =>
+        new storage.SourceTable({
+          id: doc._id,
+          connectionTag: connection_tag,
+          objectId: doc.relation_id,
+          schema: doc.schema_name,
+          name: doc.table_name,
+          replicaIdColumns:
+            doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+          snapshotComplete: doc.snapshot_done ?? true
+        })
+    );
+    return dropTables;
+  }
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
    */

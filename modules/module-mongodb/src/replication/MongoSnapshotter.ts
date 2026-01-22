@@ -286,8 +286,8 @@ export class MongoSnapshotter {
         entity_descriptor: getMongoRelation({ db: schema, coll: collection.name }),
         pattern: tablePattern
       });
-      // TODO: dropTables?
-      result.push(...sourceTables.tables);
+
+      result.push(...sourceTables);
     }
 
     return result;

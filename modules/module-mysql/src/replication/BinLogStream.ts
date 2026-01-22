@@ -131,7 +131,7 @@ export class BinLogStream {
     entity: storage.SourceEntityDescriptor,
     pattern: sync_rules.TablePattern
   ) {
-    const result = await writer.resolveTables({
+    const resolvedTables = await writer.resolveTables({
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: entity,
@@ -140,11 +140,16 @@ export class BinLogStream {
 
     // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage,
     // but changes in replication identity columns can, so this is needed.
-    await writer.drop(result.dropTables);
+    const dropTables = await writer.resolveTablesToDrop({
+      connection_id: this.connectionId,
+      connection_tag: this.connectionTag,
+      entity_descriptor: entity
+    });
+    await writer.drop(dropTables);
 
-    this.tableCache.set(entity.objectId!, result.tables);
+    this.tableCache.set(entity.objectId!, resolvedTables);
 
-    return result.tables;
+    return resolvedTables;
   }
 
   async handleChangeRelation(writer: storage.BucketDataWriter, entity: storage.SourceEntityDescriptor) {
@@ -160,18 +165,14 @@ export class BinLogStream {
 
     let allTables: SourceTable[] = [];
     for (let pattern of patterns) {
-      const result = await writer.resolveTables({
+      const resolvedTables = await writer.resolveTables({
         connection_id: this.connectionId,
         connection_tag: this.connectionTag,
         entity_descriptor: entity,
         pattern
       });
 
-      // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage,
-      // but changes in replication identity columns can, so this is needed.
-      await writer.drop(result.dropTables);
-
-      for (let table of result.tables) {
+      for (let table of resolvedTables) {
         // Snapshot if:
         // 1. Snapshot is not done yet, AND:
         // 2. The table is used in sync rules.
@@ -208,6 +209,15 @@ export class BinLogStream {
         }
       }
     }
+
+    // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage,
+    // but changes in replication identity columns can, so this is needed.
+    const dropTables = await writer.resolveTablesToDrop({
+      connection_id: this.connectionId,
+      connection_tag: this.connectionTag,
+      entity_descriptor: entity
+    });
+    await writer.drop(dropTables);
 
     // Since we create the objectId ourselves, this is always defined
     this.tableCache.set(entity.objectId!, allTables);

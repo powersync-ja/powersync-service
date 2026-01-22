@@ -163,6 +163,12 @@ export interface ResolveTablesOptions {
   idGenerator?: () => string | bson.ObjectId;
 }
 
+export interface ResolveTableToDropsOptions {
+  connection_id: number;
+  connection_tag: string;
+  entity_descriptor: SourceEntityDescriptor;
+}
+
 export interface ResolveTableOptions {
   connection_id: number;
   connection_tag: string;

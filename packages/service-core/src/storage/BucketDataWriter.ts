@@ -10,7 +10,12 @@ import { BSON } from 'bson';
 import { InternalOpId } from '../util/utils.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, ResolveTablesOptions, ResolveTablesResult } from './storage-index.js';
+import {
+  BatchedCustomWriteCheckpointOptions,
+  ResolveTablesOptions,
+  ResolveTablesResult,
+  ResolveTableToDropsOptions
+} from './storage-index.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,
@@ -38,8 +43,15 @@ export interface BucketDataWriter extends BucketDataWriterBase, AsyncDisposable 
   /**
    * Resolve a table, keeping track of it internally.
    */
-  resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
+  resolveTables(options: ResolveTablesOptions): Promise<SourceTable[]>;
   getTable(ref: SourceTable): Promise<SourceTable | null>;
+
+  /**
+   * Given a replicated table, return a list of tables that should be dropped due to conflicts.
+   *
+   * This can be due to renames, or replica id changes.
+   */
+  resolveTablesToDrop(options: ResolveTableToDropsOptions): Promise<SourceTable[]>;
 }
 
 export interface BucketDataWriterBase {

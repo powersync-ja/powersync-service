@@ -188,18 +188,12 @@ export class WalStream {
 
     let allTables: SourceTable[] = [];
     for (let pattern of patterns) {
-      const result = await writer.resolveTables({
+      const resolvedTables = await writer.resolveTables({
         connection_id: this.connection_id,
         connection_tag: this.connections.connectionTag,
         entity_descriptor: descriptor,
         pattern
       });
-
-      // Drop conflicting tables. This includes for example renamed tables.
-      if (result.dropTables.length > 0) {
-        this.logger.info(`Dropping conflicting tables: ${result.dropTables.map((t) => t.qualifiedName).join(', ')}`);
-        await writer.drop(result.dropTables);
-      }
 
       // Ensure we have a description for custom types referenced in the table.
       await this.connections.types.fetchTypes(referencedTypeIds);
@@ -208,7 +202,7 @@ export class WalStream {
       // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
       // 2. Snapshot is not already done, AND:
       // 3. The table is used in sync rules.
-      for (let table of result.tables) {
+      for (let table of resolvedTables) {
         const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
         if (shouldSnapshot) {
           this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
@@ -216,8 +210,20 @@ export class WalStream {
         }
       }
 
-      allTables.push(...result.tables);
+      allTables.push(...resolvedTables);
     }
+
+    const dropTables = await writer.resolveTablesToDrop({
+      connection_id: this.connection_id,
+      connection_tag: this.connections.connectionTag,
+      entity_descriptor: descriptor
+    });
+    // Drop conflicting tables. This includes for example renamed tables.
+    this.logger.info(`Dropping conflicting tables: ${dropTables.map((t) => t.qualifiedName).join(', ')}`);
+    if (dropTables.length > 0) {
+      await writer.drop(dropTables);
+    }
+
     this.relationCache.set(descriptor.objectId, allTables);
 
     return allTables;

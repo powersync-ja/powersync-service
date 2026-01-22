@@ -66,11 +66,11 @@ export async function resolveTestTable(
       return id;
     }
   });
-  const table = result.tables[0];
+  const table = result[0];
   if (table == null) {
     throw new Error(`Failed to resolve test table ${name}`);
   }
-  return result.tables[0];
+  return result[0];
 }
 
 export function getBatchData(

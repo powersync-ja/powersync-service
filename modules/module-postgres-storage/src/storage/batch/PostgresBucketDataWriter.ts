@@ -72,11 +72,8 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
     }
   }
 
-  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    let result: storage.ResolveTablesResult = {
-      tables: [],
-      dropTables: []
-    };
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.SourceTable[]> {
+    let result: storage.SourceTable[] = [];
     for (let subWriter of this.subWriters) {
       const subResult = await subWriter.storage.resolveTable({
         connection_id: options.connection_id,
@@ -85,8 +82,22 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
         sync_rules: subWriter.sync_rules,
         idGenerator: options.idGenerator
       });
-      result.tables.push(subResult.table);
-      result.dropTables.push(...subResult.dropTables);
+      result.push(subResult.table);
+    }
+    return result;
+  }
+
+  async resolveTablesToDrop(options: storage.ResolveTableToDropsOptions): Promise<storage.SourceTable[]> {
+    // FIXME: remove the duplicate work between this and resolveTables()
+    let result: storage.SourceTable[] = [];
+    for (let subWriter of this.subWriters) {
+      const subResult = await subWriter.storage.resolveTable({
+        connection_id: options.connection_id,
+        connection_tag: options.connection_tag,
+        entity_descriptor: options.entity_descriptor,
+        sync_rules: subWriter.sync_rules
+      });
+      result.push(...subResult.dropTables);
     }
     return result;
   }

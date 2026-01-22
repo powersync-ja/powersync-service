@@ -225,8 +225,22 @@ export class CDCStream {
         tablePattern
       );
 
+      // Drop conflicting tables. This includes for example renamed tables.
+      const dropTables = await writer.resolveTablesToDrop({
+        connection_id: this.connectionId,
+        connection_tag: this.connectionTag,
+        entity_descriptor: {
+          name: matchedTable.name,
+          schema: matchedTable.schema,
+          objectId: matchedTable.objectId,
+          replicaIdColumns: replicaIdColumns.columns
+        }
+      });
+      await writer.drop(dropTables);
+
       tables.push(...tables);
     }
+
     return tables;
   }
 
@@ -240,19 +254,16 @@ export class CDCStream {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
     }
 
-    const resolved = await writer.resolveTables({
+    const resolvedTables = await writer.resolveTables({
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: table,
       pattern
     });
 
-    // Drop conflicting tables. This includes for example renamed tables.
-    await writer.drop(resolved.dropTables);
-
     let resultingTables: MSSQLSourceTable[] = [];
 
-    for (let table of resolved.tables) {
+    for (let table of resolvedTables) {
       const captureInstance = await getCaptureInstance({
         connectionManager: this.connections,
         tableName: table.name,

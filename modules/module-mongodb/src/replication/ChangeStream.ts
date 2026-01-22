@@ -486,7 +486,7 @@ export class ChangeStream {
 
     let allTables: SourceTable[] = [];
     for (let pattern of patterns) {
-      const result = await writer.resolveTables({
+      const resolvedTables = await writer.resolveTables({
         connection_id: this.connection_id,
         connection_tag: this.connections.connectionTag,
         entity_descriptor: descriptor,
@@ -495,27 +495,18 @@ export class ChangeStream {
 
       const snapshot = options.snapshot;
 
-      // Drop conflicting collections.
-      // This is generally not expected for MongoDB source dbs, so we log an error.
-      if (result.dropTables.length > 0) {
-        this.logger.error(
-          `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
-        );
-        await writer.drop(result.dropTables);
-      }
-
       // Snapshot if:
       // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
       // 2. Snapshot is not already done, AND:
       // 3. The table is used in sync rules.
-      for (let table of result.tables) {
+      for (let table of resolvedTables) {
         const shouldSnapshot = snapshot && !table.snapshotComplete && table.syncAny;
         if (shouldSnapshot) {
           this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
           await this.snapshotter.queueSnapshot(writer, table);
         }
       }
-      allTables.push(...result.tables);
+      allTables.push(...resolvedTables);
     }
     this.relationCache.set(getCacheIdentifier(descriptor), allTables);
 
