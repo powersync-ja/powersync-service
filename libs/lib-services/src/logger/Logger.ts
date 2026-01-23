@@ -24,14 +24,14 @@ export const logger = winston.createLogger();
 
 export function configureLogger(config?: LoggingConfig): void {
   const level = process.env.PS_LOG_LEVEL ?? config?.level ?? DEFAULT_LOG_LEVEL;
-  const formatName = (process.env.PS_LOG_FORMAT as LoggingConfig['format']) ?? config?.format ?? DEFAULT_LOG_FORMAT;
+  const format = (process.env.PS_LOG_FORMAT as LoggingConfig['format']) ?? config?.format ?? DEFAULT_LOG_FORMAT;
   const winstonFormat =
-    formatName === 'json'
+    format === 'json'
       ? winston.format.combine(prefixFormat(), winston.format.timestamp(), winston.format.json())
       : winston.format.combine(prefixFormat(), winston.format.colorize({ level: true }), winston.format.simple());
 
   logger.configure({ level, format: winstonFormat, transports: [new winston.transports.Console()] });
-  logger.info(`Configured logger with level "${level}" and format "${formatName}"`);
+  logger.info(`Configured logger with level "${level}" and format "${format}"`);
 }
 
 // Set up default logging before config is loaded
