@@ -152,7 +152,7 @@ class PendingQuerierPath {
         syntacticSource: this.query.sourceTable,
         filters: state.filters,
         partitionBy: partitions,
-        addedFunctions: state.resolveAddedFunctions()
+        addedFunctions: [...state.addedFunctions.values()]
       })
     );
     this.processExistsOperators();
@@ -196,30 +196,31 @@ class PendingQuerierPath {
 
   private resolvePointLookup(resultSet: PhysicalSourceResultSet): PendingExpandingLookup {
     const resolved = this.resolveResultSet(resultSet);
-    const [partitionKeys, partitionInputs] = resolved.resolvePartitions();
 
     return new PendingExpandingLookup({
       type: 'point',
-      pattern: resultSet,
-      filters: resolved.filters,
-      partitionKeys: partitionKeys,
-      inputs: partitionInputs,
-      addedFunctions: resolved.resolveAddedFunctions()
+      source: resultSet,
+      resultSet: resolved
     });
   }
 
   private resolveTableValuedLookup(resultSet: TableValuedResultSet): PendingExpandingLookup {
     const resolved = this.resolveResultSet(resultSet);
     if (!resolved.partition.isEmpty) {
-      // At the moment, inputs to a table-valued functions must be static or only depend on the request. We may lift
-      // this restriction in the future.
+      // This function is only called for table-valued result sets operating on request data. Partitions are only
+      // supported for buckets and parameter lookups.
       this.errors.report('Table-valued result sets cannot be partitioned', resultSet.source.origin);
     }
 
-    return new PendingExpandingLookup({ type: 'table_valued', resultSet, filters: resolved.filters });
+    return new PendingExpandingLookup({ type: 'table_valued', source: resultSet, filters: resolved.filters });
   }
 
   private resolveExpandingLookup(resultSet: SourceResultSet): PendingExpandingLookup {
+    if (resultSet instanceof TableValuedResultSet && resultSet.inputResultSet != null) {
+      // Table-valued result sets of physical tables are resolved through the table they use as inputs.
+      return this.resolveExpandingLookup(resultSet.inputResultSet);
+    }
+
     const existing = this.pendingLookups.get(resultSet);
     if (existing != null) {
       return existing;
@@ -252,9 +253,17 @@ class PendingQuerierPath {
 
     for (const expression of [...this.pendingFactors]) {
       if (expression instanceof SingleDependencyExpression) {
-        if (expression.resultSet === source) {
+        const resultSet = expression.resultSet;
+
+        if (resultSet === source) {
           // This expression only depends on the table, so we add it as a filter for the row or parameter evaluator.
           state.filters.push(new RowExpression(expression));
+          this.removePendingExpression(expression);
+        }
+
+        if (resultSet instanceof TableValuedResultSet && resultSet.inputResultSet == source) {
+          const resolvedFunction = state.getOrAddTableValuedFunction(resultSet);
+          resolvedFunction.filters.push(new RowExpression(expression));
           this.removePendingExpression(expression);
         }
       } else {
@@ -369,18 +378,20 @@ class PendingQuerierPath {
         let lookupWithInputs: ExpandingLookup;
 
         if (data.type == 'point') {
+          const resultSet = data.resultSet;
+          const [partitionKeys, partitionInputs] = resultSet.resolvePartitions();
           const canonicalized = this.builder.compiler.output.canonicalizePointLookup(
             new PointLookup({
-              syntacticSource: data.pattern,
-              filters: data.filters,
-              partitionBy: data.partitionKeys,
+              syntacticSource: data.source,
+              filters: resultSet.filters,
+              partitionBy: partitionKeys,
               result: lookup.usedOutputs,
-              addedFunctions: data.addedFunctions
+              addedFunctions: [...resultSet.addedFunctions.values()]
             })
           );
-          lookupWithInputs = new ParameterLookup(canonicalized, data.inputs);
+          lookupWithInputs = new ParameterLookup(canonicalized, partitionInputs);
         } else {
-          lookupWithInputs = new EvaluateTableValuedFunction(data.resultSet, lookup.usedOutputs, data.filters);
+          lookupWithInputs = new EvaluateTableValuedFunction(data.source, lookup.usedOutputs, data.filters);
         }
 
         lookups.push(lookupWithInputs);
@@ -410,10 +421,6 @@ class ResolvedResultSet {
       this.addedFunctions.set(source, pendingFunction);
       return pendingFunction;
     }
-  }
-
-  resolveAddedFunctions(): SourceRowProcessorAddedTableValuedFunction[] {
-    return [...this.addedFunctions.values()];
   }
 
   resolvePartitions(): [PartitionKey[], ParameterValue[]] {
@@ -459,6 +466,16 @@ class PendingExpandingLookup {
       }
     }
 
+    if (param.resultSet != this.data.source) {
+      if (param.resultSet instanceof TableValuedResultSet && param.resultSet.inputResultSet == this.data.source) {
+        // Output value is referencing a table-valued function derived from this result set. Ensure they function is
+        // registered.
+        (this.data as PendingPointLookup).resultSet.getOrAddTableValuedFunction(param.resultSet);
+      } else {
+        throw new Error('Tried to add output from another result set');
+      }
+    }
+
     const index = this.usedOutputs.length;
     this.usedOutputs.push(param);
     return index;
@@ -467,16 +484,13 @@ class PendingExpandingLookup {
 
 interface PendingPointLookup {
   type: 'point';
-  pattern: PhysicalSourceResultSet;
-  filters: RowExpression[];
-  partitionKeys: PartitionKey[];
-  inputs: ParameterValue[];
-  addedFunctions: SourceRowProcessorAddedTableValuedFunction[];
+  source: PhysicalSourceResultSet;
+  resultSet: ResolvedResultSet;
 }
 
 interface PendingTableValuedFunctionLookup {
   type: 'table_valued';
-  resultSet: TableValuedResultSet;
+  source: TableValuedResultSet;
   filters: RowExpression[];
 }
 

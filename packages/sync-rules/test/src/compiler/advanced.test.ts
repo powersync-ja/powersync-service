@@ -185,7 +185,9 @@ where uas.user_id = auth.user_id()
 
   describe('table-valued functions', () => {
     test('static filter', () => {
-      compileSingleStreamAndSerialize(`SELECT * FROM posts WHERE 'important' IN posts.descriptions`);
+      expect(
+        compileSingleStreamAndSerialize(`SELECT * FROM posts WHERE 'important' IN posts.descriptions`)
+      ).toMatchSnapshot();
     });
 
     test('partition on data', () => {
@@ -196,6 +198,12 @@ where uas.user_id = auth.user_id()
       ).toMatchSnapshot();
     });
 
-    test('partition on parameter', () => {});
+    test('partition on parameter lookup', () => {
+      expect(
+        compileSingleStreamAndSerialize(`SELECT 
+            users.* FROM users, orgs, json_each(orgs.members) as members
+          WHERE users.id = members.value AND orgs.id = auth.parameter('org')`)
+      ).toMatchSnapshot();
+    });
   });
 });
