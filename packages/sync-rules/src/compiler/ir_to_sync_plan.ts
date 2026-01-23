@@ -6,6 +6,7 @@ import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.j
 import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
 import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
+import { SourceResultSet } from './table.js';
 
 export class CompilerModelToSyncPlan {
   private static readonly evaluatorHash: Equality<rows.RowEvaluator[]> = unorderedEquality({
@@ -77,8 +78,31 @@ export class CompilerModelToSyncPlan {
     });
   }
 
-  private translatePartitionKey(value: rows.PartitionKey): plan.PartitionKey {
-    return { expr: this.translateExpression(value.expression.expression) };
+  private translatePartitionKey(value: rows.PartitionKey, context: rows.SourceRowProcessor): plan.PartitionKey {
+    if (value instanceof rows.ScalarPartitionKey) {
+      return { expr: this.translateExpression(value.expression.expression, context.syntacticSource) };
+    } else if (value instanceof rows.TableValuedPartitionKey) {
+      return {
+        expr: this.translateExpression(value.output.expression, context.syntacticSource, context.addedFunctions)
+      };
+    }
+
+    throw new Error('Unhandled partition key');
+  }
+
+  private translateAddedTableValuedFunctions(
+    input: rows.SourceRowProcessorAddedTableValuedFunction[],
+    context: rows.SourceRowProcessor
+  ): plan.TableProcessorTableValuedFunction[] {
+    return input.map((fn) => {
+      return this.translateStatefulObject(fn, () => {
+        return {
+          functionName: fn.functionName,
+          functionInputs: fn.inputs.map((e) => this.translateExpression(e.expression, context.syntacticSource)),
+          filters: fn.filters.map((e) => this.translateExpression(e.expression, fn.syntacticSource))
+        } satisfies plan.TableProcessorTableValuedFunction;
+      });
+    });
   }
 
   private translateRowEvaluator(value: rows.RowEvaluator): plan.StreamDataSource {
@@ -92,12 +116,16 @@ export class CompilerModelToSyncPlan {
           if (e instanceof rows.StarColumnSource) {
             return 'star';
           } else {
-            return { expr: this.translateExpression(e.expression.expression), alias: e.alias ?? null };
+            return {
+              expr: this.translateExpression(e.expression.expression, value.syntacticSource),
+              alias: e.alias ?? null
+            };
           }
         }),
         outputTableName: value.outputName,
+        tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
         filters: value.filters.map((e) => this.translateExpression(e.expression)),
-        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e))
+        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
       } satisfies plan.StreamDataSource;
       return mapped;
     });
@@ -116,17 +144,45 @@ export class CompilerModelToSyncPlan {
           queryId: index.toString()
         },
         hashCode: hasher.buildHashCode(),
-        outputs: value.result.map((e) => this.translateExpression(e.expression)),
-        filters: value.filters.map((e) => this.translateExpression(e.expression)),
-        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e))
+        outputs: value.result.map((e) => this.translateExpression(e.expression, value.syntacticSource)),
+        tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
+        filters: value.filters.map((e) => this.translateExpression(e.expression, value.syntacticSource)),
+        parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
       } satisfies plan.StreamParameterIndexLookupCreator;
     });
   }
 
-  private translateExpression<T extends plan.SqlParameterValue>(expression: SyncExpression): SqlExpression<T> {
+  /**
+   * @param expression The expression to translate.
+   * @param table The implicit table (from context) that columns are resolved against.
+   * @param tableValued Additional table-valued functions that can be referenced.
+   */
+  private translateExpression<T>(
+    expression: SyncExpression,
+    table?: SourceResultSet,
+    tableValued?: rows.SourceRowProcessorAddedTableValuedFunction[]
+  ): SqlExpression<T> {
     const mapper = new MapSourceVisitor<ExpressionInput, T>((value) => {
       if (value instanceof ColumnInRow) {
-        return { column: value.column } satisfies plan.ColumnSqlParameterValue as unknown as T;
+        if (table == null) {
+          throw new Error('Column reference without table context');
+        }
+        if (value.resultSet === table) {
+          return { column: value.column } satisfies plan.ColumnSqlParameterValue as unknown as T;
+        }
+
+        if (tableValued) {
+          for (const addedFn of tableValued) {
+            if (value.resultSet == addedFn.syntacticSource) {
+              return {
+                function: this.mappedObjects.get(addedFn),
+                outputName: value.column
+              } satisfies plan.TableProcessorTableValuedFunctionOutput as unknown as T;
+            }
+          }
+        }
+
+        throw new Error('Referenced table not in context');
       } else {
         return { request: value.source } satisfies plan.RequestSqlParameterValue as unknown as T;
       }

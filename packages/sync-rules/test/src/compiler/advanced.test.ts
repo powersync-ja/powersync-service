@@ -182,4 +182,20 @@ where uas.user_id = auth.user_id()
       compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state IN ARRAY['public', 'archived']`)
     ).toMatchSnapshot();
   });
+
+  describe('table-valued functions', () => {
+    test('static filter', () => {
+      compileSingleStreamAndSerialize(`SELECT * FROM posts WHERE 'important' IN posts.descriptions`);
+    });
+
+    test('partition on data', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          `SELECT * FROM posts WHERE subscription.parameter('tag') IN (SELECT value FROM json_each(posts.tags))`
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('partition on parameter', () => {});
+  });
 });

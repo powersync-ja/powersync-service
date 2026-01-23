@@ -430,7 +430,7 @@ export class PostgresToSqlite {
     const name = this.options.generateTableAlias();
     return this.desugarInSubquery(negated, binary, {
       type: 'select',
-      columns: [{ expr: { type: 'ref', name: 'value', table: { name } } }],
+      columns: [{ expr: { type: 'ref', name: 'value', table: { name }, _location: right._location } }],
       from: [{ type: 'call', function: { name: 'json_each' }, args: [right], alias: { name } }]
     });
   }

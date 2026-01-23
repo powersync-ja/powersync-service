@@ -1604,3 +1604,96 @@ exports[`new sync stream features > order-independent parameters 1`] = `
   "version": "unstable",
 }
 `;
+
+exports[`new sync stream features > table-valued functions > partition on data 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 130288477,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 243560642,
+      "outputTableName": "posts",
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "function": 0,
+              "outputName": "value",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "posts",
+      },
+      "tableValuedFunctions": [
+        {
+          "filters": [],
+          "functionInputs": [
+            {
+              "source": {
+                "column": "tags",
+              },
+              "type": "data",
+            },
+          ],
+          "functionName": "json_each",
+        },
+      ],
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "expr": {
+                "function": "->>",
+                "parameters": [
+                  {
+                    "source": {
+                      "request": "subscription",
+                    },
+                    "type": "data",
+                  },
+                  {
+                    "type": "lit_string",
+                    "value": "tag",
+                  },
+                ],
+                "type": "function",
+              },
+              "type": "request",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
