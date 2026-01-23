@@ -57,10 +57,47 @@ export interface TableProcessor {
    * input values for the lookup.
    */
   parameters: PartitionKey[];
+  tableValuedFunctions: TableProcessorTableValuedFunction[];
 }
 
+/**
+ * A table-valued partition key evaluates a table-valued function on the source or parameter row to potentially generate
+ * multiple buckets for one input row.
+ *
+ * For instance, `SELECT p.* FROM posts p WHERE subscription.parameter('tag') IN (SELECT value FROM json_each(p.tags))`
+ * would put a row with `tags == '["foo", "bar"]'` into two buckets representing the expanded parameters.
+ *
+ * Note that the buckets a row is put into are derived from the cartesian product of all partition keys. In particular,
+ * this means that:
+ *
+ *   - If a table-valued key evaluates to zero rows, the source row is not put into any buckets regardless of what other
+ *     partition keys might exist.
+ *   - Two table-valued partition keys evaluating two multiple rows leads to a quadratic amount of buckets being
+ *     generated.
+ */
+export type TableProcessorTableValuedFunction = Omit<
+  EvaluateTableValuedFunction<ColumnSqlParameterValue>,
+  'type' | 'outputs'
+>;
+
+export interface TableProcessorTableValuedFunctionOutput {
+  /**
+   * A reference to the added table-valued function.
+   */
+  function: TableProcessorTableValuedFunction;
+  /**
+   * The column of the table-valued function being referenced.
+   */
+  outputName: string;
+}
+
+/**
+ * A scalar partition key evaluates to a single value in the source or parameter row. For instance, a stream definition
+ * like `SELECT * FROM users WHERE id = auth.user_id()` would generate a scalar key to partition users by the `id`
+ * column.
+ */
 export interface PartitionKey {
-  expr: SqlExpression<ColumnSqlParameterValue>;
+  expr: SqlExpression<ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput>;
 }
 
 /**
@@ -163,8 +200,6 @@ export interface StreamQuerier {
   sourceInstantiation: ParameterValue[];
 }
 
-export type SqlParameterValue = ColumnSqlParameterValue | RequestSqlParameterValue;
-
 /**
  * A value that resolves to a given column in a row being processed.
  */
@@ -185,7 +220,7 @@ export interface RequestSqlParameterValue {
 /**
  * A lookup returning multiple rows when instantiated.
  */
-export type ExpandingLookup = ParameterLookup | EvaluateTableValuedFunction;
+export type ExpandingLookup = ParameterLookup | EvaluateTableValuedFunction<RequestSqlParameterValue>;
 
 export interface ParameterLookup {
   type: 'parameter';
@@ -196,10 +231,10 @@ export interface ParameterLookup {
   instantiation: ParameterValue[];
 }
 
-export interface EvaluateTableValuedFunction {
+export interface EvaluateTableValuedFunction<Input> {
   type: 'table_valued';
   functionName: string;
-  functionInputs: SqlExpression<RequestSqlParameterValue>[];
+  functionInputs: SqlExpression<Input>[];
   outputs: SqlExpression<ColumnSqlParameterValue>[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
 }
