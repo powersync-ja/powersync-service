@@ -6,7 +6,6 @@ import {
   ColumnSqlParameterValue,
   ExpandingLookup,
   ParameterValue,
-  PartitionKey,
   RequestSqlParameterValue,
   StreamBucketDataSource,
   StreamDataSource,
@@ -52,11 +51,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
     };
   }
 
-  function serializeTableValued(source: TableProcessor): TableProcessorTableValuedFunction[] | undefined {
-    if (!source.tableValuedFunctions.length) {
-      return;
-    }
-
+  function serializeTableValued(source: TableProcessor): TableProcessorTableValuedFunction[] {
     return source.tableValuedFunctions.map((fn, i) => {
       addedTableValuedFunctions.set(fn, i);
       return fn;
@@ -95,7 +90,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         filters: source.filters,
         tableValuedFunctions: serializeTableValued(source),
         partitionBy: translateParameters(source),
-        output: source.outputs
+        output: source.outputs.map((out) => visitExpr(replaceFunctionReferenceWithIndex, out, null))
       } satisfies SerializedParameterIndexLookupCreator;
     });
   }
@@ -206,14 +201,14 @@ interface SerializedDataSource {
   hash: number;
   columns: ColumnSource[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
-  tableValuedFunctions?: TableProcessorTableValuedFunction[];
+  tableValuedFunctions: TableProcessorTableValuedFunction[];
   partitionBy: SerializedPartitionKey[];
 }
 
 interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
-  output: SqlExpression<ColumnSqlParameterValue>[];
+  output: SqlExpression<ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput>[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
   tableValuedFunctions?: TableProcessorTableValuedFunction[];
   partitionBy: SerializedPartitionKey[];
