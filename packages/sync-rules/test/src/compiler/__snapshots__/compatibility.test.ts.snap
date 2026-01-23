@@ -34,6 +34,7 @@ exports[`old streams test > OR in subquery 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -63,6 +64,7 @@ exports[`old streams test > OR in subquery 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
     {
       "filters": [
@@ -96,6 +98,7 @@ exports[`old streams test > OR in subquery 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -213,6 +216,7 @@ exports[`old streams test > in > on parameter data 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -225,7 +229,24 @@ exports[`old streams test > in > on parameter data 1`] = `
             [
               {
                 "filters": [],
-                "functionInputs": [],
+                "functionInputs": [
+                  {
+                    "function": "->",
+                    "parameters": [
+                      {
+                        "source": {
+                          "request": "subscription",
+                        },
+                        "type": "data",
+                      },
+                      {
+                        "type": "lit_string",
+                        "value": "issue_id",
+                      },
+                    ],
+                    "type": "function",
+                  },
+                ],
                 "functionName": "json_each",
                 "outputs": [
                   {
@@ -305,6 +326,7 @@ exports[`old streams test > in > on parameter data and table 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -334,6 +356,7 @@ exports[`old streams test > in > on parameter data and table 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -370,7 +393,24 @@ exports[`old streams test > in > on parameter data and table 1`] = `
               },
               {
                 "filters": [],
-                "functionInputs": [],
+                "functionInputs": [
+                  {
+                    "function": "->",
+                    "parameters": [
+                      {
+                        "source": {
+                          "request": "subscription",
+                        },
+                        "type": "data",
+                      },
+                      {
+                        "type": "lit_string",
+                        "value": "labels",
+                      },
+                    ],
+                    "type": "function",
+                  },
+                ],
                 "functionName": "json_each",
                 "outputs": [
                   {
@@ -450,6 +490,7 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -462,7 +503,24 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
             [
               {
                 "filters": [],
-                "functionInputs": [],
+                "functionInputs": [
+                  {
+                    "function": "->>",
+                    "parameters": [
+                      {
+                        "source": {
+                          "request": "auth",
+                        },
+                        "type": "data",
+                      },
+                      {
+                        "type": "lit_string",
+                        "value": "issues",
+                      },
+                    ],
+                    "type": "function",
+                  },
+                ],
                 "functionName": "json_each",
                 "outputs": [
                   {
@@ -549,6 +607,7 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -578,6 +637,7 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
         "schema": "test_schema",
         "table": "users",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -663,6 +723,7 @@ exports[`old streams test > in > row value in subquery 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -692,6 +753,7 @@ exports[`old streams test > in > row value in subquery 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -786,6 +848,7 @@ exports[`old streams test > in > two subqueries 1`] = `
         "schema": "test_schema",
         "table": "users",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -815,6 +878,7 @@ exports[`old streams test > in > two subqueries 1`] = `
         "schema": "test_schema",
         "table": "friends",
       },
+      "tableValuedFunctions": [],
     },
     {
       "filters": [],
@@ -842,6 +906,7 @@ exports[`old streams test > in > two subqueries 1`] = `
         "schema": "test_schema",
         "table": "friends",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -979,6 +1044,7 @@ exports[`old streams test > nested subqueries 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -1006,6 +1072,7 @@ exports[`old streams test > nested subqueries 1`] = `
         "schema": "test_schema",
         "table": "users",
       },
+      "tableValuedFunctions": [],
     },
     {
       "filters": [],
@@ -1033,6 +1100,7 @@ exports[`old streams test > nested subqueries 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -1151,6 +1219,7 @@ exports[`old streams test > normalization > distribute and 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
     {
       "columns": [
@@ -1186,6 +1255,7 @@ exports[`old streams test > normalization > distribute and 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -1215,6 +1285,7 @@ exports[`old streams test > normalization > distribute and 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -1332,6 +1403,7 @@ exports[`old streams test > normalization > double negation 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -1361,6 +1433,7 @@ exports[`old streams test > normalization > double negation 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -1462,6 +1535,7 @@ exports[`old streams test > normalization > negated and 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
     {
       "columns": [
@@ -1501,6 +1575,7 @@ exports[`old streams test > normalization > negated and 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -1530,6 +1605,7 @@ exports[`old streams test > normalization > negated and 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -1655,6 +1731,7 @@ exports[`old streams test > normalization > negated or 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -1684,6 +1761,7 @@ exports[`old streams test > normalization > negated or 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -1785,6 +1863,7 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
     {
       "columns": [
@@ -1799,6 +1878,7 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -1907,6 +1987,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
     {
       "columns": [
@@ -1942,6 +2023,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -2017,6 +2099,7 @@ exports[`old streams test > or > request condition or request condition 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -2110,6 +2193,7 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
     {
       "columns": [
@@ -2145,6 +2229,7 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -2262,6 +2347,7 @@ exports[`old streams test > or > row condition or row condition 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -2327,6 +2413,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
     {
       "columns": [
@@ -2341,6 +2428,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -2370,6 +2458,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
         "schema": "test_schema",
         "table": "issues",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -2499,6 +2588,7 @@ exports[`old streams test > row condition 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -2578,6 +2668,7 @@ exports[`old streams test > row filter and stream parameter 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -2656,6 +2747,7 @@ exports[`old streams test > stream parameter 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],
@@ -2734,6 +2826,7 @@ exports[`old streams test > table alias 1`] = `
         "schema": "test_schema",
         "table": "account_member",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -2763,6 +2856,7 @@ exports[`old streams test > table alias 1`] = `
         "schema": "test_schema",
         "table": "account_member",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -2848,6 +2942,7 @@ exports[`old streams test > without filter 1`] = `
         "schema": "test_schema",
         "table": "comments",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [],

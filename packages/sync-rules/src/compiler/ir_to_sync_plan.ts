@@ -124,7 +124,7 @@ export class CompilerModelToSyncPlan {
         }),
         outputTableName: value.outputName,
         tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
-        filters: value.filters.map((e) => this.translateExpression(e.expression)),
+        filters: value.filters.map((e) => this.translateExpression(e.expression, value.syntacticSource)),
         parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
       } satisfies plan.StreamDataSource;
       return mapped;
@@ -144,8 +144,10 @@ export class CompilerModelToSyncPlan {
           queryId: index.toString()
         },
         hashCode: hasher.buildHashCode(),
-        outputs: value.result.map((e) => this.translateExpression(e.expression, value.syntacticSource)),
         tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
+        outputs: value.result.map((e) =>
+          this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
+        ),
         filters: value.filters.map((e) => this.translateExpression(e.expression, value.syntacticSource)),
         parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
       } satisfies plan.StreamParameterIndexLookupCreator;
@@ -215,8 +217,8 @@ export class CompilerModelToSyncPlan {
           type: 'table_valued',
           functionName: value.tableValuedFunction.tableValuedFunctionName,
           functionInputs: value.tableValuedFunction.parameters.map((e) => this.translateExpression(e.expression)),
-          outputs: value.outputs.map((e) => this.translateExpression(e.expression)),
-          filters: value.filters.map((e) => this.translateExpression(e.expression))
+          outputs: value.outputs.map((e) => this.translateExpression(e.expression, value.tableValuedFunction)),
+          filters: value.filters.map((e) => this.translateExpression(e.expression, value.tableValuedFunction))
         };
       }
     });
