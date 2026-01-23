@@ -474,6 +474,31 @@ export const powerSyncConfig = t
       })
       .optional(),
 
+    system: t
+      .object({
+        logging: t
+          .object({
+            level: t.literal('silly').or(t.literal('debug')).or(t.literal('verbose')).or(t.literal('http')).or(t.literal('info')).or(t.literal('warn')).or(t.literal('error')).or(t.literal('fatal'))
+              .meta({
+                description: 'Log level for the service logs.'
+              })
+              .optional(),
+            format: t.literal('json').or(t.literal('text'))
+              .meta({
+                description: 'Log output format.'
+              })
+              .optional()
+          })
+          .meta({
+            description: 'Service logging configuration.'
+          })
+          .optional()
+      })
+      .meta({
+        description: 'System-level configuration options.'
+      })
+      .optional(),
+
     parameters: t
       .record(t.number.or(t.string).or(t.boolean).or(t.Null))
       .meta({

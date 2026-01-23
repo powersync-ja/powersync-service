@@ -31,3 +31,8 @@ client_auth:
 
   # JWKS audience
   audience: ['powersync-dev', 'powersync']
+
+system:
+  logging:
+    level: debug
+    format: text
