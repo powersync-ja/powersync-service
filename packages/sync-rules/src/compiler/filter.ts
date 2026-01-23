@@ -137,17 +137,6 @@ export class EqualsClause {
   }
 }
 
-/**
- * An expression of the form `EXPAND(left) = right`, which interprets `left` as a JSON array and evaluates to `TRUE` iff
- * `right` is contained as an element in `left`.
- */
-export class TODO_ExpandAndEqualsClause {
-  constructor(
-    readonly left: SingleDependencyExpression,
-    readonly right: SingleDependencyExpression
-  ) {}
-}
-
 export class InvalidExpressionError extends Error {
   constructor(message: string) {
     super(message);

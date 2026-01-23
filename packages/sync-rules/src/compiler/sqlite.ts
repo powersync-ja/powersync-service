@@ -85,6 +85,10 @@ export class PostgresToSqlite {
   constructor(private readonly options: PostgresToSqliteOptions) {}
 
   translateExpression(source: Expr): SyncExpression {
+    if (source.type == 'ref' && source.name == 'tagged_users') {
+      debugger;
+    }
+
     return new SyncExpression(this.translateNodeWithLocation(source), this.options.locations);
   }
 
@@ -228,7 +232,10 @@ export class PostgresToSqlite {
       }
       case 'binary': {
         if (expr.op === 'IN' || expr.op === 'NOT IN') {
-          return this.translateInExpression(expr);
+          return this.translateInOrOverlapOperator(expr, 'in', expr.op === 'NOT IN');
+        }
+        if (expr.op === '&&') {
+          return this.translateInOrOverlapOperator(expr, 'overlap', false);
         }
 
         const left = this.translateNodeWithLocation(expr.left);
@@ -358,59 +365,64 @@ export class PostgresToSqlite {
     return { type: 'lit_null' };
   }
 
-  private translateInExpression(expr: ExprBinary): SqlExpression<ExpressionInput> {
-    const negated = expr.op === 'NOT IN';
-    const right = expr.right;
-
-    if (right.type == 'select') {
-      return this.desugarInSubquery(negated, expr, right);
-    } else if (right.type == 'array') {
-      return this.desugarInValues(negated, expr.left, right.expressions);
-    } else if (right.type == 'call' && right.function.name.toLowerCase() == 'row') {
-      return this.desugarInValues(negated, expr.left, right.args);
-    } else {
-      if (right.type == 'ref' && right.table == null) {
-        const cte = this.options.scope.resolveCommonTableExpression(right.name);
-        if (cte) {
-          // Something of the form x IN $cte.
-          return this.desugarInCte(negated, expr, right.name, cte);
-        }
-      }
-
-      return this.desugarInScalar(negated, expr, right);
-    }
-  }
-
-  private desugarInValues(negated: boolean, left: Expr, right: Expr[]): SqlExpression<ExpressionInput> {
-    const scalarIn: SqlExpression<ExpressionInput> = {
-      type: 'scalar_in',
-      target: this.translateNodeWithLocation(left),
-      in: right.map((e) => this.translateNodeWithLocation(e))
-    };
-    return negated ? { type: 'unary', operator: 'not', operand: scalarIn } : scalarIn;
-  }
-
-  private desugarInSubquery(
-    negated: boolean,
-    binary: ExprBinary,
-    right: SelectFromStatement
+  private translateInOrOverlapOperator(
+    original: ExprBinary,
+    type: 'in' | 'overlap',
+    negated: boolean
   ): SqlExpression<ExpressionInput> {
-    const left = binary.left;
-    const resolved = this.options.joinSubqueryExpression(right);
-    if (resolved == null) {
-      // An error would have been logged.
-      return { type: 'lit_null' };
+    let translatedLeft: SqlExpression<ExpressionInput>;
+    let translatedRight: SqlExpression<ExpressionInput>;
+    let additionalFilters: SqlExpression<ExpressionInput>[] = [];
+
+    const expand = (expr: Expr): SqlExpression<ExpressionInput> => {
+      if (expr.type === 'select') {
+        const resolved = this.options.joinSubqueryExpression(expr);
+        if (resolved == null) {
+          // An error would have been logged.
+          const bogusValue: SqlExpression<ExpressionInput> = { type: 'lit_null' };
+          this.options.locations.sourceForNode.set(bogusValue, expr);
+          return bogusValue;
+        }
+
+        additionalFilters.push(...resolved.filters);
+        return resolved.output;
+      } else {
+        // Translate `x IN a` to `x IN (SELECT value FROM json_each(a))`.
+        const name = this.options.generateTableAlias();
+        return expand({
+          type: 'select',
+          columns: [{ expr: { type: 'ref', name: 'value', table: { name }, _location: expr._location } }],
+          from: [{ type: 'call', function: { name: 'json_each' }, args: [expr], alias: { name } }]
+        });
+      }
+    };
+
+    if (type === 'overlap') {
+      translatedLeft = expand(original.left);
+    } else {
+      // For IN expressions, the left side is always a scalar.
+      translatedLeft = this.translateNodeWithLocation(original.left);
+
+      // Additionally, we support IN ARRAY[...] and IN ROW(...) expressions which are always scalar.
+      // TODO: We might be able to simplify expressions by translating them into json_array() invocations in expand()?
+      if (original.right.type == 'array') {
+        return this.desugarInValues(negated, translatedLeft, original.right.expressions);
+      } else if (original.right.type == 'call' && original.right.function.name.toLowerCase() == 'row') {
+        return this.desugarInValues(negated, translatedLeft, original.right.args);
+      }
     }
+
+    translatedRight = expand(original.right);
 
     let replacement: SqlExpression<ExpressionInput> = {
       type: 'binary',
       operator: '=',
-      left: this.translateNodeWithLocation(left),
-      right: resolved.output
+      left: translatedLeft,
+      right: translatedRight
     };
-    this.options.locations.sourceForNode.set(replacement, binary);
+    this.options.locations.sourceForNode.set(replacement, original);
 
-    replacement = resolved.filters.reduce(
+    replacement = additionalFilters.reduce(
       (left, right) => ({ type: 'binary', operator: 'and', left, right }),
       replacement
     );
@@ -422,17 +434,17 @@ export class PostgresToSqlite {
     return replacement;
   }
 
-  /**
-   * Desugar `$left IN $right`, where `$right` is a scalar expression. This is not valid SQL, but in PowerSync we
-   * interpret that as `left IN (SELECT value FROM json_each(right))`.
-   */
-  private desugarInScalar(negated: boolean, binary: ExprBinary, right: Expr): SqlExpression<ExpressionInput> {
-    const name = this.options.generateTableAlias();
-    return this.desugarInSubquery(negated, binary, {
-      type: 'select',
-      columns: [{ expr: { type: 'ref', name: 'value', table: { name }, _location: right._location } }],
-      from: [{ type: 'call', function: { name: 'json_each' }, args: [right], alias: { name } }]
-    });
+  private desugarInValues(
+    negated: boolean,
+    left: SqlExpression<ExpressionInput>,
+    right: Expr[]
+  ): SqlExpression<ExpressionInput> {
+    const scalarIn: SqlExpression<ExpressionInput> = {
+      type: 'scalar_in',
+      target: left,
+      in: right.map((e) => this.translateNodeWithLocation(e))
+    };
+    return negated ? { type: 'unary', operator: 'not', operand: scalarIn } : scalarIn;
   }
 
   /**
@@ -450,11 +462,20 @@ export class PostgresToSqlite {
     }
 
     const name = columns[0];
-    return this.desugarInSubquery(negated, binary, {
-      type: 'select',
-      columns: [{ expr: { type: 'ref', name, table: { name: cteName } } }],
-      from: [{ type: 'table', name: { name: cteName } }]
-    });
+    return this.translateInOrOverlapOperator(
+      {
+        type: 'binary',
+        op: binary.op,
+        left: binary.left,
+        right: {
+          type: 'select',
+          columns: [{ expr: { type: 'ref', name, table: { name: cteName } } }],
+          from: [{ type: 'table', name: { name: cteName } }]
+        }
+      },
+      'in',
+      negated
+    );
   }
 
   private translateRequestParameter(source: ConnectionParameterSource, expr: ExprCall): SqlExpression<ExpressionInput> {
