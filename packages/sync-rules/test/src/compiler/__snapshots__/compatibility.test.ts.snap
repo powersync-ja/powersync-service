@@ -2598,6 +2598,145 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
 }
 `;
 
+exports[`old streams test > overlap 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 147057229,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 245155536,
+      "outputTableName": "comments",
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "function": 0,
+              "outputName": "value",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "comments",
+      },
+      "tableValuedFunctions": [
+        {
+          "filters": [],
+          "functionInputs": [
+            {
+              "source": {
+                "column": "tagged_users",
+              },
+              "type": "data",
+            },
+          ],
+          "functionName": "json_each",
+        },
+      ],
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 75103629,
+      "output": [
+        {
+          "source": {
+            "column": "user_a",
+          },
+          "type": "data",
+        },
+      ],
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "user_b",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "friends",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "function": "->>",
+                      "parameters": [
+                        {
+                          "source": {
+                            "request": "auth",
+                          },
+                          "type": "data",
+                        },
+                        {
+                          "type": "lit_string",
+                          "value": "$.sub",
+                        },
+                      ],
+                      "type": "function",
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
 exports[`old streams test > row condition 1`] = `
 {
   "buckets": [
