@@ -162,7 +162,7 @@ export interface StreamParameterIndexLookupCreator extends TableProcessor {
    * streams because the output of parameters might be passed through additional stages or transformed by the querier
    * before becoming a parameter value.
    */
-  outputs: SqlExpression<ColumnSqlParameterValue>[];
+  outputs: SqlExpression<ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput>[];
 }
 
 export interface StreamOptions {

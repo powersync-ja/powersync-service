@@ -56,11 +56,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
     };
   }
 
-  function serializeTableValued(source: TableProcessor): TableProcessorTableValuedFunction[] | undefined {
-    if (!source.tableValuedFunctions.length) {
-      return;
-    }
-
+  function serializeTableValued(source: TableProcessor): TableProcessorTableValuedFunction[] {
     return source.tableValuedFunctions.map((fn, i) => {
       addedTableValuedFunctions.set(fn, i);
       return fn;
@@ -99,7 +95,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         filters: source.filters,
         tableValuedFunctions: serializeTableValued(source),
         partitionBy: translateParameters(source),
-        output: source.outputs,
+        output: source.outputs.map((out) => visitExpr(replaceFunctionReferenceWithIndex, out, null)),
         lookupScope: source.defaultLookupScope
       } satisfies SerializedParameterIndexLookupCreator;
     });
@@ -190,33 +186,58 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     }
   }
 
+  let tableValuedFunctionsInScope: TableProcessorTableValuedFunction[] = [];
+
+  const replaceFunctionIndexWithReference = new MapSourceVisitor<
+    ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput,
+    ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput
+  >((value) => {
+    if ('function' in value) {
+      return { function: tableValuedFunctionsInScope[value.function], outputName: value.outputName };
+    } else {
+      return value;
+    }
+  });
+
+  function deserializeParameters(source: SerializedPartitionKey[]): PartitionKey[] {
+    return source.map((serializedKey) => {
+      return { expr: visitExpr(replaceFunctionIndexWithReference, serializedKey.expr, null) };
+    });
+  }
+
   const plan = serialized as SerializedSyncPlanUnstable;
-  const dataSources = plan.dataSources.map((source) => {
+  const dataSources = plan.dataSources.map((source): StreamDataSource => {
+    const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
+
     return {
       hashCode: source.hash,
       sourceTable: deserializeTablePattern(source.table),
+      tableValuedFunctions: functions,
       outputTableName: source.outputTableName,
       filters: source.filters,
-      parameters: source.partitionBy,
+      parameters: deserializeParameters(source.partitionBy),
       columns: source.columns
-    } satisfies StreamDataSource;
+    };
   });
-  const buckets = plan.buckets.map((bkt) => {
+  const buckets = plan.buckets.map((bkt): StreamBucketDataSource => {
     return {
       hashCode: bkt.hash,
       uniqueName: bkt.uniqueName,
       sources: bkt.sources.map((idx) => dataSources[idx])
-    } satisfies StreamBucketDataSource;
+    };
   });
-  const parameterIndexes = plan.parameterIndexes.map((source) => {
+  const parameterIndexes = plan.parameterIndexes.map((source): StreamParameterIndexLookupCreator => {
+    const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
+
     return {
       hashCode: source.hash,
       sourceTable: deserializeTablePattern(source.table),
+      tableValuedFunctions: functions,
       filters: source.filters,
-      parameters: source.partitionBy,
-      outputs: source.output,
+      parameters: deserializeParameters(source.partitionBy),
+      outputs: source.output.map((out) => visitExpr(replaceFunctionIndexWithReference, out, null)),
       defaultLookupScope: source.lookupScope
-    } satisfies StreamParameterIndexLookupCreator;
+    };
   });
 
   function deserializeParameterValue(stages: ExpandingLookup[][], value: SerializedParameterValue): ParameterValue {
@@ -249,7 +270,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
           functionInputs: source.functionInputs,
           outputs: source.outputs,
           filters: source.filters
-        } satisfies EvaluateTableValuedFunction;
+        } satisfies EvaluateTableValuedFunction<RequestSqlParameterValue>;
     }
   }
 
@@ -322,7 +343,7 @@ interface SerializedDataSource {
   hash: number;
   columns: ColumnSource[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
-  tableValuedFunctions?: TableProcessorTableValuedFunction[];
+  tableValuedFunctions: TableProcessorTableValuedFunction[];
   partitionBy: SerializedPartitionKey[];
 }
 
@@ -330,9 +351,9 @@ interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
   lookupScope: ParameterLookupScope;
-  output: SqlExpression<ColumnSqlParameterValue>[];
+  output: SqlExpression<ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput>[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
-  tableValuedFunctions?: TableProcessorTableValuedFunction[];
+  tableValuedFunctions: TableProcessorTableValuedFunction[];
   partitionBy: SerializedPartitionKey[];
 }
 
