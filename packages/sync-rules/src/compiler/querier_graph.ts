@@ -11,8 +11,15 @@ import {
 } from './bucket_resolver.js';
 import { equalsIgnoringResultSet } from './compatibility.js';
 import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
-import { PartitionKey, PointLookup, RowEvaluator } from './rows.js';
-import { PhysicalSourceResultSet, RequestTableValuedResultSet, SourceResultSet } from './table.js';
+import {
+  PartitionKey,
+  PointLookup,
+  RowEvaluator,
+  ScalarPartitionKey,
+  SourceRowProcessorAddedTableValuedFunction,
+  TableValuedPartitionKey
+} from './rows.js';
+import { PhysicalSourceResultSet, TableValuedResultSet, SourceResultSet } from './table.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { HashMap, HashSet, StableHasher } from './equality.js';
 import { ParsedStreamQuery } from './parser.js';
@@ -144,7 +151,8 @@ class PendingQuerierPath {
         columns: this.query.resultColumns,
         syntacticSource: this.query.sourceTable,
         filters: state.filters,
-        partitionBy: partitions
+        partitionBy: partitions,
+        addedFunctions: state.resolveAddedFunctions()
       })
     );
     this.processExistsOperators();
@@ -195,11 +203,12 @@ class PendingQuerierPath {
       pattern: resultSet,
       filters: resolved.filters,
       partitionKeys: partitionKeys,
-      inputs: partitionInputs
+      inputs: partitionInputs,
+      addedFunctions: resolved.resolveAddedFunctions()
     });
   }
 
-  private resolveTableValuedLookup(resultSet: RequestTableValuedResultSet): PendingExpandingLookup {
+  private resolveTableValuedLookup(resultSet: TableValuedResultSet): PendingExpandingLookup {
     const resolved = this.resolveResultSet(resultSet);
     if (!resolved.partition.isEmpty) {
       // At the moment, inputs to a table-valued functions must be static or only depend on the request. We may lift
@@ -250,9 +259,8 @@ class PendingQuerierPath {
         }
       } else {
         // Must be a match term.
-        const partitionBy = (thisRow: SingleDependencyExpression, otherRow: SingleDependencyExpression) => {
+        const partitionBy = (key: PartitionKey, otherRow: SingleDependencyExpression) => {
           this.removePendingExpression(expression);
-          const key = new PartitionKey(new RowExpression(thisRow));
           const values = state.partition.putIfAbsent(key, () => []);
 
           if (otherRow.resultSet != null) {
@@ -267,10 +275,32 @@ class PendingQuerierPath {
           }
         };
 
-        if (expression.left.resultSet === source) {
-          partitionBy(expression.left, expression.right);
-        } else if (expression.right.resultSet === source) {
-          partitionBy(expression.right, expression.left);
+        const partitionByScalar = (thisRow: SingleDependencyExpression, otherRow: SingleDependencyExpression) => {
+          const key = new ScalarPartitionKey(new RowExpression(thisRow));
+          partitionBy(key, otherRow);
+        };
+
+        const partitionByTableValued = (
+          tableValued: TableValuedResultSet,
+          tableValuedOutput: RowExpression,
+          otherRow: SingleDependencyExpression
+        ) => {
+          const resolvedFunction = state.getOrAddTableValuedFunction(tableValued);
+          const key = new TableValuedPartitionKey(resolvedFunction, tableValuedOutput);
+          return partitionBy(key, otherRow);
+        };
+
+        const leftSource = expression.left.resultSet;
+        const rightSource = expression.right.resultSet;
+
+        if (leftSource === source) {
+          partitionByScalar(expression.left, expression.right);
+        } else if (rightSource === source) {
+          partitionByScalar(expression.right, expression.left);
+        } else if (leftSource instanceof TableValuedResultSet && leftSource.inputResultSet == source) {
+          partitionByTableValued(leftSource, new RowExpression(expression.left), expression.right);
+        } else if (rightSource instanceof TableValuedResultSet && rightSource.inputResultSet == source) {
+          partitionByTableValued(rightSource, new RowExpression(expression.right), expression.left);
         } else {
           // Unrelated match clause.
           continue;
@@ -344,7 +374,8 @@ class PendingQuerierPath {
               syntacticSource: data.pattern,
               filters: data.filters,
               partitionBy: data.partitionKeys,
-              result: lookup.usedOutputs
+              result: lookup.usedOutputs,
+              addedFunctions: data.addedFunctions
             })
           );
           lookupWithInputs = new ParameterLookup(canonicalized, data.inputs);
@@ -364,6 +395,26 @@ class PendingQuerierPath {
 class ResolvedResultSet {
   readonly filters: RowExpression[] = [];
   readonly partition = new HashMap<PartitionKey, ParameterValue[]>(equalsIgnoringResultSet);
+  readonly addedFunctions = new Map<SourceResultSet, SourceRowProcessorAddedTableValuedFunction>();
+
+  getOrAddTableValuedFunction(source: TableValuedResultSet) {
+    if (this.addedFunctions.has(source)) {
+      return this.addedFunctions.get(source)!;
+    } else {
+      const pendingFunction = new SourceRowProcessorAddedTableValuedFunction(
+        source,
+        source.tableValuedFunctionName,
+        source.parameters.map((e) => new RowExpression(e)),
+        []
+      );
+      this.addedFunctions.set(source, pendingFunction);
+      return pendingFunction;
+    }
+  }
+
+  resolveAddedFunctions(): SourceRowProcessorAddedTableValuedFunction[] {
+    return [...this.addedFunctions.values()];
+  }
 
   resolvePartitions(): [PartitionKey[], ParameterValue[]] {
     const entries: [PartitionKey, ParameterValue][] = [];
@@ -420,11 +471,12 @@ interface PendingPointLookup {
   filters: RowExpression[];
   partitionKeys: PartitionKey[];
   inputs: ParameterValue[];
+  addedFunctions: SourceRowProcessorAddedTableValuedFunction[];
 }
 
 interface PendingTableValuedFunctionLookup {
   type: 'table_valued';
-  resultSet: RequestTableValuedResultSet;
+  resultSet: TableValuedResultSet;
   filters: RowExpression[];
 }
 
