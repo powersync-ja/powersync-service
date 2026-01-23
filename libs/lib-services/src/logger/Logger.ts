@@ -10,15 +10,6 @@ const prefixFormat = winston.format((info) => {
   };
 });
 
-export namespace LogFormat {
-  export const development = winston.format.combine(
-    prefixFormat(),
-    winston.format.colorize({ level: true }),
-    winston.format.simple()
-  );
-  export const production = winston.format.combine(prefixFormat(), winston.format.timestamp(), winston.format.json());
-}
-
 const DEFAULT_LOG_LEVEL = 'info';
 const DEFAULT_LOG_FORMAT = process.env.NODE_ENV == 'production' ? 'json' : 'text';
 
@@ -34,9 +25,12 @@ export const logger = winston.createLogger();
 export function configureLogger(config?: LoggingConfig): void {
   const level = process.env.PS_LOG_LEVEL ?? config?.level ?? DEFAULT_LOG_LEVEL;
   const formatName = (process.env.PS_LOG_FORMAT as LoggingConfig['format']) ?? config?.format ?? DEFAULT_LOG_FORMAT;
-  const format = formatName === 'json' ? LogFormat.production : LogFormat.development;
+  const winstonFormat =
+    formatName === 'json'
+      ? winston.format.combine(prefixFormat(), winston.format.timestamp(), winston.format.json())
+      : winston.format.combine(prefixFormat(), winston.format.colorize({ level: true }), winston.format.simple());
 
-  logger.configure({ level, format, transports: [new winston.transports.Console()] });
+  logger.configure({ level, format: winstonFormat, transports: [new winston.transports.Console()] });
   logger.info(`Configured logger with level "${level}" and format "${formatName}"`);
 }
 
