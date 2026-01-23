@@ -9,8 +9,7 @@ import {
   Or,
   And,
   RowExpression,
-  SingleDependencyExpression,
-  RequestExpression
+  SingleDependencyExpression
 } from './filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
@@ -215,8 +214,8 @@ export class StreamQueryParser {
       handled = true;
     } else if (from.type == 'call') {
       const source = new SyntacticResultSetSource(from, from.alias?.name ?? null);
-      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       this.resultSets.set(source, this.resolveTableValued(from, source));
+      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       handled = true;
     } else if (from.type == 'statement') {
       // TODO: We could technically allow selecting from subqueries once we support CTEs.
@@ -355,9 +354,9 @@ export class StreamQueryParser {
       // there are multiple tables because we don't know which column is available in which table with certainty (and
       // don't want to re-compile sync streams on schema changes). So, we just refuse to resolve those ambigious
       // references.
-      const resultSets = this.statementScope.resultSets;
-      if (resultSets.length == 1) {
-        return this.resultSets.get(resultSets[0])!;
+      const defaultResultSet = this.statementScope.defaultResultSet;
+      if (defaultResultSet) {
+        return this.resultSets.get(defaultResultSet)!;
       } else {
         this.errors.report('Invalid unqualified reference since multiple tables are in scope', node);
         return null;
