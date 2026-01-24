@@ -13,7 +13,6 @@ export type SubscribeEvents = {
   [EventsEngineEventType.SDK_CONNECT_EVENT]: ClientConnectionEventData;
   [EventsEngineEventType.SDK_DISCONNECT_EVENT]: ClientDisconnectionEventData;
   [EventsEngineEventType.SDK_DELETE_OLD]: DeleteOldConnectionData;
-  // Sync analytics event
   [EventsEngineEventType.SYNC_ANALYTICS_EVENT]: SyncAnalyticsEventData;
 };
 
