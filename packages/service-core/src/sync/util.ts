@@ -4,6 +4,8 @@ import { SemaphoreInterface } from 'async-mutex';
 import * as util from '../util/util-index.js';
 import { RequestTracker } from './RequestTracker.js';
 import { serialize } from 'bson';
+import { EventsEngine } from '../events/EventsEngine.js';
+import { event_types } from '@powersync/service-types';
 
 export type TokenStreamOptions = {
   /**
@@ -77,12 +79,20 @@ export async function* tokenStream(
   }
 }
 
-export function syncLineToBson(line: string | Record<string, any>): Buffer {
+export function syncLineToBson(
+  line: string | Record<string, any>,
+  event?: { eventsEngine?: EventsEngine; client_id: string; user_id: string }
+): Buffer {
   if (typeof line == 'string') {
     // Should not happen with binary_data: true
     throw new Error(`Unexpected string data: ${line}`);
   } else {
     // On NodeJS, serialize always returns a Buffer
+    event?.eventsEngine?.emit(event_types.EventsEngineEventType.SYNC_ANALYTICS_EVENT, {
+      client_id: event.client_id,
+      user_id: event.user_id,
+      data: line
+    });
     return serialize(line) as Buffer;
   }
 }

@@ -131,7 +131,12 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           }
 
           {
-            const serialized = sync.syncLineToBson(data);
+            const serialized = sync.syncLineToBson(data, {
+              eventsEngine: service_context.eventsEngine,
+              user_id: sdkData.user_id,
+              client_id: sdkData.client_id
+            });
+
             responder.onNext({ data: serialized }, false);
             requestedN--;
             tracker.addPlaintextDataSynced(serialized.length);
