@@ -138,7 +138,7 @@ export const syncStreamed = routeDefinition({
           logger.error('Streaming sync request failed', error);
         }
       });
-
+      console.log({ encodingHeaders });
       return new router.RouterResponse({
         status: 200,
         headers: {
