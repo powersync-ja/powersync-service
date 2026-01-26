@@ -173,28 +173,43 @@ export const supportedFunctions: Record<string, ArgumentCount> = {
   upper: 1,
   zeroblob: 1,
   // Scalar functions from https://sqlite.org/json1.html#overview
+  // We disallow jsonb functions because they're not implemented in sql_functions.ts and we want to preserve
+  // compatibility with that.
   json: 1,
-  jsonb: 1,
+  //  jsonb: 1,
   json_array: { min: 0 },
-  jsonb_array: { min: 0 },
+  //  jsonb_array: { min: 0 },
   json_array_length: { min: 1, max: 2 },
   json_error_position: 1,
   json_extract: { min: 2 },
-  jsonb_extract: { min: 2 },
+  //  jsonb_extract: { min: 2 },
   json_insert: { min: 3, mustBeOdd: true },
-  jsonb_insert: { min: 3, mustBeOdd: true },
+  //  jsonb_insert: { min: 3, mustBeOdd: true },
   json_object: { min: 0, mustBeEven: true },
-  jsonb_object: { min: 0, mustBeEven: true },
+  //  jsonb_object: { min: 0, mustBeEven: true },
   json_patch: 2,
-  jsonb_patch: 2,
+  //  jsonb_patch: 2,
   json_pretty: 1,
   json_remove: { min: 2 },
-  jsonb_remove: { min: 2 },
+  //  jsonb_remove: { min: 2 },
   json_replace: { min: 3, mustBeOdd: true },
-  jsonb_replace: { min: 3, mustBeOdd: true },
+  //  jsonb_replace: { min: 3, mustBeOdd: true },
   json_set: { min: 3, mustBeOdd: true },
-  jsonb_set: { min: 3, mustBeOdd: true },
+  //  jsonb_set: { min: 3, mustBeOdd: true },
   json_type: { min: 1, max: 2 },
   json_valid: { min: 1, max: 2 },
-  json_quote: { min: 1 }
+  json_quote: { min: 1 },
+
+  // https://www.sqlite.org/lang_datefunc.html, but we only support datetime and unixepoch
+  unixepoch: { min: 1 },
+  datetime: { min: 1 },
+
+  // PowerSync-specific, mentioned in https://docs.powersync.com/sync/rules/supported-sql#functions
+  base64: 1,
+  json_keys: 1,
+  uuid_blob: 1,
+  ST_AsGeoJSON: 1,
+  ST_AsText: 1,
+  ST_X: 1,
+  ST_: 1
 };
