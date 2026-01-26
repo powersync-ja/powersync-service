@@ -110,7 +110,7 @@ SELECT
     a.*
 FROM
     public.users AS u
-LEFT JOIN
+JOIN
     public.addresses AS a ON u.address_id = a.id
 WHERE
     u.id IN (

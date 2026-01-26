@@ -48,7 +48,7 @@ import { ConnectionParameterSource } from '../sync_plan/plan.js';
  *
  * ```SQL
  * SELECT <expr>* FROM sourceTable a
- *   LEFT OUTER JOIN table2 b
+ *   JOIN table2 b
  *   -- ... additional joins
  * WHERE <expr>
  * ```
@@ -58,7 +58,7 @@ import { ConnectionParameterSource } from '../sync_plan/plan.js';
  * Additionally, the where clause is in disjunctive normal form. Inner terms are either scalar expressions only
  * depending on data from a single source result set, or match clauses.
  *
- * Subqueries are not allowed in the canonical form. Instead, they are lowered into outer joins. So e.g. the query:
+ * Subqueries are not allowed in the canonical form. Instead, they are lowered into joins. So e.g. the query:
  *
  * ```SQL
  * SELECT * FROM users WHERE id IN (SELECT user FROM org WHERE id = auth.user_id())
@@ -66,10 +66,13 @@ import { ConnectionParameterSource } from '../sync_plan/plan.js';
  *
  * would get lowered to:
  * ```SQL
- * SELECT * FROM users tmp0
- *   LEFT OUTER JOIN org tmp1
- * WHERE tmp0.id = org.user AND org.id = (:auth_token) ->> '$.sub';
+ * SELECT tmp0.* FROM users tmp0
+ *   JOIN org tmp1
+ * WHERE tmp0.id = tmp1.user AND tmp1.id = (:auth_token) ->> '$.sub';
  * ```
+ *
+ * Unlike shown here, this lowering doesn't generate aliases that would have to be applied to expressions though.
+ * References in expressions would get resolved earlier, and they continue being valid after the transformation.
  */
 export interface ParsedStreamQuery {
   resultColumns: ColumnSource[];
@@ -195,11 +198,9 @@ export class StreamQueryParser {
 
     const join = from.join;
     if (join && handled) {
-      if (join.type == 'FULL JOIN') {
-        // We really only support inner joins, but because there is a constraint that every joined table must have a
-        // filter created through `=` or `IN` (which both exclude nulls), all join types are equivalent to inner joins
-        // anyway.
-        this.warnUnsupported(join, 'FULL JOIN');
+      if (join.type != 'INNER JOIN') {
+        // We only support inner joins.
+        this.warnUnsupported(join, join.type);
       }
 
       if (join.using) {
