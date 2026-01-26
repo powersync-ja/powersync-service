@@ -157,7 +157,7 @@ class PendingQuerierPath {
         if (remaining.resultSet != null) {
           this.errors.report(
             'This filter is unrelated to the request or the table being synced, and not supported.',
-            remaining.expression.node!
+            remaining.expression.location
           );
         } else {
           requestConditions.push(new RequestExpression(remaining));

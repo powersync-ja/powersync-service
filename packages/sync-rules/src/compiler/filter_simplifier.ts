@@ -1,9 +1,8 @@
-import { assignChanged, astMapper, BinaryOperator, Expr } from 'pgsql-ast-parser';
 import { And, BaseTerm, EqualsClause, isBaseTerm, Or, SingleDependencyExpression } from './filter.js';
-import { PostgresToSqlite } from './sqlite.js';
-import { ExpressionInput, SyncExpression } from './expression.js';
-import { expandNodeLocations } from '../errors.js';
+import { SyncExpression } from './expression.js';
 import { SourceResultSet } from './table.js';
+import { BinaryOperator } from '../sync_plan/expression.js';
+import { expandNodeLocations } from '../errors.js';
 
 export class FilterConditionSimplifier {
   constructor(private readonly originalText: string) {}
@@ -21,7 +20,7 @@ export class FilterConditionSimplifier {
       }
     }
 
-    baseTerms = this.mergeByCommonDependencies('OR', baseTerms);
+    baseTerms = this.mergeByCommonDependencies('or', baseTerms);
     for (const term of baseTerms) {
       andTerms.push({ terms: [term] });
     }
@@ -30,7 +29,7 @@ export class FilterConditionSimplifier {
   }
 
   private simplifyAnd(and: And): And | BaseTerm {
-    const merged = this.mergeByCommonDependencies('AND', and.terms);
+    const merged = this.mergeByCommonDependencies('and', and.terms);
 
     if (merged.length == 1) {
       return merged[0];
@@ -92,8 +91,8 @@ export class FilterConditionSimplifier {
       // must be a row condition since it can't be represented as parameters that could be instantiated.
       if (
         SingleDependencyExpression.extractSingleDependency([
-          ...base.left.expression.instantiationValues(),
-          ...base.right.expression.instantiationValues()
+          ...base.left.expression.instantiation,
+          ...base.right.expression.instantiation
         ])
       ) {
         return this.composeExpressions('=', base.left, base.right);
@@ -109,52 +108,26 @@ export class FilterConditionSimplifier {
    * For instance, `composeExpressions('AND', a, b, c)` returns `a AND b AND c` as a single expression. All expressions
    * must have compatible dependencies.
    */
-  private composeExpressions(op: BinaryOperator, ...terms: SingleDependencyExpression[]): SingleDependencyExpression {
+  private composeExpressions(
+    operator: BinaryOperator,
+    ...terms: SingleDependencyExpression[]
+  ): SingleDependencyExpression {
     if (terms.length == 0) {
       throw new Error("Can't compose zero expressions");
     }
 
-    let node: Expr | null = null;
-    const instantiation: ExpressionInput[] = [];
-    const transformer = astMapper(() => ({
-      parameter: (st) => {
-        // All parameters are named ?<idx>, increase the index to avoid collisions with parameters we've already added.
-        const originalIndex = Number(st.name.substring(1));
-        const newIndex = instantiation.length + originalIndex;
-
-        return assignChanged(st, { name: `?${newIndex}` });
-      }
-    }));
-
-    for (const element of terms) {
-      if (node == null) {
-        node = element.expression.node;
-      } else {
-        const transformed = transformer.expr(element.expression.node)!;
-
-        node = {
-          type: 'binary',
-          op,
-          left: node,
-          right: transformed,
-          _location: expandNodeLocations([node, transformed])
-        };
-      }
-
-      instantiation.push(...element.expression.instantiationValues());
+    const [first, ...rest] = terms;
+    const locations = first.expression.locations;
+    let inner = first.expression.node;
+    for (const additional of rest) {
+      inner = { type: 'binary', operator, left: inner, right: additional.expression.node };
     }
 
-    const toSqlite = new PostgresToSqlite(
-      this.originalText,
-      {
-        report() {
-          // We don't need to re-report errors when we shuffle expressions around, the mapper would have already reported
-          // these issues on the first round.
-        }
-      },
-      instantiation
-    );
-    toSqlite.addExpression(node!);
-    return new SingleDependencyExpression(new SyncExpression(toSqlite.sql, node!, toSqlite.inputs));
+    const location = expandNodeLocations(terms.map((e) => e.expression.location));
+    if (location) {
+      locations.sourceForNode.set(inner, location);
+    }
+
+    return new SingleDependencyExpression(new SyncExpression(inner, locations));
   }
 }

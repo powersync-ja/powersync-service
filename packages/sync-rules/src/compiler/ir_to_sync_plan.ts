@@ -1,9 +1,11 @@
 import * as plan from '../sync_plan/plan.js';
+import { SqlExpression } from '../sync_plan/expression.js';
 import * as resolver from './bucket_resolver.js';
 import { CompiledStreamQueries } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
-import { ColumnInRow, SyncExpression } from './expression.js';
+import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
+import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 
 export class CompilerModelToSyncPlan {
   private static readonly evaluatorHash: Equality<rows.RowEvaluator[]> = unorderedEquality({
@@ -121,19 +123,16 @@ export class CompilerModelToSyncPlan {
     });
   }
 
-  private translateExpression<T extends plan.SqlParameterValue>(expression: SyncExpression): plan.SqlExpression<T> {
-    return {
-      sql: expression.sql,
-      values: expression.instantiation.map((e) => {
-        const value = e.value;
+  private translateExpression<T extends plan.SqlParameterValue>(expression: SyncExpression): SqlExpression<T> {
+    const mapper = new MapSourceVisitor<ExpressionInput, T>((value) => {
+      if (value instanceof ColumnInRow) {
+        return { column: value.column } satisfies plan.ColumnSqlParameterValue as unknown as T;
+      } else {
+        return { request: value.source } satisfies plan.RequestSqlParameterValue as unknown as T;
+      }
+    });
 
-        if (value instanceof ColumnInRow) {
-          return { column: value.column } satisfies plan.ColumnSqlParameterValue;
-        } else {
-          return { request: value.source } satisfies plan.RequestSqlParameterValue;
-        }
-      }) as unknown[] as T[]
-    };
+    return visitExpr(mapper, expression.node, null);
   }
 
   private translateStreamResolver(value: resolver.StreamResolver): plan.StreamQuerier {
