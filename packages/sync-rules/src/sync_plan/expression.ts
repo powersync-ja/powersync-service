@@ -146,9 +146,11 @@ export const supportedFunctions: Record<string, ArgumentCount> = {
   iif: { min: 2 },
   instr: 2,
   length: 1,
+  // TODO: Establish defaults for case sensitivity, changing escape characters, ICU support.
+  // We might just want to remove LIKE support since we don't seem to have it in sql_functions.ts
   like: { min: 2, max: 3 },
-  likelihood: 2,
-  likely: 1,
+  //  likelihood: 2,
+  //  likely: 1,
   lower: 1,
   ltrim: { min: 1, max: 2 },
   max: { min: 2 },
@@ -169,7 +171,7 @@ export const supportedFunctions: Record<string, ArgumentCount> = {
   unicode: 1,
   unistr: 1,
   unistr_quote: 1,
-  unlikely: 1,
+  //  unlikely: 1,
   upper: 1,
   zeroblob: 1,
   // Scalar functions from https://sqlite.org/json1.html#overview
@@ -201,6 +203,8 @@ export const supportedFunctions: Record<string, ArgumentCount> = {
   json_quote: { min: 1 },
 
   // https://www.sqlite.org/lang_datefunc.html, but we only support datetime and unixepoch
+  // TODO: Ensure our support matches the current unixepoch behavior in sql_functions.ts, register as user-defined
+  // function to patch default if in doubt.
   unixepoch: { min: 1 },
   datetime: { min: 1 },
 
