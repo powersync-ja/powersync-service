@@ -202,4 +202,49 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
       [3.2]
     ]);
   });
+
+  test('filters and multiple sources', () => {
+    // SELECT a.value, b.value FROM json_each(?1) a, json_each(?2) b where length(a.value || b.value) > 5
+    const a: TableValuedFunction = {
+      name: 'json_each',
+      inputs: [{ type: 'data', source: 1 }]
+    };
+    const b: TableValuedFunction = {
+      name: 'json_each',
+      inputs: [{ type: 'data', source: 2 }]
+    };
+
+    const stmt = prepare({
+      outputs: [
+        { type: 'data', source: { function: a, column: 'value' } },
+        { type: 'data', source: { function: b, column: 'value' } }
+      ],
+      tableValuedFunctions: [a, b],
+      filters: [
+        {
+          type: 'binary',
+          operator: '>',
+          left: {
+            type: 'function',
+            function: 'length',
+            parameters: [
+              {
+                type: 'binary',
+                operator: '||',
+                left: { type: 'data', source: { function: a, column: 'value' } },
+                right: { type: 'data', source: { function: b, column: 'value' } }
+              }
+            ]
+          },
+          right: { type: 'lit_int', base10: '5' }
+        }
+      ]
+    });
+
+    expect(stmt.evaluate([JSON.stringify([]), JSON.stringify(['aaaaaa'])])).toStrictEqual([]);
+    expect(stmt.evaluate([JSON.stringify(['x', 'y']), JSON.stringify(['a', 'aaaaa'])])).toStrictEqual([
+      ['x', 'aaaaa'],
+      ['y', 'aaaaa']
+    ]);
+  });
 }
