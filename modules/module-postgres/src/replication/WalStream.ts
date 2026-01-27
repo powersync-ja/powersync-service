@@ -276,7 +276,8 @@ export class WalStream {
           name,
           schema,
           objectId: relid,
-          replicaIdColumns: cresult.replicationColumns
+          replicaIdColumns: cresult.replicationColumns,
+          replicationIdentity: cresult.replicationIdentity
         } as SourceEntityDescriptor,
         snapshot: false,
         referencedTypeIds: columnTypes

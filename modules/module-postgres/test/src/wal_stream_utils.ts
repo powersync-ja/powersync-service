@@ -221,6 +221,14 @@ export class WalStreamTestContext implements AsyncDisposable {
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }
+
+  /**
+   * Get resolved tables for testing table-level configuration.
+   */
+  async getResolvedTables() {
+    const tables = await this.storage!.getTables();
+    return tables;
+  }
 }
 
 export async function withMaxWalSize(db: pgwire.PgClient, size: string) {

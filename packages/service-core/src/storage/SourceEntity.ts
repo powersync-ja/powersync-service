@@ -23,4 +23,10 @@ export interface SourceEntityDescriptor {
    *  The columns that are used to uniquely identify a record in the source entity.
    */
   replicaIdColumns: ColumnDescriptor[];
+  /**
+   * The replica identity type for this entity.
+   * Only applicable for Postgres sources.
+   * 'full' means complete row data is always sent with operations.
+   */
+  replicationIdentity?: 'default' | 'nothing' | 'full' | 'index';
 }
