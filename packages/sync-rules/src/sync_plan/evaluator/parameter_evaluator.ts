@@ -270,7 +270,8 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
         if (intersection == null) {
           intersection = new Set(evaluated);
         } else {
-          intersection = intersection.intersection(new Set(evaluated));
+          // TODO: Remove as any once we can use ES2025 in TypeScript
+          intersection = (intersection as any).intersection(new Set(evaluated)) as Set<SqliteParameterValue>;
         }
 
         if (intersection.size == 0) {
@@ -339,11 +340,11 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
       const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
       lookup.instantiation;
 
-      const outputs = await this.input.source.getParameterSets([
-        ...this.resolveInputs(lookup.instantiation).map((instantiation) =>
+      const outputs = await this.input.source.getParameterSets(
+        [...this.resolveInputs(lookup.instantiation)].map((instantiation) =>
           ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(instantiation))
         )
-      ]);
+      );
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
       const values = outputs.map((row) => {

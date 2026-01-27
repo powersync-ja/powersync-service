@@ -161,7 +161,7 @@ class PreparedQuerier {
               request: params
             });
 
-            return [...instantiation.map(parametersToBucket)];
+            return [...instantiation].map(parametersToBucket);
           }
         });
       }
