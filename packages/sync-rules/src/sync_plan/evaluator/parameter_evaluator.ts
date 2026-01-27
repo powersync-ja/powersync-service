@@ -198,6 +198,7 @@ export class RequestParameterEvaluators {
     for (const stage of lookupStages) {
       const stageIndex = mappedStages.length;
       const mappedStage: PreparedExpandingLookup[] = [];
+      mappedStages.push(mappedStage);
 
       for (const lookup of stage) {
         const index = mappedStage.length;
@@ -338,8 +339,6 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
     const lookup = this.evaluators.lookupStages[stage][index];
     if (lookup.type == 'parameter') {
       const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
-      lookup.instantiation;
-
       const outputs = await this.input.source.getParameterSets(
         [...this.resolveInputs(lookup.instantiation)].map((instantiation) =>
           ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(instantiation))
