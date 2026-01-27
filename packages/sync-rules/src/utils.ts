@@ -11,6 +11,7 @@ import {
   SqliteInputValue,
   SqliteJsonRow,
   SqliteJsonValue,
+  SqliteParameterValue,
   SqliteRow,
   SqliteValue
 } from './types.js';
@@ -79,6 +80,10 @@ export function jsonValueToSqlite(
 
 export function isJsonValue(value: SqliteValue): value is SqliteJsonValue {
   return value == null || typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint';
+}
+
+export function isValidParameterValue(value: SqliteValue): value is SqliteParameterValue {
+  return value != null && isJsonValue(value);
 }
 
 function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
