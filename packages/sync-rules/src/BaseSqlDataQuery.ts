@@ -15,7 +15,7 @@ import {
   SqliteJsonRow,
   SqliteRow
 } from './types.js';
-import { filterJsonRow } from './utils.js';
+import { filterJsonRow, idFromData } from './utils.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;
@@ -183,16 +183,7 @@ export class BaseSqlDataQuery {
       }
 
       const data = this.transformRow(tables);
-      let id = data.id;
-      if (typeof id != 'string') {
-        // While an explicit cast would be better, this covers against very common
-        // issues when initially testing out sync, for example when the id column is an
-        // auto-incrementing integer.
-        // If there is no id column, we use a blank id. This will result in the user syncing
-        // a single arbitrary row for this table - better than just not being able to sync
-        // anything.
-        id = castAsText(id) ?? '';
-      }
+      const id = idFromData(data);
       const outputTable = this.getOutputName(table.name);
 
       return resolvedBucketParameters.map((serializedBucketParameters) => {

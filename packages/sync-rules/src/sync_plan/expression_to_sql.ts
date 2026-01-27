@@ -4,6 +4,7 @@ import {
   BinaryOperator,
   CaseWhenExpression,
   CastExpression,
+  ExternalData,
   LiteralExpression,
   ScalarFunctionCallExpression,
   ScalarInExpression,
@@ -29,7 +30,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
     this.sql += ' ';
   }
 
-  private addLexeme(text: string, options?: { spaceLeft?: boolean; spaceRight?: boolean }): number {
+  addLexeme(text: string, options?: { spaceLeft?: boolean; spaceRight?: boolean }): number {
     const spaceLeft = options?.spaceLeft ?? true;
     const spaceRight = options?.spaceRight ?? true;
 
@@ -43,7 +44,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
     return startOffset;
   }
 
-  private identifier(name: string) {
+  identifier(name: string) {
     this.addLexeme(`"${name.replaceAll('"', '""')}"`);
   }
 
@@ -77,7 +78,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
     }
   }
 
-  visitExternalData(): void {
+  visitExternalData(_expr: ExternalData<Data>): void {
     this.addLexeme('?');
   }
 
