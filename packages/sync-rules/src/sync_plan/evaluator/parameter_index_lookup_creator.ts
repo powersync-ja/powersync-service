@@ -14,6 +14,7 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
   private readonly evaluator: ScalarExpressionEvaluator;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
   private readonly numberOfOutputs: number;
+  private readonly numberOfParameters: number;
 
   constructor(
     private readonly source: plan.StreamParameterIndexLookupCreator,
@@ -27,6 +28,7 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     for (const parameter of source.parameters) {
       expressions.push(mapExpressions.transform(parameter.expr));
     }
+    this.numberOfParameters = source.parameters.length;
 
     this.evaluator = engine.prepareEvaluator({
       outputs: expressions,
@@ -61,7 +63,7 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
         }
 
         // source is [...outputs, ...partitionValues]
-        const partitionValues = outputRow.splice(0, this.numberOfOutputs);
+        const partitionValues = outputRow.splice(this.numberOfOutputs, this.numberOfParameters);
         const lookup = UnscopedParameterLookup.normalized(partitionValues);
         results.push({ lookup, bucketParameters: [outputs] });
       }
