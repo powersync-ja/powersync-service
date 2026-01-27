@@ -10,29 +10,23 @@ const prefixFormat = winston.format((info) => {
   };
 });
 
-const DEFAULT_LOG_LEVEL = 'info';
-const DEFAULT_LOG_FORMAT = process.env.NODE_ENV == 'production' ? 'json' : 'text';
+export const DEFAULT_LOG_LEVEL = 'info';
+export const DEFAULT_LOG_FORMAT = process.env.NODE_ENV == 'production' ? 'json' : 'text';
 
-// This interface mirrors the logging config in @powersync/service-types PowerSyncConfig.ts
-// Keep in sync if modifying
-interface LoggingConfig {
-  level?: string;
-  format?: 'json' | 'text';
+export namespace LogFormat {
+  export const development = winston.format.combine(
+    prefixFormat(),
+    winston.format.colorize({ level: true }),
+    winston.format.simple()
+  );
+  export const production = winston.format.combine(prefixFormat(), winston.format.timestamp(), winston.format.json());
 }
 
 export const logger = winston.createLogger();
 
-export function configureLogger(config?: LoggingConfig): void {
-  const level = process.env.PS_LOG_LEVEL ?? config?.level ?? DEFAULT_LOG_LEVEL;
-  const format = (process.env.PS_LOG_FORMAT as LoggingConfig['format']) ?? config?.format ?? DEFAULT_LOG_FORMAT;
-  const winstonFormat =
-    format === 'json'
-      ? winston.format.combine(prefixFormat(), winston.format.timestamp(), winston.format.json())
-      : winston.format.combine(prefixFormat(), winston.format.colorize({ level: true }), winston.format.simple());
-
-  logger.configure({ level, format: winstonFormat, transports: [new winston.transports.Console()] });
-  logger.info(`Configured logger with level "${level}" and format "${format}"`);
-}
-
 // Set up default logging before config is loaded
-configureLogger();
+logger.configure({
+  level: DEFAULT_LOG_LEVEL,
+  format: DEFAULT_LOG_FORMAT === 'json' ? LogFormat.production : LogFormat.development,
+  transports: [new winston.transports.Console()]
+});
