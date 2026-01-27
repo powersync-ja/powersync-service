@@ -2,8 +2,8 @@ import { ParameterLookupSource, ScopedParameterLookup, UnscopedParameterLookup }
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { HydrationState } from '../../HydrationState.js';
 import { cartesianProduct } from '../../streams/utils.js';
-import { RequestParameters, SqliteJsonValue, SqliteValue } from '../../types.js';
-import { isJsonValue } from '../../utils.js';
+import { RequestParameters, SqliteParameterValue, SqliteValue } from '../../types.js';
+import { isValidParameterValue } from '../../utils.js';
 import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 import { StreamInput } from './bucket_source.js';
@@ -13,34 +13,53 @@ import {
   TableValuedFunctionOutput
 } from './scalar_expression_evaluator.js';
 
-export type PreparedExpandingLookup =
-  | { type: 'parameter'; lookup: ParameterIndexLookupCreator; instantiation: PreparedParameterValue[] }
-  | { type: 'table_valued'; read(request: RequestParameters): SqliteParameterValue[][] }
-  | { type: 'cached'; values: SqliteParameterValue[][] };
-
 /**
- * A {@link plan.ParameterValue} that can be evaluated against request parameters.
+ * Finds bucket parameters for a given request or subscription.
  *
- * Additionally, this includes the `cached` variant which allows partially instantiating parameters.
+ * In sync streams, queriers are represented as a DAG structure describing how to get from connection data to bucket
+ * parameters.
+ *
+ * As an example, consider the following stream:
+ *
+ * ```
+ * SELECT projects.* FROM projects
+ *  INNER JOIN orgs ON orgs.id = projects.org_id
+ * WHERE orgs.name = auth.parameter('org')
+ * ```
+ *
+ * This would partition data into a bucket with a single parameter (grouping by `projects.org_id`). It would also
+ * prepare a lookup from `orgs.name` to `orgs.id`.
+ *
+ * The querier for this would have:
+ *
+ *  1. A single lookup stage with a single {@link plan.ParameterLookup}. That lookup would have an instantiation
+ *     reflecting `auth.parameter('org')` as a `request` {@link plan.ParameterValue}.
+ *  2. A single {@link plan.StreamQuerier.sourceInstantiation}, a `lookup` {@link plan.ParameterValue} referencing the
+ *     lookup from step 1.
+ *
+ * On this prepared evaluator, lookup stages and parameter values are tracked as {@link PreparedExpandingLookup}s and
+ * {@link PreparedParameterValue}s, respectively. These correspond to their definitions on sync plans, except that:
+ *
+ *   1. Instead of being a description of the parameter, they're a JavaScript function that can be invoked to compute
+ *      parameters.
+ *   2. After being called once, we can replace them with a cached value. This enables a partial instantiation, and
+ *      avoids recomputing everything whenever a parameter lookup changes. In the example stream, we would run and cache
+ *      the outputs of `auth.parameter('org')` for a given connection. This sub-expression would not get re-evaluated
+ *      when the `org-name` -> `org.id` lookup changes.
+ *
+ * For queriers that don't use parameter lookups, e.g. for streams like `SELECT * FROM users WHERE id = auth.user_id()`,
+ * the partial instantiation based on connection data happens to be a complete instantiation. We use this when building
+ * queriers by indicating that no lookups will be used.
  */
-export type PreparedParameterValue =
-  | { type: 'request'; read(request: RequestParameters): SqliteValue }
-  | { type: 'lookup'; lookup: { stage: number; index: number }; resultIndex: number }
-  | { type: 'intersection'; values: PreparedParameterValue[] }
-  | { type: 'cached'; values: SqliteParameterValue[] };
-
-export interface PartialInstantiationInput {
-  request: RequestParameters;
-}
-
-export interface InstantiationInput extends PartialInstantiationInput {
-  hydrationState: HydrationState;
-  source: ParameterLookupSource;
-}
-
 export class RequestParameterEvaluators {
   private constructor(
+    /**
+     * Pending lookup stages, or their cached outputs.
+     */
     readonly lookupStages: PreparedExpandingLookup[][],
+    /**
+     * Pending parameter values, or their cached outputs.
+     */
     readonly parameterValues: PreparedParameterValue[]
   ) {}
 
@@ -48,9 +67,8 @@ export class RequestParameterEvaluators {
    * Returns a copy of this instance.
    *
    * We use this to be able to "fork" partial instantiations. For instance, we can evaluate paremeters not depending on
-   * subscription data as soon as the user connects (and reuse those instantiations for each subscription).
-   *
-   * Then for each subscription, we can further instantiate lookup stages and parameter values.
+   * parameter lookups as soon as the user connects (and keep that instantiation static along the lifetime of the
+   * connection).
    */
   clone(): RequestParameterEvaluators {
     return new RequestParameterEvaluators(
@@ -60,10 +78,10 @@ export class RequestParameterEvaluators {
   }
 
   /**
-   * Evaluates lookups and parameter values that be evaluated with a subset of the final input.
+   * Evaluates those lookups and parameter values that be evaluated without looking up parameter indexes.
    *
-   * This is used to determine whether a querier is static - the partial instantiation depending on request data fully
-   * resolves the stream, we don't need to lookup any parameters.
+   * This is also used to determine whether a querier is static - if the partial instantiation depending on request data
+   * fully resolves the stream, we don't need to lookup any parameters.
    */
   partiallyInstantiate(input: PartialInstantiationInput) {
     const helper = new PartialInstantiator(input, this);
@@ -75,6 +93,11 @@ export class RequestParameterEvaluators {
     this.parameterValues.forEach((_, i) => helper.parameterSync(this.parameterValues, i));
   }
 
+  /**
+   * Resolves and caches all lookup stages and parameter values.
+   *
+   * Because this needs to lookup parameter indexes, it is asynchronous.
+   */
   async instantiate(input: InstantiationInput): Promise<Generator<SqliteParameterValue[]>> {
     const helper = new FullInstantiator(input, this);
 
@@ -121,7 +144,7 @@ export class RequestParameterEvaluators {
       }
     }
 
-    // Outer array represents parameter, inner array represents values for a given parameter.
+    // Outer array represents parameters, inner array represents values for a given parameter.
     const parameters: SqliteParameterValue[][] = [];
     for (const parameter of this.parameterValues) {
       if (parameter.type !== 'cached') {
@@ -135,12 +158,21 @@ export class RequestParameterEvaluators {
     return [...cartesianProduct(...parameters)];
   }
 
+  /**
+   * Prepares evaluators for a description of parameter values obtained from a compiled querier in the sync plan.
+   *
+   * @param lookupStages The {@link plan.StreamQuerier.lookupStages} of the querier to compile.
+   * @param values The {@link plan.StreamQuerier.sourceInstantiation} of the querier to compile.
+   * @param input Access to bucket and parameter sources generated for buckets and parameter lookups referenced by the
+   * querier.
+   */
   static prepare(lookupStages: plan.ExpandingLookup[][], values: plan.ParameterValue[], input: StreamInput) {
     const mappedStages: PreparedExpandingLookup[][] = [];
     const lookupToStage = new Map<plan.ExpandingLookup, { stage: number; index: number }>();
 
     function mapParameterValue(value: plan.ParameterValue): PreparedParameterValue {
       if (value.type == 'request') {
+        // Prepare an expression evaluating the expression derived from request data.
         const mapper = mapExternalDataToInstantiation<plan.RequestSqlParameterValue>();
         const prepared = input.engine.prepareEvaluator({ filters: [], outputs: [mapper.transform(value.expr)] });
         const instantiation = mapper.instantiation;
@@ -219,6 +251,10 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
     protected readonly evaluators: RequestParameterEvaluators
   ) {}
 
+  /**
+   * If possible, evaluates an element in an array of parameter values and replaces the parameter with a marker
+   * indicating it as cached.
+   */
   parameterSync(parent: PreparedParameterValue[], index: number): SqliteParameterValue[] | undefined {
     const current = parent[index];
     if (current.type === 'cached') {
@@ -238,7 +274,7 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
         }
 
         if (intersection.size == 0) {
-          // We don't even need to evaluate the rest.
+          // Empty intersection, we don't even need to evaluate the rest.
           break;
         }
       }
@@ -332,17 +368,29 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
   }
 }
 
-/**
- * A value that can be used as a bucket parameter.
- *
- * We don't support binary bucket parameters, so this needs to be a {@link SqliteJsonValue}. Further, bucket parameters
- * are always instantiated through the `=` operator, and `NULL` values in SQLite don't compare via `=`. So, `null`
- * values also aren't allowed as parameters.
- */
-export type SqliteParameterValue = NonNullable<SqliteJsonValue>;
+export type PreparedExpandingLookup =
+  | { type: 'parameter'; lookup: ParameterIndexLookupCreator; instantiation: PreparedParameterValue[] }
+  | { type: 'table_valued'; read(request: RequestParameters): SqliteParameterValue[][] }
+  | { type: 'cached'; values: SqliteParameterValue[][] };
 
-export function isValidParameterValue(value: SqliteValue): value is SqliteParameterValue {
-  return value != null && isJsonValue(value);
+/**
+ * A {@link plan.ParameterValue} that can be evaluated against request parameters.
+ *
+ * Additionally, this includes the `cached` variant which allows partially instantiating parameters.
+ */
+export type PreparedParameterValue =
+  | { type: 'request'; read(request: RequestParameters): SqliteValue }
+  | { type: 'lookup'; lookup: { stage: number; index: number }; resultIndex: number }
+  | { type: 'intersection'; values: PreparedParameterValue[] }
+  | { type: 'cached'; values: SqliteParameterValue[] };
+
+export interface PartialInstantiationInput {
+  request: RequestParameters;
+}
+
+export interface InstantiationInput extends PartialInstantiationInput {
+  hydrationState: HydrationState;
+  source: ParameterLookupSource;
 }
 
 export function isValidParameterValueRow(row: SqliteValue[]): row is SqliteParameterValue[] {

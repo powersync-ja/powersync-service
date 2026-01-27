@@ -6,7 +6,7 @@ import { StreamEvaluationContext } from './index.js';
 import { TablePattern } from '../../TablePattern.js';
 import { SourceTableInterface } from '../../SourceTableInterface.js';
 import { SqliteJsonValue, SqliteRow, UnscopedEvaluatedParametersResult } from '../../types.js';
-import { isValidParameterValueRow } from './lookup_stage_evaluator.js';
+import { isValidParameterValueRow } from './parameter_evaluator.js';
 import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {

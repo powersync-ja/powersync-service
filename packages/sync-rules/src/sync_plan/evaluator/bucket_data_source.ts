@@ -9,12 +9,11 @@ import {
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
 } from '../../types.js';
-import { filterJsonRow, idFromData, isJsonValue, JSONBucketNameSerialize } from '../../utils.js';
+import { filterJsonRow, idFromData, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
 import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
-import { isValidParameterValue } from './lookup_stage_evaluator.js';
 import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from './scalar_expression_evaluator.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
