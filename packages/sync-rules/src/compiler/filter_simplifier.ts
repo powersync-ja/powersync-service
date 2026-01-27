@@ -1,12 +1,10 @@
 import { And, BaseTerm, EqualsClause, isBaseTerm, Or, SingleDependencyExpression } from './filter.js';
-import { SyncExpression } from './expression.js';
+import { NodeLocations, SyncExpression } from './expression.js';
 import { SourceResultSet } from './table.js';
-import { BinaryOperator } from '../sync_plan/expression.js';
+import { BinaryOperator, SqlExpression } from '../sync_plan/expression.js';
 import { expandNodeLocations } from '../errors.js';
 
 export class FilterConditionSimplifier {
-  constructor(private readonly originalText: string) {}
-
   simplifyOr(or: Or): Or {
     const andTerms: And[] = [];
     let baseTerms: BaseTerm[] = [];
@@ -116,18 +114,36 @@ export class FilterConditionSimplifier {
       throw new Error("Can't compose zero expressions");
     }
 
-    const [first, ...rest] = terms;
-    const locations = first.expression.locations;
-    let inner = first.expression.node;
-    for (const additional of rest) {
-      inner = { type: 'binary', operator, left: inner, right: additional.expression.node };
-    }
-
-    const location = expandNodeLocations(terms.map((e) => e.expression.location));
-    if (location) {
-      locations.sourceForNode.set(inner, location);
-    }
+    const locations = terms[0].expression.locations;
+    const inner = composeExpressionNodes(
+      locations,
+      operator,
+      terms.map((t) => t.expression.node)
+    );
 
     return new SingleDependencyExpression(new SyncExpression(inner, locations));
   }
+}
+
+export function composeExpressionNodes<T>(
+  locations: NodeLocations,
+  operator: BinaryOperator,
+  terms: SqlExpression<T>[]
+) {
+  if (terms.length == 0) {
+    throw new Error("Can't compose zero expressions");
+  }
+
+  const [first, ...rest] = terms;
+  let inner = first;
+  for (const additional of rest) {
+    inner = { type: 'binary', operator, left: inner, right: additional };
+  }
+
+  const location = expandNodeLocations(terms.map((e) => locations.locationFor(e)));
+  if (location) {
+    locations.sourceForNode.set(inner, location);
+  }
+
+  return inner;
 }

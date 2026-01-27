@@ -129,9 +129,9 @@ export class ConnectionParameter implements EqualsIgnoringResultSet {
  * in-memory map.
  */
 export class NodeLocations {
-  readonly sourceForNode = new Map<SqlExpression<ExpressionInput>, PGNode | NodeLocation>();
+  readonly sourceForNode = new Map<SqlExpression<unknown>, PGNode | NodeLocation>();
 
-  locationFor(source: SqlExpression<ExpressionInput>): NodeLocation {
+  locationFor(source: SqlExpression<unknown>): NodeLocation {
     const location = getLocation(this.sourceForNode.get(source));
     if (location == null) {
       throw new Error('Missing location');

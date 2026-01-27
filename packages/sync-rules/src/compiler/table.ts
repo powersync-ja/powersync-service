@@ -27,7 +27,7 @@ export class SyntacticResultSetSource {
   ) {}
 }
 
-abstract class BaseSourceResultSet {
+export abstract class BaseSourceResultSet {
   constructor(readonly source: SyntacticResultSetSource) {}
 
   abstract get description(): string;

@@ -1,5 +1,6 @@
 import { SyntacticResultSetSource } from './table.js';
 import { ParsingErrorListener } from './compiler.js';
+import { PreparedSubquery } from './sqlite.js';
 
 /**
  * Utilities for resolving references in SQL statements where multiple tables are in scope.
@@ -9,9 +10,19 @@ import { ParsingErrorListener } from './compiler.js';
 export class SqlScope {
   readonly parent?: SqlScope;
   private readonly nameToResultSet = new Map<string, SyntacticResultSetSource>();
+  private readonly commonTableExpressions = new Map<string, PreparedSubquery>();
 
   constructor(options: { parent?: SqlScope }) {
     this.parent = options.parent;
+  }
+
+  get rootScope(): SqlScope {
+    let maybeRoot: SqlScope = this;
+    while (maybeRoot.parent) {
+      maybeRoot = maybeRoot.parent;
+    }
+
+    return maybeRoot;
   }
 
   get resultSets(): SyntacticResultSetSource[] {
@@ -30,5 +41,18 @@ export class SqlScope {
 
   resolveResultSetForReference(name: string): SyntacticResultSetSource | undefined {
     return this.nameToResultSet.get(name.toLowerCase()) ?? this.parent?.resolveResultSetForReference(name);
+  }
+
+  registerCommonTableExpression(name: string, subquery: PreparedSubquery) {
+    this.commonTableExpressions.set(name.toLowerCase(), subquery);
+  }
+
+  resolveCommonTableExpression(name: string): PreparedSubquery | null {
+    const inThisScope = this.commonTableExpressions.get(name.toLowerCase());
+    if (inThisScope) {
+      return inThisScope;
+    }
+
+    return this.parent ? this.parent.resolveCommonTableExpression(name) : null;
   }
 }
