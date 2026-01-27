@@ -15,14 +15,14 @@ import {
 } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 import { BinaryOperator } from '../../../../src/sync_plan/expression.js';
 
+const compatibility = new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS });
+
 describe('sqlite', () => {
-  defineEngineTests(false, () => nodeSqliteExpressionEngine(sqlite));
+  defineEngineTests(false, () => nodeSqliteExpressionEngine(sqlite, compatibility));
 });
 
 describe('javascript', () => {
-  defineEngineTests(true, () =>
-    javaScriptExpressionEngine(new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }))
-  );
+  defineEngineTests(true, () => javaScriptExpressionEngine(compatibility));
 });
 
 function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpressionEngine) {
@@ -45,6 +45,16 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
     });
 
     expect(stmt.evaluate([left, right])).toStrictEqual([[output]]);
+  }
+
+  function expectFunction(name: string, args: SqliteValue[], output: SqliteValue) {
+    const stmt = prepare({
+      outputs: [
+        { type: 'function', function: name, parameters: args.map((arg, i) => ({ type: 'data', source: i + 1 })) }
+      ]
+    });
+
+    expect(stmt.evaluate(args)).toStrictEqual([[output]]);
   }
 
   test('literal null', () => {
@@ -246,5 +256,10 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
       ['x', 'aaaaa'],
       ['y', 'aaaaa']
     ]);
+  });
+
+  test('custom functions', () => {
+    expectFunction('unixepoch', ['now'], null);
+    expectFunction('datetime', ['now'], null);
   });
 }
