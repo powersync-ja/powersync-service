@@ -65,11 +65,18 @@ export function scalarStatementToSql({ filters = [], outputs = [], tableValuedFu
 
   if (tableValuedFunctionNames.size != 0) {
     toSqlite.addLexeme('FROM');
+    let first = true;
 
     tableValuedFunctionNames.forEach((name, fn) => {
+      if (!first) {
+        toSqlite.comma();
+      }
+
       visitExpr(toSqlite, { type: 'function', function: fn.name, parameters: fn.inputs }, null);
       toSqlite.addLexeme('AS');
       toSqlite.identifier(name);
+
+      first = false;
     });
   }
 
