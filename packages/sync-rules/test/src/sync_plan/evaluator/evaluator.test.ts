@@ -2,8 +2,10 @@ import { describe, expect } from 'vitest';
 import { syncTest } from './utils.js';
 import {
   HydratedSyncRules,
+  RequestParameters,
   ScopedParameterLookup,
   SourceTableInterface,
+  SqliteJsonRow,
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
@@ -167,6 +169,102 @@ describe('evaluating parameters', () => {
 
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: blob })).toHaveLength(0);
     expect(desc.evaluateParameterRow(ISSUES, { id: blob, owner_id: 'user1' })).toHaveLength(0);
+  });
+});
+
+describe('querier', () => {
+  syncTest('static', ({ sync }) => {
+    const desc = sync.prepareSyncStreams([
+      {
+        name: 'stream',
+        queries: ['SELECT * FROM issues WHERE is_public']
+      }
+    ]);
+
+    const { querier } = desc.getBucketParameterQuerier({
+      globalParameters: new RequestParameters({ sub: 'user' }, {}),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+
+    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0[]']);
+  });
+
+  syncTest('request data', ({ sync }) => {
+    const desc = sync.prepareSyncStreams([
+      {
+        name: 'stream',
+        queries: ['SELECT * FROM issues WHERE owner = auth.user_id()']
+      }
+    ]);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: new RequestParameters({ sub: 'user' }, {}),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+
+    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0["user"]']);
+  });
+
+  syncTest('parameter lookups', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams([
+      {
+        name: 'stream',
+        queries: [
+          `SELECT c.* FROM comments c
+              INNER JOIN issues i ON c.issue = i.id
+              INNER JOIN users owner ON owner.name = i.owned_by
+           WHERE owner.id = auth.user_id()
+          `
+        ]
+      }
+    ]);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: new RequestParameters({ sub: 'user' }, {}),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+
+    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([]);
+    let call = 0;
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+        if (call == 0) {
+          // First call. Lookup from users.id => users.name
+          call++;
+          expect(lookups).toStrictEqual([
+            ScopedParameterLookup.direct(
+              {
+                lookupName: 'lookup',
+                queryId: '0'
+              },
+              ['user']
+            )
+          ]);
+          return [{ '0': 'name' }];
+        } else if (call == 1) {
+          // Second call. Lookup from issues.owned_by => issues.id
+          call++;
+          expect(lookups).toStrictEqual([
+            ScopedParameterLookup.direct(
+              {
+                lookupName: 'lookup',
+                queryId: '1'
+              },
+              ['name']
+            )
+          ]);
+          return [{ '0': 'issue' }];
+        }
+
+        throw new Error('Function not implemented.');
+      }
+    });
+    expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
   });
 });
 

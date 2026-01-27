@@ -1,11 +1,11 @@
-import * as sqlite from 'node:sqlite';
-
 import {
   HydratedSyncRules,
   SqlSyncRules,
   versionedHydrationState,
-  nodeSqliteExpressionEngine,
-  addPrecompiledSyncPlanToRules
+  addPrecompiledSyncPlanToRules,
+  javaScriptExpressionEngine,
+  CompatibilityContext,
+  CompatibilityEdition
 } from '../../../../src/index.js';
 import { compileToSyncPlanWithoutErrors, SyncStreamInput } from '../../compiler/utils.js';
 import { test } from 'vitest';
@@ -18,7 +18,7 @@ interface SyncTest {
 
 export const syncTest = test.extend<{ sync: SyncTest }>({
   sync: async ({}, use) => {
-    const engine = nodeSqliteExpressionEngine(sqlite);
+    const engine = javaScriptExpressionEngine(new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }));
 
     await use({
       engine,
