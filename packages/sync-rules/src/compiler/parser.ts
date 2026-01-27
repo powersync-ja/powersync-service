@@ -1,10 +1,5 @@
 import { Expr, ExprCall, ExprRef, From, nil, NodeLocation, PGNode, SelectedColumn, Statement } from 'pgsql-ast-parser';
-import {
-  PhysicalSourceResultSet,
-  RequestTableValuedResultSet,
-  SourceResultSet,
-  SyntacticResultSetSource
-} from './table.js';
+import { PhysicalSourceResultSet, TableValuedResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
 import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
 import { ColumnInRow, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
 import {
@@ -14,8 +9,7 @@ import {
   Or,
   And,
   RowExpression,
-  SingleDependencyExpression,
-  RequestExpression
+  SingleDependencyExpression
 } from './filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
@@ -119,6 +113,8 @@ export class StreamQueryParser {
           parentScope: this.statementScope,
           locations: this.nodeLocations
         });
+        this.resultSets.forEach((v, k) => parseInner.resultSets.set(k, v));
+
         let success = parseInner.processAst(expr, { forSubquery: true });
         if (!success) {
           return null;
@@ -218,8 +214,8 @@ export class StreamQueryParser {
       handled = true;
     } else if (from.type == 'call') {
       const source = new SyntacticResultSetSource(from, from.alias?.name ?? null);
-      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       this.resultSets.set(source, this.resolveTableValued(from, source));
+      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       handled = true;
     } else if (from.type == 'statement') {
       // TODO: We could technically allow selecting from subqueries once we support CTEs.
@@ -248,23 +244,46 @@ export class StreamQueryParser {
     }
   }
 
-  private resolveTableValued(call: ExprCall, source: SyntacticResultSetSource): RequestTableValuedResultSet {
-    // Currently, inputs to table-valued functions must be derived from connection/subscription data only. We might
-    // revisit this in the future.
-    const resolvedArguments: RequestExpression[] = [];
+  private resolveTableValued(call: ExprCall, source: SyntacticResultSetSource): TableValuedResultSet {
+    const resolvedArguments: SingleDependencyExpression[] = [];
+    let referencedResultSet: PhysicalSourceResultSet | null = null;
+    let referencesConnectionData: boolean = false;
+    let validArgs = true;
 
     for (const argument of call.args) {
       const parsed = this.mustBeSingleDependency(this.parseExpression(argument));
+      resolvedArguments.push(parsed);
 
-      if (parsed.resultSet != null) {
-        this.errors.report(
-          'Parameters to table-valued functions may not reference other tables',
-          parsed.expression.location
-        );
+      if (referencesConnectionData && parsed.resultSet) {
+        validArgs = false;
+      } else if (referencedResultSet != null && referencedResultSet != parsed.resultSet) {
+        validArgs = false;
+      } else {
+        if (parsed.resultSet != null) {
+          if (parsed.resultSet instanceof PhysicalSourceResultSet) {
+            referencedResultSet = parsed.resultSet;
+          } else {
+            // Table-valued functions may not be based on other table-valued functions, we only allow a single layer.
+            this.errors.report('Table-valued functions must depend on source tables.', parsed.expression.location);
+            validArgs = false;
+          }
+        }
+
+        referencesConnectionData = parsed.dependsOnConnection;
       }
     }
 
-    return new RequestTableValuedResultSet(call.function.name, resolvedArguments, source);
+    if (!validArgs) {
+      this.errors.report('Table-valued functions may only have a single table as inputs', call);
+    }
+
+    return new TableValuedResultSet(
+      call.function.name,
+      // We would have reported an error if arguments were invalid. Continue with empty parameters to potentially report
+      // more errors.
+      validArgs ? resolvedArguments : [],
+      source
+    );
   }
 
   private processResultColumns(stmt: PGNode, columns: SelectedColumn[]) {
@@ -335,9 +354,9 @@ export class StreamQueryParser {
       // there are multiple tables because we don't know which column is available in which table with certainty (and
       // don't want to re-compile sync streams on schema changes). So, we just refuse to resolve those ambigious
       // references.
-      const resultSets = this.statementScope.resultSets;
-      if (resultSets.length == 1) {
-        return this.resultSets.get(resultSets[0])!;
+      const defaultResultSet = this.statementScope.defaultResultSet;
+      if (defaultResultSet) {
+        return this.resultSets.get(defaultResultSet)!;
       } else {
         this.errors.report('Invalid unqualified reference since multiple tables are in scope', node);
         return null;
