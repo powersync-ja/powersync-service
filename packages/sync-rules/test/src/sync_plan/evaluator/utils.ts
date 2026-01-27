@@ -9,7 +9,7 @@ import {
 } from '../../../../src/index.js';
 import { compileToSyncPlanWithoutErrors, SyncStreamInput } from '../../compiler/utils.js';
 import { test } from 'vitest';
-import { ScalarExpressionEngine } from '../../../../src/sync_plan/evaluator/scalar_expression_evaluator.js';
+import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 
 interface SyncTest {
   engine: ScalarExpressionEngine;

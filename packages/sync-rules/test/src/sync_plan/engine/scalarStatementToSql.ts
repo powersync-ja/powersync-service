@@ -1,10 +1,8 @@
-import * as sqlite from 'node:sqlite';
-import { describe, expect, onTestFinished, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import {
-  nodeSqliteExpressionEngine,
   scalarStatementToSql,
   TableValuedFunction
-} from '../../../../src/sync_plan/evaluator/scalar_expression_evaluator.js';
+} from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 
 describe('scalarStatementToSql', () => {
   test('empty', () => {
@@ -91,21 +89,4 @@ describe('scalarStatementToSql', () => {
       })
     ).toStrictEqual(`SELECT "tbl_0"."value" FROM "json_each"(?1) AS "tbl_0" WHERE "foo"("tbl_0"."key")`);
   });
-});
-
-test('nodeSqliteExpressionEngine', () => {
-  const engine = nodeSqliteExpressionEngine(sqlite);
-  onTestFinished(() => engine.close());
-
-  const fn: TableValuedFunction = {
-    name: 'json_each',
-    inputs: [{ type: 'data', source: 1 }]
-  };
-
-  const stmt = engine.prepareEvaluator({
-    outputs: [{ type: 'data', source: { function: fn, column: 'value' } }],
-    tableValuedFunctions: [fn]
-  });
-
-  expect(stmt.evaluate([JSON.stringify([1, 'two', 3.2])])).toStrictEqual([[1n], ['two'], [3.2]]);
 });

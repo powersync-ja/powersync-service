@@ -3,7 +3,7 @@ import * as plan from '../plan.js';
 import { PreparedStreamBucketDataSource } from './bucket_data_source.js';
 import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_creator.js';
 import { StreamBucketSource, StreamInput } from './bucket_source.js';
-import { ScalarExpressionEngine } from './scalar_expression_evaluator.js';
+import { ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 
 export interface StreamEvaluationContext {
   engine: ScalarExpressionEngine;

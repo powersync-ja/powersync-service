@@ -1,6 +1,6 @@
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { ParameterLookupScope } from '../../HydrationState.js';
-import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from './scalar_expression_evaluator.js';
+import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
 import { TablePattern } from '../../TablePattern.js';

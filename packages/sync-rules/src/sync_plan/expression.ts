@@ -101,7 +101,7 @@ export type CaseWhenExpression<Data> = {
 export type CastExpression<Data> = {
   type: 'cast';
   operand: SqlExpression<Data>;
-  cast_as: 'string' | 'numeric' | 'real' | 'integer' | 'blob';
+  cast_as: 'text' | 'numeric' | 'real' | 'integer' | 'blob';
 };
 
 /**

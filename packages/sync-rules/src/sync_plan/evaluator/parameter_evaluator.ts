@@ -11,7 +11,7 @@ import {
   mapExternalDataToInstantiation,
   TableValuedFunction,
   TableValuedFunctionOutput
-} from './scalar_expression_evaluator.js';
+} from '../engine/scalar_expression_engine.js';
 
 /**
  * Finds bucket parameters for a given request or subscription.
