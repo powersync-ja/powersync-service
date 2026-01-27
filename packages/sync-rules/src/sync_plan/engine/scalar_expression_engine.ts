@@ -44,31 +44,6 @@ export interface ScalarExpressionEvaluator {
   evaluate(inputs: SqliteValue[]): SqliteValue[][];
 }
 
-/**
- * Creates a {@link ScalarExpressionEngine} backed by an in-memory SQLite database using `node:sqlite` APIs.
- *
- * @param module The imported `node:sqlite` module (passed as a parameter to ensure this package keeps working in
- * browsers).
- */
-export function nodeSqliteExpressionEngine(module: typeof import('node:sqlite')): ScalarExpressionEngine {
-  const db = new module.DatabaseSync(':memory:', { readOnly: true, readBigInts: true, returnArrays: true } as any);
-
-  return {
-    prepareEvaluator(input): ScalarExpressionEvaluator {
-      const stmt = db.prepare(scalarStatementToSql(input));
-      return {
-        evaluate(inputs) {
-          // Types are wrong, all() will return a SqliteValue[][] because returnArrays is enabled.
-          return stmt.all(...inputs) as unknown as SqliteValue[][];
-        }
-      };
-    },
-    close() {
-      db.close();
-    }
-  };
-}
-
 export function scalarStatementToSql({ filters = [], outputs = [], tableValuedFunctions = [] }: ScalarStatement) {
   const tableValuedFunctionNames = new Map<TableValuedFunction, string>();
   for (const fn of tableValuedFunctions) {

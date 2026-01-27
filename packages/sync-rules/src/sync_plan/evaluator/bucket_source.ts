@@ -8,7 +8,7 @@ import {
 } from '../../BucketSource.js';
 import { StreamEvaluationContext } from './index.js';
 import * as plan from '../plan.js';
-import { mapExternalDataToInstantiation, ScalarExpressionEngine } from './scalar_expression_evaluator.js';
+import { mapExternalDataToInstantiation, ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 import { SqlExpression } from '../expression.js';
 import { RequestParameters, SqliteParameterValue } from '../../types.js';
 import { parametersForRequest, RequestParameterEvaluators } from './parameter_evaluator.js';
