@@ -142,23 +142,23 @@ export function mapExternalDataToInstantiation<T extends SqlParameterValue>() {
   const requestToIndex = new Map<RequestSqlParameterValue, number>();
 
   const visitor = new MapSourceVisitor<T, number>((data) => {
-    const oldLength = instantiation.length;
+    const indexIfAdded = instantiation.length + 1;
     if ('column' in data) {
       if (columnsToIndex.has(data)) {
         return columnsToIndex.get(data)!;
       }
 
-      columnsToIndex.set(data, oldLength);
+      columnsToIndex.set(data, indexIfAdded);
     } else {
       if (requestToIndex.has(data)) {
         return requestToIndex.get(data)!;
       }
 
-      requestToIndex.set(data, oldLength);
+      requestToIndex.set(data, indexIfAdded);
     }
 
     instantiation.push(data);
-    return oldLength;
+    return indexIfAdded;
   });
 
   return {

@@ -82,6 +82,7 @@ class PreparedStreamDataSource {
   readonly tablePattern: TablePattern;
   private readonly outputs: ('star' | { index: number; alias: string })[] = [];
   private readonly numberOfOutputExpressions: number;
+  private readonly numberOfParameters: number;
   private readonly evaluator: ScalarExpressionEvaluator;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
   private readonly fixedOutputTableName?: string;
@@ -103,6 +104,7 @@ class PreparedStreamDataSource {
     for (const parameter of evaluator.parameters) {
       outputExpressions.push(mapExpressions.transform(parameter.expr));
     }
+    this.numberOfParameters = evaluator.parameters.length;
 
     this.evaluator = engine.prepareEvaluator({
       outputs: outputExpressions,
@@ -130,7 +132,7 @@ class PreparedStreamDataSource {
         }
         const id = idFromData(record);
         // source is [...outputs, ...partitionValues]
-        const partitionValues = source.splice(0, this.numberOfOutputExpressions);
+        const partitionValues = source.splice(this.numberOfOutputExpressions, this.numberOfParameters);
 
         for (const bucketParameter of partitionValues) {
           if (!isValidParameterValue(bucketParameter)) {
