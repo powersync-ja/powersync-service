@@ -10,7 +10,7 @@ import { ScalarExpressionEngine, ScalarExpressionEvaluator, scalarStatementToSql
  * browsers).
  *
  * @experimental This engine is not drop-in compatible with the JS operator implementations. So we can only use this
- * engine when a new compatibility option is enabled.
+ * engine when a new compatibility option is enabled. Currently, it is only used in tests.
  */
 export function nodeSqliteExpressionEngine(
   module: typeof import('node:sqlite'),

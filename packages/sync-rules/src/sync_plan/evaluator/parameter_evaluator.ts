@@ -66,9 +66,12 @@ export class RequestParameterEvaluators {
   /**
    * Returns a copy of this instance.
    *
-   * We use this to be able to "fork" partial instantiations. For instance, we can evaluate paremeters not depending on
-   * parameter lookups as soon as the user connects (and keep that instantiation static along the lifetime of the
-   * connection).
+   * Since resolved values are replaced with their instantiation, we need to use closed evaluators before evaluating
+   * them on inputs that might change (like parameter lookups).
+   *
+   * Static data (like connection parameters) can be resolved sooner, and cloning that partially-instantiated evaluator
+   * graph essentially forks it. This allows us to cache connection parameters for the lifetime of the connection
+   * instead of re-evaluating them on every parameter lookup change.
    */
   clone(): RequestParameterEvaluators {
     return new RequestParameterEvaluators(
