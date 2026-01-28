@@ -1102,7 +1102,7 @@ const TYPE_ORDERING = {
   blob: 3
 };
 
-function compare(a: SqliteValue, b: SqliteValue): number {
+export function compare(a: SqliteValue, b: SqliteValue): number {
   // https://www.sqlite.org/datatype3.html#comparisons
   if (a == null && b == null) {
     // Only for IS / IS NOT
