@@ -20,8 +20,9 @@ export function nodeSqliteExpressionEngine(
   const functions = generateSqlFunctions(compatibility);
 
   function registerPowerSyncFunction(name: string) {
+    const impl = functions.named[name]!;
+
     db.function(name, { useBigIntArguments: true, varargs: true, deterministic: true }, (...args) => {
-      const impl = functions.named[name]!;
       return impl.call(...args);
     });
   }
@@ -37,10 +38,13 @@ export function nodeSqliteExpressionEngine(
 
   if (!compatibility.isEnabled(CompatibilityOption.fixedJsonExtract)) {
     // For backwards compatibility, use the old JSON operators which parse the path argument differently.
-    registerPowerSyncFunction('->');
-    registerPowerSyncFunction('->>');
-    registerPowerSyncFunction('json_extract');
-    registerPowerSyncFunction('json_array_length');
+    db.function('->', { useBigIntArguments: true, varargs: true, deterministic: true }, (...args) => {
+      return functions.operatorJsonExtractJson.call(...args);
+    });
+
+    db.function('->>', { useBigIntArguments: true, varargs: true, deterministic: true }, (...args) => {
+      return functions.operatorJsonExtractSql.call(...args);
+    });
   }
 
   return {
