@@ -12,17 +12,5 @@
     {
       "path": "../types"
     },
-    {
-      "path": "../rsocket-router"
-    },
-    {
-      "path": "../jsonbig"
-    },
-    {
-      "path": "../sync-rules"
-    },
-    {
-      "path": "../../libs/lib-services"
-    }
   ]
 }
