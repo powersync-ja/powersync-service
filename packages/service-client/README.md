@@ -33,8 +33,7 @@ const client = new InstanceClient({
   endpoint: 'https://[Your PowerSync URL here]'
 });
 
-// Execute SQL, get diagnostics, schema, validate sync rules, or reprocess
-const result = await client.executeSql({ sql: { query: 'SELECT 1', args: [] } });
+// Get diagnostics, schema, validate sync rules, or reprocess
 const diag = await client.diagnostics({ sync_rules_content: true });
 const schema = await client.getSchema({});
 const validation = await client.validate({ sync_rules: '...' });
@@ -45,7 +44,6 @@ const resp = await client.reprocess({});
 
 | Method        | Description                                      |
 | ------------- | ------------------------------------------------ |
-| `executeSql`  | Run a SQL query on the instance                  |
 | `diagnostics` | Get connections and sync rules health            |
 | `getSchema`  | Get the current schema (connections, tables)      |
 | `validate`   | Validate sync rules against the current schema   |

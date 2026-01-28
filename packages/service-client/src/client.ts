@@ -29,25 +29,6 @@ import { internal_routes } from '@powersync/service-types';
  */
 export class InstanceClient<C extends sdk.NetworkClient = sdk.NetworkClient> extends sdk.SDKClient<C> {
   /**
-   * Execute a SQL query on the instance.
-   *
-   * Example:
-   * ```typescript
-   * const result = await client.executeSql({ sql: { query: 'SELECT 1', args: [] } });
-   * // {
-   * //   success: true,
-   * //   results: {
-   * //     columns: ['?column?'],
-   * //     rows: [[1]]
-   * //   }
-   * // }
-   * ```
-   */
-  executeSql = this.createEndpoint<internal_routes.ExecuteSqlRequest, internal_routes.ExecuteSqlResponse>({
-    path: '/api/admin/v1/execute-sql'
-  });
-
-  /**
    * Get diagnostics and health information from the instance.
    * Optionally include sync rules content in the response.
    *
