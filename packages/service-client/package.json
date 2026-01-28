@@ -11,8 +11,6 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "build:tests": "tsc -b test/tsconfig.json",
-    "test": "vitest",
     "clean": "rm -rf ./dist && tsc -b --clean"
   },
   "dependencies": {

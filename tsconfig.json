@@ -14,6 +14,9 @@
       "path": "./packages/service-core"
     },
     {
+      "path": "./packages/service-client"
+    },
+    {
       "path": "./packages/service-core-tests"
     },
     {
