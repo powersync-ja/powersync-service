@@ -15,7 +15,7 @@ import {
 } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 import { BinaryOperator } from '../../../../src/sync_plan/expression.js';
 
-const compatibility = new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS });
+const compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
 describe('sqlite', () => {
   defineEngineTests(false, () => nodeSqliteExpressionEngine(sqlite, compatibility));
@@ -261,5 +261,11 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
   test('custom functions', () => {
     expectFunction('unixepoch', ['now'], null);
     expectFunction('datetime', ['now'], null);
+
+    const jsonObject = JSON.stringify({ foo: { bar: ['baz'] } });
+
+    // Legacy JSON behavior, support paths without $. prefix
+    expectFunction('->', [jsonObject, 'foo.bar'], '["baz"]');
+    expectFunction('->>', [jsonObject, 'foo.bar.0'], 'baz');
   });
 }
