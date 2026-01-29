@@ -221,7 +221,7 @@ const binaryPrecedence: Record<BinaryOperator, Precedence> = {
 
 const unaryPrecedence: Record<UnaryOperator, Precedence> = {
   not: Precedence.not,
-  '~': Precedence.unary,
-  '+': Precedence.unary,
-  '-': Precedence.unary
+  //'~': Precedence.unary,
+  '+': Precedence.unary
+  //'-': Precedence.unary
 };

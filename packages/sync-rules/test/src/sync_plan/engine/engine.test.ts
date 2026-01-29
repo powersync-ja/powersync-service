@@ -3,6 +3,7 @@ import * as sqlite from 'node:sqlite';
 import { describe, expect, onTestFinished, test } from 'vitest';
 import {
   CompatibilityContext,
+  CompatibilityEdition,
   javaScriptExpressionEngine,
   nodeSqliteExpressionEngine,
   SqliteValue
@@ -14,19 +15,22 @@ import {
 } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 import { BinaryOperator } from '../../../../src/sync_plan/expression.js';
 
-const compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
-
 describe('sqlite', () => {
-  defineEngineTests(false, () => nodeSqliteExpressionEngine(sqlite, compatibility));
+  defineEngineTests(false, (c) => nodeSqliteExpressionEngine(sqlite, c));
 });
 
 describe('javascript', () => {
-  defineEngineTests(true, () => javaScriptExpressionEngine(compatibility));
+  defineEngineTests(true, javaScriptExpressionEngine);
 });
 
-function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpressionEngine) {
+function defineEngineTests(
+  isJavaScript: boolean,
+  createEngine: (compatibility: CompatibilityContext) => ScalarExpressionEngine
+) {
+  let compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+
   function prepare(stmt: ScalarStatement) {
-    const engine = createEngine();
+    const engine = createEngine(compatibility);
     onTestFinished(() => engine.close());
     return engine.prepareEvaluator(stmt);
   }
@@ -58,6 +62,12 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
 
   test('literal null', () => {
     expect(prepare({ outputs: [{ type: 'lit_null' }] }).evaluate([])).toStrictEqual([[null]]);
+  });
+
+  test('not null', () => {
+    expect(
+      prepare({ outputs: [{ type: 'unary', operator: 'not', operand: { type: 'lit_null' } }] }).evaluate([])
+    ).toStrictEqual([[isJavaScript ? 1n : null]]);
   });
 
   test('literal double', () => {
@@ -125,6 +135,10 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
     expect(stmt.evaluate([1, 2, 3])).toStrictEqual([[0n]]);
     expect(stmt.evaluate([4, 2, 3])).toStrictEqual([[0n]]);
     expect(stmt.evaluate([1, 1, 1])).toStrictEqual([[1n]]);
+
+    expect(stmt.evaluate([null, 3, 4])).toStrictEqual([[null]]);
+    expect(stmt.evaluate([4, null, 4])).toStrictEqual([[null]]);
+    expect(stmt.evaluate([4, 3, null])).toStrictEqual([[null]]);
   });
 
   test('scalar in', () => {
@@ -261,12 +275,6 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
     expectFunction('unixepoch', ['now'], null);
     expectFunction('datetime', ['now'], null);
 
-    const jsonObject = JSON.stringify({ foo: { bar: ['baz'] } });
-
-    // Legacy JSON behavior, support paths without $. prefix
-    expectFunction('->', [jsonObject, 'foo.bar'], '["baz"]');
-    expectFunction('->>', [jsonObject, 'foo.bar.0'], 'baz');
-
     const point = '010100000097900F7A36FB40C0F4FDD478E9D63240';
     expectFunction('st_x', [point], -33.9626);
     expectFunction('st_y', [point], 18.8395);
@@ -274,5 +282,19 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
     const geography = '010100000097900F7A36FB40C0F4FDD478E9D63240';
     expectFunction('st_asgeojson', [geography], '{"type":"Point","coordinates":[-33.9626,18.8395]}');
     expectFunction('st_astext', [geography], 'POINT(-33.9626 18.8395)');
+  });
+
+  test('legacy and fixed JSON behavior', () => {
+    const jsonObject = JSON.stringify({ foo: { bar: ['baz'] }, 'foo.bar': ['another'] });
+    compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+
+    // Legacy JSON behavior, support paths without $. prefix
+    expectFunction('->', [jsonObject, 'foo.bar'], '["baz"]');
+    expectFunction('->>', [jsonObject, 'foo.bar.0'], 'baz');
+
+    // New JSON behavior, require $. syntax.
+    compatibility = new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS });
+    expectFunction('->', [jsonObject, 'foo.bar'], '["another"]');
+    expectFunction('->>', [jsonObject, 'foo.bar.0'], null);
   });
 }

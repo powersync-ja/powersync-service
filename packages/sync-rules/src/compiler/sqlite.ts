@@ -247,8 +247,9 @@ export class PostgresToSqlite {
         let rightHandSideOfIs: SqlExpression<ExpressionInput>;
 
         switch (expr.op) {
-          case '+':
           case '-':
+            return this.invalidExpression(expr, 'Unary minus is not currently supported');
+          case '+':
             return { type: 'unary', operator: expr.op, operand: this.translateNodeWithLocation(expr.operand) };
           case 'NOT':
             return { type: 'unary', operator: 'not', operand: this.translateNodeWithLocation(expr.operand) };

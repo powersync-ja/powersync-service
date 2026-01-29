@@ -151,9 +151,9 @@ class ExpressionToJavaScriptFunction
         return operand;
       case 'not':
         return (input) => sqliteNot(operand(input));
-      case '~':
-      case '-':
-        throw new Error(`unary operator not supported: ${expr.operator}`);
+      // case '~':
+      // case '-':
+      //   throw new Error(`unary operator not supported: ${expr.operator}`);
     }
   }
 
@@ -173,10 +173,13 @@ class ExpressionToJavaScriptFunction
     return (input) => {
       const evaluatedValue = value(input);
 
-      return (
-        sqliteBool(evaluateOperator('>=', evaluatedValue, low(input))) &&
-        sqliteBool(evaluateOperator('<=', evaluatedValue, high(input)))
-      );
+      const geqLow = evaluateOperator('>=', evaluatedValue, low(input));
+      const leqHigh = evaluateOperator('<=', evaluatedValue, high(input));
+      if (geqLow == null || leqHigh == null) {
+        return null;
+      }
+
+      return sqliteBool(geqLow) && sqliteBool(leqHigh);
     };
   }
 

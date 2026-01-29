@@ -26,7 +26,7 @@ export type SqlExpression<Data> =
  */
 export type ExternalData<Data> = { type: 'data'; source: Data };
 
-export type UnaryOperator = 'not' | '~' | '+' | '-';
+export type UnaryOperator = 'not' | '+'; //| '-' | '~';
 
 export type UnaryExpression<Data> = {
   type: 'unary';
