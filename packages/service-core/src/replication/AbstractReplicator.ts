@@ -227,7 +227,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           }
           this.lockAlerted = false;
         } catch (e) {
-          if (e?.errorData.code === ErrorCode.PSYNC_S1003) {
+          if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
             if (!this.lockAlerted) {
               this.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
               this.lockAlerted = true;
