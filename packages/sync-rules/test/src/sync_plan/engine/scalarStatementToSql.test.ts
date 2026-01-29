@@ -33,10 +33,14 @@ describe('scalarStatementToSql', () => {
           {
             type: 'lit_int',
             base10: '1'
+          },
+          {
+            type: 'data',
+            source: 1
           }
         ]
       })
-    ).toStrictEqual(`SELECT 1 WHERE 1`);
+    ).toStrictEqual(`SELECT 1 WHERE 1 AND ?1`);
   });
 
   test('output and filters', () => {

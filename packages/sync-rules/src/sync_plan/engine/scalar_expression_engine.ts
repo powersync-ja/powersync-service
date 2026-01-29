@@ -1,6 +1,6 @@
 import { SqliteValue } from '../../types.js';
 import { ExternalData, SqlExpression } from '../expression.js';
-import { ExpressionToSqlite } from '../expression_to_sql.js';
+import { ExpressionToSqlite, Precedence } from '../expression_to_sql.js';
 import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import { ColumnSqlParameterValue, RequestSqlParameterValue, SqlParameterValue } from '../plan.js';
 
@@ -83,8 +83,9 @@ export function scalarStatementToSql({ filters = [], outputs = [], tableValuedFu
   if (filters.length != 0) {
     toSqlite.addLexeme('WHERE');
     filters.forEach((expr, i) => {
-      if (i != 0) toSqlite.comma();
-      visitExpr(toSqlite, expr, null);
+      if (i != 0) toSqlite.addLexeme('AND');
+
+      visitExpr(toSqlite, expr, Precedence.and);
     });
   }
 

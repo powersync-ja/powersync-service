@@ -183,7 +183,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
   }
 }
 
-enum Precedence {
+export enum Precedence {
   or = 1,
   and = 2,
   not = 3,
