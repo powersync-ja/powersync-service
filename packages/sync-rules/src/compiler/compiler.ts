@@ -7,6 +7,8 @@ import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
 import { QuerierGraphBuilder } from './querier_graph.js';
 import { StreamQueryParser } from './parser.js';
 import { NodeLocations } from './expression.js';
+import { SqlScope } from './scope.js';
+import { PreparedSubquery } from './sqlite.js';
 
 /**
  * State for compiling sync streams.
@@ -23,8 +25,32 @@ import { NodeLocations } from './expression.js';
  */
 export class SyncStreamsCompiler {
   readonly output = new CompiledStreamQueries();
+  private readonly locations = new NodeLocations();
 
   constructor(readonly defaultSchema: string) {}
+
+  /**
+   * Tries to parse the SQL query as a `SELECT` statement into a form supported for common table expressions.
+   *
+   * Common table expressions are parsed and validated independently and without a shared scope, meaning that CTEs are
+   * not allowed to reference other CTEs. This limitation is deliberate, but we _could_ support it (referenced CTEs
+   * would just get inlined into the new CTE by the parser). So we can revisit this and potentially support that in the
+   * future.
+   *
+   * Returns null and reports errors if that fails.
+   */
+  commonTableExpression(sql: string, errors: ParsingErrorListener): PreparedSubquery | null {
+    const parser = new StreamQueryParser({
+      compiler: this,
+      originalText: sql,
+      locations: this.locations,
+      parentScope: new SqlScope({}),
+      errors
+    });
+
+    const [stmt] = parse(sql, { locationTracking: true });
+    return parser.parseAsSubquery(stmt);
+  }
 
   /**
    * Utility for compiling a sync stream.
@@ -33,14 +59,19 @@ export class SyncStreamsCompiler {
    */
   stream(options: StreamOptions): IndividualSyncStreamCompiler {
     const builder = new QuerierGraphBuilder(this, options);
+    const rootScope = new SqlScope({});
 
     return {
+      registerCommonTableExpression: (name, cte) => {
+        rootScope.registerCommonTableExpression(name, cte);
+      },
       addQuery: (sql: string, errors: ParsingErrorListener) => {
         const [stmt] = parse(sql, { locationTracking: true });
         const parser = new StreamQueryParser({
           compiler: this,
           originalText: sql,
-          locations: new NodeLocations(),
+          locations: this.locations,
+          parentScope: rootScope,
           errors
         });
         const query = parser.parse(stmt);
@@ -57,6 +88,12 @@ export class SyncStreamsCompiler {
  * Utility for compiling a single sync stream.
  */
 export interface IndividualSyncStreamCompiler {
+  /**
+   * Makes a common table expression prepared through {@link SyncStreamsCompiler.commonTableExpression} available when
+   * parsing queries for this stream.
+   */
+  registerCommonTableExpression(name: string, cte: PreparedSubquery): void;
+
   /**
    * Validates and adds a parameter query to this stream.
    *

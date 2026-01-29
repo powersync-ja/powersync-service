@@ -19,15 +19,37 @@ import {
 } from '../sync_plan/expression.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
-import { SourceResultSet } from './table.js';
+import { BaseSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
+import { SqlScope } from './scope.js';
 
 export interface ResolvedSubqueryExpression {
   filters: SqlExpression<ExpressionInput>[];
   output: SqlExpression<ExpressionInput>;
 }
 
+/**
+ * A prepared subquery or common table expression.
+ */
+export interface PreparedSubquery {
+  /**
+   * Columns selected by the query, indexed by their name.
+   */
+  resultColumns: Record<string, SqlExpression<ExpressionInput>>;
+
+  /**
+   * Tables the subquery selects from.
+   */
+  tables: Map<SyntacticResultSetSource, SourceResultSet>;
+
+  /**
+   * Filters affecting the subquery.
+   */
+  where: SqlExpression<ExpressionInput> | null;
+}
+
 export interface PostgresToSqliteOptions {
   readonly originalText: string;
+  readonly scope: SqlScope;
   readonly errors: ParsingErrorListener;
   readonly locations: NodeLocations;
 
@@ -36,7 +58,7 @@ export interface PostgresToSqliteOptions {
    *
    * Should report an error if resolving the table failed, using `node` as the source location for the error.
    */
-  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | null;
+  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | PreparedSubquery | null;
 
   /**
    * Generates a table alias for synthetic subqueries like those generated to desugar `IN` expressions to `json_each`
@@ -104,11 +126,22 @@ export class PostgresToSqlite {
           return this.invalidExpression(expr, '* columns are not supported here');
         }
 
-        const instantiation = new ColumnInRow(expr, resultSet, expr.name);
-        return {
-          type: 'data',
-          source: instantiation
-        };
+        if (resultSet instanceof BaseSourceResultSet) {
+          // This is an actual result set.
+          const instantiation = new ColumnInRow(expr, resultSet, expr.name);
+          return {
+            type: 'data',
+            source: instantiation
+          };
+        } else {
+          // Resolved to a subquery, inline the reference.
+          const expression = resultSet.resultColumns[expr.name];
+          if (expression == null) {
+            return this.invalidExpression(expr, 'Column not found in subquery.');
+          }
+
+          return expression;
+        }
       }
       case 'parameter':
         return this.invalidExpression(
@@ -314,6 +347,14 @@ export class PostgresToSqlite {
     } else if (right.type == 'call' && right.function.name.toLowerCase() == 'row') {
       return this.desugarInValues(negated, expr.left, right.args);
     } else {
+      if (right.type == 'ref' && right.table == null) {
+        const cte = this.options.scope.resolveCommonTableExpression(right.name);
+        if (cte) {
+          // Something of the form x IN $cte.
+          return this.desugarInCte(negated, expr, right.name, cte);
+        }
+      }
+
       return this.desugarInScalar(negated, expr, right);
     }
   }
@@ -369,6 +410,28 @@ export class PostgresToSqlite {
       type: 'select',
       columns: [{ expr: { type: 'ref', name: 'value', table: { name } } }],
       from: [{ type: 'call', function: { name: 'json_each' }, args: [right], alias: { name } }]
+    });
+  }
+
+  /**
+   * Desugar `$left IN cteName` to `$left IN (SELECT cteName.onlyColumn FROM cteName)`.
+   */
+  private desugarInCte(
+    negated: boolean,
+    binary: ExprBinary,
+    cteName: string,
+    cte: PreparedSubquery
+  ): SqlExpression<ExpressionInput> {
+    const columns = Object.keys(cte.resultColumns);
+    if (columns.length != 1) {
+      return this.invalidExpression(binary.right, 'Common-table expression must return a single column');
+    }
+
+    const name = columns[0];
+    return this.desugarInSubquery(negated, binary, {
+      type: 'select',
+      columns: [{ expr: { type: 'ref', name, table: { name: cteName } } }],
+      from: [{ type: 'table', name: { name: cteName } }]
     });
   }
 

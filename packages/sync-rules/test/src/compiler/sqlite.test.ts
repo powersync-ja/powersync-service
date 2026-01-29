@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest';
 import { getLocation } from '../../../src/errors.js';
 import { ExpressionToSqlite } from '../../../src/sync_plan/expression_to_sql.js';
 import { NodeLocations } from '../../../src/compiler/expression.js';
+import { SqlScope } from '../../../src/compiler/scope.js';
 
 describe('sqlite conversion', () => {
   test('literals', () => {
@@ -189,6 +190,7 @@ function translate(source: string): [string, TranslationError[]] {
 
   const translator = new PostgresToSqlite({
     originalText: source,
+    scope: new SqlScope({}),
     errors: {
       report: (message, location) => {
         const resolved = getLocation(location);
