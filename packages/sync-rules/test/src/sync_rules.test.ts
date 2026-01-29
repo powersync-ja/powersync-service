@@ -10,6 +10,7 @@ import {
   PARSE_OPTIONS,
   TestSourceTable,
   USERS,
+  findQuerierLookups,
   normalizeQuerierOptions,
   normalizeTokenParameters
 } from './util.js';
@@ -160,7 +161,7 @@ bucket_definitions:
     ).toEqual([]);
   });
 
-  test('bucket with parameters with custom hydrationState', () => {
+  test('bucket with parameters with custom hydrationState', async () => {
     // "end-to-end" test with custom hydrationState.
     // We don't test complex details here, but do cover bucket names and parameter lookup scope.
     const rules = SqlSyncRules.fromYaml(
@@ -189,11 +190,11 @@ bucket_definitions:
       }
     };
     const hydrated = rules.hydrate({ hydrationState });
-    const querier = hydrated.getBucketParameterQuerier(
+    const { querier, errors } = hydrated.getBucketParameterQuerier(
       normalizeQuerierOptions({ user_id: 'user1' }, { device_id: 'device1' })
     );
-    expect(querier.errors).toEqual([]);
-    expect(querier.querier.staticBuckets).toEqual([
+    expect(errors).toEqual([]);
+    expect(querier.staticBuckets).toEqual([
       {
         bucket: 'mybucket-test["user1"]',
         definition: 'mybucket',
@@ -201,7 +202,7 @@ bucket_definitions:
         priority: 3
       }
     ]);
-    expect(querier.querier.parameterQueryLookups).toEqual([
+    expect(await findQuerierLookups(querier)).toEqual([
       ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
     ]);
 
@@ -997,7 +998,7 @@ bucket_definitions:
     ).toThrowError(/Cannot set priority multiple times/);
   });
 
-  test('dynamic bucket definitions list', () => {
+  test('dynamic bucket definitions list', async () => {
     const rules = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
@@ -1024,14 +1025,9 @@ bucket_definitions:
 
     const hydrated = rules.hydrate(hydrationParams);
 
-    expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier).toMatchObject({
+    const hydratedQuerier = hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'user1' })).querier;
+    expect(hydratedQuerier).toMatchObject({
       hasDynamicBuckets: true,
-      parameterQueryLookups: [
-        ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '2' }, ['user1']),
-        ScopedParameterLookup.direct({ lookupName: 'by_list', queryId: '1' }, ['user1']),
-        // These are not filtered out yet, due to how the lookups are structured internally
-        ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
-      ],
       staticBuckets: [
         {
           bucket: 'mybucket["user1"]',
@@ -1039,5 +1035,9 @@ bucket_definitions:
         }
       ]
     });
+
+    expect(await findQuerierLookups(hydratedQuerier)).toEqual([
+      ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
+    ]);
   });
 });
