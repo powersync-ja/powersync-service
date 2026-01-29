@@ -32,6 +32,11 @@ export class SyncStreamsCompiler {
   /**
    * Tries to parse the SQL query as a `SELECT` statement into a form supported for common table expressions.
    *
+   * Common table expressions are parsed and validated independently and without a shared scope, meaning that CTEs are
+   * not allowed to reference other CTEs. This limitation is deliberate, but we _could_ support it (referenced CTEs
+   * would just get inlined into the new CTE by the parser). So we can revisit this and potentially support that in the
+   * future.
+   *
    * Returns null and reports errors if that fails.
    */
   commonTableExpression(sql: string, errors: ParsingErrorListener): PreparedSubquery | null {
