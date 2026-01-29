@@ -178,11 +178,12 @@ export class PostgresToSqlite {
           return this.invalidExpression(expr.function, 'DISTINCT, ORDER BY, FILTER and OVER clauses are not supported');
         }
 
-        const forbiddenReason = forbiddenFunctions[expr.function.name];
+        const functionName = expr.function.name.toLowerCase();
+        const forbiddenReason = forbiddenFunctions[functionName];
         if (forbiddenReason) {
           return this.invalidExpression(expr.function, `Forbidden call: ${forbiddenReason}`);
         }
-        let allowedArgs = supportedFunctions[expr.function.name];
+        let allowedArgs = supportedFunctions[functionName];
         if (allowedArgs == null) {
           return this.invalidExpression(expr.function, 'Unknown function');
         } else {
@@ -204,7 +205,7 @@ export class PostgresToSqlite {
 
         return {
           type: 'function',
-          function: expr.function.name,
+          function: functionName,
           parameters: expr.args.map((a) => this.translateNodeWithLocation(a))
         };
       }

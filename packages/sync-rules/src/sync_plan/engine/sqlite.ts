@@ -31,10 +31,10 @@ export function nodeSqliteExpressionEngine(
   registerPowerSyncFunction('unixepoch');
   registerPowerSyncFunction('datetime');
 
-  registerPowerSyncFunction('ST_AsGeoJSON');
-  registerPowerSyncFunction('AS_AsText');
-  registerPowerSyncFunction('ST_X');
-  registerPowerSyncFunction('ST_Y');
+  registerPowerSyncFunction('st_asgeojson');
+  registerPowerSyncFunction('st_astext');
+  registerPowerSyncFunction('st_x');
+  registerPowerSyncFunction('st_y');
 
   if (!compatibility.isEnabled(CompatibilityOption.fixedJsonExtract)) {
     // For backwards compatibility, use the old JSON operators which parse the path argument differently.

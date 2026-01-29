@@ -3,7 +3,6 @@ import * as sqlite from 'node:sqlite';
 import { describe, expect, onTestFinished, test } from 'vitest';
 import {
   CompatibilityContext,
-  CompatibilityEdition,
   javaScriptExpressionEngine,
   nodeSqliteExpressionEngine,
   SqliteValue
@@ -267,5 +266,13 @@ function defineEngineTests(isJavaScript: boolean, createEngine: () => ScalarExpr
     // Legacy JSON behavior, support paths without $. prefix
     expectFunction('->', [jsonObject, 'foo.bar'], '["baz"]');
     expectFunction('->>', [jsonObject, 'foo.bar.0'], 'baz');
+
+    const point = '010100000097900F7A36FB40C0F4FDD478E9D63240';
+    expectFunction('st_x', [point], -33.9626);
+    expectFunction('st_y', [point], 18.8395);
+
+    const geography = '010100000097900F7A36FB40C0F4FDD478E9D63240';
+    expectFunction('st_asgeojson', [geography], '{"type":"Point","coordinates":[-33.9626,18.8395]}');
+    expectFunction('st_astext', [geography], 'POINT(-33.9626 18.8395)');
   });
 }
