@@ -19,13 +19,15 @@ program
 
 program
   .command('generate-token')
-  .description('Generate a JWT from for a given powersync.yaml config file')
+  .description('Generate a JWT from a given powersync.yaml config file')
   .option('-c, --config [config]', 'path to powersync.yaml')
   .option('-u, --sub [sub]', 'payload sub')
-  .option('-e, --endpoint [endpoint]', 'additional payload aud')
+  .option('-e, --endpoint [endpoint]', 'additional payload aud (legacy)')
+  .option('--aud <audience...>', 'JWT audience (repeatable)')
+  .option('--exp <duration>', 'JWT expiration time (e.g. 15m, 1h, 24h)')
   .action(async (options) => {
     const credentials = await getCredentials(options);
-    const decoded = await jose.decodeJwt(credentials.token);
+    const decoded = jose.decodeJwt(credentials.token);
 
     console.error(`Payload:\n${JSON.stringify(decoded, null, 2)}\nToken:`);
     console.log(credentials.token);
