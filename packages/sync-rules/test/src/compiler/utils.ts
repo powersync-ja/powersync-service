@@ -8,7 +8,7 @@ import {
 } from '../../../src/index.js';
 
 // TODO: Replace with parsing from yaml once we support that
-interface SyncStreamInput {
+export interface SyncStreamInput {
   name: string;
   queries: string[];
   ctes?: Record<string, string>;

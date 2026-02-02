@@ -33,3 +33,6 @@ export * from './HydratedSyncRules.js';
 export * from './compiler/compiler.js';
 export * from './sync_plan/plan.js';
 export { serializeSyncPlan } from './sync_plan/serialize.js';
+export { addPrecompiledSyncPlanToRules } from './sync_plan/evaluator/index.js';
+export { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
+export { nodeSqliteExpressionEngine } from './sync_plan/engine/sqlite.js';

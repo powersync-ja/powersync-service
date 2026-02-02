@@ -178,11 +178,12 @@ export class PostgresToSqlite {
           return this.invalidExpression(expr.function, 'DISTINCT, ORDER BY, FILTER and OVER clauses are not supported');
         }
 
-        const forbiddenReason = forbiddenFunctions[expr.function.name];
+        const functionName = expr.function.name.toLowerCase();
+        const forbiddenReason = forbiddenFunctions[functionName];
         if (forbiddenReason) {
           return this.invalidExpression(expr.function, `Forbidden call: ${forbiddenReason}`);
         }
-        let allowedArgs = supportedFunctions[expr.function.name];
+        let allowedArgs = supportedFunctions[functionName];
         if (allowedArgs == null) {
           return this.invalidExpression(expr.function, 'Unknown function');
         } else {
@@ -204,7 +205,7 @@ export class PostgresToSqlite {
 
         return {
           type: 'function',
-          function: expr.function.name,
+          function: functionName,
           parameters: expr.args.map((a) => this.translateNodeWithLocation(a))
         };
       }
@@ -216,6 +217,9 @@ export class PostgresToSqlite {
         const left = this.translateNodeWithLocation(expr.left);
         const right = this.translateNodeWithLocation(expr.right);
         if (expr.op === 'LIKE') {
+          // We don't support LIKE in the old bucket definition system, and want to make sure we're clear about ICU,
+          // case sensitivity and changing the escape character first. TODO: Support later.
+          this.options.errors.report('LIKE expressions are not currently supported.', expr);
           return { type: 'function', function: 'like', parameters: [left, right] };
         } else if (expr.op === 'NOT LIKE') {
           return {
@@ -243,8 +247,9 @@ export class PostgresToSqlite {
         let rightHandSideOfIs: SqlExpression<ExpressionInput>;
 
         switch (expr.op) {
-          case '+':
           case '-':
+            return this.invalidExpression(expr, 'Unary minus is not currently supported');
+          case '+':
             return { type: 'unary', operator: expr.op, operand: this.translateNodeWithLocation(expr.operand) };
           case 'NOT':
             return { type: 'unary', operator: 'not', operand: this.translateNodeWithLocation(expr.operand) };
