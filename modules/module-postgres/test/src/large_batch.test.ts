@@ -94,13 +94,13 @@ function defineBatchTests(config: storage.TestStorageConfig) {
 
       await context.replicateSnapshot();
 
+      const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
+
       const syncRules = await context.factory.getActiveSyncRulesContent();
       if (!syncRules) {
         throw new Error('Active sync rules not available');
       }
       const request = bucketRequest(syncRules);
-
-      const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
       const duration = Date.now() - start;
       const checksum = await context.storage!.getChecksums(checkpoint, [request]);
       expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
