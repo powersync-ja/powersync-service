@@ -15,7 +15,8 @@ import {
   SqliteJsonRow,
   SqliteRow
 } from './types.js';
-import { filterJsonRow, idFromData } from './utils.js';
+import { filterJsonRow } from './utils.js';
+import { idFromData } from './utils2.js';
 
 export interface RowValueExtractor {
   extract(tables: QueryParameters, into: SqliteRow): void;

@@ -1,5 +1,4 @@
 import { BucketPriority } from '../BucketDescription.js';
-import { ParameterIndexLookupCreator } from '../BucketSource.js';
 import { ParameterLookupScope } from '../HydrationState.js';
 import { TablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
