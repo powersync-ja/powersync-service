@@ -60,11 +60,6 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     await using context = await WalStreamTestContext.open(factory);
     // Manual test to check initial replication performance and memory usage
     await context.updateSyncRules(BASIC_SYNC_RULES);
-    const syncRules = await context.factory.getActiveSyncRulesContent();
-    if (!syncRules) {
-      throw new Error('Active sync rules not available');
-    }
-    const request = bucketRequest(syncRules);
     const { pool } = context;
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
@@ -99,6 +94,12 @@ function defineBatchTests(config: storage.TestStorageConfig) {
 
       await context.replicateSnapshot();
 
+      const syncRules = await context.factory.getActiveSyncRulesContent();
+      if (!syncRules) {
+        throw new Error('Active sync rules not available');
+      }
+      const request = bucketRequest(syncRules);
+
       const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
       const duration = Date.now() - start;
       const checksum = await context.storage!.getChecksums(checkpoint, [request]);
@@ -115,11 +116,6 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     await using context = await WalStreamTestContext.open(factory);
     // This just tests performance of a large number of operations inside a transaction.
     await context.updateSyncRules(BASIC_SYNC_RULES);
-    const syncRules = await context.factory.getActiveSyncRulesContent();
-    if (!syncRules) {
-      throw new Error('Active sync rules not available');
-    }
-    const request = bucketRequest(syncRules);
     const { pool } = context;
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text, other text)`);
@@ -151,6 +147,12 @@ function defineBatchTests(config: storage.TestStorageConfig) {
       );
       operationCount += perTransaction * 2;
     }
+
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules);
 
     const start = Date.now();
 
@@ -206,11 +208,6 @@ function defineBatchTests(config: storage.TestStorageConfig) {
       - SELECT * FROM test_data
       - SELECT * FROM test_data
       `);
-    const syncRules = await context.factory.getActiveSyncRulesContent();
-    if (!syncRules) {
-      throw new Error('Active sync rules not available');
-    }
-    const request = bucketRequest(syncRules);
     const { pool } = context;
 
     await pool.query(`CREATE TABLE test_data(id serial primary key, description text)`);
@@ -244,6 +241,11 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     });
     await context.replicateSnapshot();
 
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules);
     const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
     const checksum = await context.storage!.getChecksums(checkpoint, [request]);
     expect(checksum.get(request.bucket)!.count).toEqual((numDocs + 2) * 4);
