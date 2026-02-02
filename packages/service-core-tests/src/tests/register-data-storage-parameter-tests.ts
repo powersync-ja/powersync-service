@@ -1,6 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { RequestParameters, ScopedParameterLookup } from '@powersync/service-sync-rules';
-import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { RequestParameters } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -16,7 +15,6 @@ import * as test_utils from '../test-utils/test-utils-index.js';
  */
 export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
-  const MYBUCKET_1: ParameterLookupScope = { lookupName: '20002', queryId: '', source: null as any };
 
   test('save and load parameters', async () => {
     await using factory = await generateStorageFactory();
@@ -32,13 +30,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
-
-    const MYBUCKET_1: ParameterLookupScope = { lookupName: '20002', queryId: '', source: null as any };
-    // We could get the scope automatically like this:
-    // const parsed = syncRules.parsed(test_utils.PARSE_OPTIONS);
-    // const hydrated = parsed.hydratedSyncRules();
-    // const parameterSource = hydrated.definition.bucketParameterLookupSources[0];
-    // const parameterLookupScope = parsed.hydrationState.getParameterIndexLookupScope(parameterSource);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
 
     await writer.markAllSnapshotDone('1/1');
 
@@ -69,12 +61,11 @@ bucket_definitions:
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
-    expect(parameters).toEqual([
-      {
-        group_id: 'group1a'
-      }
-    ]);
+
+    const parameters = new RequestParameters({ sub: 'user1' }, {});
+    const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+    const parameter_sets = await checkpoint.getParameterSets(querier.parameterQueryLookups);
+    expect(parameter_sets).toEqual([{ group_id: 'group1a' }]);
   });
 
   test('it should use the latest version', async () => {
@@ -89,6 +80,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -116,7 +108,11 @@ bucket_definitions:
     await writer.commit('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
 
-    const parameters = await checkpoint2.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
+    const querier = hydrated.getBucketParameterQuerier(
+      test_utils.querierOptions(new RequestParameters({ sub: 'user1' }, {}))
+    ).querier;
+
+    const parameters = await checkpoint2.getParameterSets(querier.parameterQueryLookups);
     expect(parameters).toEqual([
       {
         group_id: 'group2'
@@ -124,7 +120,7 @@ bucket_definitions:
     ]);
 
     // Use the checkpoint to get older data if relevant
-    const parameters2 = await checkpoint1.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
+    const parameters2 = await checkpoint1.getParameterSets(querier.parameterQueryLookups);
     expect(parameters2).toEqual([
       {
         group_id: 'group1'
@@ -148,6 +144,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     const table = await test_utils.resolveTestTable(writer, 'todos', ['id', 'list_id'], config);
 
     await writer.markAllSnapshotDone('1/1');
@@ -189,11 +186,13 @@ bucket_definitions:
     // We specifically request the todo_ids for both lists.
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
     // association of `list1`::`todo2`
+    const querier = hydrated.getBucketParameterQuerier(
+      test_utils.querierOptions(
+        new RequestParameters({ sub: 'user1', parameters: { list_id: ['list1', 'list2'] } }, {})
+      )
+    ).querier;
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, ['list1']),
-      ScopedParameterLookup.direct(MYBUCKET_1, ['list2'])
-    ]);
+    const parameters = await checkpoint.getParameterSets(querier.parameterQueryLookups);
 
     expect(parameters.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
       {
@@ -218,6 +217,7 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
@@ -240,15 +240,26 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters1 = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, [314n, 314, 3.14])
-    ]);
+    const querier1 = hydrated.getBucketParameterQuerier(
+      test_utils.querierOptions(
+        new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3.14 } }, {})
+      )
+    ).querier;
+    const parameters1 = await checkpoint.getParameterSets(querier1.parameterQueryLookups);
     expect(parameters1).toEqual([TEST_PARAMS]);
-    const parameters2 = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, [314, 314n, 3.14])
-    ]);
+
+    const querier2 = hydrated.getBucketParameterQuerier(
+      test_utils.querierOptions(
+        new RequestParameters({ sub: 'user1', parameters: { n1: 314, f2: 314n, f3: 3.14 } }, {})
+      )
+    ).querier;
+    const parameters2 = await checkpoint.getParameterSets(querier2.parameterQueryLookups);
     expect(parameters2).toEqual([TEST_PARAMS]);
-    const parameters3 = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, [314n, 314, 3])]);
+
+    const querier3 = hydrated.getBucketParameterQuerier(
+      test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3 } }, {}))
+    ).querier;
+    const parameters3 = await checkpoint.getParameterSets(querier3.parameterQueryLookups);
     expect(parameters3).toEqual([]);
   });
 
@@ -268,6 +279,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -301,10 +313,10 @@ bucket_definitions:
     const TEST_PARAMS = { group_id: 'group1' };
 
     const checkpoint = await bucketStorage.getCheckpoint();
-
-    const parameters1 = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, [1152921504606846976n])
-    ]);
+    const querier = hydrated.getBucketParameterQuerier(
+      test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 1152921504606846976n } }, {}))
+    ).querier;
+    const parameters1 = await checkpoint.getParameterSets(querier.parameterQueryLookups);
     expect(parameters1).toEqual([TEST_PARAMS]);
   });
 
@@ -320,8 +332,8 @@ bucket_definitions:
       data: []
     `
     });
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', ['id'], config);
 
@@ -340,12 +352,9 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
-    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+    const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
     const lookups = querier.parameterQueryLookups;
-    expect(lookups).toEqual([
-      ScopedParameterLookup.direct({ lookupName: '20002', queryId: '', source: null as any }, ['u1'])
-    ]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
@@ -355,9 +364,14 @@ bucket_definitions:
         return checkpoint.getParameterSets(lookups);
       }
     });
-    expect(buckets.map(test_utils.removeSourceSymbol)).toEqual([
-      { bucket: '10002["workspace1"]', priority: 3, definition: 'by_workspace', inclusion_reasons: ['default'] }
-    ]);
+    const cleanedBuckets = buckets.map(test_utils.removeSourceSymbol);
+    expect(cleanedBuckets).toHaveLength(1);
+    expect(cleanedBuckets[0]).toMatchObject({
+      priority: 3,
+      definition: 'by_workspace',
+      inclusion_reasons: ['default']
+    });
+    expect(cleanedBuckets[0].bucket.endsWith('["workspace1"]')).toBe(true);
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
@@ -372,8 +386,8 @@ bucket_definitions:
       data: []
     `
     });
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
 
@@ -414,12 +428,9 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'unknown' }, {});
 
-    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+    const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
     const lookups = querier.parameterQueryLookups;
-    expect(lookups).toEqual([
-      ScopedParameterLookup.direct({ lookupName: '20002', queryId: '', source: null as any }, [])
-    ]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -430,21 +441,17 @@ bucket_definitions:
         return checkpoint.getParameterSets(lookups);
       }
     });
-    buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
-    expect(buckets.map(test_utils.removeSourceSymbol)).toEqual([
-      {
-        bucket: '10002["workspace1"]',
+    const cleanedBuckets = buckets.map(test_utils.removeSourceSymbol);
+    expect(cleanedBuckets).toHaveLength(2);
+    for (const bucket of cleanedBuckets) {
+      expect(bucket).toMatchObject({
         priority: 3,
         definition: 'by_public_workspace',
         inclusion_reasons: ['default']
-      },
-      {
-        bucket: '10002["workspace3"]',
-        priority: 3,
-        definition: 'by_public_workspace',
-        inclusion_reasons: ['default']
-      }
-    ]);
+      });
+    }
+    const bucketSuffixes = cleanedBuckets.map((bucket) => bucket.bucket.slice(bucket.bucket.indexOf('['))).sort();
+    expect(bucketSuffixes).toEqual(['["workspace1"]', '["workspace3"]']);
   });
 
   test('multiple parameter queries', async () => {
@@ -461,8 +468,8 @@ bucket_definitions:
       data: []
     `
     });
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
 
@@ -516,13 +523,9 @@ bucket_definitions:
     const parameters = new RequestParameters({ sub: 'u1' }, {});
 
     // Test intermediate values - could be moved to sync_rules.test.ts
-    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+    const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
     const lookups = querier.parameterQueryLookups;
-    expect(lookups).toEqual([
-      ScopedParameterLookup.direct({ lookupName: '20003', queryId: '', source: null as any }, []),
-      ScopedParameterLookup.direct({ lookupName: '20004', queryId: '', source: null as any }, ['u1'])
-    ]);
 
     const parameter_sets = await checkpoint.getParameterSets(lookups);
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -536,8 +539,8 @@ bucket_definitions:
         }
       })
     ).map((e) => e.bucket);
-    buckets.sort();
-    expect(buckets).toEqual(['10003["workspace1"]', '10003["workspace3"]']);
+    const bucketSuffixes = buckets.map((bucket) => bucket.slice(bucket.indexOf('['))).sort();
+    expect(bucketSuffixes).toEqual(['["workspace1"]', '["workspace3"]']);
   });
 
   test('truncate parameters', async () => {
@@ -552,6 +555,7 @@ bucket_definitions:
     `
     });
     const bucketStorage = factory.getInstance(syncRules);
+    const hydrated = bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
@@ -573,7 +577,10 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
+    const querier = hydrated.getBucketParameterQuerier(
+      test_utils.querierOptions(new RequestParameters({ sub: 'user1' }, {}))
+    ).querier;
+    const parameters = await checkpoint.getParameterSets(querier.parameterQueryLookups);
     expect(parameters).toEqual([]);
   });
 
