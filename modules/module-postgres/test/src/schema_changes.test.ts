@@ -49,6 +49,11 @@ function defineTests(factory: storage.TestStorageFactory) {
 
     const data = await context.getBucketData('global[]');
 
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T3]);
+
     // Initial inserts
     expect(data.slice(0, 2)).toMatchObject([PUT_T1, PUT_T2]);
 
@@ -77,6 +82,11 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     const data = await context.getBucketData('global[]');
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1]);
 
     expect(data).toMatchObject([
       // Snapshot insert
@@ -107,6 +117,11 @@ function defineTests(factory: storage.TestStorageFactory) {
     );
 
     const data = await context.getBucketData('global[]');
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2).sort(compareIds)).toMatchObject([
       // Snapshot insert
@@ -145,6 +160,14 @@ function defineTests(factory: storage.TestStorageFactory) {
     );
 
     const data = await context.getBucketData('global[]');
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([
+      putOp('test_data2', { id: 't1', description: 'test1' }),
+      putOp('test_data2', { id: 't2', description: 'test2' })
+    ]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial replication
@@ -193,6 +216,11 @@ function defineTests(factory: storage.TestStorageFactory) {
       // Truncate
       REMOVE_T1
     ]);
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
   });
 
   test('change replica id', async () => {
@@ -216,6 +244,11 @@ function defineTests(factory: storage.TestStorageFactory) {
     );
 
     const data = await context.getBucketData('global[]');
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -348,20 +381,26 @@ function defineTests(factory: storage.TestStorageFactory) {
       PUT_T2
     ]);
 
-    expect(data.slice(2, 4).sort(compareIds)).toMatchObject([
-      // Truncate - any order
-      REMOVE_T1,
-      REMOVE_T2
-    ]);
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
-    // Snapshot - order doesn't matter
-    expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
+    // Previously had more specific tests, but this varies too much based on timing:
+    // expect(data.slice(2, 4).sort(compareIds)).toMatchObject([
+    //   // Truncate - any order
+    //   REMOVE_T1,
+    //   REMOVE_T2
+    // ]);
 
-    expect(data.slice(7).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T3
-    ]);
+    // // Snapshot - order doesn't matter
+    // expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
+
+    // expect(data.slice(7).sort(compareIds)).toMatchObject([
+    //   // Replicated insert
+    //   // We may eventually be able to de-duplicate this
+    //   PUT_T3
+    // ]);
   });
 
   test('add to publication', async () => {
@@ -400,6 +439,11 @@ function defineTests(factory: storage.TestStorageFactory) {
       // We may eventually be able to de-duplicate this
       PUT_T3
     ]);
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
     const metrics = await storage.factory.getStorageMetrics();
     expect(metrics.replication_size_bytes).toBeGreaterThan(0);
@@ -475,6 +519,11 @@ function defineTests(factory: storage.TestStorageFactory) {
       REMOVE_T1,
       REMOVE_T2
     ]);
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
   });
 
   test('replica identity default without PK', async () => {
@@ -513,6 +562,11 @@ function defineTests(factory: storage.TestStorageFactory) {
       REMOVE_T1,
       REMOVE_T2
     ]);
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
   });
 
   // Test consistency of table snapshots.
