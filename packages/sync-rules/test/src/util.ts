@@ -1,5 +1,7 @@
+import { expect } from 'vitest';
 import {
   BucketDataSource,
+  BucketParameterQuerier,
   ColumnDefinition,
   CompatibilityContext,
   CreateSourceParams,
@@ -8,6 +10,7 @@ import {
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
+  ScopedParameterLookup,
   SourceSchema,
   SourceTableInterface,
   StaticSchema,
@@ -110,3 +113,17 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
     throw new Error('Function not implemented.');
   }
 };
+
+export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {
+  expect(querier.hasDynamicBuckets).toBe(true);
+
+  let recordedLookups: ScopedParameterLookup[] | null = null;
+  await querier.queryDynamicBucketDescriptions({
+    async getParameterSets(lookups: ScopedParameterLookup[]) {
+      recordedLookups = lookups;
+      return [];
+    }
+  });
+
+  return recordedLookups!;
+}
