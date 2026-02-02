@@ -241,12 +241,12 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     });
     await context.replicateSnapshot();
 
+    const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
     const syncRules = await context.factory.getActiveSyncRulesContent();
     if (!syncRules) {
       throw new Error('Active sync rules not available');
     }
     const request = bucketRequest(syncRules);
-    const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
     const checksum = await context.storage!.getChecksums(checkpoint, [request]);
     expect(checksum.get(request.bucket)!.count).toEqual((numDocs + 2) * 4);
   });

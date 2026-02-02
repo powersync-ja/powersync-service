@@ -123,6 +123,13 @@ export class MergedSyncRules implements RowProcessor {
         }
       }
     }
+
+    for (let value of this.tableDataSources.values()) {
+      // Make the arrays unique / remove duplicates:
+      value.bucketDataSources = Array.from(new Set(value.bucketDataSources));
+      value.parameterIndexLookupCreators = Array.from(new Set(value.parameterIndexLookupCreators));
+    }
+
     this.resolvedDataSources = resolvedDataSources;
     this.resolvedParameterLookupSources = resolvedParameterLookupSources;
     this.sourcePatterns = Array.from(sourcePatternMap.values());
