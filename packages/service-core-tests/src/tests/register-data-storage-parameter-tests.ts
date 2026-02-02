@@ -1,7 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { RequestParameters } from '@powersync/service-sync-rules';
 import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
-import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -66,7 +64,7 @@ bucket_definitions:
 
     const parameters = new RequestParameters({ sub: 'user1' }, {});
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
-    const parameter_sets = await checkpoint.getParameterSets(querier.parameterQueryLookups);
+    const parameter_sets = await querier.queryDynamicBucketDescriptions(checkpoint);
     expect(parameter_sets).toEqual([{ group_id: 'group1a' }]);
   });
 
@@ -114,7 +112,7 @@ bucket_definitions:
       test_utils.querierOptions(new RequestParameters({ sub: 'user1' }, {}))
     ).querier;
 
-    const parameters = await checkpoint2.getParameterSets(querier.parameterQueryLookups);
+    const parameters = await querier.queryDynamicBucketDescriptions(checkpoint2);
     expect(parameters).toEqual([
       {
         group_id: 'group2'
@@ -122,7 +120,7 @@ bucket_definitions:
     ]);
 
     // Use the checkpoint to get older data if relevant
-    const parameters2 = await checkpoint1.getParameterSets(querier.parameterQueryLookups);
+    const parameters2 = await querier.queryDynamicBucketDescriptions(checkpoint1);
     expect(parameters2).toEqual([
       {
         group_id: 'group1'
@@ -194,9 +192,9 @@ bucket_definitions:
       )
     ).querier;
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets(querier.parameterQueryLookups);
+    const buckets = await querier.queryDynamicBucketDescriptions(checkpoint);
 
-    expect(parameters.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
+    expect(buckets.sort((a, b) => a.bucket.localeCompare(b.bucket))).toEqual([
       {
         todo_id: 'todo1'
       },
@@ -247,7 +245,7 @@ bucket_definitions:
         new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3.14 } }, {})
       )
     ).querier;
-    const parameters1 = await checkpoint.getParameterSets(querier1.parameterQueryLookups);
+    const parameters1 = await querier1.queryDynamicBucketDescriptions(checkpoint);
     expect(parameters1).toEqual([TEST_PARAMS]);
 
     const querier2 = hydrated.getBucketParameterQuerier(
@@ -255,13 +253,13 @@ bucket_definitions:
         new RequestParameters({ sub: 'user1', parameters: { n1: 314, f2: 314n, f3: 3.14 } }, {})
       )
     ).querier;
-    const parameters2 = await checkpoint.getParameterSets(querier2.parameterQueryLookups);
+    const parameters2 = await querier2.queryDynamicBucketDescriptions(checkpoint);
     expect(parameters2).toEqual([TEST_PARAMS]);
 
     const querier3 = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3 } }, {}))
     ).querier;
-    const parameters3 = await checkpoint.getParameterSets(querier3.parameterQueryLookups);
+    const parameters3 = await querier3.queryDynamicBucketDescriptions(checkpoint);
     expect(parameters3).toEqual([]);
   });
 
@@ -318,7 +316,7 @@ bucket_definitions:
     const querier = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 1152921504606846976n } }, {}))
     ).querier;
-    const parameters1 = await checkpoint.getParameterSets(querier.parameterQueryLookups);
+    const parameters1 = await querier.queryDynamicBucketDescriptions(checkpoint);
     expect(parameters1).toEqual([TEST_PARAMS]);
   });
 
@@ -591,7 +589,7 @@ bucket_definitions:
     const querier = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(new RequestParameters({ sub: 'user1' }, {}))
     ).querier;
-    const parameters = await checkpoint.getParameterSets(querier.parameterQueryLookups);
+    const parameters = await querier.queryDynamicBucketDescriptions(checkpoint);
     expect(parameters).toEqual([]);
   });
 

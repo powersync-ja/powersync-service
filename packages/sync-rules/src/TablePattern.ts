@@ -34,10 +34,6 @@ export class TablePattern implements Equatable {
     return JSON.stringify([this.connectionTag, this.schema, this.tablePattern]);
   }
 
-  equals(other: TablePattern): boolean {
-    return this.key == other.key;
-  }
-
   get isWildcard() {
     return this.tablePattern.endsWith('%');
   }

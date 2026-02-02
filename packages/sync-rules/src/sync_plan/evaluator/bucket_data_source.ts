@@ -17,7 +17,7 @@ import { StreamEvaluationContext } from './index.js';
 import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
-  private readonly sourceTables = new Set<TablePattern>();
+  private readonly sourceTables: TablePattern[] = [];
   private readonly sources: PreparedStreamDataSource[] = [];
 
   constructor(
@@ -28,7 +28,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
       const prepared = new PreparedStreamDataSource(data, context);
 
       this.sources.push(prepared);
-      this.sourceTables.add(prepared.tablePattern);
+      this.sourceTables.push(prepared.tablePattern);
     }
   }
 
@@ -44,7 +44,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     return evaluator.parameters.map((p) => ExpressionToSqlite.toSqlite(p.expr));
   }
 
-  getSourceTables(): Set<TablePattern> {
+  getSourceTables(): TablePattern[] {
     return this.sourceTables;
   }
 
