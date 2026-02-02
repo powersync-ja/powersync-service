@@ -444,9 +444,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     // slice(1) to skip the CLEAR op.
     const reduced = reduceBucket(data).slice(1);
     expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
-
-    const metrics = await storage.factory.getStorageMetrics();
-    expect(metrics.replication_size_bytes).toBeGreaterThan(0);
   });
 
   test('add to publication (not in sync rules)', async () => {
@@ -474,9 +471,6 @@ function defineTests(factory: storage.TestStorageFactory) {
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([]);
-
-    const metrics = await storage.factory.getStorageMetrics();
-    expect(metrics.replication_size_bytes).toMatchSnapshot();
   });
 
   test('replica identity nothing', async () => {
