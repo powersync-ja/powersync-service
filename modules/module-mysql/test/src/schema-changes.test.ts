@@ -65,6 +65,9 @@ async function defineTests(config: storage.TestStorageConfig) {
 
     const data = await context.getBucketData('global[]');
 
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T3]);
+
     // Initial inserts
     expect(data.slice(0, 2)).toMatchObject([PUT_T1, PUT_T2]);
 
@@ -93,6 +96,9 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t1','test1')`);
 
     const data = await context.getBucketData('global[]');
+
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1]);
 
     expect(data).toMatchObject([PUT_T1, PUT_T1]);
   });
@@ -123,6 +129,9 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`CREATE TABLE test_data SELECT * FROM test_data_from`);
 
     const data = await context.getBucketData('global[]');
+
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
     // Interestingly, the create with select triggers binlog row write events
     expect(data).toMatchObject([
@@ -173,6 +182,9 @@ async function defineTests(config: storage.TestStorageConfig) {
 
     const data = await context.getBucketData('global[]');
 
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
+
     expect(data).toMatchObject([
       // Snapshot insert
       PUT_T1,
@@ -203,6 +215,12 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data2(id, description) VALUES('t2','test2')`);
 
     const data = await context.getBucketData('global[]');
+
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([
+      putOp('test_data2', { id: 't1', description: 'test1' }),
+      putOp('test_data2', { id: 't2', description: 'test2' })
+    ]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial replication
@@ -239,6 +257,9 @@ async function defineTests(config: storage.TestStorageConfig) {
 
     const data = await context.getBucketData('global[]');
 
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
+
     expect(data).toMatchObject([
       // Initial replication
       PUT_T1,
@@ -264,6 +285,9 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
 
     const data = await context.getBucketData('global[]');
+
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -302,6 +326,12 @@ async function defineTests(config: storage.TestStorageConfig) {
 
     const data = await context.getBucketData('global[]');
 
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([
+      putOp('test_data', { id: 't1', description: 'test1', new_column: null }),
+      putOp('test_data', { id: 't2', description: 'test2', new_column: null })
+    ]);
+
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
       PUT_T1,
@@ -337,6 +367,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -372,6 +404,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -408,6 +442,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -441,6 +477,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t2','test2')`);
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -480,6 +518,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t3','test3')`);
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial snapshot
@@ -522,11 +562,15 @@ async function defineTests(config: storage.TestStorageConfig) {
     );
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([
+      PUT_T1,
+      putOp('test_data', { id: 't2', description: 'test2', new_column: 'new_data' })
+    ]);
 
     expect(data.slice(0, 1)).toMatchObject([PUT_T1]);
 
     expect(data.slice(1)).toMatchObject([
-      // Snapshot inserts
       putOp('test_data', { id: 't2', description: 'test2', new_column: 'new_data' })
     ]);
   });
@@ -549,6 +593,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`INSERT INTO test_data(id, description) VALUES('t3','test3')`);
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial snapshot
@@ -579,6 +625,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`DROP TABLE test_data`);
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -618,6 +666,8 @@ async function defineTests(config: storage.TestStorageConfig) {
     await connectionManager.query(`DROP TABLE ${testTable}`);
 
     const data = await context.getBucketData('multi_schema_test_data[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts

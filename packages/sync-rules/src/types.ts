@@ -244,6 +244,15 @@ export class RequestParameters implements ParameterValueSet {
 export type SqliteJsonValue = number | string | bigint | null;
 
 /**
+ * A value that can be used as a bucket parameter.
+ *
+ * We don't support binary bucket parameters, so this needs to be a {@link SqliteJsonValue}. Further, bucket parameters
+ * are always instantiated through the `=` operator, and `NULL` values in SQLite don't compare via `=`. So, `null`
+ * values also aren't allowed as parameters.
+ */
+export type SqliteParameterValue = NonNullable<SqliteJsonValue>;
+
+/**
  * A value supported by the SQLite type system.
  */
 export type SqliteValue = number | string | null | bigint | Uint8Array;

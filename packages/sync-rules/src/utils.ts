@@ -1,8 +1,10 @@
 import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/service-jsonbig';
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
+import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
+import { castAsText } from './sql_functions.js';
 import { SQLITE_FALSE, SQLITE_TRUE } from './sql_support.js';
 import {
   DatabaseInputRow,
@@ -11,11 +13,11 @@ import {
   SqliteInputValue,
   SqliteJsonRow,
   SqliteJsonValue,
+  SqliteParameterValue,
   SqliteRow,
   SqliteValue
 } from './types.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { BucketDataSource } from './BucketSource.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
@@ -94,6 +96,10 @@ export function jsonValueToSqlite(
 
 export function isJsonValue(value: SqliteValue): value is SqliteJsonValue {
   return value == null || typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint';
+}
+
+export function isValidParameterValue(value: SqliteValue): value is SqliteParameterValue {
+  return value != null && isJsonValue(value);
 }
 
 function filterJsonData(data: any, context: CompatibilityContext, depth = 0): any {
@@ -248,4 +254,21 @@ export function normalizeParameterValue(value: SqliteJsonValue): SqliteJsonValue
     return BigInt(value);
   }
   return value;
+}
+
+/**
+ * Extracts and normalizes the ID column from a row.
+ */
+export function idFromData(data: SqliteJsonRow): string {
+  let id = data.id;
+  if (typeof id != 'string') {
+    // While an explicit cast would be better, this covers against very common
+    // issues when initially testing out sync, for example when the id column is an
+    // auto-incrementing integer.
+    // If there is no id column, we use a blank id. This will result in the user syncing
+    // a single arbitrary row for this table - better than just not being able to sync
+    // anything.
+    id = castAsText(id) ?? '';
+  }
+  return id;
 }

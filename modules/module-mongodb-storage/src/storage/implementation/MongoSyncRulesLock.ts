@@ -42,15 +42,16 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       if (heldLock?.lock?.expires_at) {
         throw new ServiceError(
           ErrorCode.PSYNC_S1003,
-          `Sync rules: ${sync_rules.id} have been locked by another process for replication, expiring at ${heldLock.lock.expires_at.toISOString()}.`
+          `Sync rules ${sync_rules.id} have been locked by another process for replication, expiring at ${heldLock.lock.expires_at.toISOString()}.`
         );
       } else {
         throw new ServiceError(
           ErrorCode.PSYNC_S1003,
-          `Sync rules: ${sync_rules.id} have been locked by another process for replication.`
+          `Sync rules ${sync_rules.id} have been locked by another process for replication.`
         );
       }
     }
+    logger.info(`Sync rules ${sync_rules.id} has been locked for replication with lock ID ${lockId}.`);
     return new MongoSyncRulesLock(db, sync_rules.id, lockId);
   }
 

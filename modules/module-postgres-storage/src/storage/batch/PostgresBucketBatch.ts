@@ -9,7 +9,13 @@ import {
   ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { BucketStorageMarkRecordUnavailable, InternalOpId, storage, utils } from '@powersync/service-core';
+import {
+  BucketStorageMarkRecordUnavailable,
+  deserializeReplicaId,
+  InternalOpId,
+  storage,
+  utils
+} from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
@@ -217,17 +223,18 @@ export class PostgresBucketBatch
 
           const decodedRows = rows.map((row) => codec.decode(row));
           for (const value of decodedRows) {
+            const source_key = deserializeReplicaId(value.source_key);
             persistedBatch.saveBucketData({
               before_buckets: value.buckets,
               evaluated: [],
               table: sourceTable,
-              source_key: value.source_key
+              source_key
             });
             persistedBatch.saveParameterData({
               existing_lookups: value.lookups,
               evaluated: [],
               table: sourceTable,
-              source_key: value.source_key
+              source_key
             });
             persistedBatch.deleteCurrentData({
               // This is serialized since we got it from a DB query

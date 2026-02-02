@@ -250,7 +250,6 @@ export class TableValuedFunctionSqlParameterQuery {
         const staticQuerier = {
           staticBuckets,
           hasDynamicBuckets: false,
-          parameterQueryLookups: [],
           queryDynamicBucketDescriptions: async () => []
         } satisfies BucketParameterQuerier;
         result.queriers.push(staticQuerier);

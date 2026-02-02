@@ -170,7 +170,6 @@ export class StreamVariant {
     return {
       staticBuckets: staticBuckets,
       hasDynamicBuckets: this.subqueries.length != 0,
-      parameterQueryLookups: [...subqueryToLookups.values()].flatMap((f) => f),
       async queryDynamicBucketDescriptions(source) {
         // Evaluate subqueries
         const subqueryResults = new Map<SubqueryEvaluator, SqliteJsonValue[]>();

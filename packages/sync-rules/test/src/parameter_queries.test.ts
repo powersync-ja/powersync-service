@@ -1,25 +1,25 @@
 import { beforeEach, describe, expect, test } from 'vitest';
+import { HydrationState } from '../../src/HydrationState.js';
 import {
-  UnscopedParameterLookup,
-  SqlParameterQuery,
-  SourceTableInterface,
-  debugHydratedMergedSource,
   BucketParameterQuerier,
-  QuerierError,
   GetQuerierOptions,
+  mergeParameterIndexLookupCreators,
+  QuerierError,
   RequestParameters,
   ScopedParameterLookup,
-  mergeParameterIndexLookupCreators
+  SourceTableInterface,
+  SqlParameterQuery,
+  UnscopedParameterLookup
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import {
   BASIC_SCHEMA,
   EMPTY_DATA_SOURCE,
+  findQuerierLookups,
   normalizeTokenParameters,
   PARSE_OPTIONS,
   removeSourceSymbol
 } from './util.js';
-import { HydrationState } from '../../src/HydrationState.js';
 
 describe('parameter queries', () => {
   const table = (name: string): SourceTableInterface => ({
@@ -934,7 +934,7 @@ describe('parameter queries', () => {
       ]);
     });
 
-    test('for queries', function () {
+    test('for queries', async function () {
       const hydrated = query.createParameterQuerierSource({ hydrationState });
 
       const queriers: BucketParameterQuerier[] = [];
@@ -959,7 +959,8 @@ describe('parameter queries', () => {
 
       const querier = queriers[0];
 
-      expect(querier.parameterQueryLookups).toEqual([
+      expect(querier.hasDynamicBuckets).toBeTruthy();
+      expect(await findQuerierLookups(querier)).toEqual([
         ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: query }, [
           'test-user'
         ])

@@ -1,13 +1,15 @@
+import { expect } from 'vitest';
 import {
   BucketDataSource,
+  BucketParameterQuerier,
   ColumnDefinition,
   CompatibilityContext,
-  CreateSourceParams,
   DEFAULT_TAG,
   GetQuerierOptions,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
+  ScopedParameterLookup,
   SOURCE,
   SourceSchema,
   SourceTableInterface,
@@ -130,4 +132,18 @@ export function removeSource<T extends { source?: any }>(obj: T): Omit<T, 'sourc
 export function removeSourceSymbol<T extends { [SOURCE]: any }>(obj: T): Omit<T, typeof SOURCE> {
   const { [SOURCE]: source, ...rest } = obj;
   return rest;
+}
+
+export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {
+  expect(querier.hasDynamicBuckets).toBe(true);
+
+  let recordedLookups: ScopedParameterLookup[] | null = null;
+  await querier.queryDynamicBucketDescriptions({
+    async getParameterSets(lookups: ScopedParameterLookup[]) {
+      recordedLookups = lookups;
+      return [];
+    }
+  });
+
+  return recordedLookups!;
 }

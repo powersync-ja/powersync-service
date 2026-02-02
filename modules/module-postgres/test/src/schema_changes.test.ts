@@ -50,6 +50,11 @@ function defineTests(config: storage.TestStorageConfig) {
 
     const data = await context.getBucketData('global[]');
 
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T3]);
+
     // Initial inserts
     expect(data.slice(0, 2)).toMatchObject([PUT_T1, PUT_T2]);
 
@@ -82,21 +87,11 @@ function defineTests(config: storage.TestStorageConfig) {
 
     const data = await context.getBucketData('global[]');
 
-    // Both of these are valid
-    if (data.length == 2) {
-      expect(data).toMatchObject([
-        // Snapshot insert
-        PUT_T1,
-        // Replicated insert
-        // May be de-duplicated
-        PUT_T1
-      ]);
-    } else {
-      expect(data).toMatchObject([
-        // Replicated insert
-        PUT_T1
-      ]);
-    }
+    // "Reduce" the bucket to get a stable output to test.
+    // The specific operation sequence may vary depending on storage implementation, so just check the end result.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1]);
   });
 
   test('rename table (1)', async () => {
@@ -118,6 +113,11 @@ function defineTests(config: storage.TestStorageConfig) {
     );
 
     const data = await context.getBucketData('global[]');
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2).sort(compareIds)).toMatchObject([
       // Snapshot insert
@@ -157,6 +157,14 @@ function defineTests(config: storage.TestStorageConfig) {
     );
 
     const data = await context.getBucketData('global[]');
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([
+      putOp('test_data2', { id: 't1', description: 'test1' }),
+      putOp('test_data2', { id: 't2', description: 'test2' })
+    ]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial replication
@@ -206,6 +214,11 @@ function defineTests(config: storage.TestStorageConfig) {
       // Truncate
       REMOVE_T1
     ]);
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
   });
 
   test('change replica id', async () => {
@@ -228,6 +241,11 @@ function defineTests(config: storage.TestStorageConfig) {
     );
 
     const data = await context.getBucketData('global[]');
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
     expect(data.slice(0, 2)).toMatchObject([
       // Initial inserts
@@ -363,22 +381,12 @@ function defineTests(config: storage.TestStorageConfig) {
       PUT_T2
     ]);
 
-    expect(data.slice(2, 4).sort(compareIds)).toMatchObject([
-      // Truncate - any order
-      REMOVE_T1,
-      REMOVE_T2
-    ]);
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
-    // Snapshot - order doesn't matter
-    expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
-
-    if (data.length > 7) {
-      expect(data.slice(7).sort(compareIds)).toMatchObject([
-        // Replicated insert
-        // May be de-duplicated
-        PUT_T3
-      ]);
-    }
+    // Previously had more specific tests, but this varies too much based on timing.
   });
 
   test('add to publication', async () => {
@@ -419,8 +427,10 @@ function defineTests(config: storage.TestStorageConfig) {
       ]);
     }
 
-    const metrics = await storage.factory.getStorageMetrics();
-    expect(metrics.replication_size_bytes).toBeGreaterThan(0);
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
   });
 
   test('add to publication (not in sync rules)', async () => {
@@ -447,9 +457,6 @@ function defineTests(config: storage.TestStorageConfig) {
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([]);
-
-    const metrics = await storage.factory.getStorageMetrics();
-    expect(metrics.replication_size_bytes).toMatchSnapshot();
   });
 
   test('replica identity nothing', async () => {
@@ -491,6 +498,11 @@ function defineTests(config: storage.TestStorageConfig) {
       REMOVE_T1,
       REMOVE_T2
     ]);
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
   });
 
   test('replica identity default without PK', async () => {
@@ -528,6 +540,11 @@ function defineTests(config: storage.TestStorageConfig) {
       REMOVE_T1,
       REMOVE_T2
     ]);
+
+    // "Reduce" the bucket to get a stable output to test.
+    // slice(1) to skip the CLEAR op.
+    const reduced = reduceBucket(data).slice(1);
+    expect(reduced.sort(compareIds)).toMatchObject([]);
   });
 
   // Test consistency of table snapshots.

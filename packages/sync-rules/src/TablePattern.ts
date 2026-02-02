@@ -1,3 +1,4 @@
+import { Equatable, StableHasher } from './compiler/equality.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 
 export const DEFAULT_TAG = 'default';
@@ -5,7 +6,7 @@ export const DEFAULT_TAG = 'default';
 /**
  * Some pattern matching SourceTables.
  */
-export class TablePattern {
+export class TablePattern implements Equatable {
   public readonly connectionTag: string;
 
   public readonly schema: string;
@@ -71,5 +72,20 @@ export class TablePattern {
       return '';
     }
     return table.substring(this.tablePrefix.length);
+  }
+
+  buildHash(hasher: StableHasher): void {
+    hasher.addString(this.connectionTag);
+    hasher.addString(this.schema);
+    hasher.addString(this.tablePattern);
+  }
+
+  equals(other: unknown): boolean {
+    return (
+      other instanceof TablePattern &&
+      other.connectionTag == this.connectionTag &&
+      other.schema == this.schema &&
+      other.tablePattern == this.tablePattern
+    );
   }
 }

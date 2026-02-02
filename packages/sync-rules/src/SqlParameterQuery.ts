@@ -539,7 +539,6 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
       return {
         staticBuckets: [],
         hasDynamicBuckets: false,
-        parameterQueryLookups: [],
         queryDynamicBucketDescriptions: async () => []
       };
     }
@@ -547,7 +546,6 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     return {
       staticBuckets: [],
       hasDynamicBuckets: true,
-      parameterQueryLookups: lookups,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => ({

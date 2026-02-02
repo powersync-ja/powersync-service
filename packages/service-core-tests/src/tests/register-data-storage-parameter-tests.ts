@@ -1,5 +1,7 @@
 import { storage } from '@powersync/service-core';
 import { RequestParameters } from '@powersync/service-sync-rules';
+import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -354,14 +356,14 @@ bucket_definitions:
 
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const lookups = querier.parameterQueryLookups;
-
-    const parameter_sets = await checkpoint.getParameterSets(lookups);
-    expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
-
     const buckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets(lookups) {
-        return checkpoint.getParameterSets(lookups);
+      async getParameterSets(lookups) {
+        // Lookups are not stable anymore
+        // expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1' }, ['u1'])]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
+        return parameter_sets;
       }
     });
     const cleanedBuckets = buckets.map(test_utils.removeSourceSymbol);
@@ -430,15 +432,17 @@ bucket_definitions:
 
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const lookups = querier.parameterQueryLookups;
-
-    const parameter_sets = await checkpoint.getParameterSets(lookups);
-    parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
-
     const buckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets(lookups) {
-        return checkpoint.getParameterSets(lookups);
+      async getParameterSets(lookups) {
+        // Lookups are not stable anymore
+        // expect(lookups).toEqual([
+        //   ScopedParameterLookup.direct({ lookupName: 'by_public_workspace', queryId: '1' }, [])
+        // ]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
+        return parameter_sets;
       }
     });
     const cleanedBuckets = buckets.map(test_utils.removeSourceSymbol);
@@ -525,20 +529,27 @@ bucket_definitions:
     // Test intermediate values - could be moved to sync_rules.test.ts
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const lookups = querier.parameterQueryLookups;
-
-    const parameter_sets = await checkpoint.getParameterSets(lookups);
-    parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
-
     // Test final values - the important part
+    const foundLookups: ScopedParameterLookup[] = [];
+    const parameter_sets: SqliteJsonRow[] = [];
     const buckets = (
       await querier.queryDynamicBucketDescriptions({
-        getParameterSets(lookups) {
-          return checkpoint.getParameterSets(lookups);
+        async getParameterSets(lookups) {
+          foundLookups.push(...lookups);
+          const output = await checkpoint.getParameterSets(lookups);
+          parameter_sets.push(...output);
+          return output;
         }
       })
     ).map((e) => e.bucket);
+    // Lookups are not stable anymore
+    // expect(foundLookups).toEqual([
+    //   ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '1' }, []),
+    //   ScopedParameterLookup.direct({ lookupName: 'by_workspace', queryId: '2' }, ['u1'])
+    // ]);
+    parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
+
     const bucketSuffixes = buckets.map((bucket) => bucket.slice(bucket.indexOf('['))).sort();
     expect(bucketSuffixes).toEqual(['["workspace1"]', '["workspace3"]']);
   });
