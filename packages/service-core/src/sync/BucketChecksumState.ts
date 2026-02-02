@@ -394,7 +394,7 @@ export class BucketParameterState {
   private cachedDynamicBuckets: ResolvedBucket[] | null = null;
   private cachedDynamicBucketSet: Set<string> | null = null;
 
-  private readonly lookups: Set<string>;
+  private lookupsFromPreviousCheckpoint: Set<string> | null = null;
 
   constructor(
     context: SyncContext,
@@ -442,7 +442,6 @@ export class BucketParameterState {
     this.staticBuckets = new Map<string, ResolvedBucket>(
       mergeBuckets(this.querier.staticBuckets).map((b) => [b.bucket, b])
     );
-    this.lookups = new Set<string>(this.querier.parameterQueryLookups.map((l) => JSONBig.stringify(l.values)));
     this.subscribedStreamNames = new Set(Object.keys(streamsByName));
   }
 
@@ -541,7 +540,6 @@ export class BucketParameterState {
    */
   private async getCheckpointUpdateDynamic(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
     const querier = this.querier;
-    const storage = this.bucketStorage;
     const staticBuckets = this.staticBuckets.values();
     const update = checkpoint.update;
 
@@ -555,10 +553,10 @@ export class BucketParameterState {
       invalidateDataBuckets = true;
     }
 
-    if (update.invalidateParameterBuckets) {
+    if (update.invalidateParameterBuckets || this.lookupsFromPreviousCheckpoint == null) {
       hasParameterChange = true;
     } else {
-      if (hasIntersection(this.lookups, update.updatedParameterLookups)) {
+      if (hasIntersection(this.lookupsFromPreviousCheckpoint, update.updatedParameterLookups)) {
         // This is a very coarse re-check of all queries
         hasParameterChange = true;
       }
@@ -566,13 +564,20 @@ export class BucketParameterState {
 
     let dynamicBuckets: ResolvedBucket[];
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
+      const recordedLookups = new Set<string>();
+
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
         getParameterSets(lookups) {
+          for (const lookup of lookups) {
+            recordedLookups.add(lookup.serializedRepresentation);
+          }
+
           return checkpoint.base.getParameterSets(lookups);
         }
       });
       this.cachedDynamicBuckets = dynamicBuckets;
       this.cachedDynamicBucketSet = new Set<string>(dynamicBuckets.map((b) => b.bucket));
+      this.lookupsFromPreviousCheckpoint = recordedLookups;
       invalidateDataBuckets = true;
     } else {
       dynamicBuckets = this.cachedDynamicBuckets;
