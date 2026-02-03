@@ -4,9 +4,9 @@ import { BucketDataSource, BucketParameterQuerierSource, ParameterIndexLookupCre
 import { BucketDataScope } from '../HydrationState.js';
 import { CreateSourceParams, GetQuerierOptions, RequestedStream, ScopedParameterLookup } from '../index.js';
 import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
-import { buildBucketName, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
+import { buildBucketInfo, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
-import { SyncStream, SyncStreamDataSource } from './stream.js';
+import { SyncStream } from './stream.js';
 import { cartesianProduct } from './utils.js';
 
 /**
@@ -294,7 +294,7 @@ export class StreamVariant {
     return {
       definition: stream.name,
       inclusion_reasons: [reason],
-      bucket: buildBucketName(bucketScope, this.serializeBucketParameters(instantiation)),
+      ...buildBucketInfo(bucketScope, this.serializeBucketParameters(instantiation)),
       priority: stream.priority
     };
   }

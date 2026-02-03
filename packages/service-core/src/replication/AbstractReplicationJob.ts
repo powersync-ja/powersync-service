@@ -54,17 +54,13 @@ export abstract class AbstractReplicationJob {
    *  Safely stop the replication process
    */
   public async stop(): Promise<void> {
-    this.logger.info(`Stopping replication job for sync rule iteration: ${this.storage.group_id}`);
+    this.logger.info(`Stopping replication job for sync rule iteration: ${this.id}`);
     this.abortController.abort();
     await this.isReplicatingPromise;
   }
 
   public get id() {
     return this.options.id;
-  }
-
-  public get storage() {
-    return this.options.storage;
   }
 
   protected get lock() {

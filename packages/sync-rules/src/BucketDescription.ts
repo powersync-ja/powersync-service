@@ -1,3 +1,6 @@
+import { BucketDataSource } from './index.js';
+import { SOURCE } from './utils.js';
+
 /**
  * The priority in which to synchronize buckets.
  *
@@ -29,6 +32,8 @@ export interface BucketDescription {
    * The priority used to synchronize this bucket, derived from its definition.
    */
   priority: BucketPriority;
+
+  [SOURCE]: BucketDataSource;
 }
 
 /**

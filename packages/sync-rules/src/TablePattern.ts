@@ -27,6 +27,13 @@ export class TablePattern implements Equatable {
     this.tablePattern = tablePattern;
   }
 
+  /**
+   * Unique lookup key for this pattern. For in-memory use only - no gaurantee of stability across restarts.
+   */
+  get key(): string {
+    return JSON.stringify([this.connectionTag, this.schema, this.tablePattern]);
+  }
+
   get isWildcard() {
     return this.tablePattern.endsWith('%');
   }

@@ -7,7 +7,8 @@ import {
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
-  SqliteValue
+  SqliteValue,
+  TablePattern
 } from '../../../../src/index.js';
 import { TestSourceTable } from '../../util.js';
 
@@ -27,9 +28,9 @@ describe('evaluating rows', () => {
           _blob: new Uint8Array(10) // non-JSON columns should be removed
         }
       })
-    ).toStrictEqual([
+    ).toMatchObject([
       {
-        bucket: 'stream|0[]',
+        bucket: '1#stream|0[]',
         id: 'foo',
         data: { id: 'foo', _double: 1, _int: 1n, _null: null, _text: 'text' },
         table: 'users'
@@ -51,10 +52,10 @@ describe('evaluating rows', () => {
       return rows[0].bucket;
     }
 
-    expect(evaluate(1)).toStrictEqual('stream|0[1]');
-    expect(evaluate(1n)).toStrictEqual('stream|0[1]');
-    expect(evaluate(1.1)).toStrictEqual('stream|0[1.1]');
-    expect(evaluate('1')).toStrictEqual('stream|0["1"]');
+    expect(evaluate(1)).toStrictEqual('1#stream|0[1]');
+    expect(evaluate(1n)).toStrictEqual('1#stream|0[1]');
+    expect(evaluate(1.1)).toStrictEqual('1#stream|0[1.1]');
+    expect(evaluate('1')).toStrictEqual('1#stream|0["1"]');
 
     // null is not equal to itself, so WHERE null = subscription.paraeter('p') should not match any rows.
     expect(evaluate(null)).toStrictEqual(undefined);
@@ -72,9 +73,9 @@ describe('evaluating rows', () => {
           id: 'foo'
         }
       })
-    ).toStrictEqual([
+    ).toMatchObject([
       {
-        bucket: 'stream|0[]',
+        bucket: '1#stream|0[]',
         id: 'foo',
         data: { id: 'foo' },
         table: 'u'
@@ -91,9 +92,9 @@ describe('evaluating rows', () => {
           id: 'foo'
         }
       })
-    ).toStrictEqual([
+    ).toMatchObject([
       {
-        bucket: 'stream|0[]',
+        bucket: '1#stream|0[]',
         id: 'foo',
         data: { id: 'foo' },
         table: 'output'
@@ -110,9 +111,9 @@ describe('evaluating rows', () => {
           id: 'foo'
         }
       })
-    ).toStrictEqual([
+    ).toMatchObject([
       {
-        bucket: 'stream|0[]',
+        bucket: '1#stream|0[]',
         id: 'foo',
         data: { id: 'foo' },
         table: 'users'
@@ -124,8 +125,8 @@ describe('evaluating rows', () => {
     const desc = sync.prepareSyncStreams([
       { name: 'stream', queries: ['SELECT * FROM users', 'SELECT * FROM comments'] }
     ]);
-    expect(evaluateBucketIds(desc, USERS, { id: 'foo' })).toStrictEqual(['stream|0[]']);
-    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo2' })).toStrictEqual(['stream|0[]']);
+    expect(evaluateBucketIds(desc, USERS, { id: 'foo' })).toStrictEqual(['1#stream|0[]']);
+    expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo2' })).toStrictEqual(['1#stream|0[]']);
   });
 });
 
@@ -138,13 +139,16 @@ describe('evaluating parameters', () => {
       }
     ]);
 
+    const issueSource = desc.getMatchingSources(new TablePattern('test_schema', 'issues'))
+      .parameterIndexLookupCreators[0];
+
     expect(desc.tableSyncsData(COMMENTS)).toBeTruthy();
     expect(desc.tableSyncsData(ISSUES)).toBeFalsy();
     expect(desc.tableSyncsParameters(ISSUES)).toBeTruthy();
 
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['user1']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: issueSource }, ['user1']),
         bucketParameters: [
           {
             '0': 'issue_id'
@@ -187,7 +191,7 @@ describe('querier', () => {
       streams: {}
     });
 
-    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0[]']);
+    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['1#stream|0[]']);
   });
 
   syncTest('request data', ({ sync }) => {
@@ -205,7 +209,7 @@ describe('querier', () => {
     });
     expect(errors).toStrictEqual([]);
 
-    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0["user"]']);
+    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['1#stream|0["user"]']);
   });
 
   syncTest('parameter lookups', async ({ sync }) => {
@@ -228,6 +232,10 @@ describe('querier', () => {
       streams: {}
     });
     expect(errors).toStrictEqual([]);
+    const userSource = desc.getMatchingSources(new TablePattern('test_schema', 'users'))
+      .parameterIndexLookupCreators[0];
+    const issueSource = desc.getMatchingSources(new TablePattern('test_schema', 'issues'))
+      .parameterIndexLookupCreators[0];
 
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([]);
     let call = 0;
@@ -240,7 +248,8 @@ describe('querier', () => {
             ScopedParameterLookup.direct(
               {
                 lookupName: 'lookup',
-                queryId: '0'
+                queryId: '0',
+                source: userSource
               },
               ['user']
             )
@@ -253,7 +262,8 @@ describe('querier', () => {
             ScopedParameterLookup.direct(
               {
                 lookupName: 'lookup',
-                queryId: '1'
+                queryId: '1',
+                source: issueSource
               },
               ['name']
             )
@@ -264,7 +274,7 @@ describe('querier', () => {
         throw new Error('Function not implemented.');
       }
     });
-    expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
+    expect(buckets.map((b) => b.bucket)).toStrictEqual(['1#stream|0["issue"]']);
   });
 });
 

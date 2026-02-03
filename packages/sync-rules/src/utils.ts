@@ -1,5 +1,6 @@
 import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/service-jsonbig';
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
+import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
@@ -16,13 +17,27 @@ import {
   SqliteValue
 } from './types.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { castAsText } from './sql_functions.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
 }
 
-export function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {
+export const SOURCE = Symbol.for('BucketSourceStorage');
+
+export function buildBucketInfo(
+  scope: BucketDataScope,
+  serializedParameters: string
+): { bucket: string; [SOURCE]: BucketDataSource } {
+  if (scope.source == null) {
+    throw new Error('source is required');
+  }
+  return {
+    bucket: scope.bucketPrefix + serializedParameters,
+    [SOURCE]: scope.source
+  };
+}
+
+function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {
   return scope.bucketPrefix + serializedParameters;
 }
 
@@ -238,21 +253,4 @@ export function normalizeParameterValue(value: SqliteJsonValue): SqliteJsonValue
     return BigInt(value);
   }
   return value;
-}
-
-/**
- * Extracts and normalizes the ID column from a row.
- */
-export function idFromData(data: SqliteJsonRow): string {
-  let id = data.id;
-  if (typeof id != 'string') {
-    // While an explicit cast would be better, this covers against very common
-    // issues when initially testing out sync, for example when the id column is an
-    // auto-incrementing integer.
-    // If there is no id column, we use a blank id. This will result in the user syncing
-    // a single arbitrary row for this table - better than just not being able to sync
-    // anything.
-    id = castAsText(id) ?? '';
-  }
-  return id;
 }

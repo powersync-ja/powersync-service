@@ -8,7 +8,8 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { toSyncRulesParameters } from './utils.js';
+import { SOURCE, toSyncRulesParameters } from './utils.js';
+import { BucketDataSource } from './index.js';
 
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
@@ -58,6 +59,11 @@ export interface EvaluatedRow {
 
   /** Must be JSON-serializable. */
   data: SqliteJsonRow;
+
+  /**
+   * Source for the evaluated row.
+   */
+  source: BucketDataSource;
 }
 
 /**

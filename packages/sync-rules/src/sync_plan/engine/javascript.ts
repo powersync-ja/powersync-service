@@ -1,4 +1,5 @@
 import {
+  cast,
   compare,
   CompatibilityContext,
   generateSqlFunctions,
@@ -7,7 +8,7 @@ import {
   sqliteBool,
   sqliteNot
 } from '../../index.js';
-import { cast, evaluateOperator, SqlFunction } from '../../sql_functions.js';
+import { evaluateOperator, SqlFunction } from '../../sql_functions.js';
 import { cartesianProduct } from '../../streams/utils.js';
 import { generateTableValuedFunctions } from '../../TableValuedFunctions.js';
 import { SqliteRow, SqliteValue } from '../../types.js';
