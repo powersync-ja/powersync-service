@@ -387,6 +387,28 @@ export class PostgresToSqlite {
         additionalFilters.push(...resolved.filters);
         return resolved.output;
       } else {
+        if (expr.type == 'ref' && expr.table == null) {
+          // This might be a reference to a common table expression, e.g. in  WHERE x IN $cte.
+          const cte = this.options.scope.resolveCommonTableExpression(expr.name);
+          if (cte) {
+            // Translate $cte to (SELECT $onlyColumn FROM $cte)
+            const columns = Object.keys(cte.resultColumns);
+            if (columns.length != 1) {
+              const bogus = this.invalidExpression(expr, 'Common-table expression must return a single column');
+              this.options.locations.sourceForNode.set(bogus, expr);
+              return bogus;
+            }
+
+            return expand({
+              type: 'select',
+              columns: [
+                { expr: { type: 'ref', name: columns[0], table: { name: expr.name }, _location: expr._location } }
+              ],
+              from: [{ type: 'table', name: { name: expr.name } }]
+            });
+          }
+        }
+
         // Translate `x IN a` to `x IN (SELECT value FROM json_each(a))`.
         const name = this.options.generateTableAlias();
         return expand({
@@ -445,37 +467,6 @@ export class PostgresToSqlite {
       in: right.map((e) => this.translateNodeWithLocation(e))
     };
     return negated ? { type: 'unary', operator: 'not', operand: scalarIn } : scalarIn;
-  }
-
-  /**
-   * Desugar `$left IN cteName` to `$left IN (SELECT cteName.onlyColumn FROM cteName)`.
-   */
-  private desugarInCte(
-    negated: boolean,
-    binary: ExprBinary,
-    cteName: string,
-    cte: PreparedSubquery
-  ): SqlExpression<ExpressionInput> {
-    const columns = Object.keys(cte.resultColumns);
-    if (columns.length != 1) {
-      return this.invalidExpression(binary.right, 'Common-table expression must return a single column');
-    }
-
-    const name = columns[0];
-    return this.translateInOrOverlapOperator(
-      {
-        type: 'binary',
-        op: binary.op,
-        left: binary.left,
-        right: {
-          type: 'select',
-          columns: [{ expr: { type: 'ref', name, table: { name: cteName } } }],
-          from: [{ type: 'table', name: { name: cteName } }]
-        }
-      },
-      'in',
-      negated
-    );
   }
 
   private translateRequestParameter(source: ConnectionParameterSource, expr: ExprCall): SqlExpression<ExpressionInput> {
