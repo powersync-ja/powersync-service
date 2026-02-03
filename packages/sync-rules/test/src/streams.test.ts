@@ -27,17 +27,6 @@ import {
 import { normalizeQuerierOptions, PARSE_OPTIONS, removeSourceSymbol, TestSourceTable } from './util.js';
 
 describe('streams', () => {
-  const STREAM_0: ParameterLookupScope = {
-    lookupName: 'stream',
-    queryId: '0',
-    source: null as any
-  };
-  const STREAM_1: ParameterLookupScope = {
-    lookupName: 'stream',
-    queryId: '1',
-    source: null as any
-  };
-
   test('refuses edition: 1', () => {
     expect(() =>
       syncStreamFromSql('stream', 'SELECT * FROM comments', {
@@ -226,6 +215,12 @@ describe('streams', () => {
         "SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) OR auth.parameter('is_admin')"
       );
 
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: desc.parameterIndexLookupCreators[0]
+      };
+
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'i1' })).toStrictEqual([
         '1#stream|0["i1"]',
         '1#stream|1[]'
@@ -269,6 +264,12 @@ describe('streams', () => {
       );
       const lookup = desc.parameterIndexLookupCreators[0];
 
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: lookup
+      };
+
       expect(lookup.tableSyncsParameters(ISSUES)).toBe(true);
       expect(lookup.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
         {
@@ -299,6 +300,12 @@ describe('streams', () => {
     test('parameter value in subquery', async () => {
       const desc = parseStream('SELECT * FROM issues WHERE auth.user_id() IN (SELECT id FROM users WHERE is_admin)');
       const lookup = desc.parameterIndexLookupCreators[0];
+
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: lookup
+      };
 
       expect(lookup.tableSyncsParameters(ISSUES)).toBe(false);
       expect(lookup.tableSyncsParameters(USERS)).toBe(true);
@@ -343,6 +350,17 @@ describe('streams', () => {
             id IN (SELECT user_a FROM friends WHERE user_b = auth.user_id()) OR
             id IN (SELECT user_b FROM friends WHERE user_a = auth.user_id())
         `);
+
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: desc.parameterIndexLookupCreators[0]
+      };
+      const STREAM_1: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '1',
+        source: desc.parameterIndexLookupCreators[1]
+      };
 
       expect(evaluateBucketIds(desc, USERS, { id: 'a', name: 'a' })).toStrictEqual([
         '1#stream|0["a"]',
@@ -407,6 +425,12 @@ describe('streams', () => {
         "SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND label IN (subscription.parameters() -> 'labels')"
       );
 
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: desc.parameterIndexLookupCreators[0]
+      };
+
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i', label: 'l' })).toStrictEqual([
         '1#stream|0["i","l"]'
       ]);
@@ -456,6 +480,12 @@ describe('streams', () => {
         'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = auth.user_id())'
       );
       const lookup = desc.parameterIndexLookupCreators[0];
+
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: lookup
+      };
 
       expect(lookup.tableSyncsParameters(FRIENDS)).toBe(true);
       expect(lookup.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
@@ -613,6 +643,12 @@ describe('streams', () => {
         'select * from comments where NOT (issue_id not in (select id from issues where owner_id = auth.user_id()))'
       );
 
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: desc.parameterIndexLookupCreators[0]
+      };
+
       expect(
         desc.parameterIndexLookupCreators[0].evaluateParameterRow(ISSUES, {
           id: 'issue_id',
@@ -681,6 +717,12 @@ describe('streams', () => {
         `
       );
       expect(desc.variants).toHaveLength(2);
+
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: desc.parameterIndexLookupCreators[0]
+      };
 
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'a' })).toStrictEqual([]);
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'c', issue_id: 'issue_id', content: 'aaa' })).toStrictEqual([
@@ -826,6 +868,12 @@ WHERE
         { ...options, schema }
       );
 
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: desc.parameterIndexLookupCreators[0]
+      };
+
       expect(evaluateBucketIds(desc, scene, { _id: 'scene', project: 'foo' })).toStrictEqual(['1#stream|0["foo"]']);
 
       expect(
@@ -913,6 +961,12 @@ WHERE
         'stream',
         { ...options, schema }
       );
+
+      const STREAM_0: ParameterLookupScope = {
+        lookupName: 'stream',
+        queryId: '0',
+        source: desc.parameterIndexLookupCreators[0]
+      };
 
       expect(evaluateBucketIds(desc, users, { id: 'user', first_name: 'Test', last_name: 'User' })).toStrictEqual([
         '1#stream|0["user"]'

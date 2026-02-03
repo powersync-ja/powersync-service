@@ -7,7 +7,8 @@ import {
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
-  SqliteValue
+  SqliteValue,
+  TablePattern
 } from '../../../../src/index.js';
 import { TestSourceTable } from '../../util.js';
 
@@ -138,13 +139,16 @@ describe('evaluating parameters', () => {
       }
     ]);
 
+    const issueSource = desc.getMatchingSources(new TablePattern('test_schema', 'issues'))
+      .parameterIndexLookupCreators[0];
+
     expect(desc.tableSyncsData(COMMENTS)).toBeTruthy();
     expect(desc.tableSyncsData(ISSUES)).toBeFalsy();
     expect(desc.tableSyncsParameters(ISSUES)).toBeTruthy();
 
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: null as any }, ['user1']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: issueSource }, ['user1']),
         bucketParameters: [
           {
             '0': 'issue_id'
@@ -228,6 +232,10 @@ describe('querier', () => {
       streams: {}
     });
     expect(errors).toStrictEqual([]);
+    const userSource = desc.getMatchingSources(new TablePattern('test_schema', 'users'))
+      .parameterIndexLookupCreators[0];
+    const issueSource = desc.getMatchingSources(new TablePattern('test_schema', 'issues'))
+      .parameterIndexLookupCreators[0];
 
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([]);
     let call = 0;
@@ -241,7 +249,7 @@ describe('querier', () => {
               {
                 lookupName: 'lookup',
                 queryId: '0',
-                source: null as any
+                source: userSource
               },
               ['user']
             )
@@ -255,7 +263,7 @@ describe('querier', () => {
               {
                 lookupName: 'lookup',
                 queryId: '1',
-                source: null as any
+                source: issueSource
               },
               ['name']
             )

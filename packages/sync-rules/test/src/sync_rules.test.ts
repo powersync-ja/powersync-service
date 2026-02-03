@@ -111,10 +111,11 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const hydrated = rules.hydrate(hydrationParams);
+    const source = rules.bucketParameterLookupSources[0];
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1', source: null as any }, ['user1'])
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1', source }, ['user1'])
       }
     ]);
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -214,7 +215,7 @@ bucket_definitions:
     ]);
     expect(await findQuerierLookups(querier)).toEqual([
       ScopedParameterLookup.direct(
-        { lookupName: 'mybucket.test', queryId: '2.test', source: rules.bucketParameterLookupSources[1] },
+        { lookupName: 'mybucket.test', queryId: '2.test', source: rules.bucketParameterLookupSources[0] },
         ['user1']
       )
     ]);
@@ -223,7 +224,7 @@ bucket_definitions:
       {
         bucketParameters: [{ user_id: 'user1' }],
         lookup: ScopedParameterLookup.direct(
-          { lookupName: 'mybucket.test', queryId: '2.test', source: rules.bucketParameterLookupSources[1] },
+          { lookupName: 'mybucket.test', queryId: '2.test', source: rules.bucketParameterLookupSources[0] },
           ['user1']
         )
       }
@@ -1086,7 +1087,7 @@ bucket_definitions:
 
     expect(await findQuerierLookups(hydratedQuerier)).toEqual([
       ScopedParameterLookup.direct(
-        { lookupName: 'admin_only', queryId: '1', source: rules.bucketParameterLookupSources[3] },
+        { lookupName: 'admin_only', queryId: '1', source: rules.bucketParameterLookupSources[2] },
         [1]
       )
     ]);
