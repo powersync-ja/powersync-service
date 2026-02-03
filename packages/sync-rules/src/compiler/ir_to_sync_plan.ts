@@ -107,24 +107,19 @@ export class CompilerModelToSyncPlan {
     return this.translateStatefulObject(value, () => {
       const hasher = new StableHasher();
       value.buildBehaviorHashCode(hasher);
-      const indexLookupCreator: plan.StreamParameterIndexLookupCreator = {
+      return {
         sourceTable: value.tablePattern,
         defaultLookupScope: {
           // This just needs to be unique, and isn't visible to users (unlike bucket names). We might want to use a
           // more stable naming scheme in the future.
           lookupName: 'lookup',
-          queryId: index.toString(),
-          get source() {
-            // FIXME: the types don't match at the moment
-            return indexLookupCreator as any;
-          }
+          queryId: index.toString()
         },
         hashCode: hasher.buildHashCode(),
         outputs: value.result.map((e) => this.translateExpression(e.expression)),
         filters: value.filters.map((e) => this.translateExpression(e.expression)),
         parameters: value.partitionBy.map((e) => this.translatePartitionKey(e))
-      };
-      return indexLookupCreator;
+      } satisfies plan.StreamParameterIndexLookupCreator;
     });
   }
 

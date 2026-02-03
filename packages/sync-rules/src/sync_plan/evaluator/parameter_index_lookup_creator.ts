@@ -20,7 +20,10 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     private readonly source: plan.StreamParameterIndexLookupCreator,
     { engine }: StreamEvaluationContext
   ) {
-    this.defaultLookupScope = source.defaultLookupScope;
+    this.defaultLookupScope = {
+      ...source.defaultLookupScope,
+      source: this
+    };
     const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
     const expressions = source.outputs.map((o) => mapExpressions.transform(o));
 
