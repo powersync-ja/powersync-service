@@ -115,7 +115,8 @@ class PreparedStreamDataSource {
 
     this.evaluator = engine.prepareEvaluator({
       outputs: outputExpressions,
-      filters: translationHelper.filterExpressions
+      filters: translationHelper.filterExpressions,
+      tableValuedFunctions: translationHelper.tableValuedFunctions
     });
     this.fixedOutputTableName = evaluator.outputTableName;
     this.tablePattern = evaluator.sourceTable;
