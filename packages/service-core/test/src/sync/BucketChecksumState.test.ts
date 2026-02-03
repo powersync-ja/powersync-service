@@ -19,6 +19,7 @@ import {
   ScopedParameterLookup,
   SqliteJsonRow,
   SqlSyncRules,
+  TablePattern,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
@@ -519,10 +520,13 @@ bucket_definitions:
       bucketStorage: storage
     });
 
+    const source = SYNC_RULES_DYNAMIC.getMatchingSources(new TablePattern('public', 'projects'))
+      .parameterIndexLookupCreators[0];
+
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
         expect(lookups).toEqual([
-          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source: null as any }, ['u1'])
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
         ]);
         return [{ id: 1 }, { id: 2 }];
       }),
@@ -589,7 +593,7 @@ bucket_definitions:
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
         expect(lookups).toEqual([
-          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source: null as any }, ['u1'])
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
         ]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
