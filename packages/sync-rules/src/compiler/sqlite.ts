@@ -85,10 +85,6 @@ export class PostgresToSqlite {
   constructor(private readonly options: PostgresToSqliteOptions) {}
 
   translateExpression(source: Expr): SyncExpression {
-    if (source.type == 'ref' && source.name == 'tagged_users') {
-      debugger;
-    }
-
     return new SyncExpression(this.translateNodeWithLocation(source), this.options.locations);
   }
 
