@@ -301,7 +301,13 @@ export class PostgresToSqlite {
           right: rightHandSideOfIs
         };
 
-        return not ? { type: 'unary', operator: 'not', operand: mappedIs } : mappedIs;
+        if (not) {
+          // Also track the location of the inner node.
+          this.options.locations.sourceForNode.set(mappedIs, expr);
+          return { type: 'unary', operator: 'not', operand: mappedIs };
+        } else {
+          return mappedIs;
+        }
       }
       case 'cast': {
         const to = (expr.to as any)?.name?.toLowerCase() as string | undefined;

@@ -129,7 +129,8 @@ class PreparedStreamDataSource {
 
     const evaluatorOptions = {
       outputs: outputExpressions,
-      filters: evaluator.filters.map((f) => translationHelper.mapper.transform(f))
+      filters: evaluator.filters.map((f) => translationHelper.mapper.transform(f)),
+      tableValuedFunctions: translationHelper.tableValuedFunctions
     };
     this.debugSql = scalarStatementToSql(evaluatorOptions);
     this.evaluator = engine.prepareEvaluator(evaluatorOptions);

@@ -12,6 +12,7 @@ import {
 import { equalsIgnoringResultSet } from './compatibility.js';
 import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
 import {
+  ExpressionColumnSource,
   PartitionKey,
   PointLookup,
   RowEvaluator,
@@ -146,6 +147,7 @@ class PendingQuerierPath {
   resolvePrimaryInput(): StreamResolver {
     const state = this.resolveResultSet(this.query.sourceTable);
     const [partitions, partitionValues] = state.resolvePartitions();
+
     const evaluator = this.builder.compiler.output.canonicalizeEvaluator(
       new RowEvaluator({
         columns: this.query.resultColumns,

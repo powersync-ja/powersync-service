@@ -112,19 +112,21 @@ export class CompilerModelToSyncPlan {
       const mapped = {
         sourceTable: value.tablePattern,
         hashCode: hasher.buildHashCode(),
+        tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
         columns: value.columns.map((e) => {
           if (e instanceof rows.StarColumnSource) {
             return 'star';
           } else {
             return {
-              expr: this.translateExpression(e.expression.expression, value.syntacticSource),
+              expr: this.translateExpression(e.expression.expression, value.syntacticSource, value.addedFunctions),
               alias: e.alias ?? null
             };
           }
         }),
         outputTableName: value.outputName,
-        tableValuedFunctions: this.translateAddedTableValuedFunctions(value.addedFunctions, value),
-        filters: value.filters.map((e) => this.translateExpression(e.expression, value.syntacticSource)),
+        filters: value.filters.map((e) =>
+          this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
+        ),
         parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
       } satisfies plan.StreamDataSource;
       return mapped;

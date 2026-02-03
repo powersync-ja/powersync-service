@@ -10,6 +10,10 @@ export class TableProcessorToSqlHelper {
   mapper = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
   readonly filterExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
 
+  get tableValuedFunctions() {
+    return [...this.mapper.tableValuedFunctions.values()];
+  }
+
   constructor(source: plan.TableProcessor) {
     // Add table-valued functions and filters
     for (const fn of source.tableValuedFunctions) {

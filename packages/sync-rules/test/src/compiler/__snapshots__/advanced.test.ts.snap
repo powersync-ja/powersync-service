@@ -1253,6 +1253,225 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
 }
 `;
 
+exports[`new sync stream features > joins feedback > response 12 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 379372622,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 494483403,
+      "outputTableName": "p",
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "id",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "profile",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 367462188,
+      "output": [
+        {
+          "source": {
+            "column": "id",
+          },
+          "type": "data",
+        },
+      ],
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "function": 0,
+              "outputName": "value",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "project",
+      },
+      "tableValuedFunctions": [
+        {
+          "filters": [],
+          "functionInputs": [
+            {
+              "source": {
+                "column": "download_profiles",
+              },
+              "type": "data",
+            },
+          ],
+          "functionName": "json_each",
+        },
+      ],
+    },
+    {
+      "filters": [
+        {
+          "left": {
+            "operand": {
+              "left": {
+                "source": {
+                  "column": "membership",
+                },
+                "type": "data",
+              },
+              "operator": "is",
+              "right": {
+                "type": "lit_null",
+              },
+              "type": "binary",
+            },
+            "operator": "not",
+            "type": "unary",
+          },
+          "operator": "and",
+          "right": {
+            "left": {
+              "source": {
+                "column": "active",
+              },
+              "type": "data",
+            },
+            "operator": "=",
+            "right": {
+              "base10": "1",
+              "type": "lit_int",
+            },
+            "type": "binary",
+          },
+          "type": "binary",
+        },
+      ],
+      "hash": 223444359,
+      "output": [
+        {
+          "source": {
+            "column": "profile_id",
+          },
+          "type": "data",
+        },
+      ],
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "project_id",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": "default",
+        "schema": "test_schema",
+        "table": "profile_project_link",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "function": "->>",
+                      "parameters": [
+                        {
+                          "source": {
+                            "request": "auth",
+                          },
+                          "type": "data",
+                        },
+                        {
+                          "type": "lit_string",
+                          "value": "$.sub",
+                        },
+                      ],
+                      "type": "function",
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
 exports[`new sync stream features > joins feedback > response 13 1`] = `
 {
   "buckets": [

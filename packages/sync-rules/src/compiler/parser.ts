@@ -400,16 +400,22 @@ export class StreamQueryParser {
             `Sync streams can only select from a single table, and this one already selects from '${this.primaryResultSet.tablePattern.name}'.`,
             node
           );
+          return false;
         }
       } else {
         this.errors.report('Sync streams can only select from actual tables', node);
+        return false;
       }
+
+      return true;
     };
 
     const addColumn = (expr: SyncExpression, name: string) => {
       for (const dependency of expr.instantiation) {
         if (dependency instanceof ColumnInRow) {
-          selectsFrom(dependency.resultSet, dependency.syntacticOrigin);
+          if (!selectsFrom(dependency.resultSet, dependency.syntacticOrigin)) {
+            return;
+          }
         } else {
           this.errors.report(
             'This attempts to sync a connection parameter. Only values from the source database can be synced.',
