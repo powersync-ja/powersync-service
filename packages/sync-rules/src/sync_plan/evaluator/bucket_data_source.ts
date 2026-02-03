@@ -15,7 +15,7 @@ import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
 import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
-import { idFromData } from '../../utils2.js';
+import { idFromData } from '../../cast.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables: TablePattern[] = [];
