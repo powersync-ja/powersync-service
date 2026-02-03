@@ -213,7 +213,7 @@ export class CDCStream {
         schema: matchedTable.schema
       });
 
-      const tables = await this.processTable(
+      const processedTables = await this.processTable(
         writer,
         {
           name: matchedTable.name,
@@ -238,7 +238,7 @@ export class CDCStream {
       });
       await writer.drop(dropTables);
 
-      tables.push(...tables);
+      tables.push(...processedTables);
     }
 
     return tables;
