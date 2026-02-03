@@ -513,16 +513,15 @@ export class MongoSyncBucketStorage
         if (keepParameterLookupIds.has(id)) {
           continue;
         }
-        // FIXME: how do we do these deletes?
-        // For now, we delete only when the source table is removed.
-        // await this.retriedDelete(`deleting parameter lookup data for ${name}`, signal, () =>
-        //   this.db.bucket_parameters.deleteMany(
-        //     {
-        //       'key.g': id
-        //     },
-        //     { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        //   )
-        // );
+        // FIXME: Index this
+        await this.retriedDelete(`deleting parameter lookup data for ${name}`, signal, () =>
+          this.db.bucket_parameters.deleteMany(
+            {
+              def: id
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          )
+        );
       }
     }
 

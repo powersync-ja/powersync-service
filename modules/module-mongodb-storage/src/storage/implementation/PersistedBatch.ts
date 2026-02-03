@@ -15,6 +15,7 @@ import {
   BucketStateDocument,
   CurrentBucket,
   CurrentDataDocument,
+  RecordedLookup,
   SourceKey
 } from './models.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
@@ -153,6 +154,11 @@ export class PersistedBatch {
 
     for (let bd of remaining_buckets.values()) {
       // REMOVE
+      if (options.table.bucketDataSourceIds?.indexOf(bd.def) === -1) {
+        // This bucket definition is no longer used for this table.
+        // Don't generate REMOVE operations for it.
+        continue;
+      }
 
       const op_id = options.op_seq.next();
       this.debugLastOpId = op_id;
@@ -185,7 +191,7 @@ export class PersistedBatch {
     sourceKey: storage.ReplicaId;
     sourceTable: storage.SourceTable;
     evaluated: EvaluatedParameters[];
-    existing_lookups: bson.Binary[];
+    existing_lookups: RecordedLookup[];
   }) {
     // This is similar to saving bucket data.
     // A key difference is that we don't need to keep the history intact.
@@ -196,16 +202,19 @@ export class PersistedBatch {
     // We also don't need to keep history intact.
     const { sourceTable, sourceKey, evaluated } = data;
 
-    const remaining_lookups = new Map<string, bson.Binary>();
+    const remaining_lookups = new Map<string, RecordedLookup>();
     for (let l of data.existing_lookups) {
-      remaining_lookups.set(l.toString('base64'), l);
+      const key = l.d + '.' + l.l.toString('base64');
+      remaining_lookups.set(key, l);
     }
 
     // 1. Insert new entries
     for (let result of evaluated) {
+      const sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
       const binLookup = storage.serializeLookup(result.lookup);
       const hex = binLookup.toString('base64');
-      remaining_lookups.delete(hex);
+      const key = sourceDefinitionId + '.' + hex;
+      remaining_lookups.delete(key);
 
       const op_id = data.op_seq.next();
       this.debugLastOpId = op_id;
@@ -213,6 +222,7 @@ export class PersistedBatch {
         insertOne: {
           document: {
             _id: op_id,
+            def: sourceDefinitionId,
             key: {
               g: 0,
               t: mongoTableId(sourceTable.id),
@@ -229,6 +239,14 @@ export class PersistedBatch {
 
     // 2. "REMOVE" entries for any lookup not touched.
     for (let lookup of remaining_lookups.values()) {
+      const sourceDefinitionId = lookup.d;
+
+      if (sourceTable.parameterLookupSourceIds?.indexOf(sourceDefinitionId) === -1) {
+        // This bucket definition is no longer used for this table.
+        // Don't generate REMOVE operations for it.
+        continue;
+      }
+
       const op_id = data.op_seq.next();
       this.debugLastOpId = op_id;
       this.bucketParameters.push({
@@ -240,7 +258,8 @@ export class PersistedBatch {
               t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
-            lookup: lookup,
+            def: sourceDefinitionId,
+            lookup: lookup.l,
             bucket_parameters: []
           }
         }

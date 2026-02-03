@@ -30,11 +30,16 @@ export interface BucketDataKey {
   o: bigint;
 }
 
+export interface RecordedLookup {
+  d: number;
+  l: bson.Binary;
+}
+
 export interface CurrentDataDocument {
   _id: SourceKey;
   data: bson.Binary;
   buckets: CurrentBucket[];
-  lookups: bson.Binary[];
+  lookups: RecordedLookup[];
   /**
    * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
    *
@@ -52,6 +57,7 @@ export interface CurrentBucket {
 
 export interface BucketParameterDocument {
   _id: bigint;
+  def: number;
   key: SourceKey;
   lookup: bson.Binary;
   bucket_parameters: Record<string, SqliteJsonValue>[];

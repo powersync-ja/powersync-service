@@ -30,7 +30,14 @@ import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey, SourceTableDocument, SyncRuleDocument } from './models.js';
+import {
+  CurrentBucket,
+  CurrentDataDocument,
+  RecordedLookup,
+  SourceKey,
+  SourceTableDocument,
+  SyncRuleDocument
+} from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
@@ -683,8 +690,8 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
 
     let existing_buckets: CurrentBucket[] = [];
     let new_buckets: CurrentBucket[] = [];
-    let existing_lookups: bson.Binary[] = [];
-    let new_lookups: bson.Binary[] = [];
+    let existing_lookups: RecordedLookup[] = [];
+    let new_lookups: RecordedLookup[] = [];
 
     const before_key: SourceKey = { g: 0, t: mongoTableId(record.sourceTable.id), k: beforeId };
 
@@ -889,7 +896,9 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           existing_lookups
         });
         new_lookups = paramEvaluated.map((p) => {
-          return storage.serializeLookup(p.lookup);
+          const l = storage.serializeLookup(p.lookup);
+          const d = this.mapping.parameterLookupId(p.lookup.source);
+          return { l, d };
         });
       }
     }
