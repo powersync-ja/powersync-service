@@ -65,7 +65,7 @@ bucket_definitions:
     const parameters = new RequestParameters({ sub: 'user1' }, {});
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
     const parameter_sets = await querier.queryDynamicBucketDescriptions(checkpoint);
-    expect(parameter_sets).toEqual([{ group_id: 'group1a' }]);
+    expect(parameter_sets).toMatchObject([{ bucket: expect.stringMatching(/"group1a"/) }]);
   });
 
   test('it should use the latest version', async () => {
@@ -112,18 +112,18 @@ bucket_definitions:
       test_utils.querierOptions(new RequestParameters({ sub: 'user1' }, {}))
     ).querier;
 
-    const parameters = await querier.queryDynamicBucketDescriptions(checkpoint2);
-    expect(parameters).toEqual([
+    const buckets1 = await querier.queryDynamicBucketDescriptions(checkpoint2);
+    expect(buckets1).toMatchObject([
       {
-        group_id: 'group2'
+        bucket: expect.stringMatching(/"group2"/)
       }
     ]);
 
     // Use the checkpoint to get older data if relevant
-    const parameters2 = await querier.queryDynamicBucketDescriptions(checkpoint1);
-    expect(parameters2).toEqual([
+    const buckets2 = await querier.queryDynamicBucketDescriptions(checkpoint1);
+    expect(buckets2).toMatchObject([
       {
-        group_id: 'group1'
+        bucket: expect.stringMatching(/"group1"/)
       }
     ]);
   });
@@ -194,12 +194,12 @@ bucket_definitions:
     const checkpoint = await bucketStorage.getCheckpoint();
     const buckets = await querier.queryDynamicBucketDescriptions(checkpoint);
 
-    expect(buckets.sort((a, b) => a.bucket.localeCompare(b.bucket))).toEqual([
+    expect(buckets.sort((a, b) => a.bucket.localeCompare(b.bucket))).toMatchObject([
       {
-        todo_id: 'todo1'
+        bucket: expect.stringMatching(/"todo1"/)
       },
       {
-        todo_id: 'todo2'
+        bucket: expect.stringMatching(/"todo2"/)
       }
     ]);
   });
@@ -236,8 +236,6 @@ bucket_definitions:
 
     await writer.commit('1/1');
 
-    const TEST_PARAMS = { group_id: 'group1' };
-
     const checkpoint = await bucketStorage.getCheckpoint();
 
     const querier1 = hydrated.getBucketParameterQuerier(
@@ -245,22 +243,22 @@ bucket_definitions:
         new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3.14 } }, {})
       )
     ).querier;
-    const parameters1 = await querier1.queryDynamicBucketDescriptions(checkpoint);
-    expect(parameters1).toEqual([TEST_PARAMS]);
+    const buckets1 = await querier1.queryDynamicBucketDescriptions(checkpoint);
+    expect(buckets1).toMatchObject([{ bucket: expect.stringMatching(/"group1"/), definition: 'mybucket' }]);
 
     const querier2 = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(
         new RequestParameters({ sub: 'user1', parameters: { n1: 314, f2: 314n, f3: 3.14 } }, {})
       )
     ).querier;
-    const parameters2 = await querier2.queryDynamicBucketDescriptions(checkpoint);
-    expect(parameters2).toEqual([TEST_PARAMS]);
+    const buckets2 = await querier2.queryDynamicBucketDescriptions(checkpoint);
+    expect(buckets2).toMatchObject([{ bucket: expect.stringMatching(/"group1"/), definition: 'mybucket' }]);
 
     const querier3 = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3 } }, {}))
     ).querier;
-    const parameters3 = await querier3.queryDynamicBucketDescriptions(checkpoint);
-    expect(parameters3).toEqual([]);
+    const buckets3 = await querier3.queryDynamicBucketDescriptions(checkpoint);
+    expect(buckets3).toEqual([]);
   });
 
   test('save and load parameters with large numbers', async () => {
@@ -310,14 +308,17 @@ bucket_definitions:
 
     await writer.commit('1/1');
 
-    const TEST_PARAMS = { group_id: 'group1' };
-
     const checkpoint = await bucketStorage.getCheckpoint();
     const querier = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 1152921504606846976n } }, {}))
     ).querier;
-    const parameters1 = await querier.queryDynamicBucketDescriptions(checkpoint);
-    expect(parameters1).toEqual([TEST_PARAMS]);
+    const buckets = await querier.queryDynamicBucketDescriptions(checkpoint);
+    expect(buckets.map(test_utils.removeSourceSymbol)).toMatchObject([
+      {
+        bucket: expect.stringMatching(/"group1"/),
+        definition: 'mybucket'
+      }
+    ]);
   });
 
   test('save and load parameters with workspaceId', async () => {
