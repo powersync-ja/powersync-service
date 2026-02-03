@@ -218,7 +218,7 @@ export class RequestParameterEvaluators {
           const mapInputs = mapExternalDataToInstantiation();
           const fn: TableValuedFunction = {
             name: lookup.functionName,
-            inputs: lookup.functionInputs.map((e) => mapInputs.transform(e))
+            inputs: lookup.functionInputs.map((e) => mapInputs.transformWithoutTableValued(e))
           };
           const mapOutputs = new MapSourceVisitor<plan.ColumnSqlParameterValue, TableValuedFunctionOutput>(
             ({ column }) => ({

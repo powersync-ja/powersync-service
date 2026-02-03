@@ -14,7 +14,13 @@ import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
-import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
+import {
+  mapExternalDataToInstantiation,
+  ScalarExpressionEvaluator,
+  TableValuedFunction,
+  TableValuedFunctionOutput
+} from '../engine/scalar_expression_engine.js';
+import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
@@ -88,31 +94,32 @@ class PreparedStreamDataSource {
   private readonly fixedOutputTableName?: string;
 
   constructor(evaluator: plan.StreamDataSource, { engine }: StreamEvaluationContext) {
-    const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
-    const outputExpressions: SqlExpression<number>[] = [];
+    const translationHelper = new TableProcessorToSqlHelper(evaluator);
+    const outputExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
+
     for (const column of evaluator.columns) {
       if (column === 'star') {
         this.outputs.push('star');
       } else {
         const expressionIndex = outputExpressions.length;
-        outputExpressions.push(mapExpressions.transform(column.expr));
+        outputExpressions.push(translationHelper.mapper.transform(column.expr));
         this.outputs.push({ index: expressionIndex, alias: column.alias });
       }
     }
 
     this.numberOfOutputExpressions = outputExpressions.length;
     for (const parameter of evaluator.parameters) {
-      outputExpressions.push(mapExpressions.transform(parameter.expr));
+      outputExpressions.push(translationHelper.mapper.transform(parameter.expr));
     }
     this.numberOfParameters = evaluator.parameters.length;
 
     this.evaluator = engine.prepareEvaluator({
       outputs: outputExpressions,
-      filters: evaluator.filters.map((f) => mapExpressions.transform(f))
+      filters: translationHelper.filterExpressions
     });
     this.fixedOutputTableName = evaluator.outputTableName;
     this.tablePattern = evaluator.sourceTable;
-    this.evaluatorInputs = mapExpressions.instantiation;
+    this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
   evaluateRow(options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) {
