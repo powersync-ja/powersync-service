@@ -14,7 +14,11 @@ import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
-import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
+import {
+  mapExternalDataToInstantiation,
+  ScalarExpressionEvaluator,
+  scalarStatementToSql
+} from '../engine/scalar_expression_engine.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
@@ -74,7 +78,13 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    throw new Error('debugWriteOutputTables not implemented.');
+    for (const source of this.sources) {
+      const table = source.fixedOutputTableName;
+      if (table != null) {
+        const queries = (result[table] ??= []);
+        queries.push({ query: source.debugSql });
+      }
+    }
   }
 }
 
@@ -85,7 +95,8 @@ class PreparedStreamDataSource {
   private readonly numberOfParameters: number;
   private readonly evaluator: ScalarExpressionEvaluator;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
-  private readonly fixedOutputTableName?: string;
+  readonly fixedOutputTableName?: string;
+  readonly debugSql: string;
 
   constructor(evaluator: plan.StreamDataSource, { engine }: StreamEvaluationContext) {
     const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
@@ -106,10 +117,12 @@ class PreparedStreamDataSource {
     }
     this.numberOfParameters = evaluator.parameters.length;
 
-    this.evaluator = engine.prepareEvaluator({
+    const evaluatorOptions = {
       outputs: outputExpressions,
       filters: evaluator.filters.map((f) => mapExpressions.transform(f))
-    });
+    };
+    this.debugSql = scalarStatementToSql(evaluatorOptions);
+    this.evaluator = engine.prepareEvaluator(evaluatorOptions);
     this.fixedOutputTableName = evaluator.outputTableName;
     this.tablePattern = evaluator.sourceTable;
     this.evaluatorInputs = mapExpressions.instantiation;

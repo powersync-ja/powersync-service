@@ -13,6 +13,7 @@ import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_
 
 interface SyncTest {
   engine: ScalarExpressionEngine;
+  prepareWithoutHydration(inputs: SyncStreamInput[]): SqlSyncRules;
   prepareSyncStreams(inputs: SyncStreamInput[]): HydratedSyncRules;
 }
 
@@ -22,12 +23,15 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
 
     await use({
       engine,
-      prepareSyncStreams: (inputs) => {
+      prepareWithoutHydration: (inputs) => {
         const plan = compileToSyncPlanWithoutErrors(inputs);
         const rules = new SqlSyncRules('');
 
         addPrecompiledSyncPlanToRules(plan, rules, { engine });
-        return rules.hydrate({ hydrationState: versionedHydrationState(1) });
+        return rules;
+      },
+      prepareSyncStreams(inputs) {
+        return this.prepareWithoutHydration(inputs).hydrate({ hydrationState: versionedHydrationState(1) });
       }
     });
 
