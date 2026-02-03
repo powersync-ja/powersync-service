@@ -355,6 +355,33 @@ streams:
     });
     expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
   });
+
+  syncTest('multiple IN operators', ({ sync }) => {
+    const desc = sync.prepareSyncStreams([
+      {
+        name: 'stream',
+        ctes: {
+          a: `SELECT value FROM json_each(auth.parameter('a'))`,
+          b: `SELECT value FROM json_each(auth.parameter('b'))`
+        },
+        queries: [`SELECT notes.* FROM notes, a, b WHERE notes.state = a.value AND notes.other = b.value`]
+      }
+    ]);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: new RequestParameters({ sub: 'user', a: ['a1', 'a2'], b: ['b1', 'b2'] }, {}),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+
+    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([
+      'stream|0["a1","b1"]',
+      'stream|0["a1","b2"]',
+      'stream|0["a2","b1"]',
+      'stream|0["a2","b2"]'
+    ]);
+  });
 });
 
 function evaluateBucketIds(source: HydratedSyncRules, sourceTable: SourceTableInterface, record: SqliteRow) {
