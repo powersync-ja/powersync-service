@@ -217,6 +217,11 @@ export interface RequestSqlParameterValue {
   request: ConnectionParameterSource;
 }
 
+export type SqlParameterValue =
+  | ColumnSqlParameterValue
+  | RequestSqlParameterValue
+  | TableProcessorTableValuedFunctionOutput;
+
 /**
  * A lookup returning multiple rows when instantiated.
  */

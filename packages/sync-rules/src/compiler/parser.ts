@@ -467,7 +467,7 @@ export class StreamQueryParser {
       // references.
       const defaultResultSet = this.statementScope.defaultResultSet;
       if (defaultResultSet) {
-        return this.resultSets.get(defaultResultSet)!;
+        return this.resolveSoure(defaultResultSet);
       } else {
         this.errors.report('Invalid unqualified reference since multiple tables are in scope', node);
         return null;
