@@ -143,9 +143,7 @@ FROM ticket t
       expect(compileSingleStreamAndSerialize(stream)).toMatchSnapshot();
     });
 
-    test.skip('response 12', () => {
-      // This is currently unsupported because pr.download_profiles can't be JSON-expanded (we only support that for
-      // request parameters). We can revisit this in the future.
+    test('response 12', () => {
       const stream = `
 SELECT p.* FROM profile p
 WHERE p.id IN (

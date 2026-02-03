@@ -74,9 +74,31 @@ export class RequestParameterEvaluators {
    * instead of re-evaluating them on every parameter lookup change.
    */
   clone(): RequestParameterEvaluators {
+    function cloneValue(value: PreparedParameterValue): PreparedParameterValue {
+      switch (value.type) {
+        case 'intersection':
+          return { type: 'intersection', values: value.values.map(cloneValue) };
+        case 'request':
+        case 'lookup':
+        case 'cached':
+          return value;
+      }
+    }
+
+    function cloneLookup(lookup: PreparedExpandingLookup): PreparedExpandingLookup {
+      switch (lookup.type) {
+        case 'parameter':
+          // We need to clone the instantiation array as well.
+          return { type: 'parameter', lookup: lookup.lookup, instantiation: lookup.instantiation.map(cloneValue) };
+        case 'table_valued':
+        case 'cached':
+          return lookup;
+      }
+    }
+
     return new RequestParameterEvaluators(
-      this.lookupStages.map((stage) => [...stage]),
-      [...this.parameterValues]
+      this.lookupStages.map((stage) => stage.map(cloneLookup)),
+      this.parameterValues.map(cloneValue)
     );
   }
 

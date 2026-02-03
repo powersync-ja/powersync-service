@@ -1,10 +1,6 @@
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { ParameterLookupScope } from '../../HydrationState.js';
-import {
-  mapExternalDataToInstantiation,
-  ScalarExpressionEvaluator,
-  TableValuedFunctionOutput
-} from '../engine/scalar_expression_engine.js';
+import { ScalarExpressionEvaluator, TableValuedFunctionOutput } from '../engine/scalar_expression_engine.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
 import { TablePattern } from '../../TablePattern.js';
@@ -40,7 +36,8 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
 
     this.evaluator = engine.prepareEvaluator({
       outputs: expressions,
-      filters: filterExpressions
+      filters: filterExpressions,
+      tableValuedFunctions: translationHelper.tableValuedFunctions
     });
     this.sourceTable = source.sourceTable.toTablePattern(defaultSchema);
     this.evaluatorInputs = translationHelper.mapper.instantiation;
