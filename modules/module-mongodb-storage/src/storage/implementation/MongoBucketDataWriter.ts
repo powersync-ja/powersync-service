@@ -484,7 +484,9 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           name: doc.table_name,
           replicaIdColumns:
             doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-          snapshotComplete: doc.snapshot_done ?? true
+          snapshotComplete: doc.snapshot_done ?? true,
+          bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
+          parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? []
         })
     );
     return dropTables;
