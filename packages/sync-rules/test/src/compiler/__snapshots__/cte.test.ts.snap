@@ -51,6 +51,7 @@ exports[`common table expressions > as data source 1`] = `
         "schema": "test_schema",
         "table": "organisations",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -80,6 +81,7 @@ exports[`common table expressions > as data source 1`] = `
         "schema": "test_schema",
         "table": "org_memberships",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -174,6 +176,7 @@ exports[`common table expressions > as parameter query 1`] = `
         "schema": "test_schema",
         "table": "projects",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
@@ -203,6 +206,7 @@ exports[`common table expressions > as parameter query 1`] = `
         "schema": "test_schema",
         "table": "org_memberships",
       },
+      "tableValuedFunctions": [],
     },
     {
       "filters": [],
@@ -230,6 +234,7 @@ exports[`common table expressions > as parameter query 1`] = `
         "schema": "test_schema",
         "table": "organisations",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
