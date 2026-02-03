@@ -6,6 +6,12 @@ import {
 import { SqlExpression } from '../expression.js';
 import * as plan from '../plan.js';
 
+/**
+ * Utility to translate a {@link plan.TableProcessor} to a scalar SQL statement.
+ *
+ * This translates table-valued functions and filters. Output columns and partition keys have to be translated
+ * separately, because their order depends on the type of table processor (data source vs. parameter lookup creator).
+ */
 export class TableProcessorToSqlHelper {
   mapper = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
   readonly filterExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
