@@ -1,7 +1,6 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
-import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
 import {
   CompatibilityContext,
   CompatibilityEdition,
@@ -10,24 +9,13 @@ import {
 } from './compatibility.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { HydratedSyncRules } from './HydratedSyncRules.js';
-import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { TablePattern } from './TablePattern.js';
-import {
-  QueryParseOptions,
-  RequestParameters,
-  SourceSchema,
-  SqliteInputValue,
-  SqliteJsonRow,
-  SqliteRow,
-  SqliteValue,
-  StreamParseOptions
-} from './types.js';
-import { applyRowContext } from './utils.js';
+import { QueryParseOptions, RequestParameters, SourceSchema, SqliteJsonRow, StreamParseOptions } from './types.js';
+import { BaseSyncConfig } from './BaseSyncConfig.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -82,15 +70,8 @@ export interface GetBucketParameterQuerierResult {
   errors: QuerierError[];
 }
 
-export class SqlSyncRules {
-  bucketDataSources: BucketDataSource[] = [];
-  bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
-  bucketSources: BucketSource[] = [];
-
+export class SqlSyncRules extends BaseSyncConfig {
   eventDescriptors: SqlEventDescriptor[] = [];
-  compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
-
-  content: string;
 
   errors: YamlError[] = [];
 
@@ -337,6 +318,10 @@ export class SqlSyncRules {
     return rules;
   }
 
+  protected asSyncConfig(): this {
+    return this;
+  }
+
   throwOnError() {
     if (this.errors.filter((e) => e.type != 'warning').length > 0) {
       throw new SyncRulesErrors(this.errors);
@@ -389,51 +374,8 @@ export class SqlSyncRules {
     return result;
   }
 
-  constructor(content: string) {
-    this.content = content;
-  }
-
-  /**
-   * Hydrate the sync rule definitions with persisted state into runnable sync rules.
-   *
-   * @param params.hydrationState Transforms bucket ids based on persisted state. May omit for tests.
-   */
-  hydrate(params?: CreateSourceParams): HydratedSyncRules {
-    let hydrationState = params?.hydrationState;
-    if (hydrationState == null || !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
-      hydrationState = DEFAULT_HYDRATION_STATE;
-    }
-    const resolvedParams = { hydrationState };
-    return new HydratedSyncRules({
-      definition: this,
-      createParams: resolvedParams,
-      bucketDataSources: this.bucketDataSources,
-      bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
-      eventDescriptors: this.eventDescriptors,
-      compatibility: this.compatibility
-    });
-  }
-
-  applyRowContext<MaybeToast extends undefined = never>(
-    source: SqliteRow<SqliteInputValue | MaybeToast>
-  ): SqliteRow<SqliteValue | MaybeToast> {
-    return applyRowContext(source, this.compatibility);
-  }
-
-  getSourceTables(): TablePattern[] {
-    const sourceTables = new Map<String, TablePattern>();
-    for (const bucket of this.bucketDataSources) {
-      for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
-      }
-    }
-    for (const bucket of this.bucketParameterLookupSources) {
-      for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
-      }
-    }
+  protected writeSourceTables(sourceTables: Map<String, TablePattern>): void {
+    super.writeSourceTables(sourceTables);
 
     for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
@@ -441,44 +383,6 @@ export class SqlSyncRules {
         sourceTables.set(key, r);
       }
     }
-
-    return [...sourceTables.values()];
-  }
-
-  getEventTables(): TablePattern[] {
-    const eventTables = new Map<String, TablePattern>();
-
-    for (const event of this.eventDescriptors) {
-      for (const r of event.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        eventTables.set(key, r);
-      }
-    }
-    return [...eventTables.values()];
-  }
-
-  tableTriggersEvent(table: SourceTableInterface): boolean {
-    return this.eventDescriptors.some((bucket) => bucket.tableTriggersEvent(table));
-  }
-
-  tableSyncsData(table: SourceTableInterface): boolean {
-    return this.bucketDataSources.some((b) => b.tableSyncsData(table));
-  }
-
-  tableSyncsParameters(table: SourceTableInterface): boolean {
-    return this.bucketParameterLookupSources.some((b) => b.tableSyncsParameters(table));
-  }
-
-  debugGetOutputTables() {
-    let result: Record<string, any[]> = {};
-    for (let bucket of this.bucketDataSources) {
-      bucket.debugWriteOutputTables(result);
-    }
-    return result;
-  }
-
-  debugRepresentation() {
-    return this.bucketSources.map((rules) => rules.debugRepresentation());
   }
 
   private parsePriority(value: YAMLMap) {
