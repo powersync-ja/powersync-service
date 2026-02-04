@@ -3,12 +3,18 @@ import { coerce, gte } from 'semver';
 import { logger } from '@powersync/lib-services-framework';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { LSN } from '../common/LSN.js';
-import { CaptureInstance, MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
+import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLParameter } from '../types/mssql-data-types.js';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
-import { getReplicationIdentityColumns, ReplicationIdentityColumnsResult, ResolvedTable } from './schema.js';
+import {
+  getPendingSchemaChanges,
+  getReplicationIdentityColumns,
+  ReplicationIdentityColumnsResult,
+  ResolvedTable
+} from './schema.js';
 import * as service_types from '@powersync/service-types';
 import * as sync_rules from '@powersync/service-sync-rules';
+import { CaptureInstance } from '../common/CaptureInstance.js';
 
 export const POWERSYNC_CHECKPOINTS_TABLE = '_powersync_checkpoints';
 
@@ -216,7 +222,7 @@ export interface IsWithinRetentionThresholdOptions {
 }
 
 /**
- *  Checks that CDC the specified checkpoint LSN is within the retention threshold for all specified tables.
+ *  Checks that CDC the specified checkpoint LSN is within the retention threshold for specified tables.
  *  CDC periodically cleans up old data up to the retention threshold. If replication has been stopped for too long it is
  *  possible for the checkpoint LSN to be older than the minimum LSN in the CDC tables. In such a case we need to perform a new snapshot.
  *  @param options
@@ -224,12 +230,14 @@ export interface IsWithinRetentionThresholdOptions {
 export async function isWithinRetentionThreshold(options: IsWithinRetentionThresholdOptions): Promise<boolean> {
   const { checkpointLSN, tables, connectionManager } = options;
   for (const table of tables) {
-    const minLSN = await getMinLSN(connectionManager, table.captureInstance);
-    if (minLSN > checkpointLSN) {
-      logger.warn(
-        `The checkpoint LSN:[${checkpointLSN}] is older than the minimum LSN:[${minLSN}] for table ${table.sourceTable.qualifiedName}. This indicates that the checkpoint LSN is outside of the retention window.`
-      );
-      return false;
+    if (table.enabledForCDC()) {
+      const minLSN = await getMinLSN(connectionManager, table.captureInstance!.name);
+      if (minLSN > checkpointLSN) {
+        logger.warn(
+          `The checkpoint LSN:[${checkpointLSN}] is older than the minimum LSN:[${minLSN}] for table ${table.toQualifiedName()}. This indicates that the checkpoint LSN is outside of the retention window.`
+        );
+        return false;
+      }
     }
   }
   return true;
@@ -250,43 +258,6 @@ export async function incrementLSN(lsn: LSN, connectionManager: MSSQLConnectionM
     [{ name: 'lsn', type: sql.VarBinary, value: lsn.toBinary() }]
   );
   return LSN.fromBinary(result[0].incremented_lsn);
-}
-
-export interface GetCaptureInstanceOptions {
-  connectionManager: MSSQLConnectionManager;
-  tableName: string;
-  schema: string;
-}
-
-export async function getCaptureInstance(options: GetCaptureInstanceOptions): Promise<CaptureInstance | null> {
-  const { connectionManager, tableName, schema } = options;
-  const { recordset: result } = await connectionManager.query(
-    `
-      SELECT
-        ct.capture_instance,
-        OBJECT_SCHEMA_NAME(ct.[object_id]) AS cdc_schema
-      FROM
-        sys.tables tbl
-          INNER JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
-          INNER JOIN cdc.change_tables ct ON ct.source_object_id = tbl.object_id
-      WHERE sch.name = @schema
-        AND tbl.name = @tableName
-        AND ct.end_lsn IS NULL;
-      `,
-    [
-      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
-    ]
-  );
-
-  if (result.length === 0) {
-    return null;
-  }
-
-  return {
-    name: result[0].capture_instance,
-    schema: result[0].cdc_schema
-  };
 }
 
 /**
@@ -435,4 +406,82 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
     parameter_queries: syncParameters,
     errors: [idColumnsError, selectError, cdcError].filter((error) => error != null) as service_types.ReplicationError[]
   };
+}
+
+// Describes the capture instances linked to a source table.
+export interface CaptureInstanceDetails {
+  sourceTable: {
+    schema: string;
+    name: string;
+    objectId: number;
+  };
+
+  /**
+   *  The capture instances for the source table.
+   *  The instances are sorted by create date in descending order.
+   */
+  instances: CaptureInstance[];
+}
+
+export interface GetCaptureInstancesOptions {
+  connectionManager: MSSQLConnectionManager;
+  table?: {
+    schema: string;
+    name: string;
+  };
+}
+
+export async function getCaptureInstances(
+  options: GetCaptureInstancesOptions
+): Promise<Map<number, CaptureInstanceDetails>> {
+  const { connectionManager, table } = options;
+  const instances = new Map<number, CaptureInstanceDetails>();
+
+  const { recordset: results } = table
+    ? await connectionManager.execute('sys.sp_cdc_help_change_data_capture', [
+        { name: 'source_schema', value: table.schema },
+        { name: 'source_name', value: table.name }
+      ])
+    : await connectionManager.execute('sys.sp_cdc_help_change_data_capture', []);
+
+  if (results.length === 0) {
+    return new Map<number, CaptureInstanceDetails>();
+  }
+
+  for (const row of results) {
+    const instance: CaptureInstance = {
+      name: row.capture_instance,
+      objectId: row.object_id,
+      minLSN: LSN.fromBinary(row.start_lsn),
+      createDate: new Date(row.create_date),
+      pendingSchemaChanges: []
+    };
+
+    instance.pendingSchemaChanges = await getPendingSchemaChanges({
+      connectionManager: connectionManager,
+      captureInstance: instance
+    });
+
+    const sourceTable = {
+      schema: row.source_schema,
+      name: row.source_table,
+      objectId: row.source_object_id
+    };
+
+    // There can only ever be 2 capture instances active at any given time for a source table.
+    if (instances.has(row.source_object_id)) {
+      if (instance.createDate > instances.get(row.source_object_id)!.instances[0].createDate) {
+        instances.get(row.source_object_id)!.instances.unshift(instance);
+      } else {
+        instances.get(row.source_object_id)!.instances.push(instance);
+      }
+    } else {
+      instances.set(row.source_object_id, {
+        instances: [instance],
+        sourceTable
+      });
+    }
+  }
+
+  return instances;
 }
