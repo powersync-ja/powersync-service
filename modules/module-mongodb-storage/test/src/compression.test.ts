@@ -10,7 +10,6 @@ describe('MongoDB connection compression', () => {
         type: 'mongodb'
       });
       await client.connect();
-      console.log(client.options.compressors);
       await client.db('admin').command({ ping: 1 });
       await client.close();
     });
