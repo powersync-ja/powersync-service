@@ -1,9 +1,10 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { SqlSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
+import { CompatibilityOption, SqlSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
 
 import { models } from '../../types/types.js';
+import { DEFAULT_HYDRATION_STATE, HydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
@@ -32,13 +33,20 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   }
 
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+    let hydrationState: HydrationState;
+    const syncRules = SqlSyncRules.fromYaml(this.sync_rules_content, options);
+    if (syncRules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+      hydrationState = versionedHydrationState(this.id);
+    } else {
+      hydrationState = DEFAULT_HYDRATION_STATE;
+    }
     return {
       id: this.id,
       slot_name: this.slot_name,
-      sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, options),
+      sync_rules: syncRules,
       hydratedSyncRules() {
         return this.sync_rules.hydrate({
-          hydrationState: versionedHydrationState(this.id)
+          hydrationState
         });
       }
     };

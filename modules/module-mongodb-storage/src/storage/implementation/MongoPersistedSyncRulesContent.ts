@@ -4,7 +4,8 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
-import { LEGACY_STORAGE_VERSION, SyncRuleDocument } from './models.js';
+import { LEGACY_STORAGE_VERSION, STORAGE_VERSIONS, SyncRuleDocument } from './models.js';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
@@ -38,12 +39,29 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     this.storage_version = doc.storage_version ?? LEGACY_STORAGE_VERSION;
   }
 
+  /**
+   * Load the storage config.
+   *
+   * This may throw if the persisted storage version is not supported.
+   */
+  getStorageConfig() {
+    const storageConfig = STORAGE_VERSIONS[this.storage_version];
+    if (storageConfig == null) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1403,
+        `Unsupported storage version ${this.storage_version} for sync rules ${this.id}`
+      );
+    }
+    return storageConfig;
+  }
+
   parsed(options: storage.ParseSyncRulesOptions) {
     return new MongoPersistedSyncRules(
       this.id,
       SqlSyncRules.fromYaml(this.sync_rules_content, options),
       this.last_checkpoint_lsn,
-      this.slot_name
+      this.slot_name,
+      this.getStorageConfig()
     );
   }
 

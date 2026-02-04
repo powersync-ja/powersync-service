@@ -55,15 +55,7 @@ export class MongoBucketStorage
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storageVersion = (syncRules as MongoPersistedSyncRulesContent).storage_version;
-
-    const storageConfig = STORAGE_VERSIONS[storageVersion];
-    if (storageConfig == null) {
-      throw new ServiceError(
-        ErrorCode.PSYNC_S1341,
-        `Unsupported storage version ${storageVersion} for sync rules ${id}`
-      );
-    }
+    const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
     const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name, undefined, {
       ...this.internalOptions,
       storageConfig

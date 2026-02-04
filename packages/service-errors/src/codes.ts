@@ -295,13 +295,19 @@ export enum ErrorCode {
    */
   PSYNC_S1402 = 'PSYNC_S1402',
 
-    /**
+  /**
+   * Storage version not supported. This could be caused by a downgrade to a version
+   * that does not support the current storage version.
+   */
+  PSYNC_S1403 = 'PSYNC_S1403',
+
+  /**
    *  Required updates in the Change Data Capture (CDC) are no longer available.
    *
    *  Possible causes:
    *  * Older data has been cleaned up due to exceeding the retention period.
    */
-    PSYNC_S1500 = 'PSYNC_S1500',
+  PSYNC_S1500 = 'PSYNC_S1500',
 
   // ## PSYNC_S2xxx: Service API
 

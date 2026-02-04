@@ -2,6 +2,7 @@ import { ErrorCode, errors, router, schema } from '@powersync/lib-services-frame
 import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
+import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules/src/HydrationState.js';
 import * as api from '../../api/api-index.js';
 import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
@@ -179,7 +180,7 @@ export const validate = routeDefinition({
             schema
           }),
           hydratedSyncRules() {
-            return this.sync_rules.hydrate();
+            return this.sync_rules.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
           }
         };
       },
