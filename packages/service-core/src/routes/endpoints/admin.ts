@@ -2,7 +2,7 @@ import { ErrorCode, errors, router, schema } from '@powersync/lib-services-frame
 import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
-import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 import * as api from '../../api/api-index.js';
 import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';

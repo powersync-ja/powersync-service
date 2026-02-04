@@ -4,7 +4,7 @@ import { storage } from '@powersync/service-core';
 import { CompatibilityOption, SqlSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
 
 import { models } from '../../types/types.js';
-import { DEFAULT_HYDRATION_STATE, HydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { DEFAULT_HYDRATION_STATE, HydrationState } from '@powersync/service-sync-rules';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
