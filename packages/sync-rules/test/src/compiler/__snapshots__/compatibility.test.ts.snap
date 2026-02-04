@@ -40,6 +40,10 @@ exports[`old streams test > OR in subquery 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -82,6 +86,10 @@ exports[`old streams test > OR in subquery 1`] = `
         },
       ],
       "hash": 139759831,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -311,6 +319,10 @@ exports[`old streams test > in > on parameter data and table 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -562,6 +574,10 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
         },
       ],
       "hash": 429775008,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [],
       "partitionBy": [
         {
@@ -669,6 +685,10 @@ exports[`old streams test > in > row value in subquery 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -792,6 +812,10 @@ exports[`old streams test > in > two subqueries 1`] = `
     {
       "filters": [],
       "hash": 75103629,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -819,6 +843,10 @@ exports[`old streams test > in > two subqueries 1`] = `
     {
       "filters": [],
       "hash": 287627362,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -992,6 +1020,10 @@ exports[`old streams test > nested subqueries 1`] = `
         },
       ],
       "hash": 429775008,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -1010,6 +1042,10 @@ exports[`old streams test > nested subqueries 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -1192,6 +1228,10 @@ exports[`old streams test > normalization > distribute and 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -1338,6 +1378,10 @@ exports[`old streams test > normalization > double negation 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -1507,6 +1551,10 @@ exports[`old streams test > normalization > negated and 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -1661,6 +1709,10 @@ exports[`old streams test > normalization > negated or 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -2347,6 +2399,10 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
     {
       "filters": [],
       "hash": 473033600,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -2740,6 +2796,10 @@ exports[`old streams test > table alias 1`] = `
     {
       "filters": [],
       "hash": 405169598,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {

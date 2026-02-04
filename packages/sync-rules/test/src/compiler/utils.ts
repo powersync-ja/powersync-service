@@ -1,5 +1,6 @@
 import { expect } from 'vitest';
 import {
+  deserializeSyncPlan,
   getLocation,
   ParsingErrorListener,
   serializeSyncPlan,
@@ -88,5 +89,9 @@ export function compileToSyncPlan(
     builder.finish();
   }
 
-  return [errors, compiler.output.toSyncPlan()];
+  const originalPlan = compiler.output.toSyncPlan();
+  // Add a serialization roundtrip to ensure sync plans are correctly evaluated even after being deserialized.
+  const afterSerializationRoundtrip = deserializeSyncPlan(JSON.parse(JSON.stringify(serializeSyncPlan(originalPlan))));
+
+  return [errors, afterSerializationRoundtrip];
 }
