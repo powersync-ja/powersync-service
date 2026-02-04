@@ -1,5 +1,6 @@
 import { expect } from 'vitest';
 import {
+  deserializeSyncPlan,
   getLocation,
   ParsingErrorListener,
   serializeSyncPlan,
@@ -7,7 +8,6 @@ import {
   SyncStreamsCompiler,
   SyncStreamsCompilerOptions
 } from '../../../src/index.js';
-import { deserializeSyncPlan } from '../../../src/sync_plan/serialize.js';
 
 // TODO: Replace with parsing from yaml once we support that
 export interface SyncStreamInput {
