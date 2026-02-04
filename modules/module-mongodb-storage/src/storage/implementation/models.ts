@@ -204,7 +204,40 @@ export interface SyncRuleDocument {
     id: string;
     expires_at: Date;
   } | null;
+
+  storage_version?: number;
 }
+
+export interface StorageConfig {
+  /**
+   * When true, bucket_data.checksum is guaranteed to be persisted as a Long.
+   *
+   * When false, it could also have been persisted as an Int32 or Double, in which case it must be converted to
+   * a Long before summing.
+   */
+  longChecksums: boolean;
+
+  /**
+   * Whether versioned bucket names are automatically enabled.
+   *
+   * If this is false, bucket names may still be versioned depending on the sync config.
+   */
+  versionedBuckets: boolean;
+}
+
+export const LEGACY_STORAGE_VERSION = 1;
+export const CURRENT_STORAGE_VERSION = 2;
+
+export const STORAGE_VERSIONS: Record<number, StorageConfig | undefined> = {
+  1: {
+    longChecksums: false,
+    versionedBuckets: false
+  },
+  2: {
+    longChecksums: true,
+    versionedBuckets: false
+  }
+};
 
 export interface CheckpointEventDocument {
   _id: bson.ObjectId;

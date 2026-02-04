@@ -4,7 +4,7 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
-import { SyncRuleDocument } from './models.js';
+import { LEGACY_STORAGE_VERSION, SyncRuleDocument } from './models.js';
 
 export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
@@ -17,6 +17,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
   public readonly active: boolean;
+  public readonly storage_version: number;
 
   public current_lock: MongoSyncRulesLock | null = null;
 
@@ -34,6 +35,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     this.last_checkpoint_ts = doc.last_checkpoint_ts;
     this.last_keepalive_ts = doc.last_keepalive_ts;
     this.active = doc.state == 'ACTIVE';
+    this.storage_version = doc.storage_version ?? LEGACY_STORAGE_VERSION;
   }
 
   parsed(options: storage.ParseSyncRulesOptions) {

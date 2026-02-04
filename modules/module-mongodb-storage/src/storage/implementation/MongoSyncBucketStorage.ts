@@ -31,7 +31,14 @@ import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
+import {
+  BucketDataDocument,
+  BucketDataKey,
+  BucketStateDocument,
+  SourceKey,
+  SourceTableDocument,
+  StorageConfig
+} from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
@@ -39,7 +46,8 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
-  checksumOptions?: MongoChecksumOptions;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  storageConfig: StorageConfig;
 }
 
 /**
@@ -68,12 +76,15 @@ export class MongoSyncBucketStorage
     public readonly group_id: number,
     private readonly sync_rules: storage.PersistedSyncRulesContent,
     public readonly slot_name: string,
-    writeCheckpointMode?: storage.WriteCheckpointMode,
-    options?: MongoSyncBucketStorageOptions
+    writeCheckpointMode: storage.WriteCheckpointMode | undefined,
+    options: MongoSyncBucketStorageOptions
   ) {
     super();
     this.db = factory.db;
-    this.checksums = new MongoChecksums(this.db, this.group_id, options?.checksumOptions);
+    this.checksums = new MongoChecksums(this.db, this.group_id, {
+      ...options.checksumOptions,
+      storageConfig: options?.storageConfig
+    });
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
