@@ -222,12 +222,21 @@ export type StrictJwk = t.Decoded<typeof jwk>;
 
 export const LoggingConfig = t
   .object({
-    level: t.literal('silly').or(t.literal('debug')).or(t.literal('verbose')).or(t.literal('http')).or(t.literal('info')).or(t.literal('warn')).or(t.literal('error')).or(t.literal('fatal'))
+    level: t
+      .literal('silly')
+      .or(t.literal('debug'))
+      .or(t.literal('verbose'))
+      .or(t.literal('http'))
+      .or(t.literal('info'))
+      .or(t.literal('warn'))
+      .or(t.literal('error'))
       .meta({
         description: 'Log level for the service logs.'
       })
       .optional(),
-    format: t.literal('json').or(t.literal('text'))
+    format: t
+      .literal('json')
+      .or(t.literal('text'))
       .meta({
         description: 'Log output format.'
       })
