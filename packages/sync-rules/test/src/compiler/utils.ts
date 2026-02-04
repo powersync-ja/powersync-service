@@ -7,6 +7,7 @@ import {
   SyncStreamsCompiler,
   SyncStreamsCompilerOptions
 } from '../../../src/index.js';
+import { deserializeSyncPlan } from '../../../src/sync_plan/serialize.js';
 
 // TODO: Replace with parsing from yaml once we support that
 export interface SyncStreamInput {
@@ -88,5 +89,9 @@ export function compileToSyncPlan(
     builder.finish();
   }
 
-  return [errors, compiler.output.toSyncPlan()];
+  const originalPlan = compiler.output.toSyncPlan();
+  // Add a serialization roundtrip to ensure sync plans are correctly evaluated even after being deserialized.
+  const afterSerializationRoundtrip = deserializeSyncPlan(JSON.parse(JSON.stringify(serializeSyncPlan(originalPlan))));
+
+  return [errors, afterSerializationRoundtrip];
 }

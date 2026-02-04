@@ -57,6 +57,10 @@ exports[`common table expressions > as data source 1`] = `
     {
       "filters": [],
       "hash": 482282063,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -180,6 +184,10 @@ exports[`common table expressions > as parameter query 1`] = `
     {
       "filters": [],
       "hash": 482282063,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -207,6 +215,10 @@ exports[`common table expressions > as parameter query 1`] = `
     {
       "filters": [],
       "hash": 158472400,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
