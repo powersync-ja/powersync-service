@@ -1,48 +1,57 @@
 import { SourceTable } from '@powersync/service-core';
 import { escapeIdentifier, toQualifiedTableName } from '../utils/mssql.js';
+import { ServiceAssertionError } from '@powersync/service-errors';
+import { CaptureInstance } from './CaptureInstance.js';
 
-export interface CaptureInstance {
-  name: string;
-  schema: string;
-}
+/**
+ *  The cdc schema in SQL Server is reserved and created when enabling CDC on a database.
+ */
+export const CDC_SCHEMA = 'cdc';
 
-export interface MSSQLSourceTableOptions {
-  sourceTable: SourceTable;
+export class MSSQLSourceTable {
   /**
    *  The unique name of the CDC capture instance for this table
    */
-  captureInstance: CaptureInstance;
-}
+  public captureInstance: CaptureInstance | null = null;
 
-export class MSSQLSourceTable {
-  constructor(private options: MSSQLSourceTableOptions) {}
-
-  get sourceTable() {
-    return this.options.sourceTable;
-  }
+  constructor(public sourceTable: SourceTable) {}
 
   updateSourceTable(updated: SourceTable): void {
-    this.options.sourceTable = updated;
+    this.sourceTable = updated;
   }
 
-  get captureInstance() {
-    return this.options.captureInstance.name;
+  enabledForCDC(): boolean {
+    return this.captureInstance !== null;
   }
 
-  get cdcSchema() {
-    return this.options.captureInstance.schema;
+  setCaptureInstance(captureInstance: CaptureInstance) {
+    this.captureInstance = captureInstance;
   }
 
-  get CTTable() {
-    return `${escapeIdentifier(this.cdcSchema)}.${this.captureInstance}_CT`;
+  clearCaptureInstance() {
+    this.captureInstance = null;
   }
 
   get allChangesFunction() {
-    return `${escapeIdentifier(this.cdcSchema)}.fn_cdc_get_all_changes_${this.captureInstance}`;
+    if (!this.captureInstance) {
+      throw new ServiceAssertionError(`No capture instance set for table: ${this.sourceTable.name}`);
+    }
+    return `${CDC_SCHEMA}.fn_cdc_get_all_changes_${this.captureInstance.name}`;
   }
 
   get netChangesFunction() {
-    return `${escapeIdentifier(this.cdcSchema)}.fn_cdc_get_net_changes_${this.captureInstance}`;
+    if (!this.captureInstance) {
+      throw new ServiceAssertionError(`No capture instance set for table: ${this.sourceTable.name}`);
+    }
+    return `${CDC_SCHEMA}.fn_cdc_get_net_changes_${this.captureInstance.name}`;
+  }
+
+  /**
+   *  Return the object ID of the source table.
+   *  Object IDs in SQL Server are always numbers.
+   */
+  get objectId(): number {
+    return this.sourceTable.objectId as number;
   }
 
   /**
