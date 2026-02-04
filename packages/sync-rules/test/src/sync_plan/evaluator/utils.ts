@@ -5,7 +5,9 @@ import {
   addPrecompiledSyncPlanToRules,
   javaScriptExpressionEngine,
   CompatibilityContext,
-  CompatibilityEdition
+  CompatibilityEdition,
+  DEFAULT_HYDRATION_STATE,
+  CreateSourceParams
 } from '../../../../src/index.js';
 import { compileToSyncPlanWithoutErrors, SyncStreamInput } from '../../compiler/utils.js';
 import { test } from 'vitest';
@@ -30,8 +32,8 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
         addPrecompiledSyncPlanToRules(plan, rules, { engine });
         return rules;
       },
-      prepareSyncStreams(inputs) {
-        return this.prepareWithoutHydration(inputs).hydrate({ hydrationState: versionedHydrationState(1) });
+      prepareSyncStreams(inputs, params?: CreateSourceParams) {
+        return this.prepareWithoutHydration(inputs).hydrate(params ?? { hydrationState: DEFAULT_HYDRATION_STATE });
       }
     });
 
