@@ -19,6 +19,7 @@ import {
   ScalarExpressionEvaluator,
   scalarStatementToSql
 } from '../engine/scalar_expression_engine.js';
+import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
@@ -74,7 +75,10 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
   }
 
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
-    throw new Error('resolveResultSets not implemented.');
+    const analyzer = new SyncPlanSchemaAnalyzer(schema);
+    for (const source of this.source.sources) {
+      analyzer.resolveResultSets(source, tables);
+    }
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
