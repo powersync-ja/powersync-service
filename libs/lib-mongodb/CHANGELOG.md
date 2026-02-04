@@ -1,5 +1,13 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.17
+
+### Patch Changes
+
+- 5d683cd: Add support for zstd and snappy compressors for MongoDB connections, in addition to zlib which was already supported.
+- Updated dependencies [a02cc58]
+  - @powersync/lib-services-framework@0.8.0
+
 ## 0.6.16
 
 ### Patch Changes
