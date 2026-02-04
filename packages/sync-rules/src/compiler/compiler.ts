@@ -9,6 +9,19 @@ import { StreamQueryParser } from './parser.js';
 import { NodeLocations } from './expression.js';
 import { SqlScope } from './scope.js';
 import { PreparedSubquery } from './sqlite.js';
+import { SourceSchema } from '../types.js';
+
+export interface SyncStreamsCompilerOptions {
+  defaultSchema: string;
+
+  /**
+   * An optional schema, used exclusively for linting table and column references that can't be resolved in it.
+   *
+   * Sync streams compile to the same plan regardless of the assumed schema, and it's possible to reuse compiled sync
+   * streams across schema changes.
+   */
+  schema?: SourceSchema;
+}
 
 /**
  * State for compiling sync streams.
@@ -27,7 +40,7 @@ export class SyncStreamsCompiler {
   readonly output = new CompiledStreamQueries();
   private readonly locations = new NodeLocations();
 
-  constructor(readonly defaultSchema: string) {}
+  constructor(readonly options: SyncStreamsCompilerOptions) {}
 
   /**
    * Tries to parse the SQL query as a `SELECT` statement into a form supported for common table expressions.
@@ -118,7 +131,7 @@ export interface IndividualSyncStreamCompiler {
  * binds errors to one specific SQL string.
  */
 export interface ParsingErrorListener {
-  report(message: string, location: NodeLocation | PGNode): void;
+  report(message: string, location: NodeLocation | PGNode, options?: { isWarning: boolean }): void;
 }
 
 /**

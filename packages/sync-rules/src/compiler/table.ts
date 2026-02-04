@@ -3,6 +3,7 @@ import { RequestExpression } from './filter.js';
 import { StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList } from './compatibility.js';
 import { TablePattern } from '../TablePattern.js';
+import { SourceSchemaTable } from '../index.js';
 
 /**
  * A result set that a query stream selects from.
@@ -41,7 +42,15 @@ export abstract class BaseSourceResultSet {
 export class PhysicalSourceResultSet extends BaseSourceResultSet {
   constructor(
     readonly tablePattern: TablePattern,
-    source: SyntacticResultSetSource
+    source: SyntacticResultSetSource,
+    /**
+     * Source tables that the {@link tablePattern} resolves to in the static schema context used when compiling sync
+     * streams.
+     *
+     * This information must only be used to generate analysis warnings, e.g. for column references that don't exist in
+     * resolved tables. It must not affect how sync streams are compiled, as that is always schema-independent.
+     */
+    readonly schemaTablesForWarnings: SourceSchemaTable[]
   ) {
     super(source);
   }

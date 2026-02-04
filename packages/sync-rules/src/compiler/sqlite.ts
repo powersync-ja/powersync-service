@@ -19,8 +19,9 @@ import {
 } from '../sync_plan/expression.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
-import { BaseSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
+import { BaseSourceResultSet, PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
 import { SqlScope } from './scope.js';
+import { SourceSchema } from '../types.js';
 
 export interface ResolvedSubqueryExpression {
   filters: SqlExpression<ExpressionInput>[];
@@ -124,6 +125,22 @@ export class PostgresToSqlite {
 
         if (expr.name == '*') {
           return this.invalidExpression(expr, '* columns are not supported here');
+        }
+
+        // If this references something from a source table, warn if that column doesn't exist.
+        if (resultSet instanceof PhysicalSourceResultSet && resultSet.schemaTablesForWarnings.length) {
+          let columnExistsInAnySourceTable = false;
+
+          for (const table of resultSet.schemaTablesForWarnings) {
+            if (table.getColumn(expr.name) != null) {
+              columnExistsInAnySourceTable = true;
+              break;
+            }
+          }
+
+          if (!columnExistsInAnySourceTable) {
+            this.options.errors.report('Column not found.', expr, { isWarning: true });
+          }
         }
 
         if (resultSet instanceof BaseSourceResultSet) {

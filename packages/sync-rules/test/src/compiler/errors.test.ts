@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { compilationErrorsForSingleStream } from './utils.js';
+import { compilationErrorsForSingleStream, compileToSyncPlan } from './utils.js';
+import { SourceSchema } from '../../../src/types.js';
+import { SourceTableDefinition, StaticSchema } from '../../../src/StaticSchema.js';
+import { DEFAULT_TAG } from '../../../src/TablePattern.js';
 
 describe('compilation errors', () => {
   test('not a select statement', () => {
@@ -204,5 +207,65 @@ describe('compilation errors', () => {
     expect(compilationErrorsForSingleStream('select * from users where id = subscription.whatever()')).toStrictEqual([
       { message: 'Unknown request function', source: 'subscription.whatever' }
     ]);
+  });
+
+  describe('schema errors', () => {
+    function schemaFromTables(...tables: SourceTableDefinition[]): StaticSchema {
+      return new StaticSchema([{ tag: DEFAULT_TAG, schemas: [{ name: 'test_schema', tables }] }]);
+    }
+
+    function compilationErrorsWithSchema(schema: SourceSchema, sql: string) {
+      const [errors] = compileToSyncPlan(
+        [
+          {
+            name: 'stream',
+            queries: [sql]
+          }
+        ],
+        { defaultSchema: 'test_schema', schema }
+      );
+
+      return errors;
+    }
+
+    test('unknown tables', () => {
+      expect(compilationErrorsWithSchema(schemaFromTables(), 'SELECT * FROM users')).toStrictEqual([
+        {
+          message: 'This table could not be found in the source schema.',
+          source: 'users',
+          isWarning: true
+        }
+      ]);
+
+      // We don't want to warn on columns too if the table couldn't be resolved.
+      expect(compilationErrorsWithSchema(schemaFromTables(), 'SELECT id, name FROM users')).toStrictEqual([
+        {
+          message: 'This table could not be found in the source schema.',
+          source: 'users',
+          isWarning: true
+        }
+      ]);
+    });
+
+    test('unknown column', () => {
+      expect(
+        compilationErrorsWithSchema(
+          schemaFromTables({
+            name: 'users',
+            columns: [
+              { name: 'id', pg_type: 'uuid' },
+              { name: 'name', pg_type: 'text' }
+            ]
+          }),
+          'SELECT id, name, does_not_exist FROM users'
+        )
+      ).toStrictEqual([
+        {
+          message: 'Column not found.',
+          source: 'does_not_exist',
+          isWarning: true
+        }
+      ]);
+    });
   });
 });
