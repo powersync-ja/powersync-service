@@ -8,7 +8,13 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { describe, TestOptions } from 'vitest';
 import { env } from './env.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
-import { createCheckpoint, enableCDCForTable, escapeIdentifier, getLatestLSN } from '@module/utils/mssql.js';
+import {
+  createCheckpoint,
+  enableCDCForTable,
+  escapeIdentifier,
+  getLatestLSN,
+  toQualifiedTableName
+} from '@module/utils/mssql.js';
 import sql from 'mssql';
 import { v4 as uuid } from 'uuid';
 import { LSN } from '@module/common/LSN.js';
@@ -66,13 +72,12 @@ export async function clearTestDb(connectionManager: MSSQLConnectionManager) {
   }
 }
 
-export async function resetTestTable(connectionManager: MSSQLConnectionManager, tableName: string) {
-  await connectionManager.execute('sys.sp_cdc_disable_table', [
-    { name: 'source_schema', value: connectionManager.schema },
-    { name: 'source_name', value: tableName },
-    { name: 'capture_instance', value: 'all' }
-  ]);
-
+export async function dropTestTable(connectionManager: MSSQLConnectionManager, tableName: string) {
+  // await connectionManager.execute('sys.sp_cdc_disable_table', [
+  //   { name: 'source_schema', value: connectionManager.schema },
+  //   { name: 'source_name', value: tableName },
+  //   { name: 'capture_instance', value: 'all' }
+  // ]);
   await connectionManager.query(`DROP TABLE [${tableName}]`);
 }
 
@@ -131,6 +136,24 @@ export async function insertTestData(connectionManager: MSSQLConnectionManager, 
       { name: 'description', type: sql.NVarChar(sql.MAX), value: description }
     ]
   );
+
+  return { id, description };
+}
+
+export async function insertBasicIdTestData(
+  connectionManager: MSSQLConnectionManager,
+  tableName: string
+): Promise<TestData> {
+  const description = `description_${Math.floor(Math.random() * 1000000)}`;
+  const { recordset: result } = await connectionManager.query(
+    `
+    INSERT INTO ${toQualifiedTableName(connectionManager.schema, tableName)} (description) 
+    OUTPUT INSERTED.id 
+    VALUES (@description)
+    `,
+    [{ name: 'description', type: sql.NVarChar(sql.MAX), value: description }]
+  );
+  const id = result[0].id;
 
   return { id, description };
 }

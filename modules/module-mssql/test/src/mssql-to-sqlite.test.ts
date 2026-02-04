@@ -12,13 +12,13 @@ import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManag
 import {
   enableCDCForTable,
   escapeIdentifier,
-  getCaptureInstance,
+  getCaptureInstances,
   getLatestLSN,
   getLatestReplicatedLSN,
-  getMinLSN,
   toQualifiedTableName
 } from '@module/utils/mssql.js';
 import sql from 'mssql';
+import { CDC_SCHEMA } from '@module/common/MSSQLSourceTable.js';
 
 describe('MSSQL Data Types Tests', () => {
   const connectionManager = new MSSQLConnectionManager(TEST_CONNECTION_OPTIONS, {});
@@ -482,20 +482,23 @@ async function getReplicatedRows(
 ): Promise<SqliteInputRow[]> {
   const endLSN = await getLatestReplicatedLSN(connectionManager);
 
-  const captureInstance = await getCaptureInstance({
+  const captureInstances = await getCaptureInstances({
     connectionManager,
-    schema: connectionManager.schema,
-    tableName
+    table: {
+      schema: connectionManager.schema,
+      name: tableName
+    }
   });
-  if (!captureInstance) {
+  if (captureInstances.size === 0) {
     throw new Error(`No CDC capture instance found for table ${tableName}`);
   }
 
-  const startLSN = await getMinLSN(connectionManager, captureInstance.name);
+  const captureInstance = Array.from(captureInstances.values())[0].instances[0];
+  const startLSN = captureInstance.minLSN;
   // Query CDC changes
   const { recordset: results } = await connectionManager.query(
     `
-      SELECT * FROM ${captureInstance.schema}.fn_cdc_get_all_changes_${captureInstance.name}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval
+      SELECT * FROM ${CDC_SCHEMA}.fn_cdc_get_all_changes_${captureInstance.name}(@from_lsn, @to_lsn, 'all update old') ORDER BY __$start_lsn, __$seqval
   `,
     [
       { name: 'from_lsn', type: sql.VarBinary, value: startLSN.toBinary() },
