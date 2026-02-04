@@ -137,12 +137,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       try {
         // Configure new sync rules, if they have changed.
         // In that case, also immediately take out a lock, so that another process doesn't start replication on it.
-
-        const { lock } = await this.storage.configureSyncRules({
-          content: syncRules,
-          lock: true,
-          validate: this.syncRuleProvider.exitOnError
-        });
+        const { lock } = await this.storage.configureSyncRules(
+          storage.UpdateSyncRulesOptions.fromYaml(syncRules, { lock: true, validate: true })
+        );
         if (lock) {
           configuredLock = lock;
         }

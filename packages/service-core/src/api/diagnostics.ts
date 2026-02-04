@@ -1,5 +1,5 @@
 import { logger } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
@@ -41,7 +41,7 @@ export async function getSyncRulesStatus(
   const check_connection = options.check_connection ?? false;
   const now = new Date().toISOString();
 
-  let rules: SqlSyncRules;
+  let rules: SyncConfig;
   let persisted: storage.PersistedSyncRules;
   try {
     persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
@@ -130,15 +130,17 @@ export async function getSyncRulesStatus(
       ts: sync_rules.last_fatal_error_ts?.toISOString()
     });
   }
-  errors.push(
-    ...rules.errors.map((e) => {
-      return {
-        level: e.type,
-        message: e.message,
-        ts: now
-      };
-    })
-  );
+  if (rules instanceof SqlSyncRules) {
+    errors.push(
+      ...rules.errors.map((e) => {
+        return {
+          level: e.type,
+          message: e.message,
+          ts: now
+        };
+      })
+    );
+  }
 
   if (live_status && status?.active) {
     // Check replication lag for active sync rules.

@@ -10,12 +10,12 @@ import {
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { validateSyncRulesSchema } from './json_schema.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { TablePattern } from './TablePattern.js';
 import { QueryParseOptions, RequestParameters, SourceSchema, SqliteJsonRow, StreamParseOptions } from './types.js';
 import { BaseSyncConfig } from './BaseSyncConfig.js';
+import { SyncPlan } from './sync_plan/plan.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -372,6 +372,11 @@ export class SqlSyncRules extends BaseSyncConfig {
       this.errors.push(new YamlError(err, pos));
     }
     return result;
+  }
+
+  extractSyncPlan(): SyncPlan | null {
+    // TODO: Once we use the new compiler to parse sync rules from YAML, we could store the plan here to extract it.
+    return null;
   }
 
   protected writeSourceTables(sourceTables: Map<String, TablePattern>): void {

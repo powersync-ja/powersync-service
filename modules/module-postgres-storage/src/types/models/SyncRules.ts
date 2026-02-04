@@ -47,7 +47,13 @@ export const SyncRules = t.object({
    */
   last_fatal_error: t.Null.or(t.string),
   keepalive_op: t.Null.or(bigint),
-  content: t.string
+  content: t.string,
+  plan: t.Null.or(
+    t.object({
+      plan: t.any,
+      compatibility: t.any
+    })
+  )
 });
 
 export type SyncRules = t.Encoded<typeof SyncRules>;

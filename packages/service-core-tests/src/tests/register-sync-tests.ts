@@ -4,10 +4,10 @@ import {
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
   sync,
+  UpdateSyncRulesOptions,
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketSourceType, RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
@@ -49,9 +49,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   test('sync global data', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
 
     const bucketStorage = f.getInstance(syncRules);
 
@@ -100,8 +98,8 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   test('sync buckets in order', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: `
+    const syncRules = await f.updateSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   b0:
     priority: 2
@@ -111,8 +109,8 @@ bucket_definitions:
     priority: 1
     data:
       - SELECT * FROM test WHERE LENGTH(id) > 2;
-    `
-    });
+    `)
+    );
 
     const bucketStorage = f.getInstance(syncRules);
 
@@ -161,8 +159,8 @@ bucket_definitions:
   test('sync interrupts low-priority buckets on new checkpoints', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: `
+    const syncRules = await f.updateSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   b0:
     priority: 2
@@ -172,8 +170,8 @@ bucket_definitions:
     priority: 1
     data:
       - SELECT * FROM test WHERE LENGTH(id) > 5;
-    `
-    });
+    `)
+    );
 
     const bucketStorage = f.getInstance(syncRules);
 
@@ -270,8 +268,8 @@ bucket_definitions:
   test('sync interruptions with unrelated data', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: `
+    const syncRules = await f.updateSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   b0:
     priority: 2
@@ -282,8 +280,8 @@ bucket_definitions:
     parameters: SELECT request.user_id() as user_id
     data:
       - SELECT * FROM test WHERE LENGTH(id) > 5 AND description = bucket.user_id;
-    `
-    });
+    `)
+    );
 
     const bucketStorage = f.getInstance(syncRules);
 
@@ -408,8 +406,8 @@ bucket_definitions:
     // then interrupt checkpoint with new data for all buckets
     // -> data for all buckets should be sent in the new checkpoint
 
-    const syncRules = await f.updateSyncRules({
-      content: `
+    const syncRules = await f.updateSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   b0a:
     priority: 2
@@ -423,8 +421,8 @@ bucket_definitions:
     priority: 1
     data:
       - SELECT * FROM test WHERE LENGTH(id) > 5;
-    `
-    });
+    `)
+    );
 
     const bucketStorage = f.getInstance(syncRules);
 
@@ -552,9 +550,7 @@ bucket_definitions:
   test('sends checkpoint complete line for empty checkpoint', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -615,9 +611,7 @@ bucket_definitions:
   test('sync legacy non-raw data', async () => {
     const f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
 
     const bucketStorage = await f.getInstance(syncRules);
 
@@ -659,9 +653,7 @@ bucket_definitions:
   test('expired token', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
 
     const bucketStorage = await f.getInstance(syncRules);
 
@@ -686,9 +678,7 @@ bucket_definitions:
   test('sync updates to global data', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
@@ -752,14 +742,14 @@ bucket_definitions:
   test('sync updates to parameter query only', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: `bucket_definitions:
+    const syncRules = await f.updateSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
     data:
       - select * from lists where user_id = bucket.user_id
-`
-    });
+`)
+    );
 
     const usersTable = test_utils.makeTestTable('users', ['id']);
     const listsTable = test_utils.makeTestTable('lists', ['id']);
@@ -818,14 +808,14 @@ bucket_definitions:
   test('sync updates to data query only', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: `bucket_definitions:
+    const syncRules = await f.updateSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
     data:
       - select * from lists where user_id = bucket.user_id
-`
-    });
+`)
+    );
 
     const usersTable = test_utils.makeTestTable('users', ['id']);
     const listsTable = test_utils.makeTestTable('lists', ['id']);
@@ -895,14 +885,14 @@ bucket_definitions:
   test('sync updates to parameter query + data', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: `bucket_definitions:
+    const syncRules = await f.updateSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
     data:
       - select * from lists where user_id = bucket.user_id
-`
-    });
+`)
+    );
 
     const usersTable = test_utils.makeTestTable('users', ['id']);
     const listsTable = test_utils.makeTestTable('lists', ['id']);
@@ -969,9 +959,7 @@ bucket_definitions:
   test('expiring token', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
@@ -1014,9 +1002,7 @@ bucket_definitions:
 
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
 
     const bucketStorage = await f.getInstance(syncRules);
 
@@ -1156,9 +1142,7 @@ bucket_definitions:
   test('write checkpoint', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
-      content: BASIC_SYNC_RULES
-    });
+    const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(BASIC_SYNC_RULES));
 
     const bucketStorage = f.getInstance(syncRules);
 
@@ -1215,6 +1199,7 @@ bucket_definitions:
   });
 
   test('encodes sync rules id in buckes for streams', async () => {
+    let x = async () => {};
     await using f = await factory();
     const rules = `
 streams:
@@ -1227,9 +1212,7 @@ config:
 `;
 
     for (let i = 0; i < 2; i++) {
-      const syncRules = await f.updateSyncRules({
-        content: rules
-      });
+      const syncRules = await f.updateSyncRules(UpdateSyncRulesOptions.fromYaml(rules));
       const bucketStorage = f.getInstance(syncRules);
 
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {

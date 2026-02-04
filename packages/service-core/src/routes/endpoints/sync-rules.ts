@@ -1,11 +1,12 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SyncConfig, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
 import { RouteAPI } from '../../api/RouteAPI.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
+import { UpdateSyncRulesOptions } from '../../storage/BucketStorageFactory.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -51,10 +52,11 @@ export const deploySyncRules = routeDefinition({
       });
     }
     const content = payload.params.content;
+    let config: SyncConfig;
 
     try {
       const apiHandler = service_context.routerEngine.getAPI();
-      SqlSyncRules.fromYaml(payload.params.content, {
+      config = SqlSyncRules.fromYaml(payload.params.content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -68,11 +70,9 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules({
-      content: content,
-      // Aready validated above
-      validate: false
-    });
+    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(
+      UpdateSyncRulesOptions.fromSyncConfig(config)
+    );
 
     return {
       slot_name: sync_rules.slot_name
@@ -168,12 +168,9 @@ export const reprocessSyncRules = routeDefinition({
       });
     }
 
-    const new_rules = await activeBucketStorage.updateSyncRules({
-      content: sync_rules.sync_rules.content,
-      // These sync rules already passed validation. But if the rules are not valid anymore due
-      // to a service change, we do want to report the error here.
-      validate: true
-    });
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      UpdateSyncRulesOptions.fromSyncConfig(sync_rules.sync_rules)
+    );
     return {
       slot_name: new_rules.slot_name
     };

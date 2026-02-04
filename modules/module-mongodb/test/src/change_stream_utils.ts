@@ -8,7 +8,8 @@ import {
   ProtocolOpId,
   ReplicationCheckpoint,
   SyncRulesBucketStorage,
-  TestStorageOptions
+  TestStorageOptions,
+  UpdateSyncRulesOptions
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
@@ -88,7 +89,7 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules(UpdateSyncRulesOptions.fromYaml(content, { validate: true }));
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }

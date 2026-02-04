@@ -17,7 +17,10 @@ export interface StreamEvaluationContext {
 }
 
 export class PrecompiledSyncConfig extends BaseSyncConfig {
-  constructor(plan: plan.SyncPlan, context: StreamEvaluationContext) {
+  constructor(
+    private readonly plan: plan.SyncPlan,
+    context: StreamEvaluationContext
+  ) {
     super(context.sourceText);
 
     const preparedBuckets = new Map<plan.StreamBucketDataSource, PreparedStreamBucketDataSource>();
@@ -51,5 +54,9 @@ export class PrecompiledSyncConfig extends BaseSyncConfig {
 
   protected asSyncConfig(): this {
     return this;
+  }
+
+  extractSyncPlan(): plan.SyncPlan | null {
+    return this.plan;
   }
 }

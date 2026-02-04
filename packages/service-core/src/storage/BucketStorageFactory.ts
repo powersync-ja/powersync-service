@@ -1,9 +1,15 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
+import {
+  ParseSyncRulesOptions,
+  PersistedSyncRules,
+  PersistedSyncRulesContent,
+  SerializedSyncPlan
+} from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 import { ReportStorage } from './ReportStorage.js';
+import { SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
 
 /**
  * Represents a configured storage provider.
@@ -118,10 +124,38 @@ export interface StorageMetrics {
   replication_size_bytes: number;
 }
 
-export interface UpdateSyncRulesOptions {
-  content: string;
-  lock?: boolean;
-  validate?: boolean;
+export class UpdateSyncRulesOptions {
+  constructor(
+    readonly content: string,
+    readonly serializedSyncPlan: SerializedSyncPlan | null,
+    readonly lock: boolean = false
+  ) {}
+
+  static fromSyncConfig(config: SyncConfig, lock: boolean = false) {
+    const plan = config.extractSyncPlan();
+    let serializedPlan: SerializedSyncPlan | null = null;
+    if (plan) {
+      serializedPlan = { plan, compatibility: config.compatibility.serialize() };
+    }
+
+    return new UpdateSyncRulesOptions(config.content, serializedPlan, lock);
+  }
+
+  static fromYaml(content: string, options?: { validate?: boolean; lock?: boolean }): UpdateSyncRulesOptions {
+    let rules: SqlSyncRules;
+    if (options?.validate) {
+      rules = SqlSyncRules.fromYaml(content, {
+        // No schema-based validation at this point
+        schema: undefined,
+        defaultSchema: 'not_applicable', // Not needed for validation
+        throwOnError: true
+      });
+    } else {
+      rules = new SqlSyncRules(content);
+    }
+
+    return UpdateSyncRulesOptions.fromSyncConfig(rules, options?.lock ?? false);
+  }
 }
 
 export interface GetIntanceOptions {

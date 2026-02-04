@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { storage, UpdateSyncRulesOptions } from '@powersync/service-core';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -15,14 +15,13 @@ import * as test_utils from '../test-utils/test-utils-index.js';
 export function registerDataStorageCheckpointTests(generateStorageFactory: storage.TestStorageFactory) {
   test('managed write checkpoints - checkpoint after write', async (context) => {
     await using factory = await generateStorageFactory();
-    const r = await factory.configureSyncRules({
-      content: `
+    const r = await factory.configureSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
 
     const abortController = new AbortController();
@@ -55,14 +54,13 @@ bucket_definitions:
 
   test('managed write checkpoints - write after checkpoint', async (context) => {
     await using factory = await generateStorageFactory();
-    const r = await factory.configureSyncRules({
-      content: `
+    const r = await factory.configureSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
 
     const abortController = new AbortController();
@@ -117,14 +115,13 @@ bucket_definitions:
 
   test('custom write checkpoints - checkpoint after write', async (context) => {
     await using factory = await generateStorageFactory();
-    const r = await factory.configureSyncRules({
-      content: `
+    const r = await factory.configureSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
@@ -157,14 +154,13 @@ bucket_definitions:
 
   test('custom write checkpoints - standalone checkpoint', async (context) => {
     await using factory = await generateStorageFactory();
-    const r = await factory.configureSyncRules({
-      content: `
+    const r = await factory.configureSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
@@ -200,14 +196,13 @@ bucket_definitions:
 
   test('custom write checkpoints - write after checkpoint', async (context) => {
     await using factory = await generateStorageFactory();
-    const r = await factory.configureSyncRules({
-      content: `
+    const r = await factory.configureSyncRules(
+      UpdateSyncRulesOptions.fromYaml(`
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 

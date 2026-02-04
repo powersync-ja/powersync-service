@@ -3,6 +3,7 @@ import { expect, test } from 'vitest';
 
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { UpdateSyncRulesOptions } from '@powersync/service-core';
 
 test('validate tables', async () => {
   await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -19,7 +20,7 @@ bucket_definitions:
       - SELECT * FROM "other%"
 `;
 
-  const syncRules = await context.factory.updateSyncRules({ content: syncRuleContent });
+  const syncRules = await context.factory.updateSyncRules(UpdateSyncRulesOptions.fromYaml(syncRuleContent));
 
   const tablePatterns = syncRules.parsed({ defaultSchema: 'public' }).sync_rules.getSourceTables();
   const tableInfo = await getDebugTablesInfo({

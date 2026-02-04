@@ -11,7 +11,8 @@ import {
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
-  SyncRulesBucketStorage
+  SyncRulesBucketStorage,
+  UpdateSyncRulesOptions
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
@@ -68,7 +69,7 @@ export class BinlogStreamTestContext {
   }
 
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules(UpdateSyncRulesOptions.fromYaml(content, { validate: true }));
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }

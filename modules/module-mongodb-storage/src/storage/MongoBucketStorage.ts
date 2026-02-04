@@ -104,10 +104,7 @@ export class MongoBucketStorage
 
     if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" sync rules
-      await this.updateSyncRules({
-        content: next.sync_rules_content,
-        validate: false
-      });
+      await this.updateSyncRules(next.asUpdateOptions());
       // Pro-actively stop replicating
       await this.db.sync_rules.updateOne(
         {
@@ -123,10 +120,7 @@ export class MongoBucketStorage
       await this.db.notifyCheckpoint();
     } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
-      await this.updateSyncRules({
-        content: active.sync_rules_content,
-        validate: false
-      });
+      await this.updateSyncRules(active.asUpdateOptions());
 
       // In this case we keep the old one as active for clients, so that that existing clients
       // can still get the latest data while we replicate the new ones.
@@ -163,19 +157,6 @@ export class MongoBucketStorage
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
-    if (options.validate) {
-      // Parse and validate before applying any changes
-      SqlSyncRules.fromYaml(options.content, {
-        // No schema-based validation at this point
-        schema: undefined,
-        defaultSchema: 'not_applicable', // Not needed for validation
-        throwOnError: true
-      });
-    } else {
-      // We do not validate sync rules at this point.
-      // That is done when using the sync rules, so that the diagnostics API can report the errors.
-    }
-
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 
     await this.session.withTransaction(async () => {
@@ -208,6 +189,7 @@ export class MongoBucketStorage
       const doc: SyncRuleDocument = {
         _id: id,
         content: options.content,
+        plan: options.serializedSyncPlan,
         last_checkpoint: null,
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,

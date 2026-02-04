@@ -127,12 +127,13 @@ export const reprocess = routeDefinition({
       });
     }
 
-    const new_rules = await activeBucketStorage.updateSyncRules({
-      content: active.sync_rules.content,
-      // These sync rules already passed validation. But if the rules are not valid anymore due
-      // to a service change, we do want to report the error here.
-      validate: true
-    });
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      storage.UpdateSyncRulesOptions.fromYaml(active.sync_rules.content, {
+        // These sync rules already passed validation. But if the rules are not valid anymore due
+        // to a service change, we do want to report the error here.
+        validate: true
+      })
+    );
 
     const baseConfig = await apiHandler.getSourceConfig();
 
@@ -149,6 +150,33 @@ export const reprocess = routeDefinition({
   }
 });
 
+class FakePersistedSyncRulesForValidation extends storage.PersistedSyncRulesContent {
+  constructor(
+    data: storage.PersistedSyncRulesContentData,
+    readonly apiHandler: api.RouteAPI,
+    readonly schema: StaticSchema
+  ) {
+    super(data);
+  }
+
+  lock(): Promise<storage.ReplicationLock> {
+    throw new Error('Lock not implemented.');
+  }
+
+  parsed(): storage.PersistedSyncRules {
+    return {
+      ...this,
+      sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, {
+        ...this.apiHandler.getParseSyncRulesOptions(),
+        schema: this.schema
+      }),
+      hydratedSyncRules() {
+        return this.sync_rules.hydrate();
+      }
+    };
+  }
+}
+
 export const validate = routeDefinition({
   path: '/api/admin/v1/validate',
   method: router.HTTPMethod.POST,
@@ -164,30 +192,19 @@ export const validate = routeDefinition({
     const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);
 
-    const sync_rules: storage.PersistedSyncRulesContent = {
-      // Dummy values
-      id: 0,
-      slot_name: '',
-      active: false,
-      last_checkpoint_lsn: '',
-
-      parsed() {
-        return {
-          ...this,
-          sync_rules: SqlSyncRules.fromYaml(content, {
-            ...apiHandler.getParseSyncRulesOptions(),
-            schema
-          }),
-          hydratedSyncRules() {
-            return this.sync_rules.hydrate();
-          }
-        };
+    const sync_rules = new FakePersistedSyncRulesForValidation(
+      {
+        // Dummy values
+        id: 0,
+        slot_name: '',
+        active: false,
+        last_checkpoint_lsn: '',
+        sync_rules_content: content,
+        sync_plan: null
       },
-      sync_rules_content: content,
-      async lock() {
-        throw new Error('Lock not implemented');
-      }
-    };
+      apiHandler,
+      schema
+    );
 
     const connectionStatus = await apiHandler.getConnectionStatus();
     if (!connectionStatus) {
