@@ -37,6 +37,7 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { TablePattern } from '../TablePattern.js';
 import { composeExpressionNodes, FilterConditionSimplifier } from './filter_simplifier.js';
 import { SqlExpression } from '../sync_plan/expression.js';
+import { SourceSchemaTable } from '../index.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -286,11 +287,18 @@ export class StreamQueryParser {
         this.addSubquery(source, cte);
       } else {
         // Not a CTE, so treat it as a source database table.
-        const resultSet = new PhysicalSourceResultSet(
-          new TablePattern(from.name.schema ?? this.compiler.defaultSchema, from.name.name),
-          source
-        );
+        const pattern = new TablePattern(from.name.schema ?? this.compiler.options.defaultSchema, from.name.name);
 
+        let resolvedTables: SourceSchemaTable[] = [];
+        if (this.compiler.options.schema) {
+          // Warn if the referenced table does not exist.
+          resolvedTables = this.compiler.options.schema.getTables(pattern);
+          if (resolvedTables.length == 0) {
+            this.errors.report('This table could not be found in the source schema.', from.name, { isWarning: true });
+          }
+        }
+
+        const resultSet = new PhysicalSourceResultSet(pattern, source, resolvedTables);
         this.resultSets.set(source, resultSet);
       }
     } else if (from.type == 'call') {

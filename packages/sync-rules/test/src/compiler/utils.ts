@@ -4,7 +4,8 @@ import {
   ParsingErrorListener,
   serializeSyncPlan,
   SyncPlan,
-  SyncStreamsCompiler
+  SyncStreamsCompiler,
+  SyncStreamsCompilerOptions
 } from '../../../src/index.js';
 
 // TODO: Replace with parsing from yaml once we support that
@@ -17,6 +18,7 @@ export interface SyncStreamInput {
 interface TranslationError {
   message: string;
   source: string;
+  isWarning?: boolean;
 }
 
 export function compileSingleStreamAndSerialize(...sql: string[]): unknown {
@@ -48,15 +50,23 @@ export function compilationErrorsForSingleStream(...sql: string[]): TranslationE
   ])[0];
 }
 
-export function compileToSyncPlan(inputs: SyncStreamInput[]): [TranslationError[], SyncPlan] {
-  const compiler = new SyncStreamsCompiler('test_schema');
+export function compileToSyncPlan(
+  inputs: SyncStreamInput[],
+  options: SyncStreamsCompilerOptions = { defaultSchema: 'test_schema' }
+): [TranslationError[], SyncPlan] {
+  const compiler = new SyncStreamsCompiler(options);
   const errors: TranslationError[] = [];
 
   function errorListenerOnSql(sql: string): ParsingErrorListener {
     return {
-      report(message, location) {
+      report(message, location, options) {
         const resolved = getLocation(location);
-        errors.push({ message, source: sql.substring(resolved?.start ?? 0, resolved?.end) });
+        const error: TranslationError = { message, source: sql.substring(resolved?.start ?? 0, resolved?.end) };
+        if (options?.isWarning) {
+          error.isWarning = true;
+        }
+
+        errors.push(error);
       }
     };
   }
