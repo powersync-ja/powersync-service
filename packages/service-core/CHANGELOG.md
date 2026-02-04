@@ -1,5 +1,27 @@
 # @powersync/service-core
 
+## 1.19.0
+
+### Minor Changes
+
+- e578245: [Internal] Refactor sync rule representation to split out the parsed definitions from the hydrated state.
+- a02cc58: Add config options to set logging level and log entry format
+
+### Patch Changes
+
+- 05b9661: Remove `parameterQueryLookups` from `BucketParameterQuerier`.
+- 781d0e3: Fix swallowed YAML validation errors in config parsing. When both YAML and JSON parsing fail, the error message now includes the detailed YAML validation error (e.g., invalid !env substitutions) instead of only showing a generic JSON parsing error.
+- 3040079: Added source db and storage info to metrics metadata
+- 3b2c512: Reduced log output for waiting replication pod
+- Updated dependencies [05b9661]
+- Updated dependencies [eaa04cc]
+- Updated dependencies [e578245]
+- Updated dependencies [a02cc58]
+  - @powersync/service-sync-rules@0.30.0
+  - @powersync/lib-services-framework@0.8.0
+  - @powersync/service-types@0.14.0
+  - @powersync/service-rsocket-router@0.2.12
+
 ## 1.18.2
 
 ### Patch Changes
