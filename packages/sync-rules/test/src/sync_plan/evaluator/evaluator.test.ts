@@ -37,6 +37,22 @@ describe('evaluating rows', () => {
     ]);
   });
 
+  syncTest('debugWriteOutputTables', ({ sync }) => {
+    const desc = sync.prepareWithoutHydration([
+      {
+        name: 'stream',
+        queries: ['SELECT * FROM users', 'SELECT * FROM notes WHERE owner = auth.user_id() AND length(content) > 10']
+      }
+    ]);
+
+    // This output is arguably not particularly helpful, but it's only used for debugging purposes and it provides some
+    // insights into how the stream has been turned into a scalar query.
+    expect(desc.debugGetOutputTables()).toStrictEqual({
+      users: [{ query: 'SELECT 1' }],
+      notes: [{ query: 'SELECT ?1 WHERE "length"(?2) > 10' }]
+    });
+  });
+
   syncTest('forwards parameters', ({ sync }) => {
     const desc = sync.prepareSyncStreams([
       { name: 'stream', queries: ["SELECT * FROM users WHERE value = subscription.parameter('p')"] }
