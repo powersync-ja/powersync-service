@@ -34,15 +34,23 @@ export abstract class SchemaGenerator {
    * @returns The SDK column type for the given column definition.
    */
   columnType(def: ColumnDefinition): 'text' | 'real' | 'integer' {
-    const { type } = def;
-    if (type.typeFlags & TYPE_TEXT) {
-      return 'text';
-    } else if (type.typeFlags & TYPE_REAL) {
-      return 'real';
-    } else if (type.typeFlags & TYPE_INTEGER) {
-      return 'integer';
-    } else {
-      return 'text';
-    }
+    return sqlTypeName(def);
+  }
+}
+
+/**
+ * @param def The column definition to generate the type for.
+ * @returns The default SQL column type name for that type.
+ */
+export function sqlTypeName(def: ColumnDefinition): 'text' | 'real' | 'integer' {
+  const { type } = def;
+  if (type.typeFlags & TYPE_TEXT) {
+    return 'text';
+  } else if (type.typeFlags & TYPE_REAL) {
+    return 'real';
+  } else if (type.typeFlags & TYPE_INTEGER) {
+    return 'integer';
+  } else {
+    return 'text';
   }
 }
