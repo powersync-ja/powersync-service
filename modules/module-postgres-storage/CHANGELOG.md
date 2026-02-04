@@ -1,5 +1,29 @@
 # @powersync/service-module-postgres-storage
 
+## 0.11.0
+
+### Minor Changes
+
+- e578245: [Internal] Refactor sync rule representation to split out the parsed definitions from the hydrated state.
+
+### Patch Changes
+
+- 9fee78a: [Postgres Storage] Fix data being orphaned after truncating table.
+- Updated dependencies [05b9661]
+- Updated dependencies [eaa04cc]
+- Updated dependencies [781d0e3]
+- Updated dependencies [e578245]
+- Updated dependencies [3040079]
+- Updated dependencies [3b2c512]
+- Updated dependencies [a02cc58]
+- Updated dependencies [e108ffd]
+  - @powersync/service-core@1.19.0
+  - @powersync/service-sync-rules@0.30.0
+  - @powersync/lib-services-framework@0.8.0
+  - @powersync/service-types@0.14.0
+  - @powersync/service-jpgwire@0.21.10
+  - @powersync/lib-service-postgres@0.4.19
+
 ## 0.10.16
 
 ### Patch Changes
