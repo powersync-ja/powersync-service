@@ -56,7 +56,8 @@ export async function generateContext(serviceContext: ServiceContext, token: str
     });
     return {
       context: {
-        user_id: tokenPayload.sub,
+        // Ensure the JWT sub is a string
+        user_id: tokenPayload.sub.toString(),
         token_payload: tokenPayload
       }
     };
