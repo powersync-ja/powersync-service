@@ -15,28 +15,21 @@ export const BATCH_OPTIONS: storage.StartBatchOptions = {
   storeCurrentData: true
 };
 
+class TestPersistedSyncRulesContent extends storage.PersistedSyncRulesContent {
+  lock(): Promise<storage.ReplicationLock> {
+    throw new Error('Not implemented');
+  }
+}
+
 export function testRules(content: string): storage.PersistedSyncRulesContent {
-  return {
+  return new TestPersistedSyncRulesContent({
     id: 1,
     sync_rules_content: content,
     slot_name: 'test',
     sync_plan: null,
     active: true,
-    last_checkpoint_lsn: '',
-    parsed(options) {
-      return {
-        id: 1,
-        sync_rules: SqlSyncRules.fromYaml(content, options),
-        slot_name: 'test',
-        hydratedSyncRules() {
-          return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(1) });
-        }
-      };
-    },
-    lock() {
-      throw new Error('Not implemented');
-    }
-  };
+    last_checkpoint_lsn: ''
+  });
 }
 
 export function makeTestTable(name: string, replicaIdColumns?: string[] | undefined) {
