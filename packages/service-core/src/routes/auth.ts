@@ -47,18 +47,23 @@ export async function authorizeUser(context: Context, authHeader: string = ''): 
 export async function generateContext(serviceContext: ServiceContext, token: string) {
   const { configuration } = serviceContext;
 
-  let tokenPayload: auth.JwtPayload;
   try {
     const maxAge = configuration.token_max_expiration;
-    tokenPayload = await configuration.client_keystore.verifyJwt(token, {
+    const parsedToken = await configuration.client_keystore.verifyJwt(token, {
       defaultAudiences: configuration.jwt_audiences,
       maxAge: maxAge
     });
+    const safeToken = {
+      ...parsedToken,
+      // Ensure the sub is a string as it can be a number
+      sub: parsedToken.sub.toString()
+    };
+
     return {
       context: {
         // Ensure the JWT sub is a string
-        user_id: tokenPayload.sub.toString(),
-        token_payload: tokenPayload
+        user_id: safeToken.sub,
+        token_payload: safeToken
       }
     };
   } catch (err) {
