@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { DateTimeValue, SqlSyncRules, TimeValuePrecision, toSyncRulesValue } from '../../src/index.js';
 
-import { versionedHydrationState } from '../../src/HydrationState.js';
+import { DEFAULT_HYDRATION_STATE, versionedHydrationState } from '../../src/HydrationState.js';
 import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
@@ -20,7 +20,7 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -47,7 +47,7 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -112,7 +112,7 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: versionedHydrationState(1) });
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -203,7 +203,7 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -227,7 +227,7 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -283,7 +283,7 @@ config:
       }
 
       const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).hydrate({
-        hydrationState: versionedHydrationState(1)
+        hydrationState: DEFAULT_HYDRATION_STATE
       });
       expect(
         rules.evaluateRow({
@@ -295,7 +295,7 @@ config:
         })
       ).toStrictEqual([
         {
-          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
+          bucket: 'mybucket[]',
           data: {
             description: withFixedQuirk
               ? '["static value","2025-08-19T09:21:00Z"]'
@@ -309,7 +309,7 @@ config:
 
       expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
-          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
+          bucket: 'mybucket[]',
           definition: 'mybucket',
           inclusion_reasons: ['default'],
           priority: 3

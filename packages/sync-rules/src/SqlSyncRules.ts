@@ -398,15 +398,10 @@ export class SqlSyncRules {
    *
    * @param params.hydrationState Transforms bucket ids based on persisted state. May omit for tests.
    */
-  hydrate(params?: CreateSourceParams): HydratedSyncRules {
-    let hydrationState = params?.hydrationState;
-    if (hydrationState == null || !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
-      hydrationState = DEFAULT_HYDRATION_STATE;
-    }
-    const resolvedParams = { hydrationState };
+  hydrate(params: CreateSourceParams): HydratedSyncRules {
     return new HydratedSyncRules({
       definition: this,
-      createParams: resolvedParams,
+      createParams: params,
       bucketDataSources: this.bucketDataSources,
       bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
       eventDescriptors: this.eventDescriptors,

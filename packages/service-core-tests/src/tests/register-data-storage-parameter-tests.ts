@@ -3,7 +3,7 @@ import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powers
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { TEST_TABLE } from './util.js';
-import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { ParameterLookupScope } from '@powersync/service-sync-rules';
 
 /**
  * @example
