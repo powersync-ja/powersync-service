@@ -9,7 +9,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { PowerSyncMongo } from './implementation/db.js';
-import { CURRENT_STORAGE_VERSION, STORAGE_VERSIONS, SyncRuleDocument } from './implementation/models.js';
+import { CURRENT_STORAGE_VERSION, STORAGE_VERSION_CONFIG, SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';

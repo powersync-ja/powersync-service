@@ -4,7 +4,7 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
-import { LEGACY_STORAGE_VERSION, STORAGE_VERSIONS, SyncRuleDocument } from './models.js';
+import { LEGACY_STORAGE_VERSION, STORAGE_VERSION_CONFIG, SyncRuleDocument } from './models.js';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
@@ -45,7 +45,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
    * This may throw if the persisted storage version is not supported.
    */
   getStorageConfig() {
-    const storageConfig = STORAGE_VERSIONS[this.storage_version];
+    const storageConfig = STORAGE_VERSION_CONFIG[this.storage_version];
     if (storageConfig == null) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1403,

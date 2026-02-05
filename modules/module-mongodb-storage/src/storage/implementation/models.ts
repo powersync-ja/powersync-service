@@ -228,7 +228,7 @@ export interface StorageConfig {
 export const LEGACY_STORAGE_VERSION = 1;
 export const CURRENT_STORAGE_VERSION = 2;
 
-export const STORAGE_VERSIONS: Record<number, StorageConfig | undefined> = {
+export const STORAGE_VERSION_CONFIG: Record<number, StorageConfig | undefined> = {
   1: {
     longChecksums: false,
     versionedBuckets: false
