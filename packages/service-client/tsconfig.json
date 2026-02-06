@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  },
+  "include": ["src"],
+  "references": [
+    {
+      "path": "../types"
+    }
+  ]
+}
