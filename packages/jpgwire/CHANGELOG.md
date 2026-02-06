@@ -1,5 +1,15 @@
 # @powersync/service-jpgwire
 
+## 0.21.10
+
+### Patch Changes
+
+- e108ffd: Export SocketAdapter class, the async socket wrapper for pgwire.
+- Updated dependencies [05b9661]
+- Updated dependencies [eaa04cc]
+- Updated dependencies [e578245]
+  - @powersync/service-sync-rules@0.30.0
+
 ## 0.21.9
 
 ### Patch Changes

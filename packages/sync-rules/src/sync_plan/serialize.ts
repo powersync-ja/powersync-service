@@ -1,9 +1,13 @@
+import { ParameterLookupScope } from '../HydrationState.js';
 import { TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
 import {
   ColumnSource,
   ColumnSqlParameterValue,
+  CompiledSyncStream,
+  EvaluateTableValuedFunction,
   ExpandingLookup,
+  ParameterLookup,
   ParameterValue,
   PartitionKey,
   RequestSqlParameterValue,
@@ -60,7 +64,8 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         table: serializeTablePattern(source.sourceTable),
         filters: source.filters,
         partitionBy: source.parameters,
-        output: source.outputs
+        output: source.outputs,
+        lookupScope: source.defaultLookupScope
       } satisfies SerializedParameterIndexLookupCreator;
     });
   }
@@ -136,6 +141,113 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   };
 }
 
+export function deserializeSyncPlan(serialized: unknown): SyncPlan {
+  // TODO: Mature to version 1
+  if ((serialized as SerializedSyncPlanUnstable).version != 'unstable') {
+    throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
+  }
+
+  function deserializeTablePattern(pattern: SerializedTablePattern): TablePattern {
+    return new TablePattern(`${pattern.connection}.${pattern.schema}`, pattern.table);
+  }
+
+  const plan = serialized as SerializedSyncPlanUnstable;
+  const dataSources = plan.dataSources.map((source) => {
+    return {
+      hashCode: source.hash,
+      sourceTable: deserializeTablePattern(source.table),
+      outputTableName: source.outputTableName,
+      filters: source.filters,
+      parameters: source.partitionBy,
+      columns: source.columns
+    } satisfies StreamDataSource;
+  });
+  const buckets = plan.buckets.map((bkt) => {
+    return {
+      hashCode: bkt.hash,
+      uniqueName: bkt.uniqueName,
+      sources: bkt.sources.map((idx) => dataSources[idx])
+    } satisfies StreamBucketDataSource;
+  });
+  const parameterIndexes = plan.parameterIndexes.map((source) => {
+    return {
+      hashCode: source.hash,
+      sourceTable: deserializeTablePattern(source.table),
+      filters: source.filters,
+      parameters: source.partitionBy,
+      outputs: source.output,
+      defaultLookupScope: source.lookupScope
+    } satisfies StreamParameterIndexLookupCreator;
+  });
+
+  function deserializeParameterValue(stages: ExpandingLookup[][], value: SerializedParameterValue): ParameterValue {
+    switch (value.type) {
+      case 'request':
+        return value;
+      case 'lookup':
+        return {
+          type: 'lookup',
+          lookup: stages[value.lookup.stageId][value.lookup.idInStage],
+          resultIndex: value.resultIndex
+        };
+      case 'intersection':
+        return { type: 'intersection', values: value.values.map((v) => deserializeParameterValue(stages, v)) };
+    }
+  }
+
+  function deserializeExpandingLookup(stages: ExpandingLookup[][], source: SerializedExpandingLookup): ExpandingLookup {
+    switch (source.type) {
+      case 'parameter':
+        return {
+          type: 'parameter',
+          lookup: parameterIndexes[source.lookup],
+          instantiation: source.instantiation.map((v) => deserializeParameterValue(stages, v))
+        } satisfies ParameterLookup;
+      case 'table_valued':
+        return {
+          type: 'table_valued',
+          functionName: source.functionName,
+          functionInputs: source.functionInputs,
+          outputs: source.outputs,
+          filters: source.filters
+        } satisfies EvaluateTableValuedFunction;
+    }
+  }
+
+  function deserializeStreamQuerier(source: SerializedStreamQuerier): StreamQuerier {
+    const lookupStages: ExpandingLookup[][] = [];
+    for (const serializedStage of source.lookupStages) {
+      const stage: ExpandingLookup[] = [];
+      for (const serializedElement of serializedStage) {
+        stage.push(deserializeExpandingLookup(lookupStages, serializedElement));
+      }
+
+      lookupStages.push(stage);
+    }
+
+    return {
+      requestFilters: source.requestFilters,
+      lookupStages,
+      bucket: buckets[source.bucket],
+      sourceInstantiation: source.sourceInstantiation.map((v) => deserializeParameterValue(lookupStages, v))
+    };
+  }
+
+  const streams = plan.streams.map((source) => {
+    return {
+      stream: source.stream,
+      queriers: source.queriers.map(deserializeStreamQuerier)
+    } satisfies CompiledSyncStream;
+  });
+
+  return {
+    dataSources,
+    buckets,
+    parameterIndexes,
+    streams
+  };
+}
+
 interface SerializedSyncPlanUnstable {
   version: 'unstable';
   dataSources: SerializedDataSource[];
@@ -168,6 +280,7 @@ interface SerializedDataSource {
 interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
+  lookupScope: ParameterLookupScope;
   output: SqlExpression<ColumnSqlParameterValue>[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
   partitionBy: PartitionKey[];
@@ -180,7 +293,7 @@ interface SerializedStream {
 
 interface SerializedStreamQuerier {
   requestFilters: SqlExpression<RequestSqlParameterValue>[];
-  lookupStages: any[][];
+  lookupStages: SerializedExpandingLookup[][];
   bucket: number;
   sourceInstantiation: SerializedParameterValue[];
 }

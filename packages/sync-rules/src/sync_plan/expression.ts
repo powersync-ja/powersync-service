@@ -26,7 +26,7 @@ export type SqlExpression<Data> =
  */
 export type ExternalData<Data> = { type: 'data'; source: Data };
 
-export type UnaryOperator = 'not' | '~' | '+' | '-';
+export type UnaryOperator = 'not' | '+'; //| '-' | '~';
 
 export type UnaryExpression<Data> = {
   type: 'unary';
@@ -101,7 +101,7 @@ export type CaseWhenExpression<Data> = {
 export type CastExpression<Data> = {
   type: 'cast';
   operand: SqlExpression<Data>;
-  cast_as: 'string' | 'numeric' | 'real' | 'integer' | 'blob';
+  cast_as: 'text' | 'numeric' | 'real' | 'integer' | 'blob';
 };
 
 /**
@@ -212,8 +212,8 @@ export const supportedFunctions: Record<string, ArgumentCount> = {
   base64: 1,
   json_keys: 1,
   uuid_blob: 1,
-  ST_AsGeoJSON: 1,
-  ST_AsText: 1,
-  ST_X: 1,
-  ST_: 1
+  st_asgeojson: 1,
+  st_astext: 1,
+  st_x: 1,
+  st_y: 1
 };

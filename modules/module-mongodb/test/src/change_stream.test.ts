@@ -307,6 +307,8 @@ bucket_definitions:
     await collection.drop();
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced).toEqual([]);
 
     expect(data).toMatchObject([
       test_utils.putOp('test_data', { id: test_id, description: 'test1' }),
@@ -335,6 +337,8 @@ bucket_definitions:
     await collection.rename('test_data2');
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced).toMatchObject([test_utils.putOp('test_data2', { id: test_id, description: 'test1' })]);
 
     expect(data).toMatchObject([
       test_utils.putOp('test_data1', { id: test_id, description: 'test1' }),

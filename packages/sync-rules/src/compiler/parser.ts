@@ -1,5 +1,17 @@
-import { Expr, ExprCall, ExprRef, From, nil, NodeLocation, PGNode, SelectedColumn, Statement } from 'pgsql-ast-parser';
 import {
+  Expr,
+  ExprCall,
+  ExprRef,
+  From,
+  nil,
+  NodeLocation,
+  PGNode,
+  SelectedColumn,
+  SelectFromStatement,
+  Statement
+} from 'pgsql-ast-parser';
+import {
+  BaseSourceResultSet,
   PhysicalSourceResultSet,
   RequestTableValuedResultSet,
   SourceResultSet,
@@ -19,12 +31,13 @@ import {
 } from './filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
-import { PostgresToSqlite } from './sqlite.js';
+import { PostgresToSqlite, PreparedSubquery } from './sqlite.js';
 import { SqlScope } from './scope.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { TablePattern } from '../TablePattern.js';
-import { FilterConditionSimplifier } from './filter_simplifier.js';
+import { composeExpressionNodes, FilterConditionSimplifier } from './filter_simplifier.js';
 import { SqlExpression } from '../sync_plan/expression.js';
+import { SourceSchemaTable } from '../index.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -73,7 +86,7 @@ export interface StreamQueryParserOptions {
   compiler: SyncStreamsCompiler;
   originalText: string;
   errors: ParsingErrorListener;
-  parentScope?: SqlScope;
+  parentScope: SqlScope;
   locations: NodeLocations;
 }
 
@@ -85,6 +98,8 @@ export class StreamQueryParser {
   // Note: This is not the same as SqlScope since some result sets are inlined from CTEs or subqueries. These are not in
   // scope, but we still add them here to correctly track dependencies.
   private readonly resultSets = new Map<SyntacticResultSetSource, SourceResultSet>();
+  private readonly subqueryResultSets = new Map<SyntacticResultSetSource, PreparedSubquery>();
+
   private readonly resultColumns: ColumnSource[] = [];
   private where: SqlExpression<ExpressionInput>[] = [];
 
@@ -105,6 +120,7 @@ export class StreamQueryParser {
       originalText: this.originalText,
       errors: this.errors,
       locations: this.nodeLocations,
+      scope: this.statementScope,
       resolveTableName: this.resolveTableName.bind(this),
       generateTableAlias: () => {
         const counter = this.syntheticSubqueryCounter++;
@@ -112,13 +128,7 @@ export class StreamQueryParser {
       },
       joinSubqueryExpression: (expr) => {
         // Independently analyze the inner query.
-        const parseInner = new StreamQueryParser({
-          compiler: this.compiler,
-          originalText: this.originalText,
-          errors: this.errors,
-          parentScope: this.statementScope,
-          locations: this.nodeLocations
-        });
+        const parseInner = this.nestedParser(this.statementScope);
         let success = parseInner.processAst(expr, { forSubquery: true });
         if (!success) {
           return null;
@@ -140,6 +150,7 @@ export class StreamQueryParser {
           return null;
         }
 
+        parseInner.resultSets.forEach((v, k) => this.resultSets.set(k, v));
         return { filters: parseInner.where, output: parseInner.parseExpression(resultColumn).node };
       }
     });
@@ -168,6 +179,56 @@ export class StreamQueryParser {
     } else {
       return null;
     }
+  }
+
+  parseAsSubquery(stmt: Statement, columnNames?: string[]): PreparedSubquery | null {
+    if (this.processAst(stmt, { forSubquery: true })) {
+      const resultColumns: Record<string, SqlExpression<ExpressionInput>> = {};
+      let columnCount = 0;
+
+      for (const column of (stmt as SelectFromStatement).columns ?? []) {
+        if (column.expr.type == 'ref' && column.expr.name == '*') {
+          // We don't support * columns in subqueries. The reason is that we want to be able to parse queries without
+          // knowing the schema, so we can't know what * would resolve to.
+          this.errors.report('* columns are not allowed in subqueries or common table expressions', column.expr);
+        } else {
+          const name = (columnNames && columnNames[columnCount]) ?? this.inferColumnName(column);
+          const expr = this.parseExpression(column.expr);
+
+          if (Object.hasOwn(resultColumns, name)) {
+            this.errors.report(`There is a column named '${name}' already.`, column);
+          }
+
+          resultColumns[name] = expr.node;
+          columnCount++;
+        }
+      }
+
+      if (columnNames && columnNames.length != columnCount) {
+        this.errors.report(
+          `Expected this subquery to have ${columnNames.length} columns, it actually has ${columnCount}`,
+          stmt
+        );
+      }
+
+      return {
+        resultColumns,
+        tables: this.resultSets,
+        where: this.where.length == 0 ? null : composeExpressionNodes(this.nodeLocations, 'and', this.where)
+      };
+    } else {
+      return null;
+    }
+  }
+
+  private nestedParser(parentScope: SqlScope): StreamQueryParser {
+    return new StreamQueryParser({
+      compiler: this.compiler,
+      originalText: this.originalText,
+      errors: this.errors,
+      parentScope,
+      locations: this.nodeLocations
+    });
   }
 
   /**
@@ -204,32 +265,67 @@ export class StreamQueryParser {
     this.where.push(this.parseExpression(expr).node);
   }
 
+  private addSubquery(source: SyntacticResultSetSource, subquery: PreparedSubquery) {
+    subquery.tables.forEach((v, k) => this.resultSets.set(k, v));
+    if (subquery.where) {
+      this.where.push(subquery.where);
+    }
+
+    this.subqueryResultSets.set(source, subquery);
+  }
+
   private processFrom(from: From) {
     const scope = this.statementScope;
-    let handled = false;
     if (from.type == 'table') {
+      const name = from.name.alias ?? from.name.name;
       const source = new SyntacticResultSetSource(from.name, from.name.alias ?? null);
-      const resultSet = new PhysicalSourceResultSet(
-        new TablePattern(from.name.schema ?? this.compiler.defaultSchema, from.name.name),
-        source
-      );
-      scope.registerResultSet(this.errors, from.name.alias ?? from.name.name, source);
-      this.resultSets.set(source, resultSet);
-      handled = true;
+      scope.registerResultSet(this.errors, name, source);
+
+      // If this references a CTE in scope, use that instead of names.
+      const cte = from.name.schema == null ? scope.resolveCommonTableExpression(from.name.name) : null;
+      if (cte) {
+        this.addSubquery(source, cte);
+      } else {
+        // Not a CTE, so treat it as a source database table.
+        const pattern = new TablePattern(from.name.schema ?? this.compiler.options.defaultSchema, from.name.name);
+
+        let resolvedTables: SourceSchemaTable[] = [];
+        if (this.compiler.options.schema) {
+          // Warn if the referenced table does not exist.
+          resolvedTables = this.compiler.options.schema.getTables(pattern);
+          if (resolvedTables.length == 0) {
+            this.errors.report('This table could not be found in the source schema.', from.name, { isWarning: true });
+          }
+        }
+
+        const resultSet = new PhysicalSourceResultSet(pattern, source, resolvedTables);
+        this.resultSets.set(source, resultSet);
+      }
     } else if (from.type == 'call') {
       const source = new SyntacticResultSetSource(from, from.alias?.name ?? null);
-      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
       this.resultSets.set(source, this.resolveTableValued(from, source));
-      handled = true;
+      scope.registerResultSet(this.errors, from.alias?.name ?? from.function.name, source);
     } else if (from.type == 'statement') {
-      // TODO: We could technically allow selecting from subqueries once we support CTEs.
+      const source = new SyntacticResultSetSource(from, from.alias);
+
+      // For subqueries in FROM, existing expressions are not in scope. So fork from the root scope instead.
+      const parseInner = this.nestedParser(scope.rootScope);
+      const parsedSubquery = parseInner.parseAsSubquery(
+        from.statement,
+        from.columnNames?.map((c) => c.name)
+      );
+
+      if (parsedSubquery) {
+        scope.registerResultSet(this.errors, from.alias, source);
+        this.addSubquery(source, parsedSubquery);
+      }
     }
 
     const join = from.join;
-    if (join && handled) {
+    if (join) {
       if (join.type != 'INNER JOIN') {
         // We only support inner joins.
-        this.warnUnsupported(join, join.type);
+        this.warnUnsupported(join, 'FULL JOIN');
       }
 
       if (join.using) {
@@ -241,10 +337,6 @@ export class StreamQueryParser {
       if (join.on) {
         this.addAndTermToWhereClause(join.on);
       }
-    }
-
-    if (!handled) {
-      this.warnUnsupported(from, 'This source');
     }
   }
 
@@ -267,6 +359,10 @@ export class StreamQueryParser {
     return new RequestTableValuedResultSet(call.function.name, resolvedArguments, source);
   }
 
+  private inferColumnName(column: SelectedColumn): string {
+    return column.alias?.name ?? this.originalText.substring(column._location!.start, column._location!.end);
+  }
+
   private processResultColumns(stmt: PGNode, columns: SelectedColumn[]) {
     const selectsFrom = (source: SourceResultSet, node: PGNode) => {
       if (source instanceof PhysicalSourceResultSet) {
@@ -283,40 +379,47 @@ export class StreamQueryParser {
       }
     };
 
+    const addColumn = (expr: SyncExpression, name: string) => {
+      for (const dependency of expr.instantiation) {
+        if (dependency instanceof ColumnInRow) {
+          selectsFrom(dependency.resultSet, dependency.syntacticOrigin);
+        } else {
+          this.errors.report(
+            'This attempts to sync a connection parameter. Only values from the source database can be synced.',
+            dependency.syntacticOrigin
+          );
+        }
+      }
+
+      try {
+        this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr), name));
+      } catch (e) {
+        if (e instanceof InvalidExpressionError) {
+          // Invalid dependencies, we've already logged errors for this. Ignore.
+        } else {
+          throw e;
+        }
+      }
+    };
+
     for (const column of columns) {
       if (column.expr.type == 'ref' && column.expr.name == '*') {
         const resolved = this.resolveTableName(column.expr, column.expr.table?.name);
         if (resolved != null) {
-          selectsFrom(resolved, column.expr);
+          if (resolved instanceof BaseSourceResultSet) {
+            selectsFrom(resolved, column.expr);
+            this.resultColumns.push(StarColumnSource.instance);
+          } else {
+            // Selecting from a subquery, add all columns.
+            for (const [name, column] of Object.entries(resolved.resultColumns)) {
+              addColumn(new SyncExpression(column, this.nodeLocations), name);
+            }
+          }
         }
-
-        this.resultColumns.push(StarColumnSource.instance);
       } else {
         const expr = this.parseExpression(column.expr);
-
-        for (const dependency of expr.instantiation) {
-          if (dependency instanceof ColumnInRow) {
-            selectsFrom(dependency.resultSet, dependency.syntacticOrigin);
-          } else {
-            this.errors.report(
-              'This attempts to sync a connection parameter. Only values from the source database can be synced.',
-              dependency.syntacticOrigin
-            );
-          }
-        }
-
-        try {
-          const outputName =
-            column.alias?.name ?? this.originalText.substring(column._location!.start, column._location!.end);
-
-          this.resultColumns.push(new ExpressionColumnSource(new RowExpression(expr), outputName));
-        } catch (e) {
-          if (e instanceof InvalidExpressionError) {
-            // Invalid dependencies, we've already logged errors for this. Ignore.
-          } else {
-            throw e;
-          }
-        }
+        const outputName = this.inferColumnName(column);
+        addColumn(expr, outputName);
       }
     }
 
@@ -329,7 +432,7 @@ export class StreamQueryParser {
     return this.exprParser.translateExpression(source);
   }
 
-  resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | null {
+  private resolveTableName(node: ExprRef, name: string | nil): SourceResultSet | PreparedSubquery | null {
     if (name == null) {
       // For unqualified references, there must be a single table in scope. We don't allow unqualified references if
       // there are multiple tables because we don't know which column is available in which table with certainty (and
@@ -337,7 +440,7 @@ export class StreamQueryParser {
       // references.
       const resultSets = this.statementScope.resultSets;
       if (resultSets.length == 1) {
-        return this.resultSets.get(resultSets[0])!;
+        return this.resolveSoure(resultSets[0]);
       } else {
         this.errors.report('Invalid unqualified reference since multiple tables are in scope', node);
         return null;
@@ -349,8 +452,18 @@ export class StreamQueryParser {
         return null;
       }
 
-      return this.resultSets.get(result)!;
+      return this.resolveSoure(result);
     }
+  }
+
+  private resolveSoure(source: SyntacticResultSetSource): SourceResultSet | PreparedSubquery {
+    if (this.resultSets.has(source)) {
+      return this.resultSets.get(source)!;
+    } else if (this.subqueryResultSets.has(source)) {
+      return this.subqueryResultSets.get(source)!;
+    }
+
+    throw new Error('internal error: result set from scope has not been registered');
   }
 
   private warnUnsupported(node: PGNode | PGNode[] | nil, description: string) {
@@ -402,7 +515,7 @@ export class StreamQueryParser {
       };
     });
 
-    return new FilterConditionSimplifier(this.originalText).simplifyOr({ terms: mappedTerms });
+    return new FilterConditionSimplifier().simplifyOr({ terms: mappedTerms });
   }
 
   private mapBaseExpression(pending: PendingBaseTerm): BaseTerm {

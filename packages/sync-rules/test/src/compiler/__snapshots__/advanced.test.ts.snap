@@ -109,6 +109,10 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
     {
       "filters": [],
       "hash": 136074946,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -136,6 +140,10 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
     {
       "filters": [],
       "hash": 322713396,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -290,6 +298,10 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
         },
       ],
       "hash": 378594320,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -437,6 +449,10 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
     {
       "filters": [],
       "hash": 249133436,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -464,6 +480,10 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
     {
       "filters": [],
       "hash": 230646996,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -603,6 +623,10 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
     {
       "filters": [],
       "hash": 283859073,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -726,6 +750,10 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
     {
       "filters": [],
       "hash": 88350941,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -753,6 +781,10 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
     {
       "filters": [],
       "hash": 343817501,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -892,6 +924,10 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
     {
       "filters": [],
       "hash": 88350941,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -919,6 +955,10 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
     {
       "filters": [],
       "hash": 343817501,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -946,6 +986,10 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
     {
       "filters": [],
       "hash": 392582824,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "2",
+      },
       "output": [
         {
           "source": {
@@ -1101,6 +1145,10 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
     {
       "filters": [],
       "hash": 369143364,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -1224,6 +1272,10 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
     {
       "filters": [],
       "hash": 496369348,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -1266,6 +1318,10 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         },
       ],
       "hash": 221457926,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -1293,6 +1349,10 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
     {
       "filters": [],
       "hash": 532009492,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "2",
+      },
       "output": [
         {
           "source": {

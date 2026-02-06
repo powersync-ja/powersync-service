@@ -4,6 +4,7 @@ import {
   BinaryOperator,
   CaseWhenExpression,
   CastExpression,
+  ExternalData,
   LiteralExpression,
   ScalarFunctionCallExpression,
   ScalarInExpression,
@@ -29,7 +30,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
     this.sql += ' ';
   }
 
-  private addLexeme(text: string, options?: { spaceLeft?: boolean; spaceRight?: boolean }): number {
+  addLexeme(text: string, options?: { spaceLeft?: boolean; spaceRight?: boolean }): number {
     const spaceLeft = options?.spaceLeft ?? true;
     const spaceRight = options?.spaceRight ?? true;
 
@@ -43,7 +44,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
     return startOffset;
   }
 
-  private identifier(name: string) {
+  identifier(name: string) {
     this.addLexeme(`"${name.replaceAll('"', '""')}"`);
   }
 
@@ -77,7 +78,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
     }
   }
 
-  visitExternalData(): void {
+  visitExternalData(_expr: ExternalData<Data>): void {
     this.addLexeme('?');
   }
 
@@ -161,7 +162,13 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
     if (expr.type == 'lit_null') {
       this.addLexeme('NULL');
     } else if (expr.type == 'lit_double') {
-      this.addLexeme(expr.value.toString());
+      let lexeme = expr.value.toString();
+      if (Number.isInteger(expr.value)) {
+        // If we have a double value that happens to be an integer, we still want to treat that as a double in SQLite.
+        lexeme += '.0';
+      }
+
+      this.addLexeme(lexeme);
     } else if (expr.type == 'lit_int') {
       this.addLexeme(expr.base10);
     } else {
@@ -176,7 +183,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
   }
 }
 
-enum Precedence {
+export enum Precedence {
   or = 1,
   and = 2,
   not = 3,
@@ -214,7 +221,7 @@ const binaryPrecedence: Record<BinaryOperator, Precedence> = {
 
 const unaryPrecedence: Record<UnaryOperator, Precedence> = {
   not: Precedence.not,
-  '~': Precedence.unary,
-  '+': Precedence.unary,
-  '-': Precedence.unary
+  //'~': Precedence.unary,
+  '+': Precedence.unary
+  //'-': Precedence.unary
 };
