@@ -1,5 +1,6 @@
 import { MongoStorageConfig } from '@powersync/service-module-mongodb-storage/types';
 import { MongoConnectionConfig } from '@powersync/service-module-mongodb/types';
+import { ConvexConnectionConfig } from '@powersync/service-module-convex/types';
 import { MySQLConnectionConfig } from '@powersync/service-module-mysql/types';
 import { PostgresStorageConfig } from '@powersync/service-module-postgres-storage/types';
 import { PostgresConnectionConfig } from '@powersync/service-module-postgres/types';
@@ -20,7 +21,8 @@ const baseShape = configFile.powerSyncConfig.props.shape;
 const mergedDataSourceConfig = configFile.genericDataSourceConfig
   .or(PostgresConnectionConfig)
   .or(MongoConnectionConfig)
-  .or(MySQLConnectionConfig);
+  .or(MySQLConnectionConfig)
+  .or(ConvexConnectionConfig);
 
 const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig).or(MongoStorageConfig);
 

@@ -38,6 +38,9 @@
       "path": "./modules/module-mysql"
     },
     {
+      "path": "./modules/module-convex"
+    },
+    {
       "path": "./modules/module-mongodb"
     },
     {
@@ -93,6 +96,9 @@
     },
     {
       "path": "./modules/module-mysql/test"
+    },
+    {
+      "path": "./modules/module-convex/test"
     },
     {
       "path": "./modules/module-mongodb/test"

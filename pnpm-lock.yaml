@@ -181,6 +181,31 @@ importers:
         specifier: 'catalog:'
         version: 4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(yaml@2.5.0)
 
+  modules/module-convex:
+    dependencies:
+      '@powersync/lib-services-framework':
+        specifier: workspace:*
+        version: link:../../libs/lib-services
+      '@powersync/service-core':
+        specifier: workspace:*
+        version: link:../../packages/service-core
+      '@powersync/service-jsonbig':
+        specifier: workspace:*
+        version: link:../../packages/jsonbig
+      '@powersync/service-sync-rules':
+        specifier: workspace:*
+        version: link:../../packages/sync-rules
+      '@powersync/service-types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      ts-codec:
+        specifier: ^1.3.0
+        version: 1.3.0
+    devDependencies:
+      '@powersync/service-core-tests':
+        specifier: workspace:*
+        version: link:../../packages/service-core-tests
+
   modules/module-core:
     dependencies:
       '@fastify/cors':
@@ -542,6 +567,9 @@ importers:
 
   packages/schema:
     devDependencies:
+      '@powersync/service-module-convex':
+        specifier: workspace:*
+        version: link:../../modules/module-convex
       '@powersync/service-module-mongodb':
         specifier: workspace:*
         version: link:../../modules/module-mongodb
@@ -739,6 +767,9 @@ importers:
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../packages/service-core
+      '@powersync/service-module-convex':
+        specifier: workspace:*
+        version: link:../modules/module-convex
       '@powersync/service-module-core':
         specifier: workspace:*
         version: link:../modules/module-core
