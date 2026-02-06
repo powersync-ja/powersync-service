@@ -138,7 +138,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         patternResult.tables = [];
         for (let collection of collections) {
           const sourceTable = new SourceTable({
-            id: 0,
+            id: '', // not used
             connectionTag: this.connectionTag,
             objectId: collection.name,
             schema: schema,
@@ -165,7 +165,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
         }
       } else {
         const sourceTable = new SourceTable({
-          id: 0,
+          id: '', // not used
           connectionTag: this.connectionTag,
           objectId: tablePattern.name,
           schema: schema,
