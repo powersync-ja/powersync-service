@@ -535,7 +535,7 @@ importers:
         version: 1.0.0-alpha.3
 
   packages/schema:
-    devDependencies:
+    dependencies:
       '@powersync/service-module-mongodb':
         specifier: workspace:*
         version: link:../../modules/module-mongodb
