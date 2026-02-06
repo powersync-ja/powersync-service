@@ -139,7 +139,7 @@ export class PostgresBucketBatch
       return null;
     }
 
-    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+    this.logger.debug(`Saving ${record.tag}:${formatSaveReplicaIds(record)}`);
 
     this.batch ??= new OperationBatch(this.options.batch_limits);
     this.batch.push(new RecordOperation(record));
@@ -1076,3 +1076,34 @@ export const notifySyncRulesUpdate = async (db: lib_postgres.DatabaseClient, upd
     statement: `NOTIFY ${NOTIFICATION_CHANNEL}, '${models.ActiveCheckpointNotification.encode({ active_checkpoint: update })}'`
   });
 };
+
+function formatReplicaId(value: unknown): string {
+  if (value == null) {
+    return '-';
+  }
+
+  if (typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint' || typeof value == 'boolean') {
+    return `${value}`;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return '[unserializable]';
+  }
+}
+
+function formatSaveReplicaIds(record: storage.SaveOptions): string {
+  switch (record.tag) {
+    case storage.SaveOperationTag.INSERT:
+      return formatReplicaId(record.afterReplicaId);
+    case storage.SaveOperationTag.DELETE:
+      return formatReplicaId(record.beforeReplicaId);
+    case storage.SaveOperationTag.UPDATE: {
+      if (record.beforeReplicaId == null) {
+        return formatReplicaId(record.afterReplicaId);
+      }
+      return `${formatReplicaId(record.beforeReplicaId)}->${formatReplicaId(record.afterReplicaId)}`;
+    }
+  }
+}
