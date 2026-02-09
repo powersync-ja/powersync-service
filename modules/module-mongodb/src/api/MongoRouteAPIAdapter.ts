@@ -81,7 +81,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
 
   async getDebugTablesInfo(
     tablePatterns: sync_rules.TablePattern[],
-    sqlSyncRules: sync_rules.BaseSyncConfig
+    sqlSyncRules: sync_rules.SyncConfig
   ): Promise<api.PatternResult[]> {
     let result: api.PatternResult[] = [];
 

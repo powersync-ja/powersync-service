@@ -1,6 +1,5 @@
-import { HydratedSyncRules } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, SyncConfig, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationLock } from './ReplicationLock.js';
-import { SyncConfigWithErrors } from '@powersync/service-sync-rules/src/BaseSyncConfig.js';
 
 export interface ParseSyncRulesOptions {
   defaultSchema: string;

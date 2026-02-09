@@ -124,8 +124,3 @@ export abstract class BaseSyncConfig {
     return this.bucketSources.map((rules) => rules.debugRepresentation());
   }
 }
-
-export interface SyncConfigWithErrors {
-  config: SyncConfig;
-  errors: YamlError[];
-}

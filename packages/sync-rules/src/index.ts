@@ -1,4 +1,3 @@
-export * from './BaseSyncConfig.js';
 export * from './BucketDescription.js';
 export * from './BucketParameterQuerier.js';
 export * from './BucketSource.js';

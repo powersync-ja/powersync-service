@@ -13,9 +13,15 @@ import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { TablePattern } from './TablePattern.js';
-import { QueryParseOptions, RequestParameters, SourceSchema, SqliteJsonRow, StreamParseOptions } from './types.js';
-import { BaseSyncConfig, SyncConfigWithErrors } from './BaseSyncConfig.js';
-import { SyncPlan } from './sync_plan/plan.js';
+import {
+  QueryParseOptions,
+  RequestParameters,
+  SourceSchema,
+  SqliteJsonRow,
+  StreamParseOptions,
+  SyncConfigWithErrors
+} from './types.js';
+import { BaseSyncConfig } from './BaseSyncConfig.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 

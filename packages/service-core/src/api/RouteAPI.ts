@@ -1,4 +1,4 @@
-import { BaseSyncConfig, SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { SyncConfig, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
 import { ParseSyncRulesOptions, SyncRulesBucketStorage } from '../storage/storage-index.js';
 
@@ -41,7 +41,7 @@ export interface RouteAPI {
    *           tables to ensure syncing should function according to the input
    *           pattern. Debug errors and warnings are reported per table.
    */
-  getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: BaseSyncConfig): Promise<PatternResult[]>;
+  getDebugTablesInfo(tablePatterns: TablePattern[], sqlSyncRules: SyncConfig): Promise<PatternResult[]>;
 
   /**
    * @returns The replication lag: that is the amount of data which has not been
