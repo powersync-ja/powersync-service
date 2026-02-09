@@ -312,7 +312,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mssql-version: [2022, 2025]
+        mssql-version: [2019, 2022, 2025]
 
     steps:
       - uses: actions/checkout@v5
