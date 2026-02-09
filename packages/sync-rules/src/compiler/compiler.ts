@@ -12,7 +12,13 @@ import { PreparedSubquery } from './sqlite.js';
 import { SourceSchema } from '../types.js';
 
 export interface SyncStreamsCompilerOptions {
-  defaultSchema: string;
+  /**
+   * Used exclusively for linting against the given {@link schema}.
+   *
+   * The default schema must not affect compiled sync plans because sync plans can be loaded with different default
+   * schemas.
+   */
+  defaultSchema?: string;
 
   /**
    * An optional schema, used exclusively for linting table and column references that can't be resolved in it.

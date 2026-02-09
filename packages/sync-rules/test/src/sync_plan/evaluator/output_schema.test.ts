@@ -39,7 +39,8 @@ describe('schema inference', () => {
     const rules = new PrecompiledSyncConfig(plan, {
       // Engine isn't actually used here, but required to load sync plan
       engine: javaScriptExpressionEngine(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY),
-      sourceText: ''
+      sourceText: '',
+      defaultSchema: 'test_schema'
     });
 
     const outputSchema: Record<string, Record<string, ColumnDefinition>> = {};
