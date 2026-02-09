@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'vitest';
-import { DateTimeValue, SqlSyncRules, TimeValuePrecision, toSyncRulesValue } from '../../src/index.js';
+import {
+  CompatibilityContext,
+  CompatibilityOption,
+  DateTimeValue,
+  SerializedCompatibilityContext,
+  SqlSyncRules,
+  TimeValuePrecision,
+  toSyncRulesValue
+} from '../../src/index.js';
 
 import { versionedHydrationState } from '../../src/HydrationState.js';
 import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
@@ -359,6 +367,48 @@ config:
           })
         })
       ).toStrictEqual({ a: '2025-11-07T10:45:03Z' });
+    });
+  });
+
+  describe('serialization', () => {
+    test('without overrides', () => {
+      expect(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY.serialize()).toStrictEqual({
+        edition: 1,
+        overrides: {}
+      });
+
+      const context = CompatibilityContext.deserialize({
+        edition: 1,
+        overrides: {}
+      });
+      expect(context.edition).toStrictEqual(1);
+      expect(context.overrides).toHaveLength(0);
+    });
+
+    test('with overrides', () => {
+      const expectedOverrides = new Map<CompatibilityOption, boolean>();
+      expectedOverrides.set(CompatibilityOption.fixedJsonExtract, false);
+      expectedOverrides.set(CompatibilityOption.timestampsIso8601, true);
+
+      const originalContext = new CompatibilityContext({
+        edition: 2,
+        overrides: expectedOverrides,
+        maxTimeValuePrecision: TimeValuePrecision.nanoseconds
+      });
+      const serialized: SerializedCompatibilityContext = {
+        edition: 2,
+        overrides: {
+          fixed_json_extract: false,
+          timestamps_iso8601: true
+        },
+        maxTimeValuePrecision: 9
+      };
+
+      expect(originalContext.serialize()).toStrictEqual(serialized);
+      const deserialized = CompatibilityContext.deserialize(serialized);
+      expect(deserialized.edition).toStrictEqual(2);
+      expect(deserialized.overrides).toStrictEqual(expectedOverrides);
+      expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.nanoseconds);
     });
   });
 });

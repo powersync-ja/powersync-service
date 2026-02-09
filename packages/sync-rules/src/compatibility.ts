@@ -105,6 +105,46 @@ export class CompatibilityContext {
     return this.overrides.get(option) ?? option.fixedIn <= this.edition;
   }
 
+  serialize(): SerializedCompatibilityContext {
+    const serialized: SerializedCompatibilityContext = {
+      edition: this.edition,
+      overrides: {}
+    };
+
+    this.overrides.forEach((enabled, key) => (serialized.overrides[key.name] = enabled));
+    if (this.maxTimeValuePrecision) {
+      serialized.maxTimeValuePrecision = this.maxTimeValuePrecision.subSecondDigits;
+    }
+
+    return serialized;
+  }
+
+  static deserialize(serialized: SerializedCompatibilityContext): CompatibilityContext {
+    const overrides = new Map<CompatibilityOption, boolean>();
+    for (const [option, enabled] of Object.entries(serialized.overrides)) {
+      const knownOption = CompatibilityOption.byName[option];
+      if (knownOption) {
+        overrides.set(knownOption, enabled);
+      }
+    }
+
+    let maxTimeValuePrecision: TimeValuePrecision | undefined;
+    if (serialized.maxTimeValuePrecision) {
+      for (const option of Object.values(TimeValuePrecision.byName)) {
+        if (option.subSecondDigits == serialized.maxTimeValuePrecision) {
+          maxTimeValuePrecision = option;
+          break;
+        }
+      }
+    }
+
+    return new CompatibilityContext({
+      edition: serialized.edition,
+      overrides,
+      maxTimeValuePrecision
+    });
+  }
+
   /**
    * A {@link CompatibilityContext} in which no fixes are applied.
    */
