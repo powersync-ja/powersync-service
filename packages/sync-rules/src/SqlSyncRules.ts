@@ -378,8 +378,7 @@ export class SqlSyncRules extends BaseSyncConfig {
     return result;
   }
 
-  extractSyncPlan(): SyncPlan | null {
-    // TODO: Once we use the new compiler to parse sync rules from YAML, we could store the plan here to extract it.
+  extractSyncPlan(): null {
     return null;
   }
 
