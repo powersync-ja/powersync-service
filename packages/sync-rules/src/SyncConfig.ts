@@ -31,11 +31,6 @@ export abstract class SyncConfig {
   }
 
   /**
-   * If this sync config is fully described by a serializable sync plan, returns that plan.
-   */
-  abstract extractSyncPlan(): SyncPlan | null;
-
-  /**
    * Hydrate the sync rule definitions with persisted state into runnable sync rules.
    *
    * @param params.hydrationState Transforms bucket ids based on persisted state. May omit for tests.

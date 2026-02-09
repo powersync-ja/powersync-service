@@ -373,10 +373,6 @@ export class SqlSyncRules extends SyncConfig {
     return result;
   }
 
-  extractSyncPlan(): null {
-    return null;
-  }
-
   protected writeSourceTables(sourceTables: Map<String, TablePattern>): void {
     super.writeSourceTables(sourceTables);
 

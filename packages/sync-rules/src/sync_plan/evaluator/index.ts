@@ -18,7 +18,7 @@ export interface StreamEvaluationContext {
 
 export class PrecompiledSyncConfig extends SyncConfig {
   constructor(
-    private readonly plan: plan.SyncPlan,
+    readonly plan: plan.SyncPlan,
     context: StreamEvaluationContext
   ) {
     super(context.sourceText);
@@ -50,9 +50,5 @@ export class PrecompiledSyncConfig extends SyncConfig {
 
   protected asSyncConfig(): this {
     return this;
-  }
-
-  extractSyncPlan(): plan.SyncPlan | null {
-    return this.plan;
   }
 }
