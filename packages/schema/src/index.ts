@@ -1,7 +1,8 @@
 import { MongoStorageConfig } from '@powersync/service-module-mongodb-storage/types';
 import { MongoConnectionConfig } from '@powersync/service-module-mongodb/types';
+import { MSSQLConnectionConfig } from '@powersync/service-module-mssql/types';
 import { MySQLConnectionConfig } from '@powersync/service-module-mysql/types';
-import { PostgresStorageConfig } from '@powersync/service-module-postgres-storage';
+import { PostgresStorageConfig } from '@powersync/service-module-postgres-storage/types';
 import { PostgresConnectionConfig } from '@powersync/service-module-postgres/types';
 import { configFile } from '@powersync/service-types';
 import * as t from 'ts-codec';
@@ -12,7 +13,8 @@ const baseShape = configFile.powerSyncConfig.props.shape;
 const mergedDataSourceConfig = configFile.genericDataSourceConfig
   .or(PostgresConnectionConfig)
   .or(MongoConnectionConfig)
-  .or(MySQLConnectionConfig);
+  .or(MySQLConnectionConfig)
+  .or(MSSQLConnectionConfig);
 
 const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig).or(MongoStorageConfig);
 
