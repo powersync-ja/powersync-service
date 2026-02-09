@@ -55,19 +55,6 @@ RUN pnpm build:production && \
     rm -rf node_modules **/node_modules && \
     pnpm install --frozen-lockfile --prod --ignore-scripts
 
-# === TESTER ===
-
-FROM node:22.21.1-trixie-slim AS tester
-WORKDIR /app
-
-
-COPY --from=builder /app/ ./
-
-RUN corepack enable pnpm && corepack install
-RUN pnpm install --frozen-lockfile
-
-CMD pnpm test
-
 # === PROD ===
 
 FROM node:22.21.1-trixie-slim
