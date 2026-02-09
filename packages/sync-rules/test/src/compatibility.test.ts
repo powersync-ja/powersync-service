@@ -20,7 +20,7 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate();
 
       expect(
         rules.evaluateRow({
@@ -47,7 +47,7 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate();
 
       expect(
         rules.evaluateRow({
@@ -74,7 +74,7 @@ config:
   edition: 2
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: versionedHydrationState(1) });
+      ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
         rules.evaluateRow({
@@ -112,7 +112,7 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: versionedHydrationState(1) });
+      ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
         rules.evaluateRow({
@@ -149,7 +149,7 @@ config:
   versioned_bucket_ids: true
     `,
       PARSE_OPTIONS
-    ).hydrate({ hydrationState: versionedHydrationState(1) });
+    ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
       rules.evaluateRow({
@@ -173,7 +173,7 @@ config:
   edition: 2
     `,
       PARSE_OPTIONS
-    ).hydrate({ hydrationState: versionedHydrationState(1) });
+    ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
       rules.evaluateRow({
@@ -203,7 +203,7 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate();
 
       expect(
         rules.evaluateRow({
@@ -227,7 +227,7 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate();
 
       expect(
         rules.evaluateRow({
@@ -282,7 +282,7 @@ config:
         `;
       }
 
-      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).hydrate({
+      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).config.hydrate({
         hydrationState: versionedHydrationState(1)
       });
       expect(
@@ -337,7 +337,7 @@ config:
     });
 
     test('can set max precision', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const { config: rules } = SqlSyncRules.fromYaml(
         `
 bucket_definitions:
   mybucket:

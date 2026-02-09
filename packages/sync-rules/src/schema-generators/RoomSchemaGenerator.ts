@@ -1,4 +1,4 @@
-import { SqlSyncRules } from '../SqlSyncRules.js';
+import { SyncConfig } from '../SyncConfig.js';
 import { SourceSchema } from '../types.js';
 import { SchemaGenerator } from './SchemaGenerator.js';
 
@@ -11,7 +11,7 @@ export class RoomSchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'text/x-kotlin';
   readonly fileName = 'Entities.kt';
 
-  generate(source: SqlSyncRules, schema: SourceSchema): string {
+  generate(source: SyncConfig, schema: SourceSchema): string {
     let buffer = `import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey

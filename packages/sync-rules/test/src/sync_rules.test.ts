@@ -19,13 +19,13 @@ describe('sync rules', () => {
   const hydrationParams: CreateSourceParams = { hydrationState: DEFAULT_HYDRATION_STATE };
 
   test('parse empty sync rules', () => {
-    const rules = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
+    const { config: rules } = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
     expect(rules.bucketParameterLookupSources).toEqual([]);
     expect(rules.bucketDataSources).toEqual([]);
   });
 
   test('parse global sync rules', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -64,7 +64,7 @@ bucket_definitions:
   });
 
   test('parse global sync rules with filter', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -97,7 +97,7 @@ bucket_definitions:
   });
 
   test('parse global sync rules with table filter', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -117,7 +117,7 @@ bucket_definitions:
   });
 
   test('parse bucket with parameters', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -164,7 +164,7 @@ bucket_definitions:
   test('bucket with parameters with custom hydrationState', async () => {
     // "end-to-end" test with custom hydrationState.
     // We don't test complex details here, but do cover bucket names and parameter lookup scope.
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 config:
   edition: 2
@@ -232,7 +232,7 @@ bucket_definitions:
   });
 
   test('parse bucket with parameters and OR condition', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -373,7 +373,7 @@ bucket_definitions:
   });
 
   test('transforming things', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -411,7 +411,7 @@ bucket_definitions:
 
   test('transforming things with upper-case functions', () => {
     // Testing that we can use different case for the function names
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -448,7 +448,7 @@ bucket_definitions:
   });
 
   test('transforming json', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -481,7 +481,7 @@ bucket_definitions:
   });
 
   test('IN json', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -525,7 +525,7 @@ bucket_definitions:
   });
 
   test('direct boolean param', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -604,7 +604,7 @@ bucket_definitions:
   });
 
   test('some math', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -631,7 +631,7 @@ bucket_definitions:
   });
 
   test('bucket with static numeric parameters', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -664,7 +664,7 @@ bucket_definitions:
   });
 
   test('static parameter query with function on token_parameter', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -673,7 +673,7 @@ bucket_definitions:
     `,
       PARSE_OPTIONS
     );
-    expect(rules.errors).toEqual([]);
+    expect(errors).toEqual([]);
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ user_id: 'test' })).querier).toMatchObject({
       staticBuckets: [{ bucket: 'mybucket["TEST"]', priority: 3 }],
@@ -682,7 +682,7 @@ bucket_definitions:
   });
 
   test('custom table and id', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -724,7 +724,7 @@ bucket_definitions:
   });
 
   test('wildcard table', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -758,7 +758,7 @@ bucket_definitions:
   });
 
   test('wildcard without alias', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -790,7 +790,7 @@ bucket_definitions:
   });
 
   test('should filter schemas', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -881,7 +881,7 @@ bucket_definitions:
   });
 
   test('dangerous query errors', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { errors } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -891,7 +891,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(rules.errors).toMatchObject([
+    expect(errors).toMatchObject([
       {
         message:
           "Potentially dangerous query based on parameters set by the client. The client can send any value for these parameters so it's not a good place to do authorization.",
@@ -901,7 +901,7 @@ bucket_definitions:
   });
 
   test('dangerous query errors - ignored', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { errors } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
@@ -912,11 +912,11 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(rules.errors).toEqual([]);
+    expect(errors).toEqual([]);
   });
 
   test('priorities on queries', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   highprio:
@@ -930,7 +930,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(rules.errors).toEqual([]);
+    expect(errors).toEqual([]);
 
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
@@ -942,7 +942,7 @@ bucket_definitions:
   });
 
   test('priorities on bucket', () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   highprio:
@@ -956,7 +956,7 @@ bucket_definitions:
       { schema: BASIC_SCHEMA, ...PARSE_OPTIONS }
     );
 
-    expect(rules.errors).toEqual([]);
+    expect(errors).toEqual([]);
 
     const hydrated = rules.hydrate(hydrationParams);
     expect(hydrated.getBucketParameterQuerier(normalizeQuerierOptions({})).querier).toMatchObject({
@@ -999,7 +999,7 @@ bucket_definitions:
   });
 
   test('dynamic bucket definitions list', async () => {
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   mybucket:
