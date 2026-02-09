@@ -1,6 +1,7 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
+import { ConvexLSN } from '@module/common/ConvexLSN.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
 
 function createAdapter() {
@@ -66,6 +67,19 @@ bucket_definitions:
 
     const result = await adapter.getDebugTablesInfo(syncRules.getSourceTables(), syncRules);
     expect(result[0]?.table?.name).toBe('users');
+
+    await adapter.shutdown();
+  });
+
+  it('creates replication head from the global snapshot cursor', async () => {
+    const adapter = createAdapter();
+    const getHeadCursor = vi.fn(async (_options?: any) => '123');
+    (adapter as any).connectionManager.client.getHeadCursor = getHeadCursor;
+
+    const result = await adapter.createReplicationHead(async (head) => head);
+    expect(result).toBe(ConvexLSN.fromCursor('123').comparable);
+    expect(getHeadCursor).toHaveBeenCalledTimes(1);
+    expect(getHeadCursor).toHaveBeenCalledWith();
 
     await adapter.shutdown();
   });

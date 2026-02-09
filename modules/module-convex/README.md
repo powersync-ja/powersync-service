@@ -22,3 +22,10 @@ replication:
 2. Confirm diagnostics reports the Convex source as connected.
 3. Verify initial snapshot data appears in the expected bucket(s).
 4. Insert/update/delete rows in Convex and verify bucket changes are replicated.
+
+## Snapshot behavior
+
+- Initial replication pins a global Convex snapshot boundary using `list_snapshot` without `tableName`.
+- Table hydration then runs per selected sync-rule table using that fixed snapshot boundary.
+- Each table snapshot starts from the first page (cursor omitted on the first call), and only uses cursor pagination within the current run.
+- If initial replication is interrupted, restart resumes from the stored snapshot boundary but restarts table paging from page 1.

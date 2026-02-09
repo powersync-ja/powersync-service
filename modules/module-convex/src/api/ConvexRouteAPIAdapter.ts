@@ -114,8 +114,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
   }
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
-    const tableName = (await this.connectionManager.client.getJsonSchemas()).tables[0]?.tableName;
-    const head = await this.connectionManager.client.getHeadCursor({ tableName });
+    const head = await this.connectionManager.client.getHeadCursor();
     return await callback(ConvexLSN.fromCursor(head).comparable);
   }
 

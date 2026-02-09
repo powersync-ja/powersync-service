@@ -128,7 +128,18 @@ export class ConvexApiClient {
     };
   }
 
+  async getGlobalSnapshotCursor(options?: { signal?: AbortSignal }): Promise<string> {
+    const page = await this.listSnapshot({
+      signal: options?.signal
+    });
+    return page.snapshot;
+  }
+
   async getHeadCursor(options?: { tableName?: string; signal?: AbortSignal }): Promise<string> {
+    if (options?.tableName == null) {
+      return this.getGlobalSnapshotCursor({ signal: options?.signal });
+    }
+
     const page = await this.listSnapshot({
       tableName: options?.tableName,
       signal: options?.signal

@@ -18,7 +18,12 @@ import {
 import { HydratedSyncRules, SqliteInputRow, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { setTimeout as delay } from 'timers/promises';
-import { ConvexRawDocument, ConvexTableSchema, isCursorExpiredError } from '../client/ConvexApiClient.js';
+import {
+  ConvexListSnapshotResult,
+  ConvexRawDocument,
+  ConvexTableSchema,
+  isCursorExpiredError
+} from '../client/ConvexApiClient.js';
 import { ConvexLSN } from '../common/ConvexLSN.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 
@@ -243,14 +248,11 @@ export class ConvexStream {
         skipExistingRows: true
       },
       async (batch) => {
-        let snapshotCursor = snapshotLsn == null ? null : ConvexLSN.fromSerialized(snapshotLsn).toCursorString();
+        const snapshotCursor = await this.resolveSnapshotBoundary(snapshotLsn);
+        const snapshotComparable = ConvexLSN.fromCursor(snapshotCursor).comparable;
+        await batch.setResumeLsn(snapshotComparable);
 
         const sourceTables = await this.resolveAllSourceTables(batch);
-        if (sourceTables.length == 0 && snapshotCursor == null) {
-          const head = await this.connections.client.getHeadCursor({ signal: this.abortSignal });
-          snapshotCursor = head;
-          await batch.setResumeLsn(ConvexLSN.fromCursor(head).comparable);
-        }
 
         for (const sourceTable of sourceTables) {
           if (sourceTable.snapshotComplete) {
@@ -259,19 +261,16 @@ export class ConvexStream {
           }
 
           const tableWithProgress = await batch.updateTableProgress(sourceTable, {
-            totalEstimatedCount: -1
+            totalEstimatedCount: -1,
+            replicatedCount: 0,
+            lastKey: null
           });
           this.relationCache.update(tableWithProgress);
+          this.logger.info(`Starting table snapshot from first page for [${tableWithProgress.qualifiedName}]`);
 
-          const result = await this.snapshotTable(batch, tableWithProgress, snapshotCursor);
-          snapshotCursor = result.snapshotCursor;
+          await this.snapshotTable(batch, tableWithProgress, snapshotCursor);
         }
 
-        if (snapshotCursor == null) {
-          throw new ReplicationAssertionError('Convex snapshot cursor is missing');
-        }
-
-        const snapshotComparable = ConvexLSN.fromCursor(snapshotCursor).comparable;
         await batch.commit(snapshotComparable);
 
         this.logger.info(`Snapshot done. Need to replicate from ${snapshotComparable} for consistency.`);
@@ -286,19 +285,20 @@ export class ConvexStream {
   private async snapshotTable(
     batch: storage.BucketStorageBatch,
     table: SourceTable,
-    initialSnapshotCursor: string | null
-  ): Promise<{ table: SourceTable; snapshotCursor: string }> {
-    let snapshotCursor = initialSnapshotCursor;
-    let pageCursor = decodeSnapshotProgressCursor(table.snapshotStatus?.lastKey ?? null);
-    let replicatedCount = table.snapshotStatus?.replicatedCount ?? 0;
+    snapshotCursor: string
+  ): Promise<{ table: SourceTable }> {
+    let pageCursor: string | null = null;
+    let replicatedCount = 0;
     let latestTable = table;
+    let firstPage = true;
 
     while (!this.abortSignal.aborted) {
-      const page = await this.connections.client
+      const requestCursor: string | undefined = firstPage ? undefined : (pageCursor ?? undefined);
+      const page: ConvexListSnapshotResult = await this.connections.client
         .listSnapshot({
           tableName: table.name,
-          snapshot: snapshotCursor ?? undefined,
-          cursor: pageCursor ?? undefined,
+          snapshot: snapshotCursor,
+          cursor: requestCursor,
           signal: this.abortSignal
         })
         .catch((error) => {
@@ -307,12 +307,7 @@ export class ConvexStream {
           }
           throw error;
         });
-
-      if (snapshotCursor == null) {
-        snapshotCursor = page.snapshot;
-        await batch.setResumeLsn(ConvexLSN.fromCursor(snapshotCursor).comparable);
-        this.logger.info(`Marking snapshot at ${snapshotCursor}`);
-      }
+      firstPage = false;
 
       if (snapshotCursor != page.snapshot) {
         throw new ReplicationAssertionError(
@@ -365,18 +360,25 @@ export class ConvexStream {
       throw new ReplicationAbortedError('Initial replication interrupted');
     }
 
-    if (snapshotCursor == null) {
-      throw new ReplicationAssertionError(`Convex snapshot cursor missing for table ${table.qualifiedName}`);
-    }
-
     const snapshotComparable = ConvexLSN.fromCursor(snapshotCursor).comparable;
     const [doneTable] = await batch.markSnapshotDone([latestTable], snapshotComparable);
     this.relationCache.update(doneTable);
 
     return {
-      table: doneTable,
-      snapshotCursor
+      table: doneTable
     };
+  }
+
+  private async resolveSnapshotBoundary(snapshotLsn: string | null): Promise<string> {
+    if (snapshotLsn != null) {
+      const snapshotCursor = ConvexLSN.fromSerialized(snapshotLsn).toCursorString();
+      this.logger.info(`Using existing global snapshot ${snapshotCursor}`);
+      return snapshotCursor;
+    }
+
+    const snapshotCursor = await this.connections.client.getGlobalSnapshotCursor({ signal: this.abortSignal });
+    this.logger.info(`Pinned global snapshot ${snapshotCursor}`);
+    return snapshotCursor;
   }
 
   private async resolveAllSourceTables(batch: storage.BucketStorageBatch): Promise<SourceTable[]> {
@@ -639,12 +641,4 @@ function encodeSnapshotProgressCursor(cursor: string | null): Uint8Array | null 
   }
 
   return Buffer.from(cursor, 'utf8');
-}
-
-function decodeSnapshotProgressCursor(cursor: Uint8Array | null): string | null {
-  if (cursor == null) {
-    return null;
-  }
-
-  return Buffer.from(cursor).toString('utf8');
 }

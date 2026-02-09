@@ -8,11 +8,17 @@ function createFakeStorage(options?: {
   snapshotDone?: boolean;
   snapshotLsn?: string | null;
   resumeFromLsn?: string | null;
+  tableSnapshotStatus?: {
+    totalEstimatedCount?: number;
+    replicatedCount?: number;
+    lastKey?: Uint8Array | null;
+  };
 }) {
   const saves: any[] = [];
   const commits: string[] = [];
   const keepalives: string[] = [];
   const resumeLsnUpdates: string[] = [];
+  const tableProgressUpdates: any[] = [];
 
   const table = new SourceTable({
     id: 1,
@@ -23,6 +29,13 @@ function createFakeStorage(options?: {
     replicaIdColumns: [{ name: '_id' }],
     snapshotComplete: false
   });
+  if (options?.tableSnapshotStatus) {
+    table.snapshotStatus = {
+      totalEstimatedCount: options.tableSnapshotStatus.totalEstimatedCount ?? -1,
+      replicatedCount: options.tableSnapshotStatus.replicatedCount ?? 0,
+      lastKey: options.tableSnapshotStatus.lastKey ?? null
+    };
+  }
 
   const batch: any = {
     lastCheckpointLsn: null,
@@ -62,6 +75,7 @@ function createFakeStorage(options?: {
       return tables;
     },
     async updateTableProgress(sourceTable: SourceTable, progress: any) {
+      tableProgressUpdates.push(progress);
       sourceTable.snapshotStatus = {
         totalEstimatedCount: progress.totalEstimatedCount ?? sourceTable.snapshotStatus?.totalEstimatedCount ?? -1,
         replicatedCount: progress.replicatedCount ?? sourceTable.snapshotStatus?.replicatedCount ?? 0,
@@ -105,13 +119,143 @@ function createFakeStorage(options?: {
     saves,
     commits,
     keepalives,
-    resumeLsnUpdates
+    resumeLsnUpdates,
+    tableProgressUpdates
   };
 }
 
 describe('ConvexStream', () => {
-  it('runs initial snapshot and stores resume LSN', async () => {
+  it('pins a global snapshot boundary before table hydration', async () => {
     const context = createFakeStorage();
+    const abortController = new AbortController();
+    const snapshotCalls: any[] = [];
+    const listSnapshot = vi.fn(async (options: any) => {
+      snapshotCalls.push(options ?? {});
+      if (options?.tableName == null) {
+        return {
+          snapshot: '100',
+          cursor: null,
+          hasMore: false,
+          values: []
+        };
+      }
+
+      return {
+        snapshot: '100',
+        cursor: null,
+        hasMore: false,
+        values: [{ _table: 'users', _id: 'u1', name: 'Alice' }]
+      };
+    });
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: () => ({ add: () => {} })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas: async () => ({
+            tables: [{ tableName: 'users', schema: {} }],
+            raw: {}
+          }),
+          listSnapshot,
+          getGlobalSnapshotCursor: async (options?: any) => (await listSnapshot(options)).snapshot
+        }
+      } as any
+    });
+
+    await stream.initReplication();
+
+    expect(snapshotCalls.length).toBe(2);
+    expect(snapshotCalls[0]?.tableName).toBeUndefined();
+    expect(snapshotCalls[0]?.cursor).toBeUndefined();
+    expect(snapshotCalls[1]?.tableName).toBe('users');
+    expect(snapshotCalls[1]?.cursor).toBeUndefined();
+    expect(snapshotCalls[1]?.snapshot).toBe('100');
+    expect(context.saves.length).toBe(1);
+    expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
+    expect(context.resumeLsnUpdates.length).toBe(1);
+    expect(context.commits.at(-1)).toBe(ConvexLSN.fromCursor('100').comparable);
+  });
+
+  it('starts each table snapshot from first page, then paginates within the run', async () => {
+    const context = createFakeStorage({
+      snapshotLsn: ConvexLSN.fromCursor('200').comparable,
+      tableSnapshotStatus: {
+        replicatedCount: 99,
+        totalEstimatedCount: -1,
+        lastKey: Buffer.from('stale-cursor', 'utf8')
+      }
+    });
+    const abortController = new AbortController();
+
+    const snapshotCalls: any[] = [];
+    const listSnapshot = vi.fn(async (options: any) => {
+      snapshotCalls.push(options ?? {});
+      if (snapshotCalls.length == 1) {
+        return {
+          snapshot: '200',
+          cursor: 'page-2',
+          hasMore: true,
+          values: [{ _table: 'users', _id: 'u1', name: 'Alice' }]
+        };
+      }
+      return {
+        snapshot: '200',
+        cursor: null,
+        hasMore: false,
+        values: [{ _table: 'users', _id: 'u2', name: 'Bob' }]
+      };
+    });
+
+    const getGlobalSnapshotCursor = vi.fn(async () => 'should-not-be-called');
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: () => ({ add: () => {} })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas: async () => ({
+            tables: [{ tableName: 'users', schema: {} }],
+            raw: {}
+          }),
+          listSnapshot,
+          getGlobalSnapshotCursor
+        }
+      } as any
+    });
+
+    await stream.initReplication();
+
+    expect(getGlobalSnapshotCursor).not.toHaveBeenCalled();
+    expect(snapshotCalls.length).toBe(2);
+    expect(snapshotCalls[0]?.snapshot).toBe('200');
+    expect(snapshotCalls[0]?.cursor).toBeUndefined();
+    expect(snapshotCalls[1]?.cursor).toBe('page-2');
+    expect(context.tableProgressUpdates[0]).toMatchObject({
+      replicatedCount: 0,
+      lastKey: null,
+      totalEstimatedCount: -1
+    });
+  });
+
+  it('fails when table snapshots return a different snapshot boundary', async () => {
+    const context = createFakeStorage({
+      snapshotLsn: ConvexLSN.fromCursor('300').comparable
+    });
     const abortController = new AbortController();
 
     const stream = new ConvexStream({
@@ -130,8 +274,9 @@ describe('ConvexStream', () => {
             tables: [{ tableName: 'users', schema: {} }],
             raw: {}
           }),
+          getGlobalSnapshotCursor: async () => 'should-not-be-called',
           listSnapshot: async () => ({
-            snapshot: '100',
+            snapshot: '301',
             cursor: null,
             hasMore: false,
             values: [{ _table: 'users', _id: 'u1', name: 'Alice' }]
@@ -140,12 +285,7 @@ describe('ConvexStream', () => {
       } as any
     });
 
-    await stream.initReplication();
-
-    expect(context.saves.length).toBe(1);
-    expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
-    expect(context.resumeLsnUpdates.length).toBe(1);
-    expect(context.commits.at(-1)).toBe(ConvexLSN.fromCursor('100').comparable);
+    await expect(stream.initReplication()).rejects.toThrow(/snapshot cursor changed while snapshotting/);
   });
 
   it('streams deltas and commits checkpoint', async () => {
