@@ -1,5 +1,5 @@
+import { BaseSyncConfig } from '../BaseSyncConfig.js';
 import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
 import { SourceSchema } from '../types.js';
 
 export interface GenerateSchemaOptions {
@@ -7,7 +7,7 @@ export interface GenerateSchemaOptions {
 }
 
 export abstract class SchemaGenerator {
-  protected getAllTables(source: SqlSyncRules, schema: SourceSchema) {
+  protected getAllTables(source: BaseSyncConfig, schema: SourceSchema) {
     let tables: Record<string, Record<string, ColumnDefinition>> = {};
 
     for (let descriptor of source.bucketDataSources) {
@@ -27,7 +27,7 @@ export abstract class SchemaGenerator {
   abstract readonly mediaType: string;
   abstract readonly fileName: string;
 
-  abstract generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string;
+  abstract generate(source: BaseSyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string;
 
   /**
    * @param def The column definition to generate the type for.

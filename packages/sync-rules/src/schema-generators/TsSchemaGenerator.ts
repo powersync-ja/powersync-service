@@ -1,6 +1,5 @@
 import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
-import { SourceSchema } from '../types.js';
+import { SourceSchema, SyncConfig } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
 export interface TsSchemaGeneratorOptions {
@@ -47,7 +46,7 @@ export class TsSchemaGenerator extends SchemaGenerator {
     }
   }
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: SyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
     return `${this.generateImports()}

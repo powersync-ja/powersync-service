@@ -196,7 +196,7 @@ export interface GetDebugTablesInfoOptions {
   publicationName: string;
   connectionTag: string;
   tablePatterns: sync_rules.TablePattern[];
-  syncRules: sync_rules.SqlSyncRules;
+  syncRules: sync_rules.BaseSyncConfig;
 }
 
 export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Promise<PatternResult[]> {
@@ -296,7 +296,7 @@ export interface GetDebugTableInfoOptions {
   connectionTag: string;
   tablePattern: sync_rules.TablePattern;
   relationId: number | null;
-  syncRules: sync_rules.SqlSyncRules;
+  syncRules: sync_rules.BaseSyncConfig;
 }
 
 export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Promise<service_types.TableInfo> {

@@ -1,5 +1,5 @@
+import { BaseSyncConfig } from '../BaseSyncConfig.js';
 import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
 import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
@@ -9,7 +9,7 @@ export class DartSchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'text/x-dart';
   readonly fileName = 'schema.dart';
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: BaseSyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
     return `Schema([
@@ -51,7 +51,7 @@ export class DartFlutterFlowSchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'application/json';
   readonly fileName = 'schema.json';
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: BaseSyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const serializedTables = this.getAllTables(source, schema).map((e) => this.generateTable(e.name, e.columns));
     // Not all FlutterFlow apps will use the attachments queue table, but it needs to be part of the app schema if used
     // and does no harm otherwise. So, we just include it by default.

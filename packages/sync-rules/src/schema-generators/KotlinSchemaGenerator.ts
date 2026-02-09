@@ -1,5 +1,5 @@
+import { BaseSyncConfig } from '../BaseSyncConfig.js';
 import { ColumnDefinition } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
 import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
@@ -9,7 +9,7 @@ export class KotlinSchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'text/x-kotlin';
   readonly fileName = 'schema.kt';
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: BaseSyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
     return `import com.powersync.db.schema.Column

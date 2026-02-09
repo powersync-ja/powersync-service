@@ -1,5 +1,5 @@
+import { BaseSyncConfig } from '../BaseSyncConfig.js';
 import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
 import { SourceSchema } from '../types.js';
 import { SchemaGenerator } from './SchemaGenerator.js';
 
@@ -9,7 +9,7 @@ export class JsLegacySchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'text/javascript';
   readonly fileName = 'schema.js';
 
-  generate(source: SqlSyncRules, schema: SourceSchema): string {
+  generate(source: BaseSyncConfig, schema: SourceSchema): string {
     const tables = super.getAllTables(source, schema);
 
     return `new Schema([
