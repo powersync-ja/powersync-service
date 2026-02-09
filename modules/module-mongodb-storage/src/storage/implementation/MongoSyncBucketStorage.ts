@@ -699,6 +699,10 @@ export class MongoSyncBucketStorage
       return;
     }
 
+    // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS) before we get another checkpoint,
+    // to avoid stale checkpoint snapshots. This is what checkpointTimeoutStream() is for.
+    // Essentially, even if there are no actual checkpoint changes, we want a new snapshotTime every minute or so,
+    // to ensure that any new clients connecting will get a valid snapshotTime.
     const stream = mergeAsyncIterables(
       [this.checkpointChangesStream(signal), this.checkpointTimeoutStream(signal)],
       signal
