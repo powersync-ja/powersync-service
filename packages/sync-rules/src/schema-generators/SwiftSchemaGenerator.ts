@@ -1,5 +1,6 @@
 import { ColumnDefinition } from '../ExpressionType.js';
-import { SourceSchema, SyncConfig } from '../types.js';
+import { SyncConfig } from '../SyncConfig.js';
+import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
 export class SwiftSchemaGenerator extends SchemaGenerator {

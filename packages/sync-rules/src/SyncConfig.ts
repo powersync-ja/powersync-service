@@ -7,13 +7,14 @@ import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncPlan } from './sync_plan/plan.js';
 import { TablePattern } from './TablePattern.js';
-import { SqliteInputValue, SqliteRow, SqliteValue, SyncConfig } from './types.js';
+import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
 import { applyRowContext } from './utils.js';
 
 /**
- * @internal Sealed class, can only be extended by `SqlSyncRules` and `PrecompiledSyncConfig`.
+ * A class describing how the sync process has been configured (i.e. which buckets and parameters to create and how to
+ * resolve buckets for connections).
  */
-export abstract class BaseSyncConfig {
+export abstract class SyncConfig {
   bucketDataSources: BucketDataSource[] = [];
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];
@@ -28,9 +29,6 @@ export abstract class BaseSyncConfig {
   constructor(content: string) {
     this.content = content;
   }
-
-  // Ensure asSyncConfig is not implemented externally
-  protected abstract asSyncConfig(): SyncConfig & this;
 
   /**
    * If this sync config is fully described by a serializable sync plan, returns that plan.
@@ -49,7 +47,7 @@ export abstract class BaseSyncConfig {
     }
     const resolvedParams = { hydrationState };
     return new HydratedSyncRules({
-      definition: this.asSyncConfig(),
+      definition: this,
       createParams: resolvedParams,
       bucketDataSources: this.bucketDataSources,
       bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
@@ -123,4 +121,8 @@ export abstract class BaseSyncConfig {
   debugRepresentation() {
     return this.bucketSources.map((rules) => rules.debugRepresentation());
   }
+}
+export interface SyncConfigWithErrors {
+  config: SyncConfig;
+  errors: YamlError[];
 }

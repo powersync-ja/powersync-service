@@ -10,14 +10,6 @@ import { TablePattern } from './TablePattern.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { toSyncRulesParameters } from './utils.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
-import { YamlError } from './errors.js';
-
-export type SyncConfig = SqlSyncRules | PrecompiledSyncConfig;
-
-export interface SyncConfigWithErrors {
-  config: SyncConfig;
-  errors: YamlError[];
-}
 
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;

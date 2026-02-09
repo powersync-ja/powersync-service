@@ -22,6 +22,7 @@ export * from './StaticSchema.js';
 export { SyncStream } from './streams/stream.js';
 export { STREAM_FUNCTIONS } from './streams/functions.js';
 export { syncStreamFromSql } from './streams/from_sql.js';
+export { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 export * from './TablePattern.js';
 export * from './types.js';
 export * from './types/custom_sqlite_value.js';

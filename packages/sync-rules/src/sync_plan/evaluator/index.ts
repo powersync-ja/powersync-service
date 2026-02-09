@@ -3,7 +3,7 @@ import { PreparedStreamBucketDataSource } from './bucket_data_source.js';
 import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_creator.js';
 import { StreamBucketSource, StreamInput } from './bucket_source.js';
 import { ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
-import { BaseSyncConfig } from '../../BaseSyncConfig.js';
+import { SyncConfig } from '../../SyncConfig.js';
 
 export interface StreamEvaluationContext {
   engine: ScalarExpressionEngine;
@@ -16,7 +16,7 @@ export interface StreamEvaluationContext {
   sourceText: string;
 }
 
-export class PrecompiledSyncConfig extends BaseSyncConfig {
+export class PrecompiledSyncConfig extends SyncConfig {
   constructor(
     private readonly plan: plan.SyncPlan,
     context: StreamEvaluationContext

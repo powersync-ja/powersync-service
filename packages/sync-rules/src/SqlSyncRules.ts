@@ -13,15 +13,8 @@ import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { TablePattern } from './TablePattern.js';
-import {
-  QueryParseOptions,
-  RequestParameters,
-  SourceSchema,
-  SqliteJsonRow,
-  StreamParseOptions,
-  SyncConfigWithErrors
-} from './types.js';
-import { BaseSyncConfig } from './BaseSyncConfig.js';
+import { QueryParseOptions, RequestParameters, SourceSchema, SqliteJsonRow, StreamParseOptions } from './types.js';
+import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -76,7 +69,7 @@ export interface GetBucketParameterQuerierResult {
   errors: QuerierError[];
 }
 
-export class SqlSyncRules extends BaseSyncConfig {
+export class SqlSyncRules extends SyncConfig {
   // The errors here are internal only, consumers should use SyncConfigWithErrors instead.
   readonly #errors: YamlError[] = [];
 
@@ -326,10 +319,6 @@ export class SqlSyncRules extends BaseSyncConfig {
     }
 
     return rules;
-  }
-
-  protected asSyncConfig(): this {
-    return this;
   }
 
   throwOnError() {

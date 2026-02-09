@@ -1,5 +1,6 @@
+import { SyncConfig } from '../SyncConfig.js';
 import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
-import { SourceSchema, SyncConfig } from '../types.js';
+import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
 export interface TsSchemaGeneratorOptions {
