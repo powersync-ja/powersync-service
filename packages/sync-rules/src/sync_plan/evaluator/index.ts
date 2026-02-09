@@ -47,8 +47,4 @@ export class PrecompiledSyncConfig extends SyncConfig {
       this.bucketSources.push(new StreamBucketSource(stream, streamInput));
     }
   }
-
-  protected asSyncConfig(): this {
-    return this;
-  }
 }
