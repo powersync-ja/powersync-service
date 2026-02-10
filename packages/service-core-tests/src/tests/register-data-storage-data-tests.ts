@@ -1070,7 +1070,7 @@ bucket_definitions:
       replication_size_bytes: 0
     });
 
-    const r = await f.configureSyncRules({ content: 'bucket_definitions: {}', validate: false });
+    const r = await f.configureSyncRules({ content: 'bucket_definitions: {}' });
     const storage = f.getInstance(r.persisted_sync_rules!);
     await storage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.keepalive('1/0');

@@ -20,8 +20,7 @@ export function registerDataStorageCheckpointTests(generateStorageFactory: stora
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
+    `
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
 
@@ -60,8 +59,7 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
+    `
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
 
@@ -122,8 +120,7 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
+    `
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
@@ -162,8 +159,7 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
+    `
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
@@ -205,8 +201,7 @@ bucket_definitions:
 bucket_definitions:
   mybucket:
     data: []
-    `,
-      validate: false
+    `
     });
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);

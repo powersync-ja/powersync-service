@@ -1,9 +1,15 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
+import {
+  ParseSyncRulesOptions,
+  PersistedSyncRules,
+  PersistedSyncRulesContent,
+  SerializedSyncPlan
+} from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 import { ReportStorage } from './ReportStorage.js';
+import { PrecompiledSyncConfig, serializeSyncPlan, SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
 
 /**
  * Represents a configured storage provider.
@@ -120,8 +126,42 @@ export interface StorageMetrics {
 
 export interface UpdateSyncRulesOptions {
   content: string;
+  /**
+   * If the YAML sync rules are derived from a sync plan, the plan fully describing all buckets, parameter lookups and
+   * streams.
+   */
+  compiledSyncPlan?: SerializedSyncPlan;
   lock?: boolean;
-  validate?: boolean;
+}
+
+export function updateSyncRulesYaml(
+  content: string,
+  options?: { validate?: boolean; lock?: boolean }
+): UpdateSyncRulesOptions {
+  const { config } = SqlSyncRules.fromYaml(content, {
+    // No schema-based validation at this point
+    schema: undefined,
+    defaultSchema: 'not_applicable', // Not needed for validation
+    throwOnError: options?.validate ?? false
+  });
+
+  return updateSyncRulesFromParsed(config, { lock: options?.lock });
+}
+
+export function updateSyncRulesFromParsed(config: SyncConfig, options?: { lock?: boolean }) {
+  let plan: SerializedSyncPlan | undefined;
+  if (config instanceof PrecompiledSyncConfig) {
+    plan = {
+      plan: serializeSyncPlan(config.plan),
+      compatibility: config.compatibility.serialize()
+    };
+  }
+
+  return {
+    content: config.content,
+    compiledSyncPlan: plan,
+    lock: options?.lock
+  };
 }
 
 export interface GetIntanceOptions {
