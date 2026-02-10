@@ -410,5 +410,14 @@ config:
       expect(deserialized.overrides).toStrictEqual(expectedOverrides);
       expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.nanoseconds);
     });
+
+    test('time precision', () => {
+      const deserialized = CompatibilityContext.deserialize({
+        edition: 2,
+        overrides: {},
+        maxTimeValuePrecision: 0
+      });
+      expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.seconds);
+    });
   });
 });

@@ -129,7 +129,7 @@ export class CompatibilityContext {
     }
 
     let maxTimeValuePrecision: TimeValuePrecision | undefined;
-    if (serialized.maxTimeValuePrecision) {
+    if (serialized.maxTimeValuePrecision != null) {
       for (const option of Object.values(TimeValuePrecision.byName)) {
         if (option.subSecondDigits == serialized.maxTimeValuePrecision) {
           maxTimeValuePrecision = option;
