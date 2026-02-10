@@ -1,6 +1,5 @@
-import { storage, utils } from '@powersync/service-core';
+import { PersistedSyncRulesContent, storage, updateSyncRulesYaml, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
 import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
@@ -15,27 +14,23 @@ export const BATCH_OPTIONS: storage.StartBatchOptions = {
   storeCurrentData: true
 };
 
-export function testRules(content: string): storage.PersistedSyncRulesContent {
-  return {
+class TestSyncRulesContent extends PersistedSyncRulesContent {
+  lock(): Promise<storage.ReplicationLock> {
+    throw new Error('Not implemented');
+  }
+}
+
+export function testRules(source: string): storage.PersistedSyncRulesContent {
+  const { content, compiledSyncPlan } = updateSyncRulesYaml(source);
+
+  return new TestSyncRulesContent({
     id: 1,
     sync_rules_content: content,
+    sync_plan: compiledSyncPlan ?? null,
     slot_name: 'test',
     active: true,
-    last_checkpoint_lsn: '',
-    parsed(options) {
-      return {
-        id: 1,
-        sync_rules: SqlSyncRules.fromYaml(content, options),
-        slot_name: 'test',
-        hydratedSyncRules() {
-          return this.sync_rules.config.hydrate({ hydrationState: versionedHydrationState(1) });
-        }
-      };
-    },
-    lock() {
-      throw new Error('Not implemented');
-    }
-  };
+    last_checkpoint_lsn: ''
+  });
 }
 
 export function makeTestTable(name: string, replicaIdColumns?: string[] | undefined) {

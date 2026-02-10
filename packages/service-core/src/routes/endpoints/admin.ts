@@ -1,5 +1,5 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
+import { SqlSyncRules, StaticSchema, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
@@ -127,12 +127,13 @@ export const reprocess = routeDefinition({
       });
     }
 
-    const new_rules = await activeBucketStorage.updateSyncRules({
-      content: active.sync_rules.config.content,
-      // These sync rules already passed validation. But if the rules are not valid anymore due
-      // to a service change, we do want to report the error here.
-      validate: true
-    });
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      storage.updateSyncRulesYaml(active.sync_rules.config.content, {
+        // These sync rules already passed validation. But if the rules are not valid anymore due
+        // to a service change, we do want to report the error here.
+        validate: true
+      })
+    );
 
     const baseConfig = await apiHandler.getSourceConfig();
 
@@ -149,6 +150,23 @@ export const reprocess = routeDefinition({
   }
 });
 
+class DummySyncRulesContent extends storage.PersistedSyncRulesContent {
+  constructor(
+    options: storage.PersistedSyncRulesContentData,
+    private readonly schema: StaticSchema
+  ) {
+    super(options);
+  }
+
+  lock(): Promise<storage.ReplicationLock> {
+    throw new Error('Lock not implemented');
+  }
+
+  protected loadSyncConfig(options: storage.ParseSyncRulesOptions): SyncConfigWithErrors {
+    return SqlSyncRules.fromYaml(this.sync_rules_content, { ...options, schema: this.schema });
+  }
+}
+
 export const validate = routeDefinition({
   path: '/api/admin/v1/validate',
   method: router.HTTPMethod.POST,
@@ -164,30 +182,18 @@ export const validate = routeDefinition({
     const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);
 
-    const sync_rules: storage.PersistedSyncRulesContent = {
-      // Dummy values
-      id: 0,
-      slot_name: '',
-      active: false,
-      last_checkpoint_lsn: '',
-
-      parsed() {
-        return {
-          ...this,
-          sync_rules: SqlSyncRules.fromYaml(content, {
-            ...apiHandler.getParseSyncRulesOptions(),
-            schema
-          }),
-          hydratedSyncRules() {
-            return this.sync_rules.config.hydrate();
-          }
-        };
+    const sync_rules = new DummySyncRulesContent(
+      {
+        // Dummy values
+        id: 0,
+        slot_name: '',
+        active: false,
+        last_checkpoint_lsn: '',
+        sync_rules_content: content,
+        sync_plan: null
       },
-      sync_rules_content: content,
-      async lock() {
-        throw new Error('Lock not implemented');
-      }
-    };
+      schema
+    );
 
     const connectionStatus = await apiHandler.getConnectionStatus();
     if (!connectionStatus) {

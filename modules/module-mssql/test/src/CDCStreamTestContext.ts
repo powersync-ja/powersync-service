@@ -5,7 +5,8 @@ import {
   InternalOpId,
   OplogEntry,
   storage,
-  SyncRulesBucketStorage
+  SyncRulesBucketStorage,
+  updateSyncRulesYaml
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
@@ -72,7 +73,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules(updateSyncRulesYaml(content, { validate: true }));
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
