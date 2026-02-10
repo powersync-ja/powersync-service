@@ -122,7 +122,12 @@ export class KeyStore<Collector extends KeyCollector = KeyCollector> {
       throw new AuthorizationError(ErrorCode.PSYNC_S2101, `Payload parameters must be an object`);
     }
 
-    return tokenPayload as JwtPayload;
+    const rawSub = tokenPayload.sub;
+    const normalizedSub = typeof rawSub === 'string' ? rawSub : JSON.stringify(rawSub);
+    return {
+      ...tokenPayload,
+      sub: normalizedSub
+    } as JwtPayload;
   }
 
   private async verifyInternal(token: string, options: jose.JWTVerifyOptions) {
