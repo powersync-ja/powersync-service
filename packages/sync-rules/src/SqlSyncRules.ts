@@ -1,7 +1,6 @@
 import { isScalar, LineCounter, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
 import { isValidPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
-import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
 import {
   CompatibilityContext,
   CompatibilityEdition,
@@ -10,24 +9,12 @@ import {
 } from './compatibility.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { HydratedSyncRules } from './HydratedSyncRules.js';
-import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
 import { validateSyncRulesSchema } from './json_schema.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { TablePattern } from './TablePattern.js';
-import {
-  QueryParseOptions,
-  RequestParameters,
-  SourceSchema,
-  SqliteInputValue,
-  SqliteJsonRow,
-  SqliteRow,
-  SqliteValue,
-  StreamParseOptions
-} from './types.js';
-import { applyRowContext } from './utils.js';
+import { QueryParseOptions, RequestParameters, SourceSchema, SqliteJsonRow, StreamParseOptions } from './types.js';
+import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -82,17 +69,9 @@ export interface GetBucketParameterQuerierResult {
   errors: QuerierError[];
 }
 
-export class SqlSyncRules {
-  bucketDataSources: BucketDataSource[] = [];
-  bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
-  bucketSources: BucketSource[] = [];
-
-  eventDescriptors: SqlEventDescriptor[] = [];
-  compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
-
-  content: string;
-
-  errors: YamlError[] = [];
+export class SqlSyncRules extends SyncConfig {
+  // The errors here are internal only, consumers should use SyncConfigWithErrors instead.
+  readonly #errors: YamlError[] = [];
 
   static validate(yaml: string, options: SyncRulesOptions): YamlError[] {
     try {
@@ -109,7 +88,12 @@ export class SqlSyncRules {
     }
   }
 
-  static fromYaml(yaml: string, options: SyncRulesOptions) {
+  static fromYaml(yaml: string, options: SyncRulesOptions): SyncConfigWithErrors {
+    const config = this.#fromYaml(yaml, options);
+    return { config, errors: config.#errors };
+  }
+
+  static #fromYaml(yaml: string, options: SyncRulesOptions): SqlSyncRules {
     const throwOnError = options.throwOnError ?? true;
 
     const lineCounter = new LineCounter();
@@ -130,7 +114,7 @@ export class SqlSyncRules {
     const rules = new SqlSyncRules(yaml);
 
     if (parsed.errors.length > 0) {
-      rules.errors.push(
+      rules.#errors.push(
         ...parsed.errors.map((error) => {
           return new YamlError(error);
         })
@@ -167,7 +151,7 @@ export class SqlSyncRules {
 
       compatibility = new CompatibilityContext({ edition, overrides: options, maxTimeValuePrecision });
       if (maxTimeValuePrecision && !compatibility.isEnabled(CompatibilityOption.timestampsIso8601)) {
-        rules.errors.push(
+        rules.#errors.push(
           new YamlError(new Error(`'timestamp_max_precision' requires 'timestamps_iso8601' to be enabled.`))
         );
       }
@@ -181,7 +165,7 @@ export class SqlSyncRules {
     const definitionNames = new Set<string>();
     const checkUniqueName = (name: string, literal: Scalar) => {
       if (definitionNames.has(name)) {
-        rules.errors.push(this.tokenError(literal, 'Duplicate stream or bucket definition.'));
+        rules.#errors.push(this.tokenError(literal, 'Duplicate stream or bucket definition.'));
         return false;
       }
 
@@ -190,7 +174,7 @@ export class SqlSyncRules {
     };
 
     if (bucketMap == null && streamMap == null) {
-      rules.errors.push(new YamlError(new Error(`'bucket_definitions' or 'streams' is required`)));
+      rules.#errors.push(new YamlError(new Error(`'bucket_definitions' or 'streams' is required`)));
 
       if (throwOnError) {
         rules.throwOnError();
@@ -206,7 +190,7 @@ export class SqlSyncRules {
       }
 
       if (value == null || !(value instanceof YAMLMap)) {
-        rules.errors.push(this.tokenError(keyScalar, `'${key}' bucket definition must be an object`));
+        rules.#errors.push(this.tokenError(keyScalar, `'${key}' bucket definition must be an object`));
         continue;
       }
 
@@ -240,7 +224,7 @@ export class SqlSyncRules {
       }
 
       if (!(dataQueries instanceof YAMLSeq)) {
-        rules.errors.push(this.tokenError(dataQueries ?? value, `'data' must be an array`));
+        rules.#errors.push(this.tokenError(dataQueries ?? value, `'data' must be an array`));
         continue;
       }
       for (let query of dataQueries.items) {
@@ -285,7 +269,7 @@ export class SqlSyncRules {
           };
         });
       } else {
-        rules.errors.push(this.tokenError(data, 'Must be a string.'));
+        rules.#errors.push(this.tokenError(data, 'Must be a string.'));
         continue;
       }
     }
@@ -295,20 +279,20 @@ export class SqlSyncRules {
       const { key, value } = event as { key: Scalar; value: YAMLSeq };
 
       if (false == value instanceof YAMLMap) {
-        rules.errors.push(new YamlError(new Error(`Event definitions must be objects.`)));
+        rules.#errors.push(new YamlError(new Error(`Event definitions must be objects.`)));
         continue;
       }
 
       const payloads = value.get('payloads') as YAMLSeq;
       if (false == payloads instanceof YAMLSeq) {
-        rules.errors.push(new YamlError(new Error(`Event definition payloads must be an array.`)));
+        rules.#errors.push(new YamlError(new Error(`Event definition payloads must be an array.`)));
         continue;
       }
 
       const eventDescriptor = new SqlEventDescriptor(key.toString(), compatibility);
       for (let item of payloads.items) {
         if (!isScalar(item)) {
-          rules.errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
+          rules.#errors.push(new YamlError(new Error(`Payload queries for events must be scalar.`)));
           continue;
         }
         rules.withScalar(item, (q) => {
@@ -323,7 +307,7 @@ export class SqlSyncRules {
     // Since these errors don't contain line numbers, do this last.
     const valid = validateSyncRulesSchema(parsed.toJSON());
     if (!valid) {
-      rules.errors.push(
+      rules.#errors.push(
         ...validateSyncRulesSchema.errors!.map((e: any) => {
           return new YamlError(e);
         })
@@ -338,8 +322,8 @@ export class SqlSyncRules {
   }
 
   throwOnError() {
-    if (this.errors.filter((e) => e.type != 'warning').length > 0) {
-      throw new SyncRulesErrors(this.errors);
+    if (this.#errors.filter((e) => e.type != 'warning').length > 0) {
+      throw new SyncRulesErrors(this.#errors);
     }
   }
 
@@ -384,56 +368,13 @@ export class SqlSyncRules {
       }
 
       const pos = { start: offset, end };
-      this.errors.push(new YamlError(err, pos));
+      this.#errors.push(new YamlError(err, pos));
     }
     return result;
   }
 
-  constructor(content: string) {
-    this.content = content;
-  }
-
-  /**
-   * Hydrate the sync rule definitions with persisted state into runnable sync rules.
-   *
-   * @param params.hydrationState Transforms bucket ids based on persisted state. May omit for tests.
-   */
-  hydrate(params?: CreateSourceParams): HydratedSyncRules {
-    let hydrationState = params?.hydrationState;
-    if (hydrationState == null || !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
-      hydrationState = DEFAULT_HYDRATION_STATE;
-    }
-    const resolvedParams = { hydrationState };
-    return new HydratedSyncRules({
-      definition: this,
-      createParams: resolvedParams,
-      bucketDataSources: this.bucketDataSources,
-      bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
-      eventDescriptors: this.eventDescriptors,
-      compatibility: this.compatibility
-    });
-  }
-
-  applyRowContext<MaybeToast extends undefined = never>(
-    source: SqliteRow<SqliteInputValue | MaybeToast>
-  ): SqliteRow<SqliteValue | MaybeToast> {
-    return applyRowContext(source, this.compatibility);
-  }
-
-  getSourceTables(): TablePattern[] {
-    const sourceTables = new Map<String, TablePattern>();
-    for (const bucket of this.bucketDataSources) {
-      for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
-      }
-    }
-    for (const bucket of this.bucketParameterLookupSources) {
-      for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
-      }
-    }
+  protected writeSourceTables(sourceTables: Map<String, TablePattern>): void {
+    super.writeSourceTables(sourceTables);
 
     for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
@@ -441,51 +382,13 @@ export class SqlSyncRules {
         sourceTables.set(key, r);
       }
     }
-
-    return [...sourceTables.values()];
-  }
-
-  getEventTables(): TablePattern[] {
-    const eventTables = new Map<String, TablePattern>();
-
-    for (const event of this.eventDescriptors) {
-      for (const r of event.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        eventTables.set(key, r);
-      }
-    }
-    return [...eventTables.values()];
-  }
-
-  tableTriggersEvent(table: SourceTableInterface): boolean {
-    return this.eventDescriptors.some((bucket) => bucket.tableTriggersEvent(table));
-  }
-
-  tableSyncsData(table: SourceTableInterface): boolean {
-    return this.bucketDataSources.some((b) => b.tableSyncsData(table));
-  }
-
-  tableSyncsParameters(table: SourceTableInterface): boolean {
-    return this.bucketParameterLookupSources.some((b) => b.tableSyncsParameters(table));
-  }
-
-  debugGetOutputTables() {
-    let result: Record<string, any[]> = {};
-    for (let bucket of this.bucketDataSources) {
-      bucket.debugWriteOutputTables(result);
-    }
-    return result;
-  }
-
-  debugRepresentation() {
-    return this.bucketSources.map((rules) => rules.debugRepresentation());
   }
 
   private parsePriority(value: YAMLMap) {
     if (value.has('priority')) {
       const priorityValue = value.get('priority', true)!;
       if (typeof priorityValue.value != 'number' || !isValidPriority(priorityValue.value)) {
-        this.errors.push(
+        this.#errors.push(
           SqlSyncRules.tokenError(priorityValue, 'Invalid priority, expected a number between 0 and 3 (inclusive).')
         );
       } else {

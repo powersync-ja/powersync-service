@@ -112,3 +112,9 @@ export class CompatibilityContext {
     edition: CompatibilityEdition.LEGACY
   });
 }
+
+export interface SerializedCompatibilityContext {
+  edition: number;
+  overrides: Record<string, boolean>;
+  maxTimeValuePrecision?: number;
+}
