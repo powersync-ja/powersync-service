@@ -1,11 +1,11 @@
 import {
   HydratedSyncRules,
-  SqlSyncRules,
   versionedHydrationState,
-  addPrecompiledSyncPlanToRules,
   javaScriptExpressionEngine,
   CompatibilityContext,
-  CompatibilityEdition
+  CompatibilityEdition,
+  SyncConfig,
+  PrecompiledSyncConfig
 } from '../../../../src/index.js';
 import { compileToSyncPlanWithoutErrors, SyncStreamInput } from '../../compiler/utils.js';
 import { test } from 'vitest';
@@ -13,7 +13,7 @@ import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_
 
 interface SyncTest {
   engine: ScalarExpressionEngine;
-  prepareWithoutHydration(inputs: SyncStreamInput[]): SqlSyncRules;
+  prepareWithoutHydration(inputs: SyncStreamInput[]): SyncConfig;
   prepareSyncStreams(inputs: SyncStreamInput[]): HydratedSyncRules;
 }
 
@@ -25,10 +25,7 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
       engine,
       prepareWithoutHydration: (inputs) => {
         const plan = compileToSyncPlanWithoutErrors(inputs);
-        const rules = new SqlSyncRules('');
-
-        addPrecompiledSyncPlanToRules(plan, rules, { engine });
-        return rules;
+        return new PrecompiledSyncConfig(plan, { engine, sourceText: '' });
       },
       prepareSyncStreams(inputs) {
         return this.prepareWithoutHydration(inputs).hydrate({ hydrationState: versionedHydrationState(1) });
