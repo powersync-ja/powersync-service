@@ -187,7 +187,7 @@ export class MongoBucketStorage
       const doc: SyncRuleDocument = {
         _id: id,
         content: options.content,
-        // TODO sync plan
+        plan: options.compiledSyncPlan,
         last_checkpoint: null,
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,

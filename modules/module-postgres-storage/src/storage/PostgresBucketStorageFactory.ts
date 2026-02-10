@@ -1,7 +1,6 @@
 import * as framework from '@powersync/lib-services-framework';
 import { GetIntanceOptions, storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
-import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
 
@@ -184,7 +183,7 @@ export class PostgresBucketStorageFactory
               nextval('sync_rules_id_sequence') AS id
           )
         INSERT INTO
-          sync_rules (id, content, state, slot_name)
+          sync_rules (id, content, sync_plan, state, slot_name)
         VALUES
           (
             (
@@ -194,6 +193,7 @@ export class PostgresBucketStorageFactory
                 next_id
             ),
             ${{ type: 'varchar', value: options.content }},
+            ${{ type: 'json', value: options.compiledSyncPlan }},
             ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
             CONCAT(
               ${{ type: 'varchar', value: this.slot_name_prefix }},

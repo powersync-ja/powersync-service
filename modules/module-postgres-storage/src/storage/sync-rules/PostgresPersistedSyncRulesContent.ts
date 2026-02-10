@@ -1,7 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { SqlSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
 
 import { models } from '../../types/types.js';
 
@@ -15,7 +14,7 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
     super({
       id: Number(row.id),
       sync_rules_content: row.content,
-      sync_plan: null, // TODO
+      sync_plan: row.sync_plan,
       last_checkpoint_lsn: row.last_checkpoint_lsn,
       slot_name: row.slot_name,
       last_fatal_error: row.last_fatal_error,
