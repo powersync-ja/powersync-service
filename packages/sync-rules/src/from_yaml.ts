@@ -23,10 +23,14 @@ const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROU
 
 /**
  * Reads `sync_rules.yaml` files containing a sync configuration.
+ *
+ * @internal Only exposed through `SqlSyncRules.fromYaml`.
  */
 export class SyncConfigFromYaml {
   readonly #errors: YamlError[] = [];
   readonly #lineCounter = new LineCounter();
+
+  // Names of bucket definitions and sync streams, to prevent duplicates.
   readonly #definitionNames = new Set<string>();
 
   constructor(
@@ -181,20 +185,17 @@ export class SyncConfigFromYaml {
       if ($with != null) {
         for (const entry of $with.items ?? []) {
           const { key: cteName, value: cteQuery } = entry as { key: Scalar<string>; value: Scalar };
-
-          this.#withScalarErrorListener(cteQuery, (sql, listener) => {
-            const parsed = compiler.commonTableExpression(sql, listener);
-            if (parsed) {
-              streamCompiler.registerCommonTableExpression(cteName.value, parsed);
-            }
-          });
+          const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
+          const parsed = compiler.commonTableExpression(sql, errorListener);
+          if (parsed) {
+            streamCompiler.registerCommonTableExpression(cteName.value, parsed);
+          }
         }
       }
 
       const addQuery = (query: Scalar<string>) => {
-        this.#withScalarErrorListener(query, (sql, errors) => {
-          streamCompiler.addQuery(sql, errors);
-        });
+        const [sql, errorListener] = this.#scalarErrorListener(query);
+        streamCompiler.addQuery(sql, errorListener);
       };
 
       const queries = value.get('queries') as YAMLSeq | null;
@@ -431,47 +432,58 @@ export class SyncConfigFromYaml {
 
     const result = wrapped(value);
     for (let err of result.errors) {
-      let sourceOffset = scalar.srcToken!.offset;
-      if (scalar.type == Scalar.QUOTE_DOUBLE || scalar.type == Scalar.QUOTE_SINGLE) {
-        // TODO: Is there a better way to do this?
-        sourceOffset += 1;
-      }
-      let offset: number;
-      let end: number;
-      if (err instanceof SqlRuleError && err.location) {
-        offset = err.location!.start + sourceOffset;
-        end = err.location!.end + sourceOffset;
-      } else if (typeof (err as any).token?._location?.start == 'number') {
-        offset = sourceOffset + (err as any).token?._location?.start;
-        end = sourceOffset + (err as any).token?._location?.end;
-      } else {
-        offset = sourceOffset;
-        end = sourceOffset + Math.max(value.length, 1);
-      }
-
-      const pos = { start: offset, end };
-      this.#errors.push(new YamlError(err, pos));
+      this.#addErrorFromScalar(scalar, value, err);
     }
     return result;
   }
 
-  #withScalarErrorListener(scalar: Scalar, cb: (value: string, listener: ParsingErrorListener) => void) {
-    this.#withScalar(scalar, (sql) => {
-      const errors: SqlRuleError[] = [];
-      const listener: ParsingErrorListener = {
-        report: function (message: string, location: NodeLocation | PGNode, options?: { isWarning: boolean }): void {
-          const error = new SqlRuleError(message, sql, location);
-          if (options?.isWarning) {
-            error.type = 'warning';
-          }
-
-          errors.push(error);
+  /**
+   * Reads string contents from a YAML scalar and returns an error listener for the sync stream compiler.
+   */
+  #scalarErrorListener(scalar: Scalar): [string, ParsingErrorListener] {
+    const value = scalar.toString();
+    const listener: ParsingErrorListener = {
+      report: (message, location, options): void => {
+        const error = new SqlRuleError(message, value, location);
+        if (options?.isWarning) {
+          error.type = 'warning';
         }
-      };
 
-      cb(sql, listener);
-      return { parsed: true, errors };
-    });
+        this.#addErrorFromScalar(scalar, value, error);
+      }
+    };
+
+    return [value, listener];
+  }
+
+  /**
+   * Adds an error originally added while parsing a YAML scalar string.
+   *
+   * @param scalar The scalar being parsed.
+   * @param value String contents of the scalar.
+   * @param error An error in the scalar content. Offsets will be translated to point at the full YAML source.
+   */
+  #addErrorFromScalar(scalar: Scalar, value: string, err: SqlRuleError) {
+    let sourceOffset = scalar.srcToken!.offset;
+    if (scalar.type == Scalar.QUOTE_DOUBLE || scalar.type == Scalar.QUOTE_SINGLE) {
+      // TODO: Is there a better way to do this?
+      sourceOffset += 1;
+    }
+    let offset: number;
+    let end: number;
+    if (err instanceof SqlRuleError && err.location) {
+      offset = err.location!.start + sourceOffset;
+      end = err.location!.end + sourceOffset;
+    } else if (typeof (err as any).token?._location?.start == 'number') {
+      offset = sourceOffset + (err as any).token?._location?.start;
+      end = sourceOffset + (err as any).token?._location?.end;
+    } else {
+      offset = sourceOffset;
+      end = sourceOffset + Math.max(value.length, 1);
+    }
+
+    const pos = { start: offset, end };
+    this.#errors.push(new YamlError(err, pos));
   }
 }
 
