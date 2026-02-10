@@ -84,15 +84,4 @@ export class SqlSyncRules extends SyncConfig {
 
     return parser.read();
   }
-
-  protected writeSourceTables(sourceTables: Map<String, TablePattern>): void {
-    super.writeSourceTables(sourceTables);
-
-    for (const event of this.eventDescriptors) {
-      for (const r of event.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
-      }
-    }
-  }
 }
