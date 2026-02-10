@@ -1,8 +1,8 @@
 import {
-  SqlSyncRules,
+  CompatibilityOption,
   HydratedSyncRules,
-  versionedHydrationState,
-  CompatibilityOption
+  SyncConfigWithErrors,
+  versionedHydrationState
 } from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
@@ -15,7 +15,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 
   constructor(
     public readonly id: number,
-    public readonly sync_rules: SqlSyncRules,
+    public readonly sync_rules: SyncConfigWithErrors,
     public readonly checkpoint_lsn: string | null,
     slot_name: string | null,
     public readonly storageConfig: StorageConfig
@@ -24,7 +24,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 
     if (
       storageConfig.versionedBuckets ||
-      this.sync_rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
     ) {
       // For new sync config versions (using the new storage version), we always enable versioned bucket names.
       // For older versions, this depends on the compatibility option.
@@ -35,6 +35,6 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   }
 
   hydratedSyncRules(): HydratedSyncRules {
-    return this.sync_rules.hydrate({ hydrationState: this.hydrationState });
+    return this.sync_rules.config.hydrate({ hydrationState: this.hydrationState });
   }
 }

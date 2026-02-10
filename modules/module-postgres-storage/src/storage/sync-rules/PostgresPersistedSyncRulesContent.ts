@@ -3,8 +3,8 @@ import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framewo
 import { storage } from '@powersync/service-core';
 import { CompatibilityOption, SqlSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
 
-import { models } from '../../types/types.js';
 import { DEFAULT_HYDRATION_STATE, HydrationState } from '@powersync/service-sync-rules';
+import { models } from '../../types/types.js';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
@@ -35,7 +35,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
     let hydrationState: HydrationState;
     const syncRules = SqlSyncRules.fromYaml(this.sync_rules_content, options);
-    if (syncRules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+    if (syncRules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
       hydrationState = versionedHydrationState(this.id);
     } else {
       hydrationState = DEFAULT_HYDRATION_STATE;
@@ -45,7 +45,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
       slot_name: this.slot_name,
       sync_rules: syncRules,
       hydratedSyncRules() {
-        return this.sync_rules.hydrate({
+        return this.sync_rules.config.hydrate({
           hydrationState
         });
       }

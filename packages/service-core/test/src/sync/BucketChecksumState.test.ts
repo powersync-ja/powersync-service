@@ -31,7 +31,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ hydrationState: versionedHydrationState(1) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -44,7 +44,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ hydrationState: versionedHydrationState(2) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(2) });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -55,7 +55,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ hydrationState: versionedHydrationState(3) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(3) });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -622,7 +622,7 @@ config:
 
       const rules = SqlSyncRules.fromYaml(source, {
         defaultSchema: 'public'
-      }).hydrate({ hydrationState: versionedHydrationState(1) });
+      }).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       return new BucketChecksumState({
         syncContext,
