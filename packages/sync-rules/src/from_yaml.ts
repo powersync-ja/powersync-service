@@ -17,7 +17,6 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
-import { NodeLocation, PGNode } from 'pgsql-ast-parser';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -170,6 +169,11 @@ export class SyncConfigFromYaml {
     const compiler = new SyncStreamsCompiler(this.options);
     for (const entry of streamMap?.items ?? []) {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
+      if (!(value instanceof YAMLMap)) {
+        // The json schema validator will flag this later.
+        continue;
+      }
+
       const key = keyScalar.toString();
       if (!this.#checkUniqueName(key, keyScalar)) {
         continue;
@@ -202,7 +206,7 @@ export class SyncConfigFromYaml {
       const query = value.get('query', true) as Scalar<string> | null;
 
       if ((queries == null) == (query == null)) {
-        this.#yamlError(value, 'One of `queries` or `query` must be given.');
+        this.#errors.push(this.#yamlError(value, 'One of `queries` or `query` must be given.'));
       }
       if (query) {
         addQuery(query);
@@ -303,14 +307,18 @@ export class SyncConfigFromYaml {
       // We don't support with or multiple queries in streams, those are only supported by the new compiler.
       const $with = value.get('with');
       if ($with != null) {
-        this.#yamlError(
-          $with as Node,
-          'Common table expressions are not supported without the `sync_config_compiler` option.'
+        this.#errors.push(
+          this.#yamlError(
+            $with as Node,
+            'Common table expressions are not supported without the `sync_config_compiler` option.'
+          )
         );
       }
       const queries = value.get('queries');
       if (queries != null) {
-        this.#yamlError(queries as Node, 'Multiple queries not supported without the `sync_config_compiler` option.');
+        this.#errors.push(
+          this.#yamlError(queries as Node, 'Multiple queries not supported without the `sync_config_compiler` option.')
+        );
       }
 
       const accept_potentially_dangerous_queries =
@@ -373,6 +381,8 @@ export class SyncConfigFromYaml {
           return eventDescriptor.addSourceQuery(q, this.options);
         });
       }
+
+      eventDescriptors.push(eventDescriptor);
     }
 
     return eventDescriptors;

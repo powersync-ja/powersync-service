@@ -5,6 +5,62 @@ import { SourceTableDefinition, StaticSchema } from '../../../src/StaticSchema.j
 import { DEFAULT_TAG } from '../../../src/TablePattern.js';
 
 describe('compilation errors', () => {
+  test('parsing error in query', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    query: invalid syntax
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.source).toStrictEqual('syntax');
+  });
+
+  test('parsing error in CTE', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    with:
+      org_of_user: invalid syntax
+    query: SELECT * FROM projects
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.source).toStrictEqual('syntax');
+  });
+
+  test('missing query', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    with:
+      foo: SELECT 1
+`);
+
+    expect(errors).toStrictEqual([
+      {
+        message: 'One of `queries` or `query` must be given.',
+        source: `with:
+      foo: SELECT 1
+`
+      }
+    ]);
+  });
+
   test('not a select statement', () => {
     expect(compilationErrorsForSingleStream("INSERT INTO users (id) VALUES ('foo')")).toStrictEqual([
       {

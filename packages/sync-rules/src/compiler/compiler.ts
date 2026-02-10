@@ -1,4 +1,4 @@
-import { NodeLocation, parse, PGNode } from 'pgsql-ast-parser';
+import { NodeLocation, parse, PGNode, Statement } from 'pgsql-ast-parser';
 import { HashSet } from './equality.js';
 import { PointLookup, RowEvaluator } from './rows.js';
 import { StreamResolver } from './bucket_resolver.js';
@@ -61,7 +61,10 @@ export class SyncStreamsCompiler {
       errors
     });
 
-    const [stmt] = parse(sql, { locationTracking: true });
+    const stmt = tryParse(sql, errors);
+    if (stmt == null) {
+      return null;
+    }
     return parser.parseAsSubquery(stmt);
   }
 
@@ -79,7 +82,10 @@ export class SyncStreamsCompiler {
         rootScope.registerCommonTableExpression(name, cte);
       },
       addQuery: (sql: string, errors: ParsingErrorListener) => {
-        const [stmt] = parse(sql, { locationTracking: true });
+        const stmt = tryParse(sql, errors);
+        if (stmt == null) {
+          return;
+        }
         const parser = new StreamQueryParser({
           compiler: this,
           originalText: sql,
@@ -94,6 +100,17 @@ export class SyncStreamsCompiler {
       },
       finish: () => builder.finish()
     };
+  }
+}
+
+function tryParse(sql: string, errors: ParsingErrorListener): Statement | null {
+  try {
+    const [stmt] = parse(sql, { locationTracking: true });
+    return stmt;
+  } catch (e: any) {
+    const location: NodeLocation | undefined = e.token?._location;
+    errors.report(e.message, location ?? { start: 0, end: sql.length });
+    return null;
   }
 }
 
