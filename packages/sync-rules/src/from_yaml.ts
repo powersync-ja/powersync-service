@@ -300,7 +300,7 @@ export class SyncConfigFromYaml {
         continue;
       }
 
-      // We don't support with or queries entries in streams, those are only supported by the new compiler.
+      // We don't support with or multiple queries in streams, those are only supported by the new compiler.
       const $with = value.get('with');
       if ($with != null) {
         this.#yamlError(
