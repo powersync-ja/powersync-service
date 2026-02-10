@@ -53,17 +53,10 @@ export async function generateContext(serviceContext: ServiceContext, token: str
       defaultAudiences: configuration.jwt_audiences,
       maxAge: maxAge
     });
-    const safeToken = {
-      ...parsedToken,
-      // Ensure the sub is a string as it can be a number
-      sub: parsedToken.sub.toString()
-    };
-
     return {
       context: {
-        // Ensure the JWT sub is a string
-        user_id: safeToken.sub,
-        token_payload: safeToken
+        user_id: parsedToken.sub,
+        token_payload: parsedToken
       }
     };
   } catch (err) {
