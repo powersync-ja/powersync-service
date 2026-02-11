@@ -401,4 +401,199 @@ function defineBinlogStreamTests(factory: storage.TestStorageFactory) {
       ]);
     }
   });
+
+  // test('Snapshot filter - replicate only filtered rows', async () => {
+  //   await using context = await BinlogStreamTestContext.open(factory);
+  //   const { connectionManager } = context;
+  //   await context.updateSyncRules(`
+  // initial_snapshot_filters:
+  //   users:
+  //     sql: "status = 'active'"
+  
+  // bucket_definitions:
+  //   active_users:
+  //     data:
+  //       - SELECT id, name, status FROM "users"`);
+
+  //   await connectionManager.query(`CREATE TABLE users (id CHAR(36) PRIMARY KEY, name TEXT, status VARCHAR(20))`);
+
+  //   // Insert rows before snapshot
+  //   const activeId = uuid();
+  //   const inactiveId = uuid();
+  //   await connectionManager.query(`INSERT INTO users(id, name, status) VALUES('${activeId}', 'Active User', 'active')`);
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status) VALUES('${inactiveId}', 'Inactive User', 'inactive')`
+  //   );
+
+  //   await context.replicateSnapshot();
+
+  //   const data = await context.getBucketData('active_users[]');
+
+  //   // Should only have the active user, not the inactive one
+  //   expect(data).toMatchObject([putOp('users', { id: activeId, name: 'Active User', status: 'active' })]);
+  //   expect(data.length).toBe(1);
+  // });
+
+  // test('Snapshot filter - only specified filter applied globally', async () => {
+  //   await using context = await BinlogStreamTestContext.open(factory);
+  //   const { connectionManager } = context;
+  //   await context.updateSyncRules(`
+  // initial_snapshot_filters:
+  //   users:
+  //     sql: "status = 'active'"
+  
+  // bucket_definitions:
+  //   active_users:
+  //     data:
+  //       - SELECT id, name, status FROM "users" WHERE status = 'active'
+    
+  //   admin_users:
+  //     data:
+  //       - SELECT id, name, is_admin FROM "users" WHERE is_admin = true`);
+
+  //   await connectionManager.query(
+  //     `CREATE TABLE users (id CHAR(36) PRIMARY KEY, name TEXT, status VARCHAR(20), is_admin BOOLEAN)`
+  //   );
+
+  //   // Insert test data
+  //   const activeUserId = uuid();
+  //   const adminUserId = uuid();
+  //   const regularUserId = uuid();
+
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status, is_admin) VALUES('${activeUserId}', 'Active User', 'active', false)`
+  //   );
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status, is_admin) VALUES('${adminUserId}', 'Admin User', 'inactive', true)`
+  //   );
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status, is_admin) VALUES('${regularUserId}', 'Regular User', 'inactive', false)`
+  //   );
+
+  //   await context.replicateSnapshot();
+
+  //   const activeData = await context.getBucketData('active_users[]');
+  //   const adminData = await context.getBucketData('admin_users[]');
+
+  //   // Active bucket should have the active user
+  //   expect(activeData).toMatchObject([
+  //     putOp('users', { id: activeUserId, name: 'Active User', status: 'active', is_admin: 0n })
+  //   ]);
+
+  //   // Admin bucket is empty because global filter only allows active users, not admin users
+  //   expect(adminData).toMatchObject([]);
+
+  //   // Regular user should not be in either bucket (filtered out by snapshot filter)
+  // });
+
+  // test('Snapshot filter - CDC changes only affect filtered rows', async () => {
+  //   await using context = await BinlogStreamTestContext.open(factory);
+  //   const { connectionManager } = context;
+  //   await context.updateSyncRules(`
+  // initial_snapshot_filters:
+  //   users:
+  //     sql: "status = 'active'"
+  
+  // bucket_definitions:
+  //   active_users:
+  //     data:
+  //       - SELECT id, name, status FROM "users" WHERE status = 'active'`);
+
+  //   await connectionManager.query(`CREATE TABLE users (id CHAR(36) PRIMARY KEY, name TEXT, status VARCHAR(20))`);
+
+  //   // Insert an active user before snapshot
+  //   const activeId = uuid();
+  //   await connectionManager.query(`INSERT INTO users(id, name, status) VALUES('${activeId}', 'Active User', 'active')`);
+
+  //   await context.replicateSnapshot();
+  //   await context.startStreaming();
+
+  //   // Insert an inactive user - should not appear in bucket
+  //   const inactiveId = uuid();
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status) VALUES('${inactiveId}', 'Inactive User', 'inactive')`
+  //   );
+
+  //   // Update the active user - should appear in bucket
+  //   await connectionManager.query(`UPDATE users SET name = 'Updated Active' WHERE id = '${activeId}'`);
+
+  //   const data = await context.getBucketData('active_users[]');
+
+  //   // Should only have the active user with updated name
+  //   expect(data).toMatchObject([putOp('users', { id: activeId, name: 'Updated Active', status: 'active' })]);
+  //   expect(data.length).toBe(1);
+  // });
+
+  // test('Snapshot filter - complex WHERE clause', async () => {
+  //   await using context = await BinlogStreamTestContext.open(factory);
+  //   const { connectionManager } = context;
+  //   await context.updateSyncRules(`
+  // initial_snapshot_filters:
+  //   users:
+  //     sql: "created_at > DATE_SUB(NOW(), INTERVAL 7 DAY) AND status = 'active'"
+  
+  // bucket_definitions:
+  //   recent_active_users:
+  //     data:
+  //       - SELECT id, name, created_at FROM "users"`);
+
+  //   await connectionManager.query(
+  //     `CREATE TABLE users (id CHAR(36) PRIMARY KEY, name TEXT, status VARCHAR(20), created_at DATETIME)`
+  //   );
+
+  //   // Insert recent active user
+  //   const recentActiveId = uuid();
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status, created_at) VALUES('${recentActiveId}', 'Recent Active', 'active', NOW())`
+  //   );
+
+  //   // Insert old active user
+  //   const oldActiveId = uuid();
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status, created_at) VALUES('${oldActiveId}', 'Old Active', 'active', DATE_SUB(NOW(), INTERVAL 30 DAY))`
+  //   );
+
+  //   // Insert recent inactive user
+  //   const recentInactiveId = uuid();
+  //   await connectionManager.query(
+  //     `INSERT INTO users(id, name, status, created_at) VALUES('${recentInactiveId}', 'Recent Inactive', 'inactive', NOW())`
+  //   );
+
+  //   await context.replicateSnapshot();
+
+  //   const data = await context.getBucketData('recent_active_users[]');
+
+  //   // Should only have the recent active user
+  //   expect(data.length).toBe(1);
+  //   expect(data[0]).toMatchObject({
+  //     op: 'PUT',
+  //     object_type: 'users',
+  //     object_id: recentActiveId
+  //   });
+  // });
+
+  // test('Snapshot filter - no filter means all rows replicated', async () => {
+  //   await using context = await BinlogStreamTestContext.open(factory);
+  //   const { connectionManager } = context;
+  //   await context.updateSyncRules(`
+  // bucket_definitions:
+  //   all_users:
+  //     data:
+  //       - SELECT id, name FROM "users"`);
+
+  //   await connectionManager.query(`CREATE TABLE users (id CHAR(36) PRIMARY KEY, name TEXT)`);
+
+  //   // Insert multiple users
+  //   const user1Id = uuid();
+  //   const user2Id = uuid();
+  //   await connectionManager.query(`INSERT INTO users(id, name) VALUES('${user1Id}', 'User 1')`);
+  //   await connectionManager.query(`INSERT INTO users(id, name) VALUES('${user2Id}', 'User 2')`);
+
+  //   await context.replicateSnapshot();
+
+  //   const data = await context.getBucketData('all_users[]');
+
+  //   // Should have both users when no filter is specified
+  //   expect(data.length).toBe(2);
+  // });
 }
