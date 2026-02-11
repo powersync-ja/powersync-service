@@ -70,6 +70,12 @@ export abstract class SyncConfig {
         sourceTables.set(key, r);
       }
     }
+    for (const event of this.eventDescriptors) {
+      for (const r of event.getSourceTables()) {
+        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
+        sourceTables.set(key, r);
+      }
+    }
   }
 
   getSourceTables(): TablePattern[] {

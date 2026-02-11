@@ -3,18 +3,13 @@ import {
   deserializeSyncPlan,
   getLocation,
   ParsingErrorListener,
+  PrecompiledSyncConfig,
   serializeSyncPlan,
+  SqlSyncRules,
   SyncPlan,
   SyncStreamsCompiler,
   SyncStreamsCompilerOptions
 } from '../../../src/index.js';
-
-// TODO: Replace with parsing from yaml once we support that
-export interface SyncStreamInput {
-  name: string;
-  queries: string[];
-  ctes?: Record<string, string>;
-}
 
 interface TranslationError {
   message: string;
@@ -23,39 +18,28 @@ interface TranslationError {
 }
 
 export function compileSingleStreamAndSerialize(...sql: string[]): unknown {
-  return compileAndSerialize([
-    {
-      name: 'stream',
-      queries: sql
-    }
-  ]);
-}
-
-export function compileAndSerialize(inputs: SyncStreamInput[]): unknown {
-  const plan = compileToSyncPlanWithoutErrors(inputs);
+  const [errors, plan] = compileSingleStream(...sql);
+  expect(errors).toStrictEqual([]);
   return serializeSyncPlan(plan);
 }
 
-export function compileToSyncPlanWithoutErrors(inputs: SyncStreamInput[]): SyncPlan {
-  const [errors, plan] = compileToSyncPlan(inputs);
+export function compilationErrorsForSingleStream(...sql: string[]): TranslationError[] {
+  return compileSingleStream(...sql)[0];
+}
+
+export function compileAndSerialize(yaml: string): unknown {
+  const plan = compileToSyncPlanWithoutErrors(yaml);
+  return serializeSyncPlan(plan);
+}
+
+export function compileToSyncPlanWithoutErrors(yaml: string): SyncPlan {
+  const [errors, plan] = yamlToSyncPlan(yaml);
   expect(errors).toStrictEqual([]);
   return plan;
 }
 
-export function compilationErrorsForSingleStream(...sql: string[]): TranslationError[] {
-  return compileToSyncPlan([
-    {
-      name: 'stream',
-      queries: sql
-    }
-  ])[0];
-}
-
-export function compileToSyncPlan(
-  inputs: SyncStreamInput[],
-  options: SyncStreamsCompilerOptions = { defaultSchema: 'test_schema' }
-): [TranslationError[], SyncPlan] {
-  const compiler = new SyncStreamsCompiler(options);
+function compileSingleStream(...sql: string[]): [TranslationError[], SyncPlan] {
+  const compiler = new SyncStreamsCompiler({ defaultSchema: 'test_schema' });
   const errors: TranslationError[] = [];
 
   function errorListenerOnSql(sql: string): ParsingErrorListener {
@@ -72,26 +56,39 @@ export function compileToSyncPlan(
     };
   }
 
-  for (const input of inputs) {
-    const builder = compiler.stream({ name: input.name, isSubscribedByDefault: true, priority: 3 });
-
-    for (const [name, sql] of Object.entries(input.ctes ?? {})) {
-      const cte = compiler.commonTableExpression(sql, errorListenerOnSql(sql));
-      if (cte) {
-        builder.registerCommonTableExpression(name, cte);
-      }
-    }
-
-    for (const sql of input.queries) {
-      builder.addQuery(sql, errorListenerOnSql(sql));
-    }
-
-    builder.finish();
+  const builder = compiler.stream({ name: 'stream', isSubscribedByDefault: true, priority: 3 });
+  for (const query of sql) {
+    builder.addQuery(query, errorListenerOnSql(query));
   }
+  builder.finish();
 
   const originalPlan = compiler.output.toSyncPlan();
   // Add a serialization roundtrip to ensure sync plans are correctly evaluated even after being deserialized.
   const afterSerializationRoundtrip = deserializeSyncPlan(JSON.parse(JSON.stringify(serializeSyncPlan(originalPlan))));
 
   return [errors, afterSerializationRoundtrip];
+}
+
+export function yamlToSyncPlan(
+  source: string,
+  options: SyncStreamsCompilerOptions = { defaultSchema: 'test_schema' }
+): [TranslationError[], SyncPlan] {
+  const { config, errors } = SqlSyncRules.fromYaml(source, {
+    throwOnError: false,
+    ...options
+  });
+
+  const mappedErrors = errors.map((e) => {
+    const error: TranslationError = { message: e.message, source: source.substring(e.location.start, e.location.end) };
+    if ('type' in e && e.type == 'warning') {
+      error.isWarning = true;
+    }
+
+    return error;
+  });
+
+  const originalPlan = (config as PrecompiledSyncConfig).plan;
+  const afterSerializationRoundtrip = deserializeSyncPlan(JSON.parse(JSON.stringify(serializeSyncPlan(originalPlan))));
+
+  return [mappedErrors, afterSerializationRoundtrip];
 }

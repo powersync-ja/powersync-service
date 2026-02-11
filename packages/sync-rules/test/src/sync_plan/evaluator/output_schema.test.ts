@@ -8,9 +8,10 @@ import {
   SourceTableDefinition,
   StaticSchema,
   TablePattern,
-  PrecompiledSyncConfig
+  PrecompiledSyncConfig,
+  deserializeSyncPlan
 } from '../../../../src/index.js';
-import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
+import { compileSingleStreamAndSerialize } from '../../compiler/utils.js';
 
 describe('schema inference', () => {
   const assetsTable: SourceTableDefinition = {
@@ -35,7 +36,8 @@ describe('schema inference', () => {
   ]);
 
   function generateSchema(...queries: string[]) {
-    const plan = compileToSyncPlanWithoutErrors([{ name: 'stream', queries }]);
+    const serializedPlan = compileSingleStreamAndSerialize(...queries);
+    const plan = deserializeSyncPlan(serializedPlan);
     const rules = new PrecompiledSyncConfig(plan, {
       // Engine isn't actually used here, but required to load sync plan
       engine: javaScriptExpressionEngine(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY),
