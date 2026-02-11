@@ -21,13 +21,13 @@ bucket_definitions:
 
   const syncRules = await context.factory.updateSyncRules({ content: syncRuleContent });
 
-  const tablePatterns = syncRules.parsed({ defaultSchema: 'public' }).sync_rules.getSourceTables();
+  const tablePatterns = syncRules.parsed({ defaultSchema: 'public' }).sync_rules.config.getSourceTables();
   const tableInfo = await getDebugTablesInfo({
     db: pool,
     publicationName: context.publicationName,
     connectionTag: context.connectionTag,
     tablePatterns: tablePatterns,
-    syncRules: syncRules.parsed({ defaultSchema: 'public' }).sync_rules
+    syncRules: syncRules.parsed({ defaultSchema: 'public' }).sync_rules.config
   });
   expect(tableInfo).toEqual([
     {

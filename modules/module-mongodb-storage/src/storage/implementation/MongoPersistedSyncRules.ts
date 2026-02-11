@@ -1,4 +1,4 @@
-import { SqlSyncRules, HydratedSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
+import { SyncConfigWithErrors, HydratedSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
 
@@ -7,7 +7,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 
   constructor(
     public readonly id: number,
-    public readonly sync_rules: SqlSyncRules,
+    public readonly sync_rules: SyncConfigWithErrors,
     public readonly checkpoint_lsn: string | null,
     slot_name: string | null
   ) {
@@ -15,6 +15,6 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   }
 
   hydratedSyncRules(): HydratedSyncRules {
-    return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(this.id) });
+    return this.sync_rules.config.hydrate({ hydrationState: versionedHydrationState(this.id) });
   }
 }
