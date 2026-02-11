@@ -11,6 +11,17 @@ import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
 import { applyRowContext } from './utils.js';
 
 /**
+ * Filter definition for initial snapshot replication.
+ * Object with database-specific filters.
+ */
+export type InitialSnapshotFilter = {
+  sql?: string;
+  mongo?: any;
+};
+
+export type DatabaseType = 'sql' | 'mongo';
+
+/**
  * A class describing how the sync process has been configured (i.e. which buckets and parameters to create and how to
  * resolve buckets for connections).
  */
@@ -20,6 +31,13 @@ export abstract class SyncConfig {
   bucketSources: BucketSource[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
   eventDescriptors: SqlEventDescriptor[] = [];
+
+  /**
+   * Global initial snapshot filters for source tables.
+   * Map structure: tableName -> initialSnapshotFilter
+   * Filters are applied globally during initial snapshot, regardless of bucket definitions.
+   */
+  initialSnapshotFilters: Map<string, InitialSnapshotFilter> = new Map();
 
   /**
    * The (YAML-based) source contents from which these sync rules have been derived.
@@ -121,6 +139,46 @@ export abstract class SyncConfig {
 
   debugRepresentation() {
     return this.bucketSources.map((rules) => rules.debugRepresentation());
+  }
+
+  /**
+   * Get the initial snapshot filter for a given table.
+   * Filters are applied globally and support wildcard matching.
+   * 
+   * @param connectionTag Connection tag (e.g., 'default')
+   * @param schema Schema name
+   * @param tableName Table name (without wildcard %)
+   * @param dbType Database type ('sql' for MySQL/Postgres/MSSQL, 'mongo' for MongoDB)
+   * @returns WHERE clause/query, or undefined if no filter is specified
+   */
+  getInitialSnapshotFilter(connectionTag: string, schema: string, tableName: string, dbType: DatabaseType = 'sql'): string | any | undefined {
+    const fullTableName = `${schema}.${tableName}`;
+    
+    // Check for exact matches first
+    for (const [pattern, filterDef] of this.initialSnapshotFilters) {
+      const tablePattern = this.parseTablePattern(connectionTag, schema, pattern);
+      if (tablePattern.matches({ connectionTag, schema, name: tableName })) {
+        // Return the appropriate filter based on database type
+        return filterDef[dbType];
+      }
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Helper to parse a table pattern string into a TablePattern object
+   */
+  private parseTablePattern(connectionTag: string, defaultSchema: string, pattern: string): TablePattern {
+    // Split on '.' to extract schema and table parts
+    const parts = pattern.split('.');
+    if (parts.length === 1) {
+      // Just table name, use default schema
+      return new TablePattern(defaultSchema, parts[0]);
+    } else {
+      // schema.table format
+      return new TablePattern(parts[0], parts[1]);
+    }
   }
 }
 export interface SyncConfigWithErrors {

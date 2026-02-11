@@ -311,8 +311,18 @@ export class BinLogStream {
     // TODO count rows and log progress at certain batch sizes
 
     // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
-    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${qualifiedMySQLTable(table)}`);
-    const stream = query.stream();
+    let query = `SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${qualifiedMySQLTable(table)}`;
+
+    // Apply snapshot filter if it exists. This allows us to do partial snapshots,
+    // for example for large tables where we only want to snapshot recent data.
+    if (table.initialSnapshotFilter?.sql) {
+      query += ` WHERE ${table.initialSnapshotFilter.sql}`;
+      this.logger.info(`Applying initial snapshot filter: ${table.initialSnapshotFilter.sql}`);
+      }
+    }
+  
+    const queryStream = connection.query(query);
+    const stream = queryStream.stream();
 
     let columns: Map<string, ColumnDescriptor> | undefined = undefined;
     stream.on('fields', (fields: mysql.FieldPacket[]) => {
