@@ -6,6 +6,7 @@ import { ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 import { SyncConfig } from '../../SyncConfig.js';
 
 export interface StreamEvaluationContext {
+  defaultSchema: string;
   engine: ScalarExpressionEngine;
 
   /**

@@ -4,7 +4,7 @@ exports[`new sync stream features > in array 1`] = `
 {
   "buckets": [
     {
-      "hash": 482908656,
+      "hash": 64262756,
       "sources": [
         0,
       ],
@@ -37,12 +37,12 @@ exports[`new sync stream features > in array 1`] = `
           "type": "scalar_in",
         },
       ],
-      "hash": 240499768,
+      "hash": 209438134,
       "outputTableName": "notes",
       "partitionBy": [],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "notes",
       },
     },
@@ -73,7 +73,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
 {
   "buckets": [
     {
-      "hash": 479140323,
+      "hash": 87224296,
       "sources": [
         0,
       ],
@@ -86,7 +86,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 94710716,
+      "hash": 5951378,
       "outputTableName": "u",
       "partitionBy": [
         {
@@ -99,8 +99,8 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "users",
       },
     },
@@ -108,7 +108,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 136074946,
+      "hash": 323715566,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -132,14 +132,14 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "group_memberships",
       },
     },
     {
       "filters": [],
-      "hash": 322713396,
+      "hash": 302276225,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -163,8 +163,8 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "group_memberships",
       },
     },
@@ -247,7 +247,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
 {
   "buckets": [
     {
-      "hash": 518503768,
+      "hash": 514655288,
       "sources": [
         0,
       ],
@@ -260,7 +260,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 209445370,
+      "hash": 445379715,
       "outputTableName": "m",
       "partitionBy": [
         {
@@ -273,8 +273,8 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "message",
       },
     },
@@ -297,7 +297,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 378594320,
+      "hash": 64213188,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -321,8 +321,8 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "roles",
       },
     },
@@ -389,7 +389,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
 {
   "buckets": [
     {
-      "hash": 50211887,
+      "hash": 260926888,
       "sources": [
         0,
         1,
@@ -403,7 +403,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 134988142,
+      "hash": 353156391,
       "outputTableName": "users",
       "partitionBy": [
         {
@@ -416,8 +416,8 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "users",
       },
     },
@@ -426,7 +426,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 367912637,
+      "hash": 41817212,
       "outputTableName": "families",
       "partitionBy": [
         {
@@ -439,8 +439,8 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "families",
       },
     },
@@ -448,7 +448,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 249133436,
+      "hash": 143919389,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -472,14 +472,14 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "user_auth_mappings",
       },
     },
     {
       "filters": [],
-      "hash": 230646996,
+      "hash": 32571796,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -503,8 +503,8 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "users",
       },
     },
@@ -587,7 +587,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
 {
   "buckets": [
     {
-      "hash": 84136847,
+      "hash": 415757919,
       "sources": [
         0,
       ],
@@ -600,7 +600,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 454629191,
+      "hash": 166151257,
       "outputTableName": "events",
       "partitionBy": [
         {
@@ -613,8 +613,8 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "events",
       },
     },
@@ -622,7 +622,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 283859073,
+      "hash": 29987209,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -646,8 +646,8 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "event_users",
       },
     },
@@ -1109,7 +1109,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
 {
   "buckets": [
     {
-      "hash": 162955439,
+      "hash": 327475413,
       "sources": [
         0,
       ],
@@ -1122,7 +1122,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 494167431,
+      "hash": 259562331,
       "outputTableName": "t",
       "partitionBy": [
         {
@@ -1135,8 +1135,8 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "ticket",
       },
     },
@@ -1144,7 +1144,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 369143364,
+      "hash": 97816743,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1168,8 +1168,8 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "ticket_detail_item",
       },
     },
@@ -1236,7 +1236,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
 {
   "buckets": [
     {
-      "hash": 8299255,
+      "hash": 27478573,
       "sources": [
         0,
       ],
@@ -1249,7 +1249,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 26563318,
+      "hash": 97931753,
       "outputTableName": "c",
       "partitionBy": [
         {
@@ -1262,8 +1262,8 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "checkpoint",
       },
     },
@@ -1271,7 +1271,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 496369348,
+      "hash": 153371152,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -1295,8 +1295,8 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "user_assignment_scope",
       },
     },
@@ -1317,7 +1317,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 221457926,
+      "hash": 382068356,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "1",
@@ -1341,14 +1341,14 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "assignment",
       },
     },
     {
       "filters": [],
-      "hash": 532009492,
+      "hash": 503875718,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "2",
@@ -1372,8 +1372,8 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "assignment_checkpoint",
       },
     },
@@ -1472,7 +1472,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
 {
   "buckets": [
     {
-      "hash": 8009051,
+      "hash": 67514874,
       "sources": [
         0,
         1,
@@ -1486,7 +1486,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 449161944,
+      "hash": 440482107,
       "outputTableName": "stores",
       "partitionBy": [
         {
@@ -1507,8 +1507,8 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "stores",
       },
     },
@@ -1517,7 +1517,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 319690968,
+      "hash": 272980298,
       "outputTableName": "products",
       "partitionBy": [
         {
@@ -1538,8 +1538,8 @@ exports[`new sync stream features > order-independent parameters 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "products",
       },
     },

@@ -8,6 +8,9 @@ import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
+/**
+ * @deprecated This will be removed in a future release
+ */
 export const executeSql = routeDefinition({
   path: '/api/admin/v1/execute-sql',
   method: router.HTTPMethod.POST,

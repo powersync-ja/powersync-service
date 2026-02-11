@@ -1040,4 +1040,44 @@ bucket_definitions:
       ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
     ]);
   });
+
+  test('event definition smoke test', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  bkt:
+    data:
+      - SELECT * FROM users
+
+event_definitions:
+  write_checkpoints:
+    payloads:
+      - SELECT user_id, checkpoint, client_id FROM checkpoints
+    `,
+      PARSE_OPTIONS
+    );
+    expect(errors).toStrictEqual([]);
+    expect(rules.eventDescriptors).toHaveLength(1);
+  });
+
+  test('does not support CTEs', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+
+streams:
+  a:
+    with:
+      foo: SELECT 1
+    query: SELECT * FROM users
+    `,
+      {
+        ...PARSE_OPTIONS,
+        throwOnError: false
+      }
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('Common table expressions are not supported');
+  });
 });

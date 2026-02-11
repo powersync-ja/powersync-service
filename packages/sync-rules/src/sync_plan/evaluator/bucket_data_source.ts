@@ -24,11 +24,14 @@ import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
   private readonly sources: PreparedStreamDataSource[] = [];
+  private readonly defaultSchema: string;
 
   constructor(
     readonly source: plan.StreamBucketDataSource,
     context: StreamEvaluationContext
   ) {
+    this.defaultSchema = context.defaultSchema;
+
     for (const data of source.sources) {
       const prepared = new PreparedStreamDataSource(data, context);
 
@@ -75,7 +78,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
   }
 
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
-    const analyzer = new SyncPlanSchemaAnalyzer(schema);
+    const analyzer = new SyncPlanSchemaAnalyzer(this.defaultSchema, schema);
     for (const source of this.source.sources) {
       analyzer.resolveResultSets(source, tables);
     }
@@ -102,7 +105,7 @@ class PreparedStreamDataSource {
   readonly fixedOutputTableName?: string;
   readonly debugSql: string;
 
-  constructor(evaluator: plan.StreamDataSource, { engine }: StreamEvaluationContext) {
+  constructor(evaluator: plan.StreamDataSource, { engine, defaultSchema }: StreamEvaluationContext) {
     const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
     const outputExpressions: SqlExpression<number>[] = [];
     for (const column of evaluator.columns) {
@@ -128,7 +131,7 @@ class PreparedStreamDataSource {
     this.debugSql = scalarStatementToSql(evaluatorOptions);
     this.evaluator = engine.prepareEvaluator(evaluatorOptions);
     this.fixedOutputTableName = evaluator.outputTableName;
-    this.tablePattern = evaluator.sourceTable;
+    this.tablePattern = evaluator.sourceTable.toTablePattern(defaultSchema);
     this.evaluatorInputs = mapExpressions.instantiation;
   }
 

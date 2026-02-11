@@ -34,7 +34,7 @@ import { cartesianProduct } from '../streams/utils.js';
 import { PostgresToSqlite, PreparedSubquery } from './sqlite.js';
 import { SqlScope } from './scope.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
-import { TablePattern } from '../TablePattern.js';
+import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { composeExpressionNodes, FilterConditionSimplifier } from './filter_simplifier.js';
 import { SqlExpression } from '../sync_plan/expression.js';
 import { SourceSchemaTable } from '../index.js';
@@ -287,12 +287,14 @@ export class StreamQueryParser {
         this.addSubquery(source, cte);
       } else {
         // Not a CTE, so treat it as a source database table.
-        const pattern = new TablePattern(from.name.schema ?? this.compiler.options.defaultSchema, from.name.name);
+        const pattern = new ImplicitSchemaTablePattern(from.name.schema ?? null, from.name.name);
 
         let resolvedTables: SourceSchemaTable[] = [];
         if (this.compiler.options.schema) {
           // Warn if the referenced table does not exist.
-          resolvedTables = this.compiler.options.schema.getTables(pattern);
+          resolvedTables = this.compiler.options.schema.getTables(
+            pattern.toTablePattern(this.compiler.options.defaultSchema!)
+          );
           if (resolvedTables.length == 0) {
             this.errors.report('This table could not be found in the source schema.', from.name, { isWarning: true });
           }

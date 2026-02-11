@@ -126,6 +126,52 @@ describe('JWT Auth', () => {
     ).rejects.toThrow('[PSYNC_S2103] JWT has expired');
   });
 
+  test('KeyStore normalizes sub claim values', async () => {
+    const keys = await StaticKeyCollector.importKeys([sharedKey]);
+    const store = new KeyStore(keys);
+    const signKey = (await jose.importJWK(sharedKey)) as jose.KeyLike;
+
+    const signWithSub = async (sub: any) => {
+      return new jose.SignJWT({ sub })
+        .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
+        .setIssuedAt()
+        .setIssuer('tester')
+        .setAudience('tests')
+        .setExpirationTime('5m')
+        .sign(signKey);
+    };
+
+    const stringToken = await signWithSub('user-1');
+    const stringVerified = await store.verifyJwt(stringToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    expect(stringVerified.sub).toEqual('user-1');
+
+    const booleanToken = await signWithSub(true);
+    const booleanVerified = await store.verifyJwt(booleanToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    expect(booleanVerified.sub).toEqual('true');
+
+    const objectSub = { id: 1, name: 'test' };
+    const objectToken = await signWithSub(objectSub);
+    const objectVerified = await store.verifyJwt(objectToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    expect(objectVerified.sub).toEqual(JSON.stringify(objectSub));
+
+    const arraySub = [1, 'a'];
+    const arrayToken = await signWithSub(arraySub);
+    const arrayVerified = await store.verifyJwt(arrayToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    expect(arrayVerified.sub).toEqual(JSON.stringify(arraySub));
+  });
+
   test('Algorithm validation', async () => {
     const keys = await StaticKeyCollector.importKeys([publicKeyRSA]);
     const store = new KeyStore(keys);

@@ -13,7 +13,15 @@ import { TestSourceTable } from '../../util.js';
 
 describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([{ name: 'stream', queries: ['SELECT * FROM users'] }]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      query: SELECT * FROM users
+`);
 
     expect(
       desc.evaluateRow({
@@ -38,12 +46,17 @@ describe('evaluating rows', () => {
   });
 
   syncTest('debugWriteOutputTables', ({ sync }) => {
-    const desc = sync.prepareWithoutHydration([
-      {
-        name: 'stream',
-        queries: ['SELECT * FROM users', 'SELECT * FROM notes WHERE owner = auth.user_id() AND length(content) > 10']
-      }
-    ]);
+    const desc = sync.prepareWithoutHydration(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      queries:
+        - SELECT * FROM users
+        - SELECT * FROM notes WHERE owner = auth.user_id() AND length(content) > 10
+`);
 
     // This output is arguably not particularly helpful, but it's only used for debugging purposes and it provides some
     // insights into how the stream has been turned into a scalar query.
@@ -54,9 +67,15 @@ describe('evaluating rows', () => {
   });
 
   syncTest('forwards parameters', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      { name: 'stream', queries: ["SELECT * FROM users WHERE value = subscription.parameter('p')"] }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      query: SELECT * FROM users WHERE value = subscription.parameter('p')
+`);
 
     function evaluate(value: SqliteValue) {
       const rows = desc.evaluateRow({ sourceTable: USERS, record: { id: 'foo', value } });
@@ -80,7 +99,15 @@ describe('evaluating rows', () => {
   });
 
   syncTest('output table name', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([{ name: 'stream', queries: ['SELECT * FROM users u'] }]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      query: SELECT * FROM users u
+`);
     expect(
       desc.evaluateRow({
         sourceTable: USERS,
@@ -99,7 +126,15 @@ describe('evaluating rows', () => {
   });
 
   syncTest('wildcard with alias', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([{ name: 'stream', queries: ['SELECT * FROM "%" output'] }]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      query: SELECT * FROM "%" output
+`);
     expect(
       desc.evaluateRow({
         sourceTable: USERS,
@@ -118,7 +153,15 @@ describe('evaluating rows', () => {
   });
 
   syncTest('wildcard without alias', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([{ name: 'stream', queries: ['SELECT * FROM "%"'] }]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      query: SELECT * FROM "%"
+`);
     expect(
       desc.evaluateRow({
         sourceTable: USERS,
@@ -137,9 +180,17 @@ describe('evaluating rows', () => {
   });
 
   syncTest('multiple tables in bucket', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      { name: 'stream', queries: ['SELECT * FROM users', 'SELECT * FROM comments'] }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      queries:
+        - SELECT * FROM users
+        - SELECT * FROM comments
+`);
     expect(evaluateBucketIds(desc, USERS, { id: 'foo' })).toStrictEqual(['stream|0[]']);
     expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo2' })).toStrictEqual(['stream|0[]']);
   });
@@ -147,12 +198,15 @@ describe('evaluating rows', () => {
 
 describe('evaluating parameters', () => {
   syncTest('emits parameters', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        queries: ['SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())']
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      query: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+`);
 
     expect(desc.tableSyncsData(COMMENTS)).toBeTruthy();
     expect(desc.tableSyncsData(ISSUES)).toBeFalsy();
@@ -171,12 +225,16 @@ describe('evaluating parameters', () => {
   });
 
   syncTest('skips null and binary values', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        queries: ['SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())']
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+`);
     const blob = new Uint8Array(10);
 
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1' })).toHaveLength(1);
@@ -190,12 +248,16 @@ describe('evaluating parameters', () => {
 
 describe('querier', () => {
   syncTest('static', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        queries: ['SELECT * FROM issues WHERE is_public']
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE is_public
+`);
 
     const { querier } = desc.getBucketParameterQuerier({
       globalParameters: new RequestParameters({ sub: 'user' }, {}),
@@ -207,12 +269,16 @@ describe('querier', () => {
   });
 
   syncTest('request data', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        queries: ['SELECT * FROM issues WHERE owner = auth.user_id()']
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE owner = auth.user_id()
+`);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
       globalParameters: new RequestParameters({ sub: 'user' }, {}),
@@ -225,18 +291,20 @@ describe('querier', () => {
   });
 
   syncTest('parameter lookups', async ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        queries: [
-          `SELECT c.* FROM comments c
-              INNER JOIN issues i ON c.issue = i.id
-              INNER JOIN users owner ON owner.name = i.owned_by
-           WHERE owner.id = auth.user_id()
-          `
-        ]
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: |
+        SELECT c.* FROM comments c
+          INNER JOIN issues i ON c.issue = i.id
+          INNER JOIN users owner ON owner.name = i.owned_by
+        WHERE owner.id = auth.user_id()
+`);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
       globalParameters: new RequestParameters({ sub: 'user' }, {}),

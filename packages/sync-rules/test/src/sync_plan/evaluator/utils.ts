@@ -10,12 +10,12 @@ import {
   SyncConfig
 } from '../../../../src/index.js';
 import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
-import { compileToSyncPlanWithoutErrors, SyncStreamInput } from '../../compiler/utils.js';
+import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
 
 interface SyncTest {
   engine: ScalarExpressionEngine;
-  prepareWithoutHydration(inputs: SyncStreamInput[]): SyncConfig;
-  prepareSyncStreams(inputs: SyncStreamInput[]): HydratedSyncRules;
+  prepareWithoutHydration(yaml: string): SyncConfig;
+  prepareSyncStreams(yaml: string): HydratedSyncRules;
 }
 
 export const syncTest = test.extend<{ sync: SyncTest }>({
@@ -26,7 +26,7 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
       engine,
       prepareWithoutHydration: (inputs) => {
         const plan = compileToSyncPlanWithoutErrors(inputs);
-        return new PrecompiledSyncConfig(plan, { engine, sourceText: '' });
+        return new PrecompiledSyncConfig(plan, { engine, sourceText: '', defaultSchema: 'test_schema' });
       },
       prepareSyncStreams(inputs, params?: CreateSourceParams) {
         return this.prepareWithoutHydration(inputs).hydrate(params ?? { hydrationState: DEFAULT_HYDRATION_STATE });
