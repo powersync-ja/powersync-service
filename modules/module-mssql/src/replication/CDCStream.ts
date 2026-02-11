@@ -356,6 +356,11 @@ export class CDCStream {
       query = new SimpleSnapshotQuery(transaction, table);
       replicatedCount = 0;
     }
+
+    if (table.sourceTable.initialSnapshotFilter?.sql) {
+      this.logger.info(`Applying initial snapshot filter: ${table.sourceTable.initialSnapshotFilter.sql}`);
+    }
+
     await query.initialize();
 
     let hasRemainingData = true;

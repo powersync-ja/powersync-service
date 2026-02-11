@@ -12,13 +12,49 @@ import { validateSyncRulesSchema } from './json_schema.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
-import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import { InitialSnapshotFilter, SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
+
+/**
+ * Parse initial_snapshot_filter from YAML object with sql and/or mongo properties
+ */
+function parseInitialSnapshotFilter(value: unknown): InitialSnapshotFilter | undefined {
+  if (value instanceof YAMLMap) {
+    // Object format with db-specific filters
+    const result: { sql?: string; mongo?: any } = {};
+
+    const sqlValue = value.get('sql', true);
+    if (sqlValue) {
+      if (sqlValue instanceof Scalar) {
+        result.sql = sqlValue.value as string;
+      } else {
+        // If it's not a scalar, try to convert it
+        result.sql = String(sqlValue);
+      }
+    }
+
+    const mongoValue = value.get('mongo', true) as any;
+    if (mongoValue instanceof Scalar) {
+      result.mongo = mongoValue.value;
+    } else if (mongoValue instanceof YAMLMap || mongoValue instanceof YAMLSeq) {
+      result.mongo = mongoValue.toJSON();
+    } else if (mongoValue !== null && mongoValue !== undefined) {
+      result.mongo = mongoValue;
+    }
+
+    // Only return if at least one property is set
+    if (result.sql !== undefined || result.mongo !== undefined) {
+      return result;
+    }
+  }
+
+  return undefined;
+}
 
 /**
  * Reads `sync_rules.yaml` files containing a sync configuration.
@@ -84,6 +120,12 @@ export class SyncConfigFromYaml {
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
     }
 
+    // Parse global initial_snapshot_filters
+    const filtersMap = parsed.get('initial_snapshot_filters') as YAMLMap | null;
+    if (filtersMap instanceof YAMLMap) {
+      this.#parseInitialSnapshotFilters(filtersMap, result);
+    }
+
     const eventDefinitions = this.#parseEventDefinitions(parsed, compatibility);
     result.eventDescriptors.push(...eventDefinitions);
 
@@ -104,6 +146,45 @@ export class SyncConfigFromYaml {
   #throwOnErrorIfRequested() {
     if (this.options.throwOnError && this.#errors.find((e) => e.type != 'warning') != null) {
       throw new SyncRulesErrors(this.#errors);
+    }
+  }
+
+  /**
+   * Parse the global initial_snapshot_filters configuration
+   */
+  #parseInitialSnapshotFilters(filtersMap: YAMLMap, result: SyncConfig) {
+    for (const entry of filtersMap.items) {
+      const { key: tableKey, value: filterValue } = entry as { key: Scalar; value: unknown };
+      const tableName = tableKey.value as string;
+
+      if (!filterValue) {
+        this.#errors.push(
+          this.#tokenError(tableKey, `Initial snapshot filter for table '${tableName}' cannot be empty`)
+        );
+        continue;
+      }
+
+      if (!(filterValue instanceof YAMLMap)) {
+        this.#errors.push(
+          this.#tokenError(
+            filterValue as any,
+            `Initial snapshot filter for table '${tableName}' must be an object with 'sql' and/or 'mongo' properties`
+          )
+        );
+        continue;
+      }
+
+      const filter = parseInitialSnapshotFilter(filterValue);
+      if (filter) {
+        result.initialSnapshotFilters.set(tableName, filter);
+      } else {
+        this.#errors.push(
+          this.#tokenError(
+            filterValue as any,
+            `Initial snapshot filter for table '${tableName}' must have at least 'sql' or 'mongo' property`
+          )
+        );
+      }
     }
   }
 
