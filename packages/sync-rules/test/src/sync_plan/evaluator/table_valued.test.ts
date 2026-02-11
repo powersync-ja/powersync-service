@@ -94,4 +94,25 @@ streams:
 
     expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["user"]', 'stream|0["another"]']);
   });
+
+  syncTest('filter on function output', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+      query: |
+        SELECT customers.id as id FROM customers, json_each(customers.active_regions) AS region WHERE region.value < 'm'
+`);
+
+    const customers = new TestSourceTable('customers');
+    const rows = desc.evaluateRow({
+      sourceTable: customers,
+      record: { id: 'c1', active_regions: JSON.stringify(['us-east', 'eu-west']) }
+    });
+
+    expect(rows).toMatchObject([{ bucket: 'stream|0[]', data: { id: 'c1' }, id: 'c1', table: 'customers' }]);
+  });
 });

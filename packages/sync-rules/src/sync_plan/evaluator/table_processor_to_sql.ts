@@ -4,6 +4,7 @@ import {
   TableValuedFunctionOutput
 } from '../engine/scalar_expression_engine.js';
 import { SqlExpression } from '../expression.js';
+import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 
 /**
@@ -29,8 +30,16 @@ export class TableProcessorToSqlHelper {
       };
       this.mapper.tableValuedFunctions.set(fn, mapped);
 
+      // Columns on function filters reference outputs of the table-valued function. We hoist them into filter
+      // expressions on the statement, but that requires rewriting column references to function outputs. This turns
+      // `SELECT ... FROM ..., (SELECT value FROM json_each(?) WHERE value LIKE x)` into
+      // `SELECT ... FROM ..., json_each(?) fn0 WHERE fn0.value LIKE x`.
+      const mapFnFilter = new MapSourceVisitor<plan.ColumnSqlParameterValue, TableValuedFunctionOutput>(
+        ({ column }) => ({ function: mapped, column })
+      );
+
       for (const filter of fn.filters) {
-        this.filterExpressions.push(this.mapper.transform(filter));
+        this.filterExpressions.push(visitExpr(mapFnFilter, filter, null));
       }
     }
 
