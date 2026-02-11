@@ -12,13 +12,14 @@ import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
   readonly defaultLookupScope: ParameterLookupScope;
   private readonly evaluator: ScalarExpressionEvaluator;
+  private readonly sourceTable: TablePattern;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
   private readonly numberOfOutputs: number;
   private readonly numberOfParameters: number;
 
   constructor(
     private readonly source: plan.StreamParameterIndexLookupCreator,
-    { engine }: StreamEvaluationContext
+    { engine, defaultSchema }: StreamEvaluationContext
   ) {
     this.defaultLookupScope = source.defaultLookupScope;
     const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
@@ -34,18 +35,19 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
       outputs: expressions,
       filters: source.filters.map((f) => mapExpressions.transform(f))
     });
+    this.sourceTable = source.sourceTable.toTablePattern(defaultSchema);
     this.evaluatorInputs = mapExpressions.instantiation;
   }
 
   getSourceTables(): Set<TablePattern> {
     const set = new Set<TablePattern>();
-    set.add(this.source.sourceTable);
+    set.add(this.sourceTable);
     return set;
   }
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
     const results: UnscopedEvaluatedParametersResult[] = [];
-    if (!this.source.sourceTable.matches(sourceTable)) {
+    if (!this.sourceTable.matches(sourceTable)) {
       return results;
     }
 
@@ -75,6 +77,6 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
   }
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
-    return this.source.sourceTable.matches(table);
+    return this.sourceTable.matches(table);
   }
 }

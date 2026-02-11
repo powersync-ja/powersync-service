@@ -1,6 +1,6 @@
 import { BucketPriority } from '../BucketDescription.js';
 import { ParameterLookupScope } from '../HydrationState.js';
-import { TablePattern } from '../TablePattern.js';
+import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 import { SqlExpression } from './expression.js';
 
@@ -43,7 +43,7 @@ export interface TableProcessor {
   /**
    * The source table to process into buckets or parameter lookups.
    */
-  sourceTable: TablePattern;
+  sourceTable: ImplicitSchemaTablePattern;
   /**
    * All of these expressions exclusively depend on the {@link sourceTable}.
    *

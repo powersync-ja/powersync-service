@@ -18,14 +18,17 @@ import { ColumnSqlParameterValue, StreamDataSource } from './plan.js';
  * Infers the output schema of sync streams by resolving references against a statically-known source schema.
  */
 export class SyncPlanSchemaAnalyzer {
-  constructor(private readonly schema: SourceSchema) {}
+  constructor(
+    private readonly defaultSchema: string,
+    private readonly schema: SourceSchema
+  ) {}
 
   /**
    * Populates an output record of tables with the inferred result sets for a stream data source against a source
    * schema.
    */
   resolveResultSets(source: StreamDataSource, tables: Record<string, Record<string, ColumnDefinition>>) {
-    for (const table of this.schema.getTables(source.sourceTable)) {
+    for (const table of this.schema.getTables(source.sourceTable.toTablePattern(this.defaultSchema))) {
       const typeResolver = new ExpressionTypeInference(table);
       const outputName = source.outputTableName ?? table.name;
       const outputTable = (tables[outputName] ??= {});
