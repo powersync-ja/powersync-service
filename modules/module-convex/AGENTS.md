@@ -1,0 +1,112 @@
+# Convex Module Agent Guide
+
+This file is the working contract for agents modifying `module-convex`.
+
+## 1) Scope
+- This module replicates Convex data into PowerSync bucket storage.
+- Source API is Convex Streaming Export (`json_schemas`, `list_snapshot`, `document_deltas`).
+- Initial scope is default Convex component only.
+
+## 2) Canonical Behavior
+- Initial replication:
+  1. Pin one **global snapshot** via `list_snapshot` **without** `tableName` and `cursor`.
+  2. Snapshot each selected sync-rules table with that fixed `snapshot`.
+  3. First per-table snapshot call omits `cursor`; pagination cursor is only for later pages in the same run.
+  4. Commit snapshot LSN, then switch to deltas.
+- Streaming replication:
+  - Start from persisted resume LSN.
+  - Poll `document_deltas`.
+  - Always stream globally (no `tableName` filter), then filter locally by selected sync-rules tables.
+
+## 3) Hard Invariants (Do Not Break)
+- `snapshot` is the consistency boundary; page `cursor` is pagination state.
+- All table snapshots in a run must use the same pinned `snapshot`; if response snapshot differs, fail fast.
+- On restart during initial replication:
+  - Reuse persisted snapshot LSN boundary.
+  - Restart table page walk from first page (do not resume per-table `lastKey`).
+- Delta streaming starts from resume LSN (snapshot boundary), not from table page cursor.
+- `tablePattern.connectionTag` and schema must match before table selection.
+- Source table replica identity is `_id`.
+- The overall system must ensure causal consistency of replicated data in bucket storage.
+
+## 4) LSN and Cursor Rules
+- Never assume Convex cursors are numeric-only.
+- Supported cursor shapes include:
+  - decimal numeric timestamp strings,
+  - slash-hex cursor strings (`00000000/0183E3A8`),
+  - opaque strings.
+- Persist LSNs using `ConvexLSN` comparable format (`mode + sortable key + encoded cursor`).
+- Keep raw cursor round-trip safe.
+
+## 5) API Client Contract
+- Auth header: `Authorization: Convex <deploy_key>`.
+- Always request `format=json`.
+- Fallback path support: `/api/streaming_export/...` when `/api/...` returns `404`.
+- Parse large numeric JSON using `JSONBig`.
+- `json_schemas` must support:
+  - array/object under `tables`,
+  - self-host top-level table map shape.
+- Retry classification:
+  - retryable: network, timeout, 429, 5xx.
+  - non-retryable: malformed responses, auth/config issues.
+
+## 6) Sync Rules and Connection Semantics
+- Default schema is `convex`.
+- SQL literal reminder for sync rules: string literals must use single quotes (`'sally'`), not double quotes.
+
+## 7) Datatype Mapping 
+- Current runtime mapping in stream writer:
+  - `number` integer -> `BigInt` (SQLite INTEGER),
+  - `number` float -> REAL,
+  - `boolean` -> `1n`/`0n`,
+  - `Uint8Array` -> BLOB,
+  - `object/array` -> JSON TEXT.
+  NOTE:
+  - Preserve bytes as BLOB in sync rules; use explicit base64 conversion in rules only when needed by consumers.
+
+## 8) Checkpointing and Consistency Caveat
+- `createReplicationHead` currently uses best-effort source head capture.
+- There is no source-side Convex marker write equivalent to Mongo/Postgres checkpoint triggers yet.
+- Treat robust write-checkpoint acknowledgement as a separate production item.
+
+## 9) Logging Policy
+- Keep logs high-signal and bounded.
+- Required snapshot logs:
+  - pinned or reused global snapshot,
+  - table snapshot start,
+  - snapshot completion and resume LSN.
+- Avoid noisy per-row debug logs unless behind explicit debug gating.
+
+## 10) Known Non-Goals (For Now)
+- Convex component targeting beyond default component.
+- A true push stream transport (module is polling deltas).
+- Read-only Convex deploy key model (Convex deploy key is full access; use network isolation and secret controls).
+- Cross-source transactional guarantees beyond Convex stream ordering.
+
+## 11) Conformance Suite (Must Stay Green)
+- Unit tests:
+  - `test/src/ConvexApiClient.test.ts`
+  - `test/src/ConvexLSN.test.ts`
+  - `test/src/ConvexRouteAPIAdapter.test.ts`
+  - `test/src/ConvexStream.test.ts`
+  - `test/src/types.test.ts`
+- Required assertions include:
+  - global snapshot pin call is unfiltered,
+  - first per-table snapshot call omits cursor,
+  - pagination cursor used only for subsequent pages,
+  - snapshot mismatch fails fast,
+  - route adapter head resolves global snapshot cursor.
+- Manual smoke test (self-host acceptable):
+  - initial snapshot visible in buckets,
+  - inserts/updates/deletes propagate via deltas,
+  - no table-not-found due to schema/tag mismatch.
+
+## 12) Change Checklist for Agents
+- If changing snapshot/delta flow:
+  - update `ConvexStream` tests first.
+- If changing cursor/LSN encoding:
+  - update `ConvexLSN` tests and backward-compat coverage.
+- If changing API response parsing:
+  - include self-host payload fixtures in `ConvexApiClient` tests.
+- If changing public behavior:
+  - update `README.md` and this `AGENTS.md` in the same PR.
