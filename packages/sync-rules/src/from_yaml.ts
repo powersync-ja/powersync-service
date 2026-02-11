@@ -223,6 +223,7 @@ export class SyncConfigFromYaml {
     }
 
     return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), {
+      defaultSchema: this.options.defaultSchema,
       engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
     });

@@ -1,6 +1,5 @@
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
 import { SyncRulesErrors, YamlError } from './errors.js';
-import { TablePattern } from './TablePattern.js';
 import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
