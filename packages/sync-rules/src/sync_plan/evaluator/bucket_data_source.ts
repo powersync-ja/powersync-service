@@ -15,13 +15,12 @@ import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
 import {
-  mapExternalDataToInstantiation,
   ScalarExpressionEvaluator,
   scalarStatementToSql,
-  TableValuedFunction,
   TableValuedFunctionOutput
 } from '../engine/scalar_expression_engine.js';
 import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();

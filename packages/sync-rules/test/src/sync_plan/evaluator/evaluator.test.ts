@@ -62,7 +62,7 @@ streams:
     // insights into how the stream has been turned into a scalar query.
     expect(desc.debugGetOutputTables()).toStrictEqual({
       users: [{ query: 'SELECT 1' }],
-      notes: [{ query: 'SELECT ?1 WHERE "length"(?2) > 10' }]
+      notes: [{ query: 'SELECT ?2 WHERE "length"(?1) > 10' }]
     });
   });
 
@@ -357,16 +357,19 @@ streams:
   });
 
   syncTest('multiple IN operators', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        ctes: {
-          a: `SELECT value FROM json_each(auth.parameter('a'))`,
-          b: `SELECT value FROM json_each(auth.parameter('b'))`
-        },
-        queries: [`SELECT notes.* FROM notes, a, b WHERE notes.state = a.value AND notes.other = b.value`]
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    auto_subscribe: true
+    with:
+      a: SELECT value FROM json_each(auth.parameter('a'))
+      b: SELECT value FROM json_each(auth.parameter('b'))
+    query: SELECT notes.* FROM notes, a, b WHERE notes.state = a.value AND notes.other = b.value
+`);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
       globalParameters: new RequestParameters({ sub: 'user', a: ['a1', 'a2'], b: ['b1', 'b2'] }, {}),

@@ -5,14 +5,15 @@ import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '../../.
 
 describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        queries: [
-          `SELECT s.id AS id FROM stores s INNER JOIN json_each(s.tags) as tags WHERE tags.value = subscription.parameter('tag')`
-        ]
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+      query: SELECT s.id AS id FROM stores s INNER JOIN json_each(s.tags) as tags WHERE tags.value = subscription.parameter('tag')
+`);
 
     const sourceTable = new TestSourceTable('stores');
     expect(desc.evaluateRow({ sourceTable, record: { id: 'id', tags: '[1,2,3]' } })).toStrictEqual(
@@ -21,18 +22,19 @@ describe('table-valued functions', () => {
   });
 
   syncTest('as parameter output', async ({ sync }) => {
-    const desc = sync.prepareSyncStreams([
-      {
-        name: 'stream',
-        queries: [
-          `SELECT users.* FROM users
-             INNER JOIN conversations
-             INNER JOIN json_each(conversations.members) AS members
-           WHERE users.id = members.value AND conversations.id = subscription.parameter('chat')
-        `
-        ]
-      }
-    ]);
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+      query: |
+        SELECT users.* FROM users
+          INNER JOIN conversations
+          INNER JOIN json_each(conversations.members) AS members
+        WHERE users.id = members.value AND conversations.id = subscription.parameter('chat')
+`);
 
     const users = new TestSourceTable('users');
     const conversations = new TestSourceTable('conversations');

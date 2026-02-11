@@ -1257,7 +1257,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
 {
   "buckets": [
     {
-      "hash": 379372622,
+      "hash": 160259622,
       "sources": [
         0,
       ],
@@ -1270,7 +1270,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 494483403,
+      "hash": 394681392,
       "outputTableName": "p",
       "partitionBy": [
         {
@@ -1283,8 +1283,8 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "profile",
       },
       "tableValuedFunctions": [],
@@ -1293,7 +1293,11 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 367462188,
+      "hash": 531268250,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -1314,8 +1318,8 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "project",
       },
       "tableValuedFunctions": [
@@ -1371,7 +1375,11 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 223444359,
+      "hash": 296491538,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -1391,8 +1399,8 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "profile_project_link",
       },
       "tableValuedFunctions": [],
@@ -1855,7 +1863,7 @@ exports[`new sync stream features > table-valued functions > partition on data 1
 {
   "buckets": [
     {
-      "hash": 130288477,
+      "hash": 71456886,
       "sources": [
         0,
       ],
@@ -1868,7 +1876,7 @@ exports[`new sync stream features > table-valued functions > partition on data 1
         "star",
       ],
       "filters": [],
-      "hash": 243560642,
+      "hash": 81981113,
       "outputTableName": "posts",
       "partitionBy": [
         {
@@ -1882,8 +1890,8 @@ exports[`new sync stream features > table-valued functions > partition on data 1
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "posts",
       },
       "tableValuedFunctions": [
@@ -1948,7 +1956,7 @@ exports[`new sync stream features > table-valued functions > partition on parame
 {
   "buckets": [
     {
-      "hash": 104833472,
+      "hash": 445777469,
       "sources": [
         0,
       ],
@@ -1961,7 +1969,7 @@ exports[`new sync stream features > table-valued functions > partition on parame
         "star",
       ],
       "filters": [],
-      "hash": 106708571,
+      "hash": 75754117,
       "outputTableName": "users",
       "partitionBy": [
         {
@@ -1974,8 +1982,8 @@ exports[`new sync stream features > table-valued functions > partition on parame
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "users",
       },
       "tableValuedFunctions": [],
@@ -1984,7 +1992,11 @@ exports[`new sync stream features > table-valued functions > partition on parame
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 360814005,
+      "hash": 310310455,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -2005,8 +2017,8 @@ exports[`new sync stream features > table-valued functions > partition on parame
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "orgs",
       },
       "tableValuedFunctions": [
@@ -2087,7 +2099,7 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
 {
   "buckets": [
     {
-      "hash": 432206762,
+      "hash": 262234293,
       "sources": [
         0,
       ],
@@ -2100,12 +2112,12 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
         "star",
       ],
       "filters": [],
-      "hash": 52484023,
+      "hash": 184774135,
       "outputTableName": "posts",
       "partitionBy": [],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "posts",
       },
       "tableValuedFunctions": [
