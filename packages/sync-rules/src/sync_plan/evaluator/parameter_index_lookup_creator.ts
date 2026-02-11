@@ -26,7 +26,6 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     this.defaultLookupScope = source.defaultLookupScope;
     const translationHelper = new TableProcessorToSqlHelper(source);
     const expressions = source.outputs.map((o) => translationHelper.mapper.transform(o));
-    const filterExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
 
     this.numberOfOutputs = expressions.length;
     for (const parameter of source.parameters) {
@@ -36,7 +35,7 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
 
     this.evaluator = engine.prepareEvaluator({
       outputs: expressions,
-      filters: filterExpressions,
+      filters: translationHelper.filterExpressions,
       tableValuedFunctions: translationHelper.tableValuedFunctions
     });
     this.sourceTable = source.sourceTable.toTablePattern(defaultSchema);

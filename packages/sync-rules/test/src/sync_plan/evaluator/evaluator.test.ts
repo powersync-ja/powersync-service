@@ -244,6 +244,26 @@ streams:
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: blob })).toHaveLength(0);
     expect(desc.evaluateParameterRow(ISSUES, { id: blob, owner_id: 'user1' })).toHaveLength(0);
   });
+
+  syncTest('respects filters', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT users.* FROM users, orgs WHERE users.org_id = orgs.id AND orgs.name = subscription.parameter('org') AND orgs.is_active = 1
+`);
+    const orgs = new TestSourceTable('orgs');
+
+    const active = desc.evaluateParameterRow(orgs, { id: 'a', name: 'org-a', is_active: 1 });
+    const inactive = desc.evaluateParameterRow(orgs, { id: 'b', name: 'org-b', is_active: 0 });
+
+    expect(active.length).toBe(1);
+    expect(inactive.length).toBe(0);
+  });
 });
 
 describe('querier', () => {
