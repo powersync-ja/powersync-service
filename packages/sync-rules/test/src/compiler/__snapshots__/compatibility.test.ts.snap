@@ -2602,7 +2602,7 @@ exports[`old streams test > overlap 1`] = `
 {
   "buckets": [
     {
-      "hash": 147057229,
+      "hash": 443096475,
       "sources": [
         0,
       ],
@@ -2615,7 +2615,7 @@ exports[`old streams test > overlap 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 245155536,
+      "hash": 499645457,
       "outputTableName": "comments",
       "partitionBy": [
         {
@@ -2629,8 +2629,8 @@ exports[`old streams test > overlap 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "comments",
       },
       "tableValuedFunctions": [
@@ -2652,7 +2652,11 @@ exports[`old streams test > overlap 1`] = `
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 75103629,
+      "hash": 199313316,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -2672,8 +2676,8 @@ exports[`old streams test > overlap 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "friends",
       },
       "tableValuedFunctions": [],

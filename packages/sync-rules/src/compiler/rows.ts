@@ -7,6 +7,7 @@ import {
 } from './compatibility.js';
 import { RowExpression } from './filter.js';
 import { PhysicalSourceResultSet, TableValuedResultSet } from './table.js';
+import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 
 /**
  * A key describing how buckets or parameter lookups are parameterized.
