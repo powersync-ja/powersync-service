@@ -7,8 +7,8 @@ import {
   serializeSyncPlan,
   SqlSyncRules,
   SyncPlan,
-  SyncStreamsCompiler,
-  SyncStreamsCompilerOptions
+  SyncRulesOptions,
+  SyncStreamsCompiler
 } from '../../../src/index.js';
 
 interface TranslationError {
@@ -71,7 +71,7 @@ function compileSingleStream(...sql: string[]): [TranslationError[], SyncPlan] {
 
 export function yamlToSyncPlan(
   source: string,
-  options: SyncStreamsCompilerOptions = { defaultSchema: 'test_schema' }
+  options: SyncRulesOptions = { defaultSchema: 'test_schema' }
 ): [TranslationError[], SyncPlan] {
   const { config, errors } = SqlSyncRules.fromYaml(source, {
     throwOnError: false,
