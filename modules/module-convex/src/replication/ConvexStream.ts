@@ -127,9 +127,8 @@ export class ConvexStream {
           throw new ReplicationAssertionError(`No LSN found to resume replication from.`);
         }
 
-        // Resolve tables up-front so we can pass an optional single-table optimization to Convex.
-        const sourceTables = await this.resolveAllSourceTables(batch);
-        const singleTable = sourceTables.length == 1 ? sourceTables[0]!.name : undefined;
+        // Resolve source tables up-front to warm table metadata and sync-rule matching.
+        await this.resolveAllSourceTables(batch);
 
         let cursor = ConvexLSN.fromSerialized(resumeFromLsn).toCursorString();
 
@@ -137,7 +136,6 @@ export class ConvexStream {
           const page = await this.connections.client
             .documentDeltas({
               cursor,
-              tableName: singleTable,
               signal: this.abortSignal
             })
             .catch((error) => {
@@ -156,7 +154,7 @@ export class ConvexStream {
               throw new ReplicationAbortedError('Replication interrupted');
             }
 
-            const tableName = readTableName(change, singleTable);
+            const tableName = readTableName(change);
             if (tableName == null) {
               continue;
             }

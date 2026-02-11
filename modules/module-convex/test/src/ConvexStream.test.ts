@@ -296,6 +296,7 @@ describe('ConvexStream', () => {
     const abortController = new AbortController();
 
     let calls = 0;
+    const deltaCalls: any[] = [];
 
     const stream = new ConvexStream({
       abortSignal: abortController.signal,
@@ -313,8 +314,9 @@ describe('ConvexStream', () => {
             tables: [{ tableName: 'users', schema: {} }],
             raw: {}
           }),
-          documentDeltas: async () => {
+          documentDeltas: async (options: any) => {
             calls += 1;
+            deltaCalls.push(options ?? {});
             setTimeout(() => abortController.abort(), 0);
             return {
               cursor: '101',
@@ -336,5 +338,6 @@ describe('ConvexStream', () => {
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.UPDATE);
     expect(context.saves[1]?.tag).toBe(SaveOperationTag.DELETE);
     expect(context.commits.at(-1)).toBe(ConvexLSN.fromCursor('101').comparable);
+    expect(deltaCalls[0]?.tableName).toBeUndefined();
   });
 });
