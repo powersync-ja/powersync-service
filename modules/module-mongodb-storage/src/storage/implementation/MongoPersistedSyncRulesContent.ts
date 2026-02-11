@@ -4,7 +4,8 @@ import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
-import { SyncRuleDocument } from './models.js';
+import { LEGACY_STORAGE_VERSION, STORAGE_VERSION_CONFIG, SyncRuleDocument } from './models.js';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
   public readonly slot_name: string;
@@ -17,6 +18,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
   public readonly active: boolean;
+  public readonly storage_version: number;
 
   public current_lock: MongoSyncRulesLock | null = null;
 
@@ -34,6 +36,23 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     this.last_checkpoint_ts = doc.last_checkpoint_ts;
     this.last_keepalive_ts = doc.last_keepalive_ts;
     this.active = doc.state == 'ACTIVE';
+    this.storage_version = doc.storage_version ?? LEGACY_STORAGE_VERSION;
+  }
+
+  /**
+   * Load the storage config.
+   *
+   * This may throw if the persisted storage version is not supported.
+   */
+  getStorageConfig() {
+    const storageConfig = STORAGE_VERSION_CONFIG[this.storage_version];
+    if (storageConfig == null) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1403,
+        `Unsupported storage version ${this.storage_version} for sync rules ${this.id}`
+      );
+    }
+    return storageConfig;
   }
 
   parsed(options: storage.ParseSyncRulesOptions) {
@@ -41,7 +60,8 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
       this.id,
       SqlSyncRules.fromYaml(this.sync_rules_content, options),
       this.last_checkpoint_lsn,
-      this.slot_name
+      this.slot_name,
+      this.getStorageConfig()
     );
   }
 
