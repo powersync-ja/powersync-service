@@ -226,7 +226,7 @@ export class RequestParameters implements ParameterValueSet {
       tokenParameters,
       CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
     );
-    this.userId = tokenPayload.userIdJson;
+    this.userId = tokenPayload.parsedPayload.sub;
     this.rawTokenPayload = JSONBig.stringify(tokenPayload.parsedPayload);
 
     this.rawUserParameters = JSONBig.stringify(clientParameters);
