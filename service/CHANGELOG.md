@@ -1,5 +1,26 @@
 # @powersync/service-image
 
+## 1.19.1
+
+### Patch Changes
+
+- 433d9fb: Node 24.13.0
+- Updated dependencies [2dc1cae]
+- Updated dependencies [479997b]
+- Updated dependencies [d1c2228]
+- Updated dependencies [e11289d]
+- Updated dependencies [1a1a4cc]
+  - @powersync/service-module-mongodb-storage@0.13.1
+  - @powersync/service-module-postgres-storage@0.11.1
+  - @powersync/service-module-postgres@0.17.1
+  - @powersync/service-module-mongodb@0.13.1
+  - @powersync/service-core@1.19.1
+  - @powersync/service-module-mssql@0.3.0
+  - @powersync/lib-services-framework@0.8.1
+  - @powersync/service-module-mysql@0.10.1
+  - @powersync/service-module-core@0.2.18
+  - @powersync/service-rsocket-router@0.2.13
+
 ## 1.19.0
 
 ### Patch Changes
