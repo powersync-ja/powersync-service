@@ -1101,7 +1101,8 @@ bucket_definitions:
     });
 
     await bucketStorage.compact({
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
