@@ -62,6 +62,7 @@ const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
+const DEFAULT_MIN_CHANGE_RATIO = 0.1;
 
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
@@ -75,6 +76,7 @@ export class MongoCompactor {
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
   private minBucketChanges: number;
+  private minChangeRatio: number;
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
@@ -91,6 +93,7 @@ export class MongoCompactor {
     this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
     this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
     this.minBucketChanges = options?.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
+    this.minChangeRatio = options?.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
     this.maxOpId = options?.maxOpId ?? 0n;
     this.buckets = options?.compactBuckets;
     this.signal = options?.signal;
@@ -115,27 +118,19 @@ export class MongoCompactor {
   }
 
   private async compactDirtyBuckets() {
-    while (!this.signal?.aborted) {
-      // Process all buckets with 10 or more changes since last time.
-      // We exclude the last 100 compacted buckets, to avoid repeatedly re-compacting the same buckets over and over
-      // if they are modified while compacting.
-      const TRACK_RECENTLY_COMPACTED_NUMBER = 100;
-
-      let recentlyCompacted: string[] = [];
-      const buckets = await this.dirtyBucketBatch({
-        minBucketChanges: this.minBucketChanges,
-        exclude: recentlyCompacted
-      });
-      if (buckets.length == 0) {
-        // All done
+    for await (let buckets of this.dirtyBucketBatches({
+      minBucketChanges: this.minBucketChanges,
+      minChangeRatio: this.minChangeRatio
+    })) {
+      if (this.signal?.aborted) {
         break;
       }
+      if (buckets.length == 0) {
+        continue;
+      }
+
       for (let { bucket } of buckets) {
         await this.compactSingleBucket(bucket);
-        recentlyCompacted.push(bucket);
-      }
-      if (recentlyCompacted.length > TRACK_RECENTLY_COMPACTED_NUMBER) {
-        recentlyCompacted = recentlyCompacted.slice(-TRACK_RECENTLY_COMPACTED_NUMBER);
       }
     }
   }
@@ -490,14 +485,19 @@ export class MongoCompactor {
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
     let count = 0;
-    while (!this.signal?.aborted) {
-      const buckets = await this.dirtyBucketBatch(options);
-      if (buckets.length == 0) {
-        // All done
+    for await (let buckets of this.dirtyBucketBatches({
+      minBucketChanges: options.minBucketChanges,
+      minChangeRatio: 0
+    })) {
+      if (this.signal?.aborted) {
         break;
       }
+      if (buckets.length == 0) {
+        continue;
+      }
+
       const start = Date.now();
-      logger.info(`Calculating checksums for batch of ${buckets.length} buckets`);
+      logger.info(`Calculating checksums for batch of ${buckets.length} buckets, starting at ${buckets[0].bucket}`);
 
       // Filter batch by estimated bucket size, to reduce possibility of timeouts
       let checkBuckets: typeof buckets = [];
@@ -517,45 +517,66 @@ export class MongoCompactor {
   }
 
   /**
-   * Returns a batch of dirty buckets - buckets with most changes first.
+   * Return batches of dirty buckets.
    *
-   * This cannot be used to iterate on its own - the client is expected to process these buckets and
-   * set estimate_since_compact.count: 0 when done, before fetching the next batch.
+   * Can be used to iterate through all buckets.
+   *
+   * minBucketChanges: minimum number of changes for a bucket to be included in the results.
+   * minChangeRatio: minimum ratio of changes to total ops for a bucket to be included in the results, number between 0 and 1.
    */
-  private async dirtyBucketBatch(options: {
+  private async *dirtyBucketBatches(options: {
     minBucketChanges: number;
-    exclude?: string[];
-  }): Promise<{ bucket: string; estimatedCount: number }[]> {
+    minChangeRatio: number;
+  }): AsyncGenerator<{ bucket: string; estimatedCount: number }[]> {
+    // Previously, we used an index on {_id.g: 1, estimate_since_compact.count: 1} to only buckets with changes.
+    // This works well if there are only a small number of buckets with changes.
+    // However, if buckets are continuosly modified while we are compacting, we get the same buckets over and over again.
+    // This has caused the compact process to re-read the same collection around 5x times in total, which is very inefficient.
+    // To solve this, we now just iterate through all buckets, and filter out the ones with low changes.
+
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
-    // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
-    const dirtyBuckets = await this.db.bucket_state
-      .find(
-        {
-          '_id.g': this.group_id,
-          'estimate_since_compact.count': { $gte: options.minBucketChanges },
-          '_id.b': { $nin: options.exclude ?? [] }
-        },
-        {
-          projection: {
-            _id: 1,
-            estimate_since_compact: 1,
-            compacted_state: 1
+    let lastId = { g: this.group_id, b: new mongo.MinKey() as any };
+    while (true) {
+      const batch = await this.db.bucket_state
+        .find(
+          {
+            _id: { $gt: lastId },
+            'estimate_since_compact.count': { $gte: options.minBucketChanges }
           },
-          sort: {
-            'estimate_since_compact.count': -1
-          },
-          limit: 200,
-          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
-        }
-      )
-      .toArray();
-
-    return dirtyBuckets.map((bucket) => ({
-      bucket: bucket._id.b,
-      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0)
-    }));
+          {
+            projection: {
+              _id: 1,
+              estimate_since_compact: 1,
+              compacted_state: 1
+            },
+            sort: {
+              _id: 1
+            },
+            limit: 2000,
+            maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+          }
+        )
+        .toArray();
+      if (batch.length == 0) {
+        break;
+      }
+      lastId = batch[batch.length - 1]._id;
+      const mapped = batch.map((b) => {
+        const updatedCount = b.estimate_since_compact?.count ?? 0;
+        const totalCount = (b.compacted_state?.count ?? 0) + updatedCount;
+        return {
+          bucket: b._id.b,
+          estimatedCount: totalCount,
+          dirtyRatio: totalCount > 0 ? updatedCount / totalCount : 0
+        };
+      });
+      const filtered = mapped.filter(
+        (b) => b.estimatedCount >= options.minBucketChanges && b.dirtyRatio >= options.minChangeRatio
+      );
+      yield filtered;
+    }
   }
 
   private async updateChecksumsBatch(buckets: string[]) {
