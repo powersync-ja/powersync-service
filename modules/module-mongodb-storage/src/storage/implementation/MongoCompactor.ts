@@ -538,11 +538,12 @@ export class MongoCompactor {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
     let lastId = { g: this.group_id, b: new mongo.MinKey() as any };
+    const maxId = { g: this.group_id, b: new mongo.MaxKey() as any };
     while (true) {
       const batch = await this.db.bucket_state
         .find(
           {
-            _id: { $gt: lastId },
+            _id: { $gt: lastId, $lt: maxId },
             'estimate_since_compact.count': { $gte: options.minBucketChanges }
           },
           {
@@ -566,10 +567,14 @@ export class MongoCompactor {
       const mapped = batch.map((b) => {
         const updatedCount = b.estimate_since_compact?.count ?? 0;
         const totalCount = (b.compacted_state?.count ?? 0) + updatedCount;
+        const updatedBytes = b.estimate_since_compact?.bytes ?? 0;
+        const totalBytes = (b.compacted_state?.bytes ?? 0) + updatedBytes;
+        const dirtyChangeNumber = totalCount > 0 ? updatedCount / totalCount : 0;
+        const dirtyChangeBytes = totalBytes > 0 ? updatedBytes / totalBytes : 0;
         return {
           bucket: b._id.b,
           estimatedCount: totalCount,
-          dirtyRatio: totalCount > 0 ? updatedCount / totalCount : 0
+          dirtyRatio: Math.max(dirtyChangeNumber, dirtyChangeBytes)
         };
       });
       const filtered = mapped.filter(
