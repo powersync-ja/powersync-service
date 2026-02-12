@@ -213,7 +213,7 @@ describe('static parameter queries', () => {
     ]);
   });
 
-  test.only("request.jwt() ->> '$.sub.email'", function () {
+  test("request.jwt() ->> '$.sub.email'", function () {
     const sql = "SELECT request.jwt() ->> 'sub.email' as email";
     const query = SqlParameterQuery.fromSql(
       'mybucket',
