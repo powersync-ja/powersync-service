@@ -60,7 +60,7 @@ export function filterJsonRow(data: SqliteRow): SqliteJsonRow {
 export function jsonValueToSqlite(
   fixedJsonBehavior: boolean,
   value: null | undefined | string | number | bigint | boolean | any
-): SqliteValue {
+): SqliteJsonValue {
   let isObject = typeof value == 'object';
   if (fixedJsonBehavior) {
     // With the fixed json behavior, make json_extract() not represent a null value as 'null' but instead use a SQL NULL
