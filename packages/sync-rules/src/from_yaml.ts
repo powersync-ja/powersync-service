@@ -27,24 +27,32 @@ function parseInitialSnapshotFilter(value: unknown): InitialSnapshotFilter | und
   if (value instanceof YAMLMap) {
     // Object format with db-specific filters
     const result: { sql?: string; mongo?: any } = {};
-    
+
     const sqlValue = value.get('sql', true);
-    if (sqlValue instanceof Scalar) {
-      result.sql = sqlValue.toString();
+    if (sqlValue) {
+      if (sqlValue instanceof Scalar) {
+        result.sql = sqlValue.value as string;
+      } else {
+        // If it's not a scalar, try to convert it
+        result.sql = String(sqlValue);
+      }
     }
-    
-    const mongoValue = value.get('mongo', true);
-    if (mongoValue) {
-      // Parse mongo value - can be any YAML structure
+
+    const mongoValue = value.get('mongo', true) as any;
+    if (mongoValue instanceof Scalar) {
+      result.mongo = mongoValue.value;
+    } else if (mongoValue instanceof YAMLMap || mongoValue instanceof YAMLSeq) {
       result.mongo = mongoValue.toJSON();
+    } else if (mongoValue !== null && mongoValue !== undefined) {
+      result.mongo = mongoValue;
     }
-    
+
     // Only return if at least one property is set
     if (result.sql !== undefined || result.mongo !== undefined) {
       return result;
     }
   }
-  
+
   return undefined;
 }
 
@@ -151,11 +159,35 @@ export class SyncConfigFromYaml {
   #parseInitialSnapshotFilters(filtersMap: YAMLMap, result: SyncConfig) {
     for (const entry of filtersMap.items) {
       const { key: tableKey, value: filterValue } = entry as { key: Scalar; value: unknown };
-      const tableName = tableKey.toString();
-      
+      const tableName = tableKey.value as string;
+
+      if (!filterValue) {
+        this.#errors.push(
+          this.#tokenError(tableKey, `Initial snapshot filter for table '${tableName}' cannot be empty`)
+        );
+        continue;
+      }
+
+      if (!(filterValue instanceof YAMLMap)) {
+        this.#errors.push(
+          this.#tokenError(
+            filterValue as any,
+            `Initial snapshot filter for table '${tableName}' must be an object with 'sql' and/or 'mongo' properties`
+          )
+        );
+        continue;
+      }
+
       const filter = parseInitialSnapshotFilter(filterValue);
       if (filter) {
         result.initialSnapshotFilters.set(tableName, filter);
+      } else {
+        this.#errors.push(
+          this.#tokenError(
+            filterValue as any,
+            `Initial snapshot filter for table '${tableName}' must have at least 'sql' or 'mongo' property`
+          )
+        );
       }
     }
   }

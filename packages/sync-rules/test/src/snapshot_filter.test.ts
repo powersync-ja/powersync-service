@@ -47,7 +47,9 @@ bucket_definitions:
 
     expect(rules.initialSnapshotFilters.size).toBe(2);
     expect(rules.initialSnapshotFilters.get('users')).toEqual({ sql: "status = 'active'" });
-    expect(rules.initialSnapshotFilters.get('orders')).toEqual({ sql: 'created_at > DATE_SUB(NOW(), INTERVAL 90 DAY)' });
+    expect(rules.initialSnapshotFilters.get('orders')).toEqual({
+      sql: 'created_at > DATE_SUB(NOW(), INTERVAL 90 DAY)'
+    });
   });
 
   test('getInitialSnapshotFilter returns undefined when no filters', () => {

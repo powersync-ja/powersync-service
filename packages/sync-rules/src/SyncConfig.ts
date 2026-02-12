@@ -144,25 +144,26 @@ export abstract class SyncConfig {
   /**
    * Get the initial snapshot filter for a given table.
    * Filters are applied globally and support wildcard matching.
-   * 
-   * @param connectionTag Connection tag (e.g., 'default')
+   *
+   * @param connectionTag Connection tag for the active source connection
    * @param schema Schema name
-   * @param tableName Table name (without wildcard %)
-   * @param dbType Database type ('sql' for MySQL/Postgres/MSSQL, 'mongo' for MongoDB)
-   * @returns WHERE clause/query, or undefined if no filter is specified
+   * @param tableName Concrete table name (wildcards are allowed in the filter patterns, not here)
+   * @param dbType Database type ('sql' for MySQL/Postgres/MSSQL, 'mongo' for MongoDB) - currently unused, returns full filter object
+   * @returns Filter object with sql/mongo properties, or undefined if no filter is specified
    */
-  getInitialSnapshotFilter(connectionTag: string, schema: string, tableName: string, dbType: DatabaseType = 'sql'): string | any | undefined {
-    const fullTableName = `${schema}.${tableName}`;
-    
-    // Check for exact matches first
+  getInitialSnapshotFilter(
+    connectionTag: string,
+    schema: string,
+    tableName: string,
+    dbType: DatabaseType = 'sql'
+  ): InitialSnapshotFilter | undefined {
     for (const [pattern, filterDef] of this.initialSnapshotFilters) {
       const tablePattern = this.parseTablePattern(connectionTag, schema, pattern);
       if (tablePattern.matches({ connectionTag, schema, name: tableName })) {
-        // Return the appropriate filter based on database type
-        return filterDef[dbType];
+        return filterDef;
       }
     }
-    
+
     return undefined;
   }
 
@@ -170,15 +171,17 @@ export abstract class SyncConfig {
    * Helper to parse a table pattern string into a TablePattern object
    */
   private parseTablePattern(connectionTag: string, defaultSchema: string, pattern: string): TablePattern {
-    // Split on '.' to extract schema and table parts
     const parts = pattern.split('.');
     if (parts.length === 1) {
-      // Just table name, use default schema
-      return new TablePattern(defaultSchema, parts[0]);
-    } else {
-      // schema.table format
-      return new TablePattern(parts[0], parts[1]);
+      return new TablePattern(`${connectionTag}.${defaultSchema}`, parts[0]);
     }
+    if (parts.length === 2) {
+      return new TablePattern(`${connectionTag}.${parts[0]}`, parts[1]);
+    }
+    const tag = parts[0];
+    const schema = parts[1];
+    const tableName = parts.slice(2).join('.');
+    return new TablePattern(`${tag}.${schema}`, tableName);
   }
 }
 export interface SyncConfigWithErrors {

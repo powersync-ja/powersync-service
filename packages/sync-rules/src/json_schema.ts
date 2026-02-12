@@ -31,10 +31,11 @@ export const syncRulesSchema: ajvModule.Schema = {
               description: 'SQL WHERE clause for MySQL, PostgreSQL, SQL Server'
             },
             mongo: {
-              description: 'MongoDB query filter (BSON/EJSON format)'
+              description: 'MongoDB query filter (BSON/EJSON format) - can be any valid MongoDB query object'
             }
           },
-          additionalProperties: false
+          additionalProperties: false,
+          minProperties: 1
         }
       }
     },

@@ -288,6 +288,79 @@ bucket_definitions:
       - SELECT * FROM events_2025
 ```
 
+## Special Characters and Identifiers
+
+⚠️ **Important**: Filter expressions are embedded directly into SQL/MongoDB queries. You must properly quote identifiers and escape string literals according to your database's syntax rules.
+
+### SQL Identifier Quoting
+
+**PostgreSQL** - Use double quotes for identifiers with spaces or special characters:
+```yaml
+initial_snapshot_filters:
+  users:
+    sql: "\"User Status\" = 'active' AND \"created-at\" > NOW() - INTERVAL '30 days'"
+```
+
+**MySQL** - Use backticks for identifiers with spaces or special characters:
+```yaml
+initial_snapshot_filters:
+  users:
+    sql: "`User Status` = 'active' AND `created-at` > NOW() - INTERVAL 30 DAY"
+```
+
+**SQL Server** - Use square brackets for identifiers with spaces or special characters:
+```yaml
+initial_snapshot_filters:
+  users:
+    sql: "[User Status] = 'active' AND [created-at] > DATEADD(day, -30, GETDATE())"
+```
+
+### String Literal Escaping
+
+Always use proper escaping for string literals containing quotes:
+
+```yaml
+initial_snapshot_filters:
+  comments:
+    # Single quotes must be escaped as '' in SQL
+    sql: "content NOT LIKE '%can''t%' AND status = 'approved'"
+```
+
+### Complex Expressions with OR Operators
+
+PowerSync automatically wraps your filter in parentheses to prevent operator precedence issues:
+
+```yaml
+initial_snapshot_filters:
+  users:
+    # This is wrapped as: WHERE (status = 'active' OR status = 'pending')
+    sql: "status = 'active' OR status = 'pending'"
+```
+
+### MongoDB Filters
+
+MongoDB filters use native BSON query syntax, which is safer than string concatenation:
+
+```yaml
+initial_snapshot_filters:
+  users:
+    mongo:
+      $or:
+        - status: 'active'
+        - status: 'pending'
+      "special field": { $exists: true }
+```
+
+### Security Considerations
+
+- Filters are defined in `sync_rules.yaml` by administrators, not by end users
+- Filters are static configuration, not dynamic user input
+- Still follow security best practices:
+  - Avoid including sensitive data in filters
+  - Test filters in development before production
+  - Review filter changes carefully during deployment
+- PowerSync does not parameterize filters since they are arbitrary SQL expressions, similar to bucket query definitions
+
 ## Limitations
 
 - Filters are applied **globally** across all buckets using that table
