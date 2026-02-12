@@ -160,7 +160,7 @@ describe('static parameter queries', () => {
     ]);
   });
 
-  test('request.jwt()', function () {
+  test("request.jwt() ->> 'sub'", function () {
     const sql = "SELECT request.jwt() ->> 'sub' as user_id";
     const query = SqlParameterQuery.fromSql(
       'mybucket',
@@ -174,6 +174,42 @@ describe('static parameter queries', () => {
 
     expect(query.getStaticBucketDescriptions(requestParameters({ sub: 'user1' }), MYBUCKET_SCOPE)).toEqual([
       { bucket: 'mybucket["user1"]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ sub: 123 }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[123]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ sub: true }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[1]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ sub: { a: 123 } }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[\"{\\\"a\\\":123.0}\"]', priority: 3 }
+    ]);
+  });
+
+  test("request.jwt() ->> 'other'", function () {
+    // This is the same as the `request.jwt() ->> 'sub'` test, but with a different claim name to verify that it's not treated as a special case.
+    const sql = "SELECT request.jwt() ->> 'other' as user_id";
+    const query = SqlParameterQuery.fromSql(
+      'mybucket',
+      sql,
+      PARSE_OPTIONS,
+      '1',
+      EMPTY_DATA_SOURCE
+    ) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucketParameters).toEqual(['user_id']);
+
+    expect(query.getStaticBucketDescriptions(requestParameters({ other: 'user1' }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket["user1"]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ other: 123 }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[123]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ other: true }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[1]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ other: { a: 123 } }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[\"{\\\"a\\\":123.0}\"]', priority: 3 }
     ]);
   });
 
@@ -196,9 +232,16 @@ describe('static parameter queries', () => {
     expect(query.getStaticBucketDescriptions(requestParameters({ sub: 123 }), MYBUCKET_SCOPE)).toEqual([
       { bucket: 'mybucket[123]', priority: 3 }
     ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ sub: true }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[1]', priority: 3 }
+    ]);
+    // This is not expected to be used - we just document the current behavior
+    expect(query.getStaticBucketDescriptions(requestParameters({ sub: { a: 123 } }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket[\"{\\\"a\\\":123.0}\"]', priority: 3 }
+    ]);
   });
 
-  test('numeric request.user_id()', function () {
+  test('typeof request.user_id()', function () {
     const sql = 'SELECT typeof(request.user_id()) as user_id';
     const query = SqlParameterQuery.fromSql(
       'mybucket',
@@ -212,6 +255,12 @@ describe('static parameter queries', () => {
 
     expect(query.getStaticBucketDescriptions(requestParameters({ sub: '123' }), MYBUCKET_SCOPE)).toEqual([
       { bucket: 'mybucket["text"]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ sub: 123 }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket["real"]', priority: 3 }
+    ]);
+    expect(query.getStaticBucketDescriptions(requestParameters({ sub: true }), MYBUCKET_SCOPE)).toEqual([
+      { bucket: 'mybucket["integer"]', priority: 3 }
     ]);
   });
 
