@@ -9,7 +9,7 @@ import {
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
-import { TestSourceTable } from '../../util.js';
+import { requestParameters, TestSourceTable } from '../../util.js';
 
 describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {
@@ -260,7 +260,12 @@ streams:
 `);
 
     const { querier } = desc.getBucketParameterQuerier({
-      globalParameters: new RequestParameters({ sub: 'user' }, {}),
+      globalParameters: requestParameters(
+        {
+          sub: 'user'
+        },
+        {}
+      ),
       hasDefaultStreams: true,
       streams: {}
     });
@@ -281,7 +286,7 @@ streams:
 `);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
-      globalParameters: new RequestParameters({ sub: 'user' }, {}),
+      globalParameters: requestParameters({ sub: 'user' }),
       hasDefaultStreams: true,
       streams: {}
     });
@@ -307,7 +312,7 @@ streams:
 `);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
-      globalParameters: new RequestParameters({ sub: 'user' }, {}),
+      globalParameters: requestParameters({ sub: 'user' }),
       hasDefaultStreams: true,
       streams: {}
     });

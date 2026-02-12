@@ -55,7 +55,6 @@ export async function generateContext(serviceContext: ServiceContext, token: str
     });
     return {
       context: {
-        user_id: parsedToken.sub,
         token_payload: parsedToken
       }
     };
