@@ -213,6 +213,23 @@ describe('static parameter queries', () => {
     ]);
   });
 
+  test.only("request.jwt() ->> '$.sub.email'", function () {
+    const sql = "SELECT request.jwt() ->> 'sub.email' as email";
+    const query = SqlParameterQuery.fromSql(
+      'mybucket',
+      sql,
+      PARSE_OPTIONS,
+      '1',
+      EMPTY_DATA_SOURCE
+    ) as StaticSqlParameterQuery;
+    expect(query.errors).toEqual([]);
+    expect(query.bucketParameters).toEqual(['email']);
+
+    expect(
+      query.getStaticBucketDescriptions(requestParameters({ sub: { email: 'a@example.org' } }), MYBUCKET_SCOPE)
+    ).toEqual([{ bucket: 'mybucket["a@example.org"]', priority: 3 }]);
+  });
+
   test('request.user_id()', function () {
     const sql = 'SELECT request.user_id() as user_id';
     const query = SqlParameterQuery.fromSql(
