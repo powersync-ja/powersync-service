@@ -318,7 +318,6 @@ export class BinLogStream {
     if (table.initialSnapshotFilter?.sql) {
       query += ` WHERE ${table.initialSnapshotFilter.sql}`;
       this.logger.info(`Applying initial snapshot filter: ${table.initialSnapshotFilter.sql}`);
-      }
     }
   
     const queryStream = connection.query(query);

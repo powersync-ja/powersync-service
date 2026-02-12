@@ -168,15 +168,6 @@ bucket_definitions:
     });
   });
 
-  test('getInitialSnapshotFilter with object format - SQL', () => {
-    const { config: rules } = SqlSyncRules.fromYaml(
-      `
-bucket_definitions:
-  active_users:
-    data:
-      - SELECT id, name FROM users
-    source_tables:
-      users:
   test('getInitialSnapshotFilter with object format - SQL and Mongo', () => {
     const { config: rules } = SqlSyncRules.fromYaml(
       `
