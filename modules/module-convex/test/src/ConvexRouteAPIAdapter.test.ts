@@ -33,7 +33,8 @@ function createAdapter() {
       ],
       raw: {}
     }),
-    getHeadCursor: async () => '123'
+    getHeadCursor: async () => '123',
+    createWriteCheckpointMarker: async () => undefined
   };
 
   return adapter;
@@ -74,12 +75,16 @@ bucket_definitions:
   it('creates replication head from the global snapshot cursor', async () => {
     const adapter = createAdapter();
     const getHeadCursor = vi.fn(async (_options?: any) => '123');
+    const createWriteCheckpointMarker = vi.fn(async (_options?: any) => undefined);
     (adapter as any).connectionManager.client.getHeadCursor = getHeadCursor;
+    (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
 
     const result = await adapter.createReplicationHead(async (head) => head);
     expect(result).toBe(ConvexLSN.fromCursor('123').comparable);
     expect(getHeadCursor).toHaveBeenCalledTimes(1);
     expect(getHeadCursor).toHaveBeenCalledWith();
+    expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);
+    expect(createWriteCheckpointMarker).toHaveBeenCalledWith({ headCursor: '123' });
 
     await adapter.shutdown();
   });

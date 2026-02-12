@@ -54,7 +54,13 @@ This file is the working contract for agents modifying `module-convex`.
 - Default schema is `convex`.
 - SQL literal reminder for sync rules: string literals must use single quotes (`'sally'`), not double quotes.
 
-## 7) Datatype Mapping 
+## 7) Schema Change Caveat
+- Convex `json_schemas` does not provide a schema change token or revision cursor that can be checkpointed.
+- Current behavior uses `json_schemas` for discovery/debug, but does not continuously diff source schema versions.
+- Operational caveat: if Convex schema changes (tables or columns), developers must review and redeploy sync rules manually.
+- Future improvement: cache a canonicalized `json_schemas` hash, poll periodically, and raise diagnostics when schema drift is detected.
+
+## 8) Datatype Mapping
 - Current runtime mapping in stream writer:
   - `number` integer -> `BigInt` (SQLite INTEGER),
   - `number` float -> REAL,
@@ -64,12 +70,20 @@ This file is the working contract for agents modifying `module-convex`.
   NOTE:
   - Preserve bytes as BLOB in sync rules; use explicit base64 conversion in rules only when needed by consumers.
 
-## 8) Checkpointing and Consistency Caveat
-- `createReplicationHead` currently uses best-effort source head capture.
-- There is no source-side Convex marker write equivalent to Mongo/Postgres checkpoint triggers yet.
-- Treat robust write-checkpoint acknowledgement as a separate production item.
+## 9) Checkpointing and Consistency
+- `createReplicationHead` must:
+  1. resolve global head cursor,
+  2. write a Convex source marker via streaming import,
+  3. then pass the head to callback.
+- Source marker tables:
+  - primary: `_powersync_checkpoints`
+  - fallback: `powersync_checkpoints` (for deployments that reject leading underscore identifiers)
+  - Convex may materialize source-ingest/system-invalid names with `source_` prefix, so markers can appear as `source_powersync_checkpoints`.
+- Stream handling requirement:
+  - checkpoint marker tables must always be excluded from replicated source tables and ignored in delta row application.
+  - marker-only delta pages must trigger immediate `keepalive` checkpoint advancement (do not wait for 60s throttle).
 
-## 9) Logging Policy
+## 10) Logging Policy
 - Keep logs high-signal and bounded.
 - Required snapshot logs:
   - pinned or reused global snapshot,
@@ -77,13 +91,13 @@ This file is the working contract for agents modifying `module-convex`.
   - snapshot completion and resume LSN.
 - Avoid noisy per-row debug logs unless behind explicit debug gating.
 
-## 10) Known Non-Goals (For Now)
+## 11) Known Non-Goals (For Now)
 - Convex component targeting beyond default component.
 - A true push stream transport (module is polling deltas).
 - Read-only Convex deploy key model (Convex deploy key is full access; use network isolation and secret controls).
 - Cross-source transactional guarantees beyond Convex stream ordering.
 
-## 11) Conformance Suite (Must Stay Green)
+## 12) Conformance Suite (Must Stay Green)
 - Unit tests:
   - `test/src/ConvexApiClient.test.ts`
   - `test/src/ConvexLSN.test.ts`
@@ -95,13 +109,14 @@ This file is the working contract for agents modifying `module-convex`.
   - first per-table snapshot call omits cursor,
   - pagination cursor used only for subsequent pages,
   - snapshot mismatch fails fast,
-  - route adapter head resolves global snapshot cursor.
+  - route adapter head resolves global snapshot cursor and writes a source marker,
+  - marker-only pages advance LSN via immediate keepalive.
 - Manual smoke test (self-host acceptable):
   - initial snapshot visible in buckets,
   - inserts/updates/deletes propagate via deltas,
   - no table-not-found due to schema/tag mismatch.
 
-## 12) Change Checklist for Agents
+## 13) Change Checklist for Agents
 - If changing snapshot/delta flow:
   - update `ConvexStream` tests first.
 - If changing cursor/LSN encoding:

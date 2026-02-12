@@ -155,4 +155,46 @@ describe('ConvexApiClient', () => {
       retryable: true
     });
   });
+
+  it('creates write checkpoint markers via streaming import', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+
+    const client = new ConvexApiClient(baseConfig);
+    await client.createWriteCheckpointMarker({ headCursor: '123' });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(String(url)).toContain('/api/streaming_import/import_airbyte_records');
+    expect(init?.method).toBe('POST');
+    expect((init?.headers as Record<string, string>).Authorization).toBe('Convex test-key');
+    expect((init?.headers as Record<string, string>)['Convex-Client']).toBe('streaming-import-1.0.0');
+
+    const body = JSON.parse(String(init?.body));
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].tableName).toBe('_powersync_checkpoints');
+    expect(body.messages[0].data.powersync_lsn).toBe('123');
+  });
+
+  it('falls back to an alternate checkpoint table name on table validation errors', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            code: 'InvalidTableName'
+          }),
+          { status: 400 }
+        )
+      )
+      .mockResolvedValueOnce(new Response('', { status: 200 }));
+
+    const client = new ConvexApiClient(baseConfig);
+    await client.createWriteCheckpointMarker({ headCursor: '123' });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const firstBody = JSON.parse(String(fetchSpy.mock.calls[0]![1]?.body));
+    const secondBody = JSON.parse(String(fetchSpy.mock.calls[1]![1]?.body));
+    expect(firstBody.messages[0].tableName).toBe('_powersync_checkpoints');
+    expect(secondBody.messages[0].tableName).toBe('powersync_checkpoints');
+  });
 });

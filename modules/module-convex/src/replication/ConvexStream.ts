@@ -24,6 +24,7 @@ import {
   ConvexTableSchema,
   isCursorExpiredError
 } from '../client/ConvexApiClient.js';
+import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { ConvexLSN } from '../common/ConvexLSN.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 
@@ -149,6 +150,7 @@ export class ConvexStream {
           const pageLsn = ConvexLSN.fromCursor(nextCursor).comparable;
 
           let changesInPage = 0;
+          let sawCheckpointMarker = false;
           for (const change of page.values) {
             if (this.abortSignal.aborted) {
               throw new ReplicationAbortedError('Replication interrupted');
@@ -156,6 +158,11 @@ export class ConvexStream {
 
             const tableName = readTableName(change);
             if (tableName == null) {
+              continue;
+            }
+
+            if (isConvexCheckpointTable(tableName)) {
+              sawCheckpointMarker = true;
               continue;
             }
 
@@ -186,6 +193,10 @@ export class ConvexStream {
               this.oldestUncommittedChange = null;
               this.isStartingReplication = false;
             }
+          } else if (sawCheckpointMarker) {
+            await batch.keepalive(pageLsn);
+            this.lastKeepaliveAt = Date.now();
+            this.isStartingReplication = false;
           } else if (nextCursor != cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
             await batch.keepalive(pageLsn);
             this.lastKeepaliveAt = Date.now();
@@ -412,6 +423,7 @@ export class ConvexStream {
         }
         return tableName == tablePattern.name;
       })
+      .filter((tableName) => !isConvexCheckpointTable(tableName))
       .sort();
 
     if (!tablePattern.isWildcard && matchedTableNames.length == 0) {

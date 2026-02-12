@@ -2,6 +2,7 @@ import { api, ParseSyncRulesOptions, ReplicationHeadCallback, ReplicationLagOpti
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { ConvexLSN } from '../common/ConvexLSN.js';
+import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { ConvexConnectionManager } from '../replication/ConvexConnectionManager.js';
 import * as types from '../types/types.js';
 
@@ -75,6 +76,9 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
           if (tablePattern.schema != this.connectionManager.schema) {
             return false;
           }
+          if (isConvexCheckpointTable(name)) {
+            return false;
+          }
           if (tablePattern.isWildcard) {
             return name.startsWith(tablePattern.tablePrefix);
           }
@@ -115,6 +119,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const head = await this.connectionManager.client.getHeadCursor();
+    await this.connectionManager.client.createWriteCheckpointMarker({ headCursor: head });
     return await callback(ConvexLSN.fromCursor(head).comparable);
   }
 
@@ -124,26 +129,28 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
     return [
       {
         name: this.connectionManager.schema,
-        tables: schema.tables.map((table) => ({
-          name: table.tableName,
-          columns: Object.entries({
-            _id: { type: 'string' },
-            ...extractProperties(table.schema)
-          })
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([columnName, property]) => {
-              const jsonType = readJsonSchemaType(property);
-              const sqliteType = toSqliteType(jsonType);
-
-              return {
-                name: columnName,
-                type: jsonType,
-                sqlite_type: sqliteType.typeFlags,
-                internal_type: jsonType,
-                pg_type: jsonType
-              };
+        tables: schema.tables
+          .filter((table) => !isConvexCheckpointTable(table.tableName))
+          .map((table) => ({
+            name: table.tableName,
+            columns: Object.entries({
+              _id: { type: 'string' },
+              ...extractProperties(table.schema)
             })
-        }))
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([columnName, property]) => {
+                const jsonType = readJsonSchemaType(property);
+                const sqliteType = toSqliteType(jsonType);
+
+                return {
+                  name: columnName,
+                  type: jsonType,
+                  sqlite_type: sqliteType.typeFlags,
+                  internal_type: jsonType,
+                  pg_type: jsonType
+                };
+              })
+          }))
       }
     ];
   }

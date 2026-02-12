@@ -29,3 +29,11 @@ replication:
 - Table hydration then runs per selected sync-rule table using that fixed snapshot boundary.
 - Each table snapshot starts from the first page (cursor omitted on the first call), and only uses cursor pagination within the current run.
 - If initial replication is interrupted, restart resumes from the stored snapshot boundary but restarts table paging from page 1.
+
+## Write checkpoint behavior
+
+- Route write checkpoints create a source marker row using Convex streaming import in `_powersync_checkpoints` (fallback: `powersync_checkpoints`).
+- Convex may materialize system/invalid source table names with a `source_` prefix (for example `source_powersync_checkpoints`).
+- Delta polling is global, so marker rows are observed even when not referenced in sync rules.
+- Checkpoint marker tables are always ignored during snapshot and delta replication.
+- Marker-only pages trigger immediate keepalive checkpoint advancement (not minute-throttled), reducing write-checkpoint acknowledgement latency.

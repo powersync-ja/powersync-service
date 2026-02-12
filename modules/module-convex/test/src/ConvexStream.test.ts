@@ -340,4 +340,59 @@ describe('ConvexStream', () => {
     expect(context.commits.at(-1)).toBe(ConvexLSN.fromCursor('101').comparable);
     expect(deltaCalls[0]?.tableName).toBeUndefined();
   });
+
+  it('keeps alive immediately when only checkpoint marker rows are streamed', async () => {
+    const context = createFakeStorage({
+      snapshotDone: true,
+      resumeFromLsn: ConvexLSN.fromCursor('100').comparable
+    });
+    const abortController = new AbortController();
+    let calls = 0;
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: () => ({ add: () => {} })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas: async () => ({
+            tables: [{ tableName: 'users', schema: {} }],
+            raw: {}
+          }),
+          documentDeltas: async () => {
+            calls += 1;
+            if (calls == 1) {
+              return {
+                cursor: '101',
+                hasMore: true,
+                values: []
+              };
+            }
+
+            setTimeout(() => abortController.abort(), 0);
+            return {
+              cursor: '102',
+              hasMore: false,
+              values: [{ _table: 'source_powersync_checkpoints', _id: 'cp1' }]
+            };
+          }
+        }
+      } as any
+    });
+
+    await stream.streamChanges();
+
+    expect(context.saves.length).toBe(0);
+    expect(context.commits.length).toBe(0);
+    expect(context.keepalives).toEqual([
+      ConvexLSN.fromCursor('101').comparable,
+      ConvexLSN.fromCursor('102').comparable
+    ]);
+  });
 });

@@ -1,6 +1,7 @@
 import { setTimeout as delay } from 'timers/promises';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { NormalizedConvexConnectionConfig } from '../types/types.js';
+import { CONVEX_CHECKPOINT_TABLE_CANDIDATES, CONVEX_CHECKPOINT_TABLE_PRIMARY } from '../common/ConvexCheckpoints.js';
 
 export interface ConvexRawDocument {
   _id?: string;
@@ -43,6 +44,15 @@ export interface ConvexDocumentDeltasResult {
   cursor: string;
   hasMore: boolean;
   values: ConvexRawDocument[];
+}
+
+export interface ConvexImportTable {
+  jsonSchema: Record<string, unknown>;
+}
+
+export interface ConvexImportMessage {
+  tableName: string;
+  data: Record<string, unknown>;
 }
 
 export class ConvexApiError extends Error {
@@ -147,6 +157,63 @@ export class ConvexApiClient {
     return page.snapshot;
   }
 
+  async importAirbyteRecords(options: {
+    tables: Record<string, ConvexImportTable>;
+    messages: ConvexImportMessage[];
+    signal?: AbortSignal;
+  }): Promise<void> {
+    await this.performRequest({
+      method: 'POST',
+      path: '/api/streaming_import/import_airbyte_records',
+      body: {
+        tables: options.tables,
+        messages: options.messages
+      },
+      signal: options.signal,
+      extraHeaders: {
+        'Content-Type': 'application/json',
+        'Convex-Client': 'streaming-import-1.0.0'
+      },
+      includeJsonFormat: false
+    });
+  }
+
+  async createWriteCheckpointMarker(options?: { headCursor?: string; signal?: AbortSignal }): Promise<void> {
+    const marker = {
+      powersync_lsn: options?.headCursor ?? (await this.getHeadCursor({ signal: options?.signal })),
+      powersync_created_at: Date.now(),
+      powersync_source: 'powersync'
+    };
+
+    let lastError: unknown;
+    for (const tableName of CONVEX_CHECKPOINT_TABLE_CANDIDATES) {
+      try {
+        await this.importAirbyteRecords({
+          tables: {
+            [tableName]: {
+              jsonSchema: POWERSYNC_CHECKPOINT_SCHEMA
+            }
+          },
+          messages: [
+            {
+              tableName,
+              data: marker
+            }
+          ],
+          signal: options?.signal
+        });
+        return;
+      } catch (error) {
+        lastError = error;
+        if (!shouldRetryCheckpointWithFallbackTable(error, tableName)) {
+          throw error;
+        }
+      }
+    }
+
+    throw lastError ?? new Error('Unable to create Convex write checkpoint marker');
+  }
+
   private async requestJson(options: {
     endpoint: string;
     params?: Record<string, unknown>;
@@ -182,12 +249,18 @@ export class ConvexApiClient {
   }
 
   private async performRequest(options: {
+    method?: 'GET' | 'POST';
     path: string;
     params?: Record<string, unknown>;
+    body?: unknown;
     signal?: AbortSignal;
+    extraHeaders?: Record<string, string>;
+    includeJsonFormat?: boolean;
   }): Promise<Record<string, any>> {
     const url = new URL(options.path, this.config.deploymentUrl);
-    url.searchParams.set('format', 'json');
+    if (options.includeJsonFormat ?? true) {
+      url.searchParams.set('format', 'json');
+    }
 
     for (const [key, value] of Object.entries(options.params ?? {})) {
       if (value == null) {
@@ -212,11 +285,13 @@ export class ConvexApiClient {
 
     try {
       const response = await fetch(url, {
-        method: 'GET',
+        method: options.method ?? 'GET',
         headers: {
           Authorization: `Convex ${this.config.deployKey}`,
-          Accept: 'application/json'
+          Accept: 'application/json',
+          ...(options.extraHeaders ?? {})
         },
+        body: options.body == null ? undefined : JSON.stringify(options.body),
         signal
       });
 
@@ -418,6 +493,22 @@ function isRecord(value: unknown): value is Record<string, any> {
   return typeof value == 'object' && value != null && !Array.isArray(value);
 }
 
+function shouldRetryCheckpointWithFallbackTable(error: unknown, tableName: string): boolean {
+  if (tableName != CONVEX_CHECKPOINT_TABLE_PRIMARY) {
+    return false;
+  }
+
+  if (!(error instanceof ConvexApiError)) {
+    return false;
+  }
+
+  if (error.retryable || error.status != 400) {
+    return false;
+  }
+
+  return true;
+}
+
 const RESERVED_SCHEMA_KEYS = new Set([
   'tables',
   'schema',
@@ -431,6 +522,18 @@ const RESERVED_SCHEMA_KEYS = new Set([
   'error',
   'errors'
 ]);
+
+const POWERSYNC_CHECKPOINT_SCHEMA = {
+  type: 'object',
+  properties: {
+    powersync_lsn: { type: 'string' },
+    powersync_created_at: { type: 'number' },
+    powersync_source: { type: 'string' }
+  },
+  additionalProperties: false,
+  required: ['powersync_lsn', 'powersync_created_at', 'powersync_source'],
+  $schema: 'http://json-schema.org/draft-07/schema#'
+} as const;
 
 function looksLikeJsonSchema(value: unknown): boolean {
   if (!isRecord(value)) {
