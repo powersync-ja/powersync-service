@@ -6,6 +6,7 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   ChecksumMap,
   InternalOpId,
+  JwtPayload,
   ReplicationCheckpoint,
   StreamingSyncRequest,
   SyncContext,
@@ -59,7 +60,7 @@ bucket_definitions:
   });
 
   const syncRequest: StreamingSyncRequest = {};
-  const tokenPayload: RequestJwtPayload = { sub: '' };
+  const tokenPayload = new JwtPayload({ sub: '' });
 
   test('global bucket with update', async () => {
     const storage = new MockBucketChecksumStateStorage();
@@ -497,7 +498,7 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      tokenPayload: { sub: 'u1' },
+      tokenPayload: new JwtPayload({ sub: 'u1' }),
       syncRequest,
       syncRules: SYNC_RULES_DYNAMIC,
       bucketStorage: storage
