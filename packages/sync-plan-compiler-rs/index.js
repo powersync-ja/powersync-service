@@ -16,8 +16,12 @@ function getNative() {
 }
 
 export function compileSyncPlanRust(yaml, options = {}) {
-  const planJson = getNative().compileSyncPlanJson(yaml, {
+  const planJson = compileSyncPlanRustSerialized(yaml, options);
+  return JSON.parse(planJson);
+}
+
+export function compileSyncPlanRustSerialized(yaml, options = {}) {
+  return getNative().compileSyncPlanJson(yaml, {
     defaultSchema: options.defaultSchema ?? null
   });
-  return JSON.parse(planJson);
 }

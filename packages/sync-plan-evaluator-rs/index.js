@@ -43,40 +43,56 @@ function parseJson(jsonText) {
   return JSON.parse(jsonText);
 }
 
+function stringifyForRust(value) {
+  return typeof value === 'string' ? value : JSON.stringify(normalizeForRust(value));
+}
+
 export class RustSyncPlanEvaluator {
   #inner;
 
   constructor(serializedPlan, options = {}) {
-    const asJson =
-      typeof serializedPlan === 'string' ? serializedPlan : JSON.stringify(normalizeForRust(serializedPlan));
+    const asJson = stringifyForRust(serializedPlan);
     this.#inner = new (getNative().NativeSyncPlanEvaluator)(asJson, {
       defaultSchema: options.defaultSchema ?? null
     });
   }
 
+  evaluateRowSerialized(optionsJson) {
+    return this.#inner.evaluateRowJson(optionsJson);
+  }
+
   evaluateRow(options) {
-    const payload = JSON.stringify(normalizeForRust(options));
-    return parseJson(this.#inner.evaluateRowJson(payload));
+    return parseJson(this.evaluateRowSerialized(stringifyForRust(options)));
+  }
+
+  evaluateParameterRowSerialized(optionsJson) {
+    return this.#inner.evaluateParameterRowJson(optionsJson);
   }
 
   evaluateParameterRow(sourceTable, record) {
-    const payload = JSON.stringify(
-      normalizeForRust({
-        sourceTable,
-        record
-      })
+    return parseJson(
+      this.evaluateParameterRowSerialized(
+        stringifyForRust({
+          sourceTable,
+          record
+        })
+      )
     );
-    return parseJson(this.#inner.evaluateParameterRowJson(payload));
+  }
+
+  prepareBucketQueriesSerialized(optionsJson) {
+    return this.#inner.prepareBucketQueriesJson(optionsJson);
   }
 
   prepareBucketQueries(options) {
-    const payload = JSON.stringify(normalizeForRust(options));
-    return parseJson(this.#inner.prepareBucketQueriesJson(payload));
+    return parseJson(this.prepareBucketQueriesSerialized(stringifyForRust(options)));
+  }
+
+  resolveBucketQueriesSerialized(preparedJson, lookupResultsJson) {
+    return this.#inner.resolveBucketQueriesJson(preparedJson, lookupResultsJson);
   }
 
   resolveBucketQueries(prepared, lookupResults) {
-    const preparedJson = JSON.stringify(normalizeForRust(prepared));
-    const resultsJson = JSON.stringify(normalizeForRust(lookupResults));
-    return parseJson(this.#inner.resolveBucketQueriesJson(preparedJson, resultsJson));
+    return parseJson(this.resolveBucketQueriesSerialized(stringifyForRust(prepared), stringifyForRust(lookupResults)));
   }
 }
