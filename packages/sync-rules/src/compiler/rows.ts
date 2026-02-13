@@ -6,27 +6,62 @@ import {
   equalsIgnoringResultSetUnordered
 } from './compatibility.js';
 import { RowExpression } from './filter.js';
-import { PhysicalSourceResultSet } from './table.js';
+import { PhysicalSourceResultSet, TableValuedResultSet } from './table.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 
 /**
  * A key describing how buckets or parameter lookups are parameterized.
  *
  * When constructing buckets, a value needs to be passed for each such key.
- * WHen invoking parameter lookups, values need to be passed as inputs.
+ * When invoking parameter lookups, values need to be passed as inputs.
  */
-export class PartitionKey implements EqualsIgnoringResultSet {
-  constructor(readonly expression: RowExpression) {}
+export abstract class PartitionKey implements EqualsIgnoringResultSet {
+  abstract equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean;
+  abstract assumingSameResultSetEqualityHashCode(hasher: StableHasher): void;
+}
+
+export class ScalarPartitionKey extends PartitionKey {
+  constructor(readonly expression: RowExpression) {
+    super();
+  }
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
     return (
-      other instanceof PartitionKey &&
+      other instanceof ScalarPartitionKey &&
       other.expression.expression.equalsAssumingSameResultSet(this.expression.expression)
     );
   }
 
   assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
     this.expression.expression.assumingSameResultSetEqualityHashCode(hasher);
+  }
+}
+
+/**
+ * A partition key derived from the output of a table-valued function added to a {@link SourceRowProcessor}.
+ */
+export class TableValuedPartitionKey extends PartitionKey {
+  constructor(
+    readonly fromFunction: SourceRowProcessorAddedTableValuedFunction,
+    readonly output: RowExpression
+  ) {
+    super();
+  }
+
+  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+    if (!(other instanceof TableValuedPartitionKey)) {
+      return false;
+    }
+
+    return (
+      other.fromFunction.equalsAssumingSameResultSet(this.fromFunction) &&
+      other.output.equalsAssumingSameResultSet(this.output)
+    );
+  }
+
+  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
+    this.fromFunction.assumingSameResultSetEqualityHashCode(hasher);
+    this.output.assumingSameResultSetEqualityHashCode(hasher);
   }
 }
 
@@ -42,6 +77,7 @@ interface SourceProcessorOptions {
   readonly syntacticSource: PhysicalSourceResultSet;
   readonly filters: RowExpression[];
   readonly partitionBy: PartitionKey[];
+  readonly addedFunctions: SourceRowProcessorAddedTableValuedFunction[];
 }
 
 abstract class BaseSourceRowProcessor {
@@ -57,11 +93,13 @@ abstract class BaseSourceRowProcessor {
    */
   readonly filters: RowExpression[];
   readonly partitionBy: PartitionKey[];
+  readonly addedFunctions: SourceRowProcessorAddedTableValuedFunction[];
 
   constructor(options: SourceProcessorOptions) {
     this.syntacticSource = options.syntacticSource;
     this.filters = options.filters;
     this.partitionBy = options.partitionBy;
+    this.addedFunctions = options.addedFunctions;
   }
 
   /**
@@ -97,6 +135,7 @@ abstract class BaseSourceRowProcessor {
       this.filters.map((f) => f.expression)
     );
     equalsIgnoringResultSetList.hash(hasher, this.partitionBy);
+    equalsIgnoringResultSetUnordered.hash(hasher, this.addedFunctions);
   }
 
   protected baseMatchesOther(other: BaseSourceRowProcessor) {
@@ -109,6 +148,10 @@ abstract class BaseSourceRowProcessor {
     }
 
     if (!equalsIgnoringResultSetUnordered.equals(other.filters, this.filters)) {
+      return false;
+    }
+
+    if (!equalsIgnoringResultSetUnordered.equals(other.addedFunctions, this.addedFunctions)) {
       return false;
     }
 
@@ -189,6 +232,38 @@ export class PointLookup extends BaseSourceRowProcessor {
 
   behavesIdenticalTo(other: PointLookup): boolean {
     return this.baseMatchesOther(other) && equalsIgnoringResultSetList.equals(other.result, this.result);
+  }
+}
+
+/**
+ * A table-valued function attached to a source processor.
+ *
+ * When processing source rows, all attached table-valued functions are expanded as well.
+ */
+export class SourceRowProcessorAddedTableValuedFunction implements EqualsIgnoringResultSet {
+  constructor(
+    readonly syntacticSource: TableValuedResultSet,
+    readonly functionName: string,
+    readonly inputs: RowExpression[],
+    readonly filters: RowExpression[]
+  ) {}
+
+  equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
+    if (!(other instanceof SourceRowProcessorAddedTableValuedFunction)) {
+      return false;
+    }
+
+    return (
+      other.functionName == this.functionName &&
+      equalsIgnoringResultSetList.equals(other.inputs, this.inputs) &&
+      equalsIgnoringResultSetList.equals(other.filters, this.filters)
+    );
+  }
+
+  assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
+    hasher.addString(this.functionName);
+    equalsIgnoringResultSetList.hash(hasher, this.inputs);
+    equalsIgnoringResultSetUnordered.hash(hasher, this.filters);
   }
 }
 

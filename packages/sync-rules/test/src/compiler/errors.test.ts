@@ -92,6 +92,19 @@ streams:
     ]);
   });
 
+  test('selecting column from table-valued function', () => {
+    expect(compilationErrorsForSingleStream("SELECT value FROM json_each(auth.parameter('x'))")).toStrictEqual([
+      {
+        message: 'Sync streams can only select from actual tables',
+        source: 'value'
+      },
+      {
+        message: 'Must have a result column selecting from a table',
+        source: "SELECT value FROM json_each(auth.parameter('x'))"
+      }
+    ]);
+  });
+
   test('join with using', () => {
     expect(compilationErrorsForSingleStream('SELECT u.* FROM users u INNER JOIN orgs USING (org_id)')).toStrictEqual([
       {
