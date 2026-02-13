@@ -1,0 +1,17 @@
+[package]
+name = "sync-plan-compiler-rs"
+version = "0.1.0"
+edition = "2021"
+license = "FSL-1.1-ALv2"
+description = "Rust sync plan compiler for PowerSync"
+
+[lib]
+name = "sync_plan_compiler_rs"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+pg_query = "6.1.1"
+sync-plan-evaluator-rs = { path = "../sync-plan-evaluator-rs" }
