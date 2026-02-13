@@ -75,37 +75,50 @@ export class PostgresCompactor {
   async compact() {
     if (this.buckets) {
       for (let bucket of this.buckets) {
-        // We can make this more efficient later on by iterating
-        // through the buckets in a single query.
-        // That makes batching more tricky, so we leave for later.
-        await this.compactInternal(bucket);
+        await this.compactSingleBucket(bucket);
       }
     } else {
-      await this.compactInternal(undefined);
+      await this.compactAllBuckets();
     }
   }
 
-  async compactInternal(bucket: string | undefined) {
+  private async compactAllBuckets() {
+    const DISCOVERY_BATCH_SIZE = 200;
+    let lastBucket = '';
+
+    while (true) {
+      const bucketRows = (await this.db.sql`
+        SELECT DISTINCT bucket_name
+        FROM bucket_data
+        WHERE
+          group_id = ${{ type: 'int4', value: this.group_id }}
+          AND bucket_name > ${{ type: 'varchar', value: lastBucket }}
+        ORDER BY bucket_name ASC
+        LIMIT ${{ type: 'int4', value: DISCOVERY_BATCH_SIZE }}
+      `.rows()) as { bucket_name: string }[];
+
+      if (bucketRows.length === 0) {
+        break;
+      }
+
+      for (const row of bucketRows) {
+        await this.compactSingleBucket(row.bucket_name);
+      }
+
+      lastBucket = bucketRows[bucketRows.length - 1].bucket_name;
+    }
+  }
+
+  private async compactSingleBucket(bucket: string) {
     const idLimitBytes = this.idLimitBytes;
 
-    let currentState: CurrentBucketState | null = null;
-
-    let bucketLower: string | null = null;
-    let bucketUpper: string | null = null;
-    const MAX_CHAR = String.fromCodePoint(0xffff);
-
-    if (bucket == null) {
-      bucketLower = '';
-      bucketUpper = MAX_CHAR;
-    } else if (bucket?.includes('[')) {
-      // Exact bucket name
-      bucketLower = bucket;
-      bucketUpper = bucket;
-    } else if (bucket) {
-      // Bucket definition name
-      bucketLower = `${bucket}[`;
-      bucketUpper = `${bucket}[${MAX_CHAR}`;
-    }
+    let currentState: CurrentBucketState = {
+      bucket: bucket,
+      seen: new Map(),
+      trackingSize: 0,
+      lastNotPut: null,
+      opsSincePut: 0
+    };
 
     let upperOpIdLimit = BIGINT_MAX;
 
@@ -123,16 +136,9 @@ export class PostgresCompactor {
           bucket_data
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
-          AND bucket_name >= ${{ type: 'varchar', value: bucketLower }}
-          AND (
-            (
-              bucket_name = ${{ type: 'varchar', value: bucketUpper }}
-              AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
-            )
-            OR bucket_name < ${{ type: 'varchar', value: bucketUpper }} COLLATE "C" -- Use binary comparison
-          )
+          AND bucket_name = ${{ type: 'varchar', value: bucket }}
+          AND op_id < ${{ type: 'int8', value: upperOpIdLimit }}
         ORDER BY
-          bucket_name DESC,
           op_id DESC
         LIMIT
           ${{ type: 'int4', value: this.moveBatchQueryLimit }}
@@ -150,32 +156,8 @@ export class PostgresCompactor {
       // Set upperBound for the next batch
       const lastBatchItem = batch[batch.length - 1];
       upperOpIdLimit = lastBatchItem.op_id;
-      bucketUpper = lastBatchItem.bucket_name;
 
       for (const doc of batch) {
-        if (currentState == null || doc.bucket_name != currentState.bucket) {
-          if (currentState != null && currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
-            // Important to flush before clearBucket()
-            await this.flush();
-            logger.info(
-              `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-            );
-
-            const bucket = currentState.bucket;
-            const clearOp = currentState.lastNotPut;
-            // Free memory before clearing bucket
-            currentState = null;
-            await this.clearBucket(bucket, clearOp);
-          }
-          currentState = {
-            bucket: doc.bucket_name,
-            seen: new Map(),
-            trackingSize: 0,
-            lastNotPut: null,
-            opsSincePut: 0
-          };
-        }
-
         if (this.maxOpId != null && doc.op_id > this.maxOpId) {
           continue;
         }
@@ -237,16 +219,12 @@ export class PostgresCompactor {
     }
 
     await this.flush();
-    currentState?.seen.clear();
-    if (currentState?.lastNotPut != null && currentState?.opsSincePut > 1) {
+    currentState.seen.clear();
+    if (currentState.lastNotPut != null && currentState.opsSincePut > 1) {
       logger.info(
         `Inserting CLEAR at ${this.group_id}:${currentState.bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
       );
-      const bucket = currentState.bucket;
-      const clearOp = currentState.lastNotPut;
-      // Free memory before clearing bucket
-      currentState = null;
-      await this.clearBucket(bucket, clearOp);
+      await this.clearBucket(currentState.bucket, currentState.lastNotPut);
     }
   }
 
