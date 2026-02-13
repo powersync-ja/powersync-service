@@ -1,7 +1,6 @@
 use bson::raw::{RawArray, RawBsonRef, RawDocument, RawRegexRef};
 use bson::{spec::BinarySubtype, DateTime, Decimal128, Timestamp};
 use serde_json::{Map, Number, Value};
-use std::fmt::Write as _;
 use thiserror::Error;
 
 const BYTES_MARKER_KEY: &str = "__bytes";
@@ -271,27 +270,52 @@ fn write_timestamp_json(value: Timestamp, out: &mut String) {
 }
 
 fn push_json_string(out: &mut String, value: &str) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
     out.push('"');
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\u{08}' => out.push_str("\\b"),
-            '\u{0C}' => out.push_str("\\f"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if c <= '\u{1F}' => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            _ => out.push(ch),
+    let bytes = value.as_bytes();
+    let mut start = 0usize;
+
+    for (index, &byte) in bytes.iter().enumerate() {
+        let escaped = match byte {
+            b'"' => Some("\\\""),
+            b'\\' => Some("\\\\"),
+            b'\n' => Some("\\n"),
+            b'\r' => Some("\\r"),
+            b'\t' => Some("\\t"),
+            0x08 => Some("\\b"),
+            0x0c => Some("\\f"),
+            0x00..=0x1f => None,
+            _ => continue,
+        };
+
+        if start < index {
+            // SAFETY: we only split around ASCII bytes, never inside UTF-8 multibyte sequences.
+            out.push_str(unsafe { std::str::from_utf8_unchecked(&bytes[start..index]) });
         }
+
+        if let Some(text) = escaped {
+            out.push_str(text);
+        } else {
+            out.push_str("\\u00");
+            out.push(HEX[(byte >> 4) as usize] as char);
+            out.push(HEX[(byte & 0x0f) as usize] as char);
+        }
+
+        start = index + 1;
     }
+
+    if start < bytes.len() {
+        // SAFETY: `start` is always aligned to a UTF-8 codepoint boundary (see loop above).
+        out.push_str(unsafe { std::str::from_utf8_unchecked(&bytes[start..]) });
+    }
+
     out.push('"');
 }
 
 fn write_i64(out: &mut String, value: i64) {
-    let _ = write!(out, "{value}");
+    let mut buffer = itoa::Buffer::new();
+    out.push_str(buffer.format(value));
 }
 
 fn write_number_or_integer(value: f64, out: &mut String) -> ConverterResult<()> {
@@ -302,7 +326,8 @@ fn write_number_or_integer(value: f64, out: &mut String) -> ConverterResult<()> 
     if value.fract() == 0.0 && value >= i64::MIN as f64 && value <= i64::MAX as f64 {
         write_i64(out, value as i64);
     } else {
-        let _ = write!(out, "{value}");
+        let mut buffer = ryu::Buffer::new();
+        out.push_str(buffer.format_finite(value));
     }
 
     Ok(())
