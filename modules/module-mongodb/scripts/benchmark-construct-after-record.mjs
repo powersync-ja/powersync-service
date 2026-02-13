@@ -11,6 +11,7 @@ const TARGET_DOC_BYTES = Number.isFinite(Number(numericArgs[3])) ? Number(numeri
 
 const rustConverter = new MongoAfterRecordConverter();
 const jsCompatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+const NESTED_DEPTH_LIMIT = 20;
 
 const wideBaseDocument = buildLargeBaseDocument(TARGET_DOC_BYTES);
 const wideDocuments = buildDocumentVariants(wideBaseDocument, DOC_VARIANTS);
@@ -29,23 +30,98 @@ function runJsForBuffer(bytes, compatibility) {
   return applyRowContext(row, compatibility);
 }
 
+function runJsStreamingNestedForBuffer(bytes) {
+  // Benchmark prototype: parse BSON bytes directly and serialize nested values without building nested JS objects.
+  // Coverage is intentionally focused on types exercised by this benchmark scenario.
+  const row = {};
+  const bodyEnd = readInt32LE(bytes, 0) - 1;
+  let offset = 4;
+
+  while (offset < bodyEnd) {
+    const type = bytes[offset++];
+    const [key, afterKey] = readCString(bytes, offset);
+    offset = afterKey;
+
+    switch (type) {
+      case 0x07: {
+        row[key] = hexLower(bytes, offset, 12);
+        offset += 12;
+        break;
+      }
+      case 0x02: {
+        const length = readInt32LE(bytes, offset);
+        const stringStart = offset + 4;
+        row[key] = bytes.toString('utf8', stringStart, stringStart + length - 1);
+        offset = stringStart + length;
+        break;
+      }
+      case 0x04: {
+        row[key] = serializeNestedValueToJson(bytes, offset, true, 1);
+        offset += readInt32LE(bytes, offset);
+        break;
+      }
+      case 0x03: {
+        row[key] = serializeNestedValueToJson(bytes, offset, false, 1);
+        offset += readInt32LE(bytes, offset);
+        break;
+      }
+      case 0x08: {
+        row[key] = bytes[offset++] ? 1n : 0n;
+        break;
+      }
+      case 0x10: {
+        row[key] = BigInt(readInt32LE(bytes, offset));
+        offset += 4;
+        break;
+      }
+      case 0x12: {
+        row[key] = bytes.readBigInt64LE(offset);
+        offset += 8;
+        break;
+      }
+      case 0x01: {
+        const value = bytes.readDoubleLE(offset);
+        offset += 8;
+        row[key] = Number.isInteger(value) ? BigInt(value) : value;
+        break;
+      }
+      default: {
+        row[key] = null;
+        offset = skipBsonValue(bytes, offset, type);
+        break;
+      }
+    }
+  }
+
+  return row;
+}
+
 function runScenario(name, documents) {
   const bsonBuffers = documents.map((document) => mongo.BSON.serialize(document));
   const jsFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsForBuffer(bytes, jsCompatibility));
   const rustFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => rustConverter.constructAfterRecordObject(bytes));
+  const jsStreamingNestedFromBson =
+    name === 'nested-array'
+      ? makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsStreamingNestedForBuffer(bytes))
+      : null;
 
   const sampleInput = bsonBuffers[0];
   const sampleJs = runJsForBuffer(sampleInput, jsCompatibility);
   const sampleRust = rustConverter.constructAfterRecordObject(sampleInput);
+  const sampleJsStreamingNested = jsStreamingNestedFromBson ? runJsStreamingNestedForBuffer(sampleInput) : null;
   const parity = compareRows(sampleJs, sampleRust);
+  const streamingParity = sampleJsStreamingNested ? compareRows(sampleJs, sampleJsStreamingNested) : null;
 
   console.log('');
   console.log(`[scenario=${name}]`);
   console.log(
-    `sizes bson_input=${sampleInput.length}B output[js]=${estimateObjectBytes(sampleJs)}B output[rust]=${estimateObjectBytes(sampleRust)}B variants=${bsonBuffers.length} parity_sample=${parity}`
+    `sizes bson_input=${sampleInput.length}B output[js]=${estimateObjectBytes(sampleJs)}B output[rust]=${estimateObjectBytes(sampleRust)}B variants=${bsonBuffers.length} parity_sample=${parity}${streamingParity == null ? '' : ` parity_js_streaming_sample=${streamingParity}`}`
   );
 
   benchmark(`constructAfterRecord js (object out) [${name}]`, jsFromBson);
+  if (jsStreamingNestedFromBson) {
+    benchmark(`constructAfterRecord js (stream nested) [${name}]`, jsStreamingNestedFromBson);
+  }
   benchmark(`constructAfterRecord rust (object out) [${name}]`, rustFromBson);
 }
 
@@ -131,6 +207,194 @@ function compareRows(left, right) {
   }
 
   return true;
+}
+
+function readInt32LE(bytes, offset) {
+  return bytes.readInt32LE(offset);
+}
+
+function readCString(bytes, offset) {
+  const end = bytes.indexOf(0, offset);
+  if (end < 0) {
+    throw new Error('Invalid BSON: missing cstring terminator');
+  }
+  return [bytes.toString('utf8', offset, end), end + 1];
+}
+
+function skipBsonValue(bytes, offset, type) {
+  switch (type) {
+    case 0x01:
+      return offset + 8;
+    case 0x02: {
+      const length = readInt32LE(bytes, offset);
+      return offset + 4 + length;
+    }
+    case 0x03:
+    case 0x04:
+      return offset + readInt32LE(bytes, offset);
+    case 0x05: {
+      const length = readInt32LE(bytes, offset);
+      return offset + 4 + 1 + length;
+    }
+    case 0x06:
+    case 0x0a:
+    case 0xff:
+    case 0x7f:
+      return offset;
+    case 0x07:
+      return offset + 12;
+    case 0x08:
+      return offset + 1;
+    case 0x09:
+      return offset + 8;
+    case 0x0b: {
+      const patternEnd = bytes.indexOf(0, offset);
+      const optionsEnd = bytes.indexOf(0, patternEnd + 1);
+      if (patternEnd < 0 || optionsEnd < 0) {
+        throw new Error('Invalid BSON regex');
+      }
+      return optionsEnd + 1;
+    }
+    case 0x10:
+      return offset + 4;
+    case 0x11:
+      return offset + 8;
+    case 0x12:
+      return offset + 8;
+    case 0x13:
+      return offset + 16;
+    default:
+      throw new Error(`Unsupported BSON type for skip: 0x${type.toString(16)}`);
+  }
+}
+
+function serializeNestedValueToJson(bytes, offset, isArray, depth) {
+  if (depth > NESTED_DEPTH_LIMIT) {
+    throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
+  }
+
+  const totalLength = readInt32LE(bytes, offset);
+  const bodyEnd = offset + totalLength - 1;
+  let cursor = offset + 4;
+  const parts = [isArray ? '[' : '{'];
+  let first = true;
+
+  while (cursor < bodyEnd) {
+    const type = bytes[cursor++];
+    const [key, afterKey] = readCString(bytes, cursor);
+    cursor = afterKey;
+
+    const [serialized, nextCursor, defined] = serializeNestedElementValue(bytes, cursor, type, depth);
+    cursor = nextCursor;
+
+    if (!defined && !isArray) {
+      continue;
+    }
+
+    if (!first) {
+      parts.push(',');
+    }
+    first = false;
+
+    if (isArray) {
+      parts.push(defined ? serialized : 'null');
+    } else {
+      parts.push(JSON.stringify(key), ':', serialized);
+    }
+  }
+
+  parts.push(isArray ? ']' : '}');
+  return parts.join('');
+}
+
+function serializeNestedElementValue(bytes, offset, type, depth) {
+  switch (type) {
+    case 0x01: {
+      const value = bytes.readDoubleLE(offset);
+      const serialized = Number.isInteger(value) ? Math.trunc(value).toString() : Number(value).toString();
+      return [serialized, offset + 8, true];
+    }
+    case 0x02: {
+      const length = readInt32LE(bytes, offset);
+      const stringStart = offset + 4;
+      const text = bytes.toString('utf8', stringStart, stringStart + length - 1);
+      return [JSON.stringify(text), stringStart + length, true];
+    }
+    case 0x03: {
+      const serialized = serializeNestedValueToJson(bytes, offset, false, depth + 1);
+      return [serialized, offset + readInt32LE(bytes, offset), true];
+    }
+    case 0x04: {
+      const serialized = serializeNestedValueToJson(bytes, offset, true, depth + 1);
+      return [serialized, offset + readInt32LE(bytes, offset), true];
+    }
+    case 0x05: {
+      const next = skipBsonValue(bytes, offset, type);
+      return ['', next, false];
+    }
+    case 0x06:
+      return ['', offset, false];
+    case 0x07: {
+      const value = JSON.stringify(hexLower(bytes, offset, 12));
+      return [value, offset + 12, true];
+    }
+    case 0x08:
+      return [bytes[offset] ? '1' : '0', offset + 1, true];
+    case 0x09: {
+      const millis = Number(bytes.readBigInt64LE(offset));
+      const value = JSON.stringify(legacyDateTimeString(millis));
+      return [value, offset + 8, true];
+    }
+    case 0x0a:
+    case 0xff:
+    case 0x7f:
+      return ['null', offset, true];
+    case 0x0b: {
+      const patternEnd = bytes.indexOf(0, offset);
+      const optionsEnd = bytes.indexOf(0, patternEnd + 1);
+      if (patternEnd < 0 || optionsEnd < 0) {
+        throw new Error('Invalid BSON regex');
+      }
+      const pattern = bytes.toString('utf8', offset, patternEnd);
+      const optionsRaw = bytes.toString('utf8', patternEnd + 1, optionsEnd);
+      const options = regexOptionsToJsFlags(optionsRaw);
+      return [JSON.stringify({ pattern, options }), optionsEnd + 1, true];
+    }
+    case 0x10: {
+      const value = readInt32LE(bytes, offset);
+      return [String(value), offset + 4, true];
+    }
+    case 0x11: {
+      const increment = bytes.readUInt32LE(offset);
+      const time = bytes.readUInt32LE(offset + 4);
+      return [JSON.stringify({ t: time, i: increment }), offset + 8, true];
+    }
+    case 0x12: {
+      const value = bytes.readBigInt64LE(offset);
+      return [value.toString(), offset + 8, true];
+    }
+    case 0x13:
+      return ['', offset + 16, false];
+    default:
+      throw new Error(`Unsupported BSON nested type: 0x${type.toString(16)}`);
+  }
+}
+
+function legacyDateTimeString(millis) {
+  const iso = new Date(millis).toISOString();
+  return `${iso.slice(0, 10)} ${iso.slice(11)}`;
+}
+
+function regexOptionsToJsFlags(options) {
+  let out = '';
+  if (options.includes('s')) out += 'g';
+  if (options.includes('i')) out += 'i';
+  if (options.includes('m')) out += 'm';
+  return out;
+}
+
+function hexLower(bytes, offset, length) {
+  return bytes.toString('hex', offset, offset + length);
 }
 
 function equalValues(left, right) {
