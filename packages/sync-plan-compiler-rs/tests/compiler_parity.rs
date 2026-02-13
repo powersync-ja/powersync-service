@@ -336,6 +336,20 @@ streams:
 }
 
 #[test]
+fn parity_with_js_for_row_and_request_filter_combination() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT * FROM users WHERE status = 'active' AND id = auth.user_id()
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
 fn parity_with_js_for_response_9_join_variant() {
     let yaml = r#"
 config:
