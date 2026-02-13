@@ -3,23 +3,49 @@ import { CompatibilityContext, applyRowContext } from '@powersync/service-sync-r
 import { constructAfterRecord } from '../dist/replication/MongoRelation.js';
 import { MongoAfterRecordConverter } from '@powersync/mongo-after-record-rs';
 import { runJsStreamingNestedForBuffer } from './benchmark-construct-after-record-streaming.mjs';
+import { performance, PerformanceObserver, constants as perfConstants } from 'node:perf_hooks';
 
 const numericArgs = process.argv.slice(2).filter((arg) => /^-?\d+$/.test(arg));
 const ITERATIONS = Number.isFinite(Number(numericArgs[0])) ? Number(numericArgs[0]) : 2000;
 const WARMUP = Number.isFinite(Number(numericArgs[1])) ? Number(numericArgs[1]) : 200;
 const DOC_VARIANTS = Number.isFinite(Number(numericArgs[2])) ? Number(numericArgs[2]) : 64;
 const TARGET_DOC_BYTES = Number.isFinite(Number(numericArgs[3])) ? Number(numericArgs[3]) : 100 * 1024;
+const EXPLICIT_GC_ENABLED = typeof global.gc == 'function';
 
 const rustConverter = new MongoAfterRecordConverter();
 const jsCompatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+const gcEvents = [];
+const gcKindNames = new Map([
+  [perfConstants.NODE_PERFORMANCE_GC_MINOR, 'minor'],
+  [perfConstants.NODE_PERFORMANCE_GC_MAJOR, 'major'],
+  [perfConstants.NODE_PERFORMANCE_GC_INCREMENTAL, 'incremental'],
+  [perfConstants.NODE_PERFORMANCE_GC_WEAKCB, 'weakcb']
+]);
+
+const gcObserver = new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) {
+    const detail = entry.detail ?? {};
+    const kindName = gcKindNames.get(detail.kind) ?? 'unknown';
+    gcEvents.push({
+      startTime: entry.startTime,
+      duration: entry.duration,
+      kindName
+    });
+  }
+});
+gcObserver.observe({ entryTypes: ['gc'] });
+
+if (!EXPLICIT_GC_ENABLED) {
+  console.log('[note] Run with --expose-gc for normalized GC baselines before each benchmark case.');
+}
 
 const wideBaseDocument = buildLargeBaseDocument(TARGET_DOC_BYTES);
 const wideDocuments = buildDocumentVariants(wideBaseDocument, DOC_VARIANTS);
-runScenario('wide-doc', wideDocuments);
+await runScenario('wide-doc', wideDocuments);
 
 const nestedArrayBaseDocument = buildNestedArrayBaseDocument(TARGET_DOC_BYTES);
 const nestedArrayDocuments = buildNestedArrayVariants(nestedArrayBaseDocument, DOC_VARIANTS);
-runScenario('nested-array', nestedArrayDocuments);
+await runScenario('nested-array', nestedArrayDocuments);
 
 function runJsForBuffer(bytes, compatibility) {
   const decoded = mongo.BSON.deserialize(bytes, {
@@ -30,7 +56,7 @@ function runJsForBuffer(bytes, compatibility) {
   return applyRowContext(row, compatibility);
 }
 
-function runScenario(name, documents) {
+async function runScenario(name, documents) {
   const bsonBuffers = documents.map((document) => mongo.BSON.serialize(document));
   const jsFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsForBuffer(bytes, jsCompatibility));
   const rustFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => rustConverter.constructAfterRecordObject(bytes));
@@ -49,30 +75,72 @@ function runScenario(name, documents) {
     `sizes bson_input=${sampleInput.length}B output[js]=${estimateObjectBytes(sampleJs)}B output[rust]=${estimateObjectBytes(sampleRust)}B variants=${bsonBuffers.length} parity_sample=${parity} parity_js_streaming_sample=${streamingParity}`
   );
 
-  benchmark(`constructAfterRecord js (object out) [${name}]`, jsFromBson);
-  benchmark(`constructAfterRecord js (stream nested) [${name}]`, jsStreamingNestedFromBson);
-  benchmark(`constructAfterRecord rust (object out) [${name}]`, rustFromBson);
+  await benchmark(`constructAfterRecord js (object out) [${name}]`, jsFromBson);
+  await benchmark(`constructAfterRecord js (stream nested) [${name}]`, jsStreamingNestedFromBson);
+  await benchmark(`constructAfterRecord rust (object out) [${name}]`, rustFromBson);
 }
 
-function benchmark(name, fn) {
+async function benchmark(name, fn) {
+  if (EXPLICIT_GC_ENABLED) {
+    global.gc();
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  const caseStart = performance.now();
   let sink = 0;
 
   for (let i = 0; i < WARMUP; i++) {
     sink ^= objectSignature(fn());
   }
+  await new Promise((resolve) => setImmediate(resolve));
 
+  const windowStart = performance.now();
   const started = process.hrtime.bigint();
   for (let i = 0; i < ITERATIONS; i++) {
     sink ^= objectSignature(fn());
   }
   const elapsedNs = Number(process.hrtime.bigint() - started);
+  const windowEnd = performance.now();
+  await new Promise((resolve) => setImmediate(resolve));
+  const caseEnd = performance.now();
+  const gcMeasured = summarizeGcEvents(windowStart, windowEnd);
+  const gcCase = summarizeGcEvents(caseStart, caseEnd);
 
   const perOpNs = elapsedNs / ITERATIONS;
   const opsPerSecond = (1e9 / perOpNs).toFixed(0);
+  const wallMsMeasured = windowEnd - windowStart;
+  const gcPctMeasured = wallMsMeasured > 0 ? (gcMeasured.ms / wallMsMeasured) * 100 : 0;
+  const wallMsCase = caseEnd - caseStart;
+  const gcPctCase = wallMsCase > 0 ? (gcCase.ms / wallMsCase) * 100 : 0;
 
   console.log(
-    `${name.padEnd(40)} ${opsPerSecond.padStart(10)} ops/s (${perOpNs.toFixed(0)} ns/op, ${ITERATIONS} iterations, sink=${sink})`
+    `${name.padEnd(40)} ${opsPerSecond.padStart(10)} ops/s (${perOpNs.toFixed(0)} ns/op, ${ITERATIONS} iterations, sink=${sink}) gc_loop=${gcMeasured.ms.toFixed(2)}ms (${gcPctMeasured.toFixed(1)}%, e=${gcMeasured.events}) gc_case=${gcCase.ms.toFixed(2)}ms (${gcPctCase.toFixed(1)}%, e=${gcCase.events}, m=${gcCase.minorEvents}, M=${gcCase.majorEvents}, i=${gcCase.incrementalEvents}, w=${gcCase.weakcbEvents})`
   );
+}
+
+function summarizeGcEvents(windowStart, windowEnd) {
+  const summary = {
+    events: 0,
+    ms: 0,
+    minorEvents: 0,
+    majorEvents: 0,
+    incrementalEvents: 0,
+    weakcbEvents: 0
+  };
+
+  for (const event of gcEvents) {
+    if (event.startTime < windowStart || event.startTime > windowEnd) {
+      continue;
+    }
+
+    summary.events += 1;
+    summary.ms += event.duration;
+    if (event.kindName === 'minor') summary.minorEvents += 1;
+    else if (event.kindName === 'major') summary.majorEvents += 1;
+    else if (event.kindName === 'incremental') summary.incrementalEvents += 1;
+    else if (event.kindName === 'weakcb') summary.weakcbEvents += 1;
+  }
+
+  return summary;
 }
 
 function objectSignature(row) {
