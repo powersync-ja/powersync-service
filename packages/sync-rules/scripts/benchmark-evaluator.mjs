@@ -1,4 +1,5 @@
 import * as sqlite from 'node:sqlite';
+import { JSONBig } from '@powersync/service-jsonbig';
 import {
   CompatibilityContext,
   CompatibilityEdition,
@@ -64,15 +65,16 @@ const sqliteHydrated = new PrecompiledSyncConfig(plan, {
 }).hydrate({ hydrationState: versionedHydrationState(1) });
 
 const commentRecord = buildLargeCommentRecord(TARGET_ROW_INPUT_BYTES);
-const evaluateRowInputJson = JSON.stringify({
+const evaluateRowInput = {
   sourceTable: { connectionTag: 'default', schema: 'test_schema', name: 'comments' },
   record: commentRecord
-});
+};
+const evaluateRowInputJson = JSONBig.stringify(evaluateRowInput);
 
 const rustEvaluator = new RustSyncPlanEvaluator(serializedPlanJson, { defaultSchema: 'test_schema' });
 
-const evaluateJs = () => evaluateRowSerialized(jsHydrated, evaluateRowInputJson);
-const evaluateSqlite = () => evaluateRowSerialized(sqliteHydrated, evaluateRowInputJson);
+const evaluateJs = () => evaluateRowWithJsonBig(jsHydrated, evaluateRowInput);
+const evaluateSqlite = () => evaluateRowWithJsonBig(sqliteHydrated, evaluateRowInput);
 const evaluateRust = () => rustEvaluator.evaluateRowSerialized(evaluateRowInputJson);
 
 console.log(
@@ -81,17 +83,16 @@ console.log(
   )}B output[rust]=${byteLength(evaluateRust())}B`
 );
 
-benchmark('evaluateRow serialized js', evaluateJs);
-benchmark('evaluateRow serialized sqlite', evaluateSqlite);
-benchmark('evaluateRow serialized rust', evaluateRust);
+benchmark('evaluateRow js (obj in, JSONBig out)', evaluateJs);
+benchmark('evaluateRow sqlite (obj in, JSONBig out)', evaluateSqlite);
+benchmark('evaluateRow rust (json in/out)', evaluateRust);
 
 jsEngine.close();
 sqliteEngine.close();
 
-function evaluateRowSerialized(hydrated, optionsJson) {
-  const options = JSON.parse(optionsJson);
+function evaluateRowWithJsonBig(hydrated, options) {
   const rows = hydrated.evaluateRow(options);
-  return serializeJson(rows);
+  return JSONBig.stringify(rows);
 }
 
 function benchmark(name, fn) {
@@ -141,7 +142,7 @@ function buildLargeCommentRecord(targetBytes) {
   base.thread_windows = [];
 
   let idx = 0;
-  let serialized = serializeJson(base);
+  let serialized = JSONBig.stringify(base);
   while (byteLength(serialized) < targetBytes) {
     for (let i = 0; i < 64; i++) {
       const n = idx + i;
@@ -180,21 +181,10 @@ function buildLargeCommentRecord(targetBytes) {
       });
     }
     idx += 64;
-    serialized = serializeJson(base);
+    serialized = JSONBig.stringify(base);
   }
 
   return base;
-}
-
-function serializeJson(value) {
-  return JSON.stringify(value, (_key, nested) => {
-    if (typeof nested !== 'bigint') {
-      return nested;
-    }
-
-    const asNumber = Number(nested);
-    return Number.isSafeInteger(asNumber) ? asNumber : nested.toString();
-  });
 }
 
 function digestFor(index) {
