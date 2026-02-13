@@ -343,6 +343,124 @@ console.log(JSON.stringify({
 }
 
 #[test]
+fn parity_with_js_for_text_numeric_comparison_request_filter() {
+    let node_payload = run_node(
+        r#"
+import { BaseJwtPayload, RequestParameters, SqlSyncRules, serializeSyncPlan } from './packages/sync-rules/dist/index.js';
+const yaml = `
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM issues WHERE '1' = 1
+`;
+const {config} = SqlSyncRules.fromYaml(yaml,{defaultSchema:'test_schema',throwOnError:true,allowNewSyncCompiler:true});
+const hydrated = config.hydrate();
+const {querier, errors} = hydrated.getBucketParameterQuerier({
+  globalParameters: new RequestParameters(new BaseJwtPayload({}), {}),
+  hasDefaultStreams: true,
+  streams: {}
+});
+console.log(JSON.stringify({
+  plan: serializeSyncPlan(config.plan),
+  errors,
+  staticBuckets: querier.staticBuckets,
+  dynamicQueries: querier.dynamicQueries ?? []
+}));
+"#,
+    );
+
+    let evaluator = SyncPlanEvaluator::from_serialized_json(
+        &serde_json::to_string(&node_payload["plan"]).unwrap(),
+        EvaluatorOptions::default(),
+    )
+    .unwrap();
+
+    let prepared = evaluator
+        .prepare_bucket_queries(PrepareBucketQueryOptions {
+            global_parameters: RequestParameters {
+                auth: json!({}),
+                connection: json!({}),
+                subscription: json!({}),
+            },
+            has_default_streams: true,
+            streams: std::collections::BTreeMap::new(),
+        })
+        .unwrap();
+
+    assert_eq!(node_payload["errors"], json!([]));
+    assert_eq!(
+        serde_json::to_value(&prepared.static_buckets).unwrap(),
+        node_payload["staticBuckets"]
+    );
+    assert_eq!(
+        serde_json::to_value(&prepared.dynamic_queries).unwrap(),
+        node_payload["dynamicQueries"]
+    );
+}
+
+#[test]
+fn parity_with_js_for_integer_division_request_filter() {
+    let node_payload = run_node(
+        r#"
+import { BaseJwtPayload, RequestParameters, SqlSyncRules, serializeSyncPlan } from './packages/sync-rules/dist/index.js';
+const yaml = `
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM issues WHERE 5 / 2 = 2
+`;
+const {config} = SqlSyncRules.fromYaml(yaml,{defaultSchema:'test_schema',throwOnError:true,allowNewSyncCompiler:true});
+const hydrated = config.hydrate();
+const {querier, errors} = hydrated.getBucketParameterQuerier({
+  globalParameters: new RequestParameters(new BaseJwtPayload({}), {}),
+  hasDefaultStreams: true,
+  streams: {}
+});
+console.log(JSON.stringify({
+  plan: serializeSyncPlan(config.plan),
+  errors,
+  staticBuckets: querier.staticBuckets,
+  dynamicQueries: querier.dynamicQueries ?? []
+}));
+"#,
+    );
+
+    let evaluator = SyncPlanEvaluator::from_serialized_json(
+        &serde_json::to_string(&node_payload["plan"]).unwrap(),
+        EvaluatorOptions::default(),
+    )
+    .unwrap();
+
+    let prepared = evaluator
+        .prepare_bucket_queries(PrepareBucketQueryOptions {
+            global_parameters: RequestParameters {
+                auth: json!({}),
+                connection: json!({}),
+                subscription: json!({}),
+            },
+            has_default_streams: true,
+            streams: std::collections::BTreeMap::new(),
+        })
+        .unwrap();
+
+    assert_eq!(node_payload["errors"], json!([]));
+    assert_eq!(
+        serde_json::to_value(&prepared.static_buckets).unwrap(),
+        node_payload["staticBuckets"]
+    );
+    assert_eq!(
+        serde_json::to_value(&prepared.dynamic_queries).unwrap(),
+        node_payload["dynamicQueries"]
+    );
+}
+
+#[test]
 fn resolves_dynamic_bucket_queries() {
     let node_payload = run_node(
         r#"

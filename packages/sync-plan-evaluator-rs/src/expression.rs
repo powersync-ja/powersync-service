@@ -345,7 +345,11 @@ fn evaluate_binary(operator: &str, left: &Value, right: &Value) -> EvaluatorResu
             compare_sql_values(left, right),
             Ordering::Equal,
         )),
+        "!=" | "<>" => Ok(compare_ordering(compare_sql_values(left, right), |o| {
+            o != Ordering::Equal
+        })),
         "is" => Ok(Value::Number(Number::from((left == right) as i64))),
+        "is not" => Ok(Value::Number(Number::from((left != right) as i64))),
         "<" => Ok(compare_result(
             compare_sql_values(left, right),
             Ordering::Less,
@@ -562,5 +566,31 @@ mod tests {
         };
 
         assert_eq!(eval(&expr), Value::Null);
+    }
+
+    #[test]
+    fn text_and_numeric_equality_follow_sqlite_type_order() {
+        let expr = SqlExpression::Binary {
+            left: Box::new(SqlExpression::LitString {
+                value: "1".to_string(),
+            }),
+            operator: "=".to_string(),
+            right: Box::new(int(1)),
+        };
+
+        assert_eq!(eval(&expr), Value::Number(Number::from(0)));
+    }
+
+    #[test]
+    fn not_equal_operator_is_supported() {
+        let expr = SqlExpression::Binary {
+            left: Box::new(SqlExpression::LitString {
+                value: "1".to_string(),
+            }),
+            operator: "!=".to_string(),
+            right: Box::new(int(1)),
+        };
+
+        assert_eq!(eval(&expr), Value::Number(Number::from(1)));
     }
 }

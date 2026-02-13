@@ -1,7 +1,7 @@
 use pg_query::protobuf;
 use pg_query::protobuf::node::Node as PgNodeEnum;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use sync_plan_evaluator_rs::model::{
     CaseWhenBranch, ColumnSource, ExternalSource, LookupReference, PartitionKey,
     ParameterLookupScope, SerializedBucketDataSource, SerializedDataSource, SerializedExpandingLookup,
@@ -304,15 +304,22 @@ fn canonicalize_sources_and_buckets(
     let mut canonical_buckets = Vec::<SerializedBucketDataSource>::new();
 
     for (old_index, bucket) in buckets.iter().cloned().enumerate() {
-        let mut sources = bucket
+        let mapped_sources = bucket
             .sources
             .into_iter()
             .map(|index| source_remap[index])
             .collect::<Vec<_>>();
-        sources.sort_unstable();
-        sources.dedup();
+        let mut seen = HashSet::new();
+        let mut sources = Vec::new();
+        for source in mapped_sources {
+            if seen.insert(source) {
+                sources.push(source);
+            }
+        }
 
-        let signature = serde_json::to_string(&sources)?;
+        let mut signature_sources = sources.clone();
+        signature_sources.sort_unstable();
+        let signature = serde_json::to_string(&signature_sources)?;
         if let Some(index) = bucket_signature_map.get(&signature) {
             bucket_remap[old_index] = *index;
         } else {

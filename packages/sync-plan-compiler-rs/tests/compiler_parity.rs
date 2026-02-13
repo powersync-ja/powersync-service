@@ -188,6 +188,26 @@ streams:
 }
 
 #[test]
+fn parity_with_js_for_join_response_4() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: |
+      SELECT m.*
+        FROM message m
+        JOIN roles srm
+          ON m.organization_id = srm.organization_id
+      WHERE srm.account_id = auth.user_id()
+        AND srm.role_id = 'ORGANIZATION_LEADER'
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
 fn parity_with_js_for_join_response_11() {
     let yaml = r#"
 config:
@@ -335,6 +355,32 @@ streams:
 }
 
 #[test]
+fn parity_with_js_for_response_9_subquery_variant() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: |
+      SELECT
+          u.*
+      FROM
+          public.users AS u
+      JOIN
+          public.user_organization_map AS uom_colleagues ON u.id = uom_colleagues.user_id
+      WHERE
+          uom_colleagues.organization_id IN (
+              SELECT organization_id
+              FROM public.user_organization_map
+              WHERE user_id = auth.user_id()
+          )
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
 fn parity_with_js_for_response_10_nested_chain() {
     let yaml = r#"
 config:
@@ -409,6 +455,40 @@ streams:
         SELECT id FROM organisations
           WHERE id IN (SELECT org_id FROM org_memberships WHERE user_id = auth.user_id())
     query: SELECT * FROM projects WHERE org_id IN org_of_user
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
+fn parity_with_js_for_reuse_between_streams_with_different_outputs() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  a:
+    query: SELECT id, foo FROM profiles WHERE "user" = auth.user_id()
+  b:
+    query: SELECT id, bar FROM profiles WHERE "user" IN (SELECT member FROM orgs WHERE id = auth.parameter('org'))
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
+fn parity_with_js_for_no_reuse_with_different_stream_sources() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  a:
+    query: SELECT * FROM products
+  b:
+    queries:
+      - SELECT * FROM stores
+      - SELECT * FROM products
 "#;
 
     assert_plan_parity(yaml);

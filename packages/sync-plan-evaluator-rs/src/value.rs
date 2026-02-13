@@ -38,16 +38,22 @@ pub fn sqlite_not(value: &Value) -> Value {
 pub fn compare_sql_values(left: &Value, right: &Value) -> Option<Ordering> {
     match (left, right) {
         (Value::Null, _) | (_, Value::Null) => None,
-        (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
-        (Value::Number(_), Value::Number(_))
-        | (Value::Bool(_), Value::Number(_))
-        | (Value::Number(_), Value::Bool(_)) => {
-            compare_numeric(cast_numeric(left)?, cast_numeric(right)?)
+        _ => {
+            let left_rank = sqlite_type_rank(left);
+            let right_rank = sqlite_type_rank(right);
+
+            if left_rank != right_rank {
+                return Some(left_rank.cmp(&right_rank));
+            }
+
+            match left_rank {
+                1 => compare_numeric(cast_numeric(left)?, cast_numeric(right)?),
+                2 => Some(left.as_str()?.cmp(right.as_str()?)),
+                // Blob/blob comparisons are currently unsupported in JS parity code as well.
+                3 => None,
+                _ => None,
+            }
         }
-        (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
-        (Value::String(a), b) => Some(a.cmp(&cast_as_text(b)?)),
-        (a, Value::String(b)) => Some(cast_as_text(a)?.cmp(b)),
-        _ => None,
     }
 }
 
@@ -153,6 +159,15 @@ fn compare_numeric(left: NumericValue, right: NumericValue) -> Option<Ordering> 
     }
 }
 
+fn sqlite_type_rank(value: &Value) -> u8 {
+    match value {
+        Value::Null => 0,
+        Value::Number(_) | Value::Bool(_) => 1,
+        Value::String(_) => 2,
+        Value::Array(_) | Value::Object(_) => 3,
+    }
+}
+
 pub fn filter_json_row(source: &Map<String, Value>) -> Map<String, Value> {
     let mut out = Map::new();
     for (k, v) in source {
@@ -254,5 +269,17 @@ mod tests {
         let b = Value::Number(Number::from(9_007_199_254_740_992_i64));
 
         assert_eq!(compare_sql_values(&a, &b), Some(Ordering::Greater));
+    }
+
+    #[test]
+    fn compares_text_and_numeric_by_sqlite_type_order() {
+        assert_eq!(
+            compare_sql_values(&Value::String("1".to_string()), &Value::Number(Number::from(1))),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(
+            compare_sql_values(&Value::Number(Number::from(1)), &Value::String("1".to_string())),
+            Some(Ordering::Less)
+        );
     }
 }
