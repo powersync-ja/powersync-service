@@ -126,6 +126,11 @@ fn parse_from_item_collect(
             Ok(())
         }
         Some(PgNodeEnum::JoinExpr(join_expr)) => {
+            if !join_expr.using_clause.is_empty() {
+                return Err(CompilerError::Unsupported(
+                    "USING is not supported in JOIN conditions".to_string(),
+                ));
+            }
             let left = join_expr.larg.as_ref().ok_or_else(|| {
                 CompilerError::Sql("JOIN is missing left relation".to_string())
             })?;

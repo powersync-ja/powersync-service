@@ -350,6 +350,79 @@ streams:
 }
 
 #[test]
+fn parity_with_js_for_case_insensitive_sql_keywords_and_functions() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SeLeCt * FrOm users WhErE id = AUTH.USER_ID() aNd active
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
+fn parity_with_js_for_schema_qualified_table_reference() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT u.* FROM public.users AS u WHERE u.id = auth.user_id()
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
+fn parity_with_js_for_quoted_schema_and_table_reference() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT u.* FROM "public"."users" AS u WHERE u.id = auth.user_id()
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
+fn parity_with_js_for_sql_comments_in_query() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: |
+      SELECT u.* -- row source
+      FROM users u
+      WHERE u.id = auth.user_id() -- request filter
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
+fn parity_with_js_for_from_subquery_with_quoted_outer_aliases() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT * FROM (SELECT id, name FROM users) AS subquery ("MyId", "DisplayName")
+"#;
+
+    assert_plan_parity(yaml);
+}
+
+#[test]
 fn parity_with_js_for_response_9_join_variant() {
     let yaml = r#"
 config:
@@ -508,8 +581,134 @@ streams:
     assert_plan_parity(yaml);
 }
 
+#[test]
+fn parity_error_with_js_for_invalid_sql_syntax() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: invalid syntax
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_non_select_statement() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: INSERT INTO users (id) VALUES ('foo')
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_set_operation_union() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT * FROM users UNION SELECT * FROM users
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_table_valued_function_in_from() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT * FROM json_each(auth.parameter('x'))
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_join_using_clause() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT u.* FROM users u INNER JOIN orgs USING (org_id)
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_join_condition_must_be_equality() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT u.* FROM users u INNER JOIN orgs o ON u.org_id > o.id
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_multiple_from_sources() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT * FROM users, orgs
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_subquery_outer_alias_count_mismatch() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT a FROM (SELECT id FROM users) AS u (a, b, c)
+"#;
+
+    assert_error_parity(yaml);
+}
+
+#[test]
+fn parity_error_with_js_for_subquery_select_star_not_allowed() {
+    let yaml = r#"
+config:
+  edition: 2
+  sync_config_compiler: true
+streams:
+  stream:
+    query: SELECT 1 FROM (SELECT * FROM users) AS u
+"#;
+
+    assert_error_parity(yaml);
+}
+
 fn assert_plan_parity(yaml: &str) {
-    let js = js_compile(yaml);
+    let js = js_compile(yaml).expect("JS compilation should succeed");
     let rust = compile_sync_plan(yaml, CompileOptions::default()).unwrap();
 
     let mut js_plan = js["plan"].clone();
@@ -521,7 +720,17 @@ fn assert_plan_parity(yaml: &str) {
     assert_eq!(rust_plan, js_plan);
 }
 
-fn js_compile(yaml: &str) -> Value {
+fn assert_error_parity(yaml: &str) {
+    let rust_is_error = compile_sync_plan(yaml, CompileOptions::default()).is_err();
+    let js_is_error = js_compile(yaml).is_err();
+
+    assert!(
+        rust_is_error && js_is_error,
+        "Expected both compilers to fail.\nRust failed: {rust_is_error}\nJS failed: {js_is_error}\nYAML:\n{yaml}"
+    );
+}
+
+fn js_compile(yaml: &str) -> Result<Value, String> {
     let script = format!(
         r#"
 import {{ SqlSyncRules, serializeSyncPlan }} from './packages/sync-rules/dist/index.js';
@@ -541,14 +750,15 @@ console.log(JSON.stringify({{ plan: serializeSyncPlan(config.plan) }}));
         .expect("node should run");
 
     if !output.status.success() {
-        panic!(
+        return Err(format!(
             "node failed\nstdout:\n{}\nstderr:\n{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
-        );
+        ));
     }
 
-    serde_json::from_slice(&output.stdout).unwrap()
+    serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("node output parse failed: {e}"))
 }
 
 fn zero_hashes(value: &mut Value) {
