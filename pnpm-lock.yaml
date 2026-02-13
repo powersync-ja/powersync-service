@@ -700,11 +700,21 @@ importers:
 
   packages/service-errors: {}
 
+  packages/sync-plan-compiler-rs: {}
+
+  packages/sync-plan-evaluator-rs: {}
+
   packages/sync-rules:
     dependencies:
       '@powersync/service-jsonbig':
         specifier: workspace:^
         version: link:../jsonbig
+      '@powersync/sync-plan-compiler-rs':
+        specifier: workspace:^
+        version: link:../sync-plan-compiler-rs
+      '@powersync/sync-plan-evaluator-rs':
+        specifier: workspace:^
+        version: link:../sync-plan-evaluator-rs
       '@syncpoint/wkx':
         specifier: ^0.5.0
         version: 0.5.2

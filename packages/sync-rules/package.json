@@ -19,9 +19,13 @@
     "build": "pnpm build:tsc && pnpm run build:extra",
     "build:extra": "node scripts/compile-schema.js",
     "build:tests": "tsc -b test/tsconfig.json",
-    "test": "vitest"
+    "build:native:rust": "pnpm --filter @powersync/sync-plan-compiler-rs run build:native && pnpm --filter @powersync/sync-plan-evaluator-rs run build:native",
+    "test": "pnpm run build:native:rust && vitest",
+    "bench:evaluator": "pnpm run build:native:rust && pnpm run build && node ./scripts/benchmark-evaluator.mjs"
   },
   "dependencies": {
+    "@powersync/sync-plan-compiler-rs": "workspace:^",
+    "@powersync/sync-plan-evaluator-rs": "workspace:^",
     "@powersync/service-jsonbig": "workspace:^",
     "@syncpoint/wkx": "^0.5.0",
     "ajv": "^8.12.0",

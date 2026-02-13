@@ -37,3 +37,5 @@ export { serializeSyncPlan, deserializeSyncPlan } from './sync_plan/serialize.js
 export { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 export { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 export { nodeSqliteExpressionEngine } from './sync_plan/engine/sqlite.js';
+export { compileSyncPlanRust } from '@powersync/sync-plan-compiler-rs';
+export { RustSyncPlanEvaluator } from '@powersync/sync-plan-evaluator-rs';

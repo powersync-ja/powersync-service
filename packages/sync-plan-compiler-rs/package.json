@@ -2,10 +2,14 @@
   "name": "@powersync/sync-plan-compiler-rs",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
   "license": "FSL-1.1-ALv2",
   "description": "Rust sync plan compiler for PowerSync",
   "scripts": {
-    "test": "cargo test --offline",
-    "check": "cargo check --offline"
+    "build:native": "node ./scripts/build-native.mjs",
+    "test": "pnpm run build:native && cargo test -q",
+    "check": "cargo check -q"
   }
 }

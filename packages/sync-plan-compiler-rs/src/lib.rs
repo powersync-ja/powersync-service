@@ -56,6 +56,8 @@ include!("compiler/bindings_lookup.rs");
 include!("compiler/bindings_analysis.rs");
 include!("compiler/classify.rs");
 include!("compiler/compile.rs");
+#[cfg(feature = "node")]
+mod node_bindings;
 
 #[derive(Debug, Error)]
 pub enum CompilerError {
