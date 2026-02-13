@@ -1,6 +1,7 @@
-use bson::{spec::BinarySubtype, Bson, DateTime, Decimal128, Document, Regex, Timestamp};
+use bson::raw::{RawArray, RawBsonRef, RawDocument, RawRegexRef};
+use bson::{spec::BinarySubtype, DateTime, Decimal128, Timestamp};
 use serde_json::{Map, Number, Value};
-use std::io::Cursor;
+use std::fmt::Write as _;
 use thiserror::Error;
 
 const BYTES_MARKER_KEY: &str = "__bytes";
@@ -20,7 +21,7 @@ pub type FlatRecord = Vec<(String, FlatValue)>;
 #[derive(Debug, Error)]
 pub enum ConverterError {
     #[error("failed to decode bson: {0}")]
-    BsonDecode(#[from] bson::de::Error),
+    BsonDecode(#[from] bson::raw::Error),
     #[error("failed to serialize nested json: {0}")]
     JsonSerialize(#[from] serde_json::Error),
     #[error("unsupported non-finite number")]
@@ -39,33 +40,33 @@ pub fn construct_after_record_json(bson_bytes: &[u8]) -> ConverterResult<String>
 }
 
 pub fn construct_after_record_entries(bson_bytes: &[u8]) -> ConverterResult<FlatRecord> {
-    let mut cursor = Cursor::new(bson_bytes);
-    let document = Document::from_reader(&mut cursor)?;
+    let document = RawDocument::from_bytes(bson_bytes)?;
 
-    let mut out = FlatRecord::with_capacity(document.len());
-    for (key, value) in document {
-        out.push((key, convert_top_level_value(value)?));
+    let mut out = FlatRecord::new();
+    for element in document {
+        let (key, value) = element?;
+        out.push((key.to_string(), convert_top_level_raw_value(value)?));
     }
     Ok(out)
 }
 
-pub(crate) fn convert_top_level_value(value: Bson) -> ConverterResult<FlatValue> {
+pub(crate) fn convert_top_level_raw_value(value: RawBsonRef<'_>) -> ConverterResult<FlatValue> {
     match value {
-        Bson::Null | Bson::Undefined => Ok(FlatValue::Null),
-        Bson::String(v) => Ok(FlatValue::String(v)),
-        Bson::Boolean(v) => Ok(FlatValue::BigInt(if v { 1 } else { 0 })),
-        Bson::Int32(v) => Ok(FlatValue::BigInt(v as i64)),
-        Bson::Int64(v) => Ok(FlatValue::BigInt(v)),
-        Bson::Double(v) => number_or_bigint(v),
-        Bson::ObjectId(v) => Ok(FlatValue::String(v.to_hex())),
-        Bson::DateTime(v) => Ok(FlatValue::String(to_legacy_datetime_string(v)?)),
-        Bson::Binary(v) => top_level_binary(v),
-        Bson::Decimal128(v) => Ok(FlatValue::String(decimal128_to_string(&v))),
-        Bson::RegularExpression(v) => regex_to_top_level_string(v),
-        Bson::MinKey | Bson::MaxKey => Ok(FlatValue::Null),
-        Bson::Array(values) => nested_to_json_text(filter_nested_array(values, 1)?),
-        Bson::Document(values) => nested_to_json_text(filter_nested_document(values, 1)?),
-        Bson::Timestamp(ts) => nested_to_json_text(timestamp_to_json(ts)),
+        RawBsonRef::Null | RawBsonRef::Undefined => Ok(FlatValue::Null),
+        RawBsonRef::String(v) => Ok(FlatValue::String(v.to_string())),
+        RawBsonRef::Boolean(v) => Ok(FlatValue::BigInt(if v { 1 } else { 0 })),
+        RawBsonRef::Int32(v) => Ok(FlatValue::BigInt(v as i64)),
+        RawBsonRef::Int64(v) => Ok(FlatValue::BigInt(v)),
+        RawBsonRef::Double(v) => number_or_bigint(v),
+        RawBsonRef::ObjectId(v) => Ok(FlatValue::String(v.to_hex())),
+        RawBsonRef::DateTime(v) => Ok(FlatValue::String(to_legacy_datetime_string(v)?)),
+        RawBsonRef::Binary(v) => top_level_binary(v.subtype, v.bytes),
+        RawBsonRef::Decimal128(v) => Ok(FlatValue::String(decimal128_to_string(&v))),
+        RawBsonRef::RegularExpression(v) => regex_to_top_level_string(v),
+        RawBsonRef::MaxKey | RawBsonRef::MinKey => Ok(FlatValue::Null),
+        RawBsonRef::Array(values) => nested_array_to_json_text(values),
+        RawBsonRef::Document(values) => nested_document_to_json_text(values),
+        RawBsonRef::Timestamp(ts) => nested_timestamp_to_json_text(ts),
         _ => Ok(FlatValue::Null),
     }
 }
@@ -89,89 +90,222 @@ fn flat_record_to_json_object(record: FlatRecord) -> Map<String, Value> {
     out
 }
 
-fn nested_to_json_text(value: Value) -> ConverterResult<FlatValue> {
-    Ok(FlatValue::String(serde_json::to_string(&value)?))
+fn regex_to_top_level_string(value: RawRegexRef<'_>) -> ConverterResult<FlatValue> {
+    let mut out = String::new();
+    write_regex_json(value, &mut out);
+    Ok(FlatValue::String(out))
 }
 
-fn regex_to_top_level_string(value: Regex) -> ConverterResult<FlatValue> {
-    let mut obj = Map::new();
-    obj.insert("pattern".to_string(), Value::String(value.pattern));
-    obj.insert(
-        "options".to_string(),
-        Value::String(regex_options_to_js_flags(value.options.as_str())),
-    );
-    nested_to_json_text(Value::Object(obj))
-}
-
-fn top_level_binary(value: bson::Binary) -> ConverterResult<FlatValue> {
-    if is_uuid_subtype(value.subtype) {
-        Ok(FlatValue::String(uuid_or_hex(&value.bytes)))
+fn top_level_binary(subtype: BinarySubtype, bytes: &[u8]) -> ConverterResult<FlatValue> {
+    if is_uuid_subtype(subtype) {
+        Ok(FlatValue::String(uuid_or_hex(bytes)))
     } else {
-        Ok(FlatValue::Bytes(value.bytes))
+        Ok(FlatValue::Bytes(bytes.to_vec()))
     }
 }
 
-fn filter_nested_value(value: Bson, depth: usize) -> ConverterResult<Option<Value>> {
+fn nested_document_to_json_text(document: &RawDocument) -> ConverterResult<FlatValue> {
+    let mut out = String::with_capacity(document.as_bytes().len().saturating_mul(2));
+    write_nested_document(document, 1, &mut out)?;
+    Ok(FlatValue::String(out))
+}
+
+fn nested_array_to_json_text(values: &RawArray) -> ConverterResult<FlatValue> {
+    let mut out = String::with_capacity(values.as_bytes().len().saturating_mul(2));
+    write_nested_array(values, 1, &mut out)?;
+    Ok(FlatValue::String(out))
+}
+
+fn nested_timestamp_to_json_text(value: Timestamp) -> ConverterResult<FlatValue> {
+    let mut out = String::with_capacity(32);
+    write_timestamp_json(value, &mut out);
+    Ok(FlatValue::String(out))
+}
+
+fn write_nested_document(
+    document: &RawDocument,
+    depth: usize,
+    out: &mut String,
+) -> ConverterResult<()> {
+    out.push('{');
+    let mut first = true;
+
+    for element in document {
+        let (key, value) = element?;
+        let field_start = out.len();
+        if !first {
+            out.push(',');
+        }
+        push_json_string(out, key);
+        out.push(':');
+
+        if write_nested_value(value, depth, out)? {
+            first = false;
+        } else {
+            out.truncate(field_start);
+        }
+    }
+
+    out.push('}');
+    Ok(())
+}
+
+fn write_nested_array(values: &RawArray, depth: usize, out: &mut String) -> ConverterResult<()> {
+    out.push('[');
+    let mut first = true;
+
+    for value in values {
+        if !first {
+            out.push(',');
+        }
+        first = false;
+
+        let mapped = value?;
+        if !write_nested_value(mapped, depth, out)? {
+            out.push_str("null");
+        }
+    }
+
+    out.push(']');
+    Ok(())
+}
+
+fn write_nested_value(
+    value: RawBsonRef<'_>,
+    depth: usize,
+    out: &mut String,
+) -> ConverterResult<bool> {
     if depth > DEPTH_LIMIT {
         return Err(ConverterError::DepthLimit);
     }
 
     match value {
-        Bson::Null => Ok(Some(Value::Null)),
-        Bson::Undefined => Ok(None),
-        Bson::String(v) => Ok(Some(Value::String(v))),
-        Bson::Boolean(v) => Ok(Some(int_value(if v { 1 } else { 0 }))),
-        Bson::Int32(v) => Ok(Some(int_value(v as i64))),
-        Bson::Int64(v) => Ok(Some(int_value(v))),
-        Bson::Double(v) => Ok(Some(number_json_or_integer(v)?)),
-        Bson::ObjectId(v) => Ok(Some(Value::String(v.to_hex()))),
-        Bson::DateTime(v) => Ok(Some(Value::String(to_legacy_datetime_string(v)?))),
-        Bson::Binary(_) => Ok(None),
-        Bson::Decimal128(v) => Ok(Some(Value::String(decimal128_to_string(&v)))),
-        Bson::RegularExpression(v) => {
-            let mut obj = Map::new();
-            obj.insert("pattern".to_string(), Value::String(v.pattern));
-            obj.insert(
-                "options".to_string(),
-                Value::String(regex_options_to_js_flags(v.options.as_str())),
-            );
-            Ok(Some(Value::Object(obj)))
+        RawBsonRef::Null => {
+            out.push_str("null");
+            Ok(true)
         }
-        Bson::MinKey | Bson::MaxKey => Ok(Some(Value::Null)),
-        Bson::Array(values) => Ok(Some(filter_nested_array(values, depth + 1)?)),
-        Bson::Document(values) => Ok(Some(filter_nested_document(values, depth + 1)?)),
-        Bson::Timestamp(ts) => Ok(Some(timestamp_to_json(ts))),
-        _ => Ok(None),
+        RawBsonRef::Undefined => Ok(false),
+        RawBsonRef::String(v) => {
+            push_json_string(out, v);
+            Ok(true)
+        }
+        RawBsonRef::Boolean(v) => {
+            write_i64(out, if v { 1 } else { 0 });
+            Ok(true)
+        }
+        RawBsonRef::Int32(v) => {
+            write_i64(out, v as i64);
+            Ok(true)
+        }
+        RawBsonRef::Int64(v) => {
+            write_i64(out, v);
+            Ok(true)
+        }
+        RawBsonRef::Double(v) => {
+            write_number_or_integer(v, out)?;
+            Ok(true)
+        }
+        RawBsonRef::ObjectId(v) => {
+            let text = v.to_hex();
+            push_json_string(out, &text);
+            Ok(true)
+        }
+        RawBsonRef::DateTime(v) => {
+            let text = to_legacy_datetime_string(v)?;
+            push_json_string(out, &text);
+            Ok(true)
+        }
+        RawBsonRef::Binary(_) => Ok(false),
+        RawBsonRef::Decimal128(v) => {
+            let text = decimal128_to_string(&v);
+            push_json_string(out, &text);
+            Ok(true)
+        }
+        RawBsonRef::RegularExpression(v) => {
+            write_regex_json(v, out);
+            Ok(true)
+        }
+        RawBsonRef::MaxKey | RawBsonRef::MinKey => {
+            out.push_str("null");
+            Ok(true)
+        }
+        RawBsonRef::Array(values) => {
+            write_nested_array(values, depth + 1, out)?;
+            Ok(true)
+        }
+        RawBsonRef::Document(values) => {
+            write_nested_document(values, depth + 1, out)?;
+            Ok(true)
+        }
+        RawBsonRef::Timestamp(ts) => {
+            write_timestamp_json(ts, out);
+            Ok(true)
+        }
+        _ => Ok(false),
     }
 }
 
-fn filter_nested_document(document: Document, depth: usize) -> ConverterResult<Value> {
-    let mut out = Map::new();
-    for (key, value) in document {
-        if let Some(mapped) = filter_nested_value(value, depth)? {
-            out.insert(key, mapped);
-        }
-    }
-    Ok(Value::Object(out))
+fn write_regex_json(value: RawRegexRef<'_>, out: &mut String) {
+    out.push('{');
+    push_json_string(out, "pattern");
+    out.push(':');
+    push_json_string(out, value.pattern);
+    out.push(',');
+    push_json_string(out, "options");
+    out.push(':');
+    let flags = regex_options_to_js_flags(value.options);
+    push_json_string(out, &flags);
+    out.push('}');
 }
 
-fn filter_nested_array(values: Vec<Bson>, depth: usize) -> ConverterResult<Value> {
-    let mut out = Vec::with_capacity(values.len());
-    for value in values {
-        if let Some(mapped) = filter_nested_value(value, depth)? {
-            out.push(mapped);
-        } else {
-            out.push(Value::Null);
-        }
-    }
-    Ok(Value::Array(out))
+fn write_timestamp_json(value: Timestamp, out: &mut String) {
+    out.push('{');
+    push_json_string(out, "t");
+    out.push(':');
+    write_i64(out, value.time as i64);
+    out.push(',');
+    push_json_string(out, "i");
+    out.push(':');
+    write_i64(out, value.increment as i64);
+    out.push('}');
 }
 
-fn timestamp_to_json(value: Timestamp) -> Value {
-    let mut obj = Map::new();
-    obj.insert("t".to_string(), int_value(value.time as i64));
-    obj.insert("i".to_string(), int_value(value.increment as i64));
-    Value::Object(obj)
+fn push_json_string(out: &mut String, value: &str) {
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\u{08}' => out.push_str("\\b"),
+            '\u{0C}' => out.push_str("\\f"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c <= '\u{1F}' => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out.push('"');
+}
+
+fn write_i64(out: &mut String, value: i64) {
+    let _ = write!(out, "{value}");
+}
+
+fn write_number_or_integer(value: f64, out: &mut String) -> ConverterResult<()> {
+    if !value.is_finite() {
+        return Err(ConverterError::NonFiniteNumber);
+    }
+
+    if value.fract() == 0.0 && value >= i64::MIN as f64 && value <= i64::MAX as f64 {
+        write_i64(out, value as i64);
+    } else {
+        let _ = write!(out, "{value}");
+    }
+
+    Ok(())
 }
 
 fn decimal128_to_string(value: &Decimal128) -> String {
@@ -188,23 +322,6 @@ fn number_or_bigint(value: f64) -> ConverterResult<FlatValue> {
     } else {
         Ok(FlatValue::Number(value))
     }
-}
-
-fn number_json_or_integer(value: f64) -> ConverterResult<Value> {
-    if !value.is_finite() {
-        return Err(ConverterError::NonFiniteNumber);
-    }
-
-    if value.fract() == 0.0 && value >= i64::MIN as f64 && value <= i64::MAX as f64 {
-        Ok(int_value(value as i64))
-    } else {
-        let number = Number::from_f64(value).ok_or(ConverterError::NonFiniteNumber)?;
-        Ok(Value::Number(number))
-    }
-}
-
-fn int_value(value: i64) -> Value {
-    Value::Number(Number::from(value))
 }
 
 fn to_legacy_datetime_string(value: DateTime) -> ConverterResult<String> {
@@ -275,7 +392,7 @@ fn regex_options_to_js_flags(options: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bson::{doc, Binary};
+    use bson::{doc, Binary, Bson, Regex};
 
     #[test]
     fn converts_core_types() {
@@ -379,5 +496,26 @@ mod tests {
         assert_eq!(regex_options_to_js_flags("is"), "gi");
         assert_eq!(regex_options_to_js_flags("ms"), "gm");
         assert_eq!(regex_options_to_js_flags("ims"), "gim");
+    }
+
+    #[test]
+    fn escapes_nested_json_strings() {
+        let doc = doc! {
+            "nested": {
+                "quote": "he said \"hi\"",
+                "newline": "a\nb"
+            }
+        };
+
+        let bytes = bson::to_vec(&doc).unwrap();
+        let converted = construct_after_record_entries(&bytes).unwrap();
+
+        assert_eq!(
+            converted,
+            vec![(
+                "nested".to_string(),
+                FlatValue::String(r#"{"quote":"he said \"hi\"","newline":"a\nb"}"#.to_string())
+            )]
+        );
     }
 }

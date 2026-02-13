@@ -1,6 +1,3 @@
-use std::io::Cursor;
-
-use bson::Document;
 use napi::bindgen_prelude::{Buffer, Null, Object};
 use napi::Env;
 use napi_derive::napi;
@@ -30,12 +27,12 @@ impl NativeMongoAfterRecordConverter {
         bson_bytes: Buffer,
     ) -> napi::Result<Object> {
         let mut object = env.create_object()?;
-        let mut cursor = Cursor::new(&bson_bytes[..]);
-        let document = Document::from_reader(&mut cursor)
+        let document = bson::raw::RawDocument::from_bytes(&bson_bytes[..])
             .map_err(|err| napi::Error::from_reason(err.to_string()))?;
 
-        for (key, value) in document {
-            let value = converter::convert_top_level_value(value)
+        for element in document {
+            let (key, value) = element.map_err(|err| napi::Error::from_reason(err.to_string()))?;
+            let value = converter::convert_top_level_raw_value(value)
                 .map_err(|err| napi::Error::from_reason(err.to_string()))?;
             match value {
                 FlatValue::Null => object.set(&key, Null)?,
