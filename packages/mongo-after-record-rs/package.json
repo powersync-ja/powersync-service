@@ -1,0 +1,13 @@
+{
+  "name": "@powersync/mongo-after-record-rs",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "scripts": {
+    "build:native": "node ./scripts/build-native.mjs"
+  }
+}

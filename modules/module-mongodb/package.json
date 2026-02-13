@@ -13,7 +13,9 @@
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./dist && tsc -b --clean",
-    "test": "vitest"
+    "build:native:rust": "pnpm --filter @powersync/mongo-after-record-rs run build:native -- --release",
+    "test": "vitest",
+    "bench:construct-after-record": "pnpm run build:native:rust && pnpm run build && node ./scripts/benchmark-construct-after-record.mjs"
   },
   "exports": {
     ".": {
@@ -28,6 +30,7 @@
     }
   },
   "dependencies": {
+    "@powersync/mongo-after-record-rs": "workspace:^",
     "@powersync/lib-service-mongodb": "workspace:*",
     "@powersync/lib-services-framework": "workspace:*",
     "@powersync/service-core": "workspace:*",

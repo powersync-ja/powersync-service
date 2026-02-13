@@ -1,0 +1,27 @@
+[package]
+name = "mongo-after-record-rs"
+version = "0.1.0"
+edition = "2021"
+license = "FSL-1.1-ALv2"
+description = "Rust BSON to flat Mongo sync row converter"
+
+[lib]
+name = "mongo_after_record_rs"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = []
+node = ["dep:napi", "dep:napi-derive"]
+
+[dependencies]
+bson = "2.15"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+napi = { version = "2", default-features = false, features = ["napi8"], optional = true }
+napi-derive = { version = "2", optional = true }
+
+[build-dependencies]
+napi-build = "2"

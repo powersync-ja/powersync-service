@@ -210,6 +210,9 @@ importers:
       '@powersync/lib-services-framework':
         specifier: workspace:*
         version: link:../../libs/lib-services
+      '@powersync/mongo-after-record-rs':
+        specifier: workspace:^
+        version: link:../../packages/mongo-after-record-rs
       '@powersync/service-core':
         specifier: workspace:*
         version: link:../../packages/service-core
@@ -511,6 +514,8 @@ importers:
       lossless-json:
         specifier: ^2.0.8
         version: 2.0.11
+
+  packages/mongo-after-record-rs: {}
 
   packages/rsocket-router:
     dependencies:
