@@ -49,6 +49,19 @@ export class SourceTable implements SourceEntityDescriptor {
   public syncEvent = true;
 
   /**
+   * True if raw data should be stored in current_data collection.
+   *
+   * This is needed when the source sends partial row data (e.g. TOAST values).
+   * When REPLICA IDENTITY FULL is configured, complete rows are always sent,
+   * so we don't need to store raw data.
+   *
+   * This value is resolved externally based on table configuration.
+   *
+   * Defaults to true for tests (conservative approach).
+   */
+  public storeCurrentData = true;
+
+  /**
    * Always undefined if snapshotComplete = true.
    *
    * May be set if snapshotComplete = false.
@@ -111,6 +124,8 @@ export class SourceTable implements SourceEntityDescriptor {
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
+    copy.syncEvent = this.syncEvent;
+    copy.storeCurrentData = this.storeCurrentData;
     copy.snapshotStatus = this.snapshotStatus;
     return copy;
   }
