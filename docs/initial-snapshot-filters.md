@@ -201,6 +201,10 @@ bucket_definitions:
 3. **Storage**: Only filtered rows are stored in PostgreSQL/MongoDB storage
 4. **Buckets**: All buckets using the filtered table will only see the filtered data
 
+### Changing Filters Later
+
+If you widen a filter after the initial snapshot, CDC will **not** backfill older rows that were previously excluded because those rows did not change. To include them, run a **targeted resnapshot** of the affected tables or perform a **one-time backfill** job, then let CDC keep the data up to date.
+
 ## Database-Specific Syntax
 
 ### MySQL
@@ -365,7 +369,7 @@ initial_snapshot_filters:
 
 - Filters are applied **globally** across all buckets using that table
 - CDC changes only affect rows that were **initially snapshotted**
-- Changing filters requires a **full re-snapshot** of affected tables
+- Widening filters requires a **resnapshot or backfill** to pick up previously excluded rows
 - Filter syntax must be valid for your **source database**
 - Some buckets may be **empty** if their queries don't align with the global filter
 
