@@ -15,6 +15,7 @@ import {
 const numericArgs = process.argv.slice(2).filter((arg) => /^-?\d+$/.test(arg));
 const ITERATIONS = Number.isFinite(Number(numericArgs[0])) ? Number(numericArgs[0]) : 2000;
 const WARMUP = Number.isFinite(Number(numericArgs[1])) ? Number(numericArgs[1]) : 200;
+const RECORD_VARIANTS = Number.isFinite(Number(numericArgs[2])) ? Number(numericArgs[2]) : 256;
 const TARGET_ROW_INPUT_BYTES = 100 * 1024;
 
 const yaml = `
@@ -64,31 +65,60 @@ const sqliteHydrated = new PrecompiledSyncConfig(plan, {
   sourceText: ''
 }).hydrate({ hydrationState: versionedHydrationState(1) });
 
+const sourceTable = { connectionTag: 'default', schema: 'test_schema', name: 'comments' };
 const commentRecord = buildLargeCommentRecord(TARGET_ROW_INPUT_BYTES);
-const evaluateRowInput = {
-  sourceTable: { connectionTag: 'default', schema: 'test_schema', name: 'comments' },
-  record: commentRecord
-};
-const evaluateRowInputJson = JSONBig.stringify(evaluateRowInput);
+const commentRecordVariants = buildCommentRecordVariants(commentRecord, RECORD_VARIANTS);
+const jsInputs = commentRecordVariants.map((record) => ({ sourceTable, record }));
+const rustRecordInputsJson = commentRecordVariants.map((record) => JSONBig.stringify(record));
+const sourceTableJson = JSONBig.stringify(sourceTable);
 
 const rustEvaluator = new RustSyncPlanEvaluator(serializedPlanJson, { defaultSchema: 'test_schema' });
+const rustPreparedSourceTableId = rustEvaluator.prepareEvaluateRowSourceTableSerialized(sourceTableJson);
 
-const evaluateJs = () => evaluateRowWithJsonBig(jsHydrated, evaluateRowInput);
-const evaluateSqlite = () => evaluateRowWithJsonBig(sqliteHydrated, evaluateRowInput);
-const evaluateRust = () => rustEvaluator.evaluateRowSerialized(evaluateRowInputJson);
+const evaluateJs = makeRoundRobinEvaluator(jsInputs, (input) => evaluateRowWithJsonBig(jsHydrated, input));
+const evaluateSqlite = makeRoundRobinEvaluator(jsInputs, (input) => evaluateRowWithJsonBig(sqliteHydrated, input));
+const evaluateRust = makeRoundRobinEvaluator(rustRecordInputsJson, (recordJson) =>
+  rustEvaluator.evaluateRowWithPreparedSourceTableSerialized(rustPreparedSourceTableId, recordJson)
+);
+const rustParseMinimalOnly = makeRoundRobinEvaluator(rustRecordInputsJson, (recordJson) =>
+  rustEvaluator.benchmarkParseRecordMinimalSerialized(rustPreparedSourceTableId, recordJson)
+);
+const rustParseAndSerializeMinimal = makeRoundRobinEvaluator(rustRecordInputsJson, (recordJson) =>
+  rustEvaluator.benchmarkParseAndSerializeRecordMinimalSerialized(rustPreparedSourceTableId, recordJson)
+);
+
+const sampleJsInputJson = JSONBig.stringify(jsInputs[0]);
+const sampleRustRecordInputJson = rustRecordInputsJson[0];
+const sampleJsOutput = evaluateRowWithJsonBig(jsHydrated, jsInputs[0]);
+const sampleSqliteOutput = evaluateRowWithJsonBig(sqliteHydrated, jsInputs[0]);
+const sampleRustOutput = rustEvaluator.evaluateRowWithPreparedSourceTableSerialized(
+  rustPreparedSourceTableId,
+  rustRecordInputsJson[0]
+);
+const sampleRustParseMinimalColumns = rustEvaluator.benchmarkParseRecordMinimalSerialized(
+  rustPreparedSourceTableId,
+  rustRecordInputsJson[0]
+);
+const sampleRustParseAndSerializeOutput = rustEvaluator.benchmarkParseAndSerializeRecordMinimalSerialized(
+  rustPreparedSourceTableId,
+  rustRecordInputsJson[0]
+);
 
 console.log(
-  `sizes evaluateRow input=${byteLength(evaluateRowInputJson)}B output[js]=${byteLength(evaluateJs())}B output[sqlite]=${byteLength(
-    evaluateSqlite()
-  )}B output[rust]=${byteLength(evaluateRust())}B`
+  `sizes evaluateRow js_input=${byteLength(sampleJsInputJson)}B rust_record_input=${byteLength(sampleRustRecordInputJson)}B output[js]=${byteLength(
+    sampleJsOutput
+  )}B output[sqlite]=${byteLength(sampleSqliteOutput)}B output[rust]=${byteLength(sampleRustOutput)}B parse_min_cols=${sampleRustParseMinimalColumns} parse_min_output=${byteLength(sampleRustParseAndSerializeOutput)}B variants=${commentRecordVariants.length}`
 );
 
 benchmark('evaluateRow js (obj in, JSONBig out)', evaluateJs);
 benchmark('evaluateRow sqlite (obj in, JSONBig out)', evaluateSqlite);
-benchmark('evaluateRow rust (json in/out)', evaluateRust);
+benchmark('evaluateRow rust (prepared source + record json)', evaluateRust);
+benchmark('rust parse-only minimal (record json)', rustParseMinimalOnly);
+benchmark('rust parse+serialize minimal (record json)', rustParseAndSerializeMinimal);
 
 jsEngine.close();
 sqliteEngine.close();
+rustEvaluator.releasePreparedSourceTable(rustPreparedSourceTableId);
 
 function evaluateRowWithJsonBig(hydrated, options) {
   const rows = hydrated.evaluateRow(options);
@@ -99,12 +129,12 @@ function benchmark(name, fn) {
   let sink = 0;
 
   for (let i = 0; i < WARMUP; i++) {
-    sink ^= fn().length;
+    sink ^= benchmarkValueLength(fn());
   }
 
   const started = process.hrtime.bigint();
   for (let i = 0; i < ITERATIONS; i++) {
-    sink ^= fn().length;
+    sink ^= benchmarkValueLength(fn());
   }
   const elapsedNs = Number(process.hrtime.bigint() - started);
 
@@ -114,6 +144,28 @@ function benchmark(name, fn) {
   console.log(
     `${name.padEnd(30)} ${opsPerSecond.padStart(10)} ops/s (${perOpNs.toFixed(0)} ns/op, ${ITERATIONS} iterations, sink=${sink})`
   );
+}
+
+function benchmarkValueLength(value) {
+  if (typeof value == 'string') {
+    return value.length;
+  }
+  if (typeof value == 'number') {
+    return value | 0;
+  }
+  return String(value).length;
+}
+
+function makeRoundRobinEvaluator(values, evaluator) {
+  let index = 0;
+  return () => {
+    const value = values[index];
+    index++;
+    if (index == values.length) {
+      index = 0;
+    }
+    return evaluator(value);
+  };
 }
 
 function byteLength(value) {
@@ -185,6 +237,23 @@ function buildLargeCommentRecord(targetBytes) {
   }
 
   return base;
+}
+
+function buildCommentRecordVariants(baseRecord, count) {
+  const variants = [];
+  for (let i = 0; i < count; i++) {
+    variants.push({
+      ...baseRecord,
+      id: `c${i + 1}`,
+      issue_id: `i${(i % 197) + 1}`,
+      body: `${baseRecord.body} variant-${i} ${joinSentences(1)}`,
+      payload_digest: digestFor(i + 101),
+      sentiment_score: Number((((i % 200) - 100) / 100).toFixed(2)),
+      created_at: `2026-02-${String((i % 28) + 1).padStart(2, '0')}T${String(i % 24).padStart(2, '0')}:00:00.000Z`,
+      edited_at: i % 3 == 0 ? `2026-03-${String((i % 28) + 1).padStart(2, '0')}T09:00:00.000Z` : null
+    });
+  }
+  return variants;
 }
 
 function digestFor(index) {

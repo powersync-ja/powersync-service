@@ -12,6 +12,65 @@ pub(crate) fn all_filters_match(
     Ok(true)
 }
 
+pub(crate) fn collect_column_references(
+    expr: &crate::model::SqlExpression,
+    out: &mut BTreeSet<String>,
+) {
+    match expr {
+        crate::model::SqlExpression::Data { source } => {
+            if let crate::model::ExternalSource::Column { column } = source {
+                out.insert(column.clone());
+            }
+        }
+        crate::model::SqlExpression::Unary { operand, .. } => {
+            collect_column_references(operand, out);
+        }
+        crate::model::SqlExpression::Binary { left, right, .. } => {
+            collect_column_references(left, out);
+            collect_column_references(right, out);
+        }
+        crate::model::SqlExpression::Between { value, low, high } => {
+            collect_column_references(value, out);
+            collect_column_references(low, out);
+            collect_column_references(high, out);
+        }
+        crate::model::SqlExpression::ScalarIn { target, in_values } => {
+            collect_column_references(target, out);
+            for value in in_values {
+                collect_column_references(value, out);
+            }
+        }
+        crate::model::SqlExpression::CaseWhen {
+            operand,
+            whens,
+            else_expr,
+        } => {
+            if let Some(operand) = operand {
+                collect_column_references(operand, out);
+            }
+            for branch in whens {
+                collect_column_references(&branch.when, out);
+                collect_column_references(&branch.then, out);
+            }
+            if let Some(else_expr) = else_expr {
+                collect_column_references(else_expr, out);
+            }
+        }
+        crate::model::SqlExpression::Cast { operand, .. } => {
+            collect_column_references(operand, out);
+        }
+        crate::model::SqlExpression::Function { parameters, .. } => {
+            for value in parameters {
+                collect_column_references(value, out);
+            }
+        }
+        crate::model::SqlExpression::LitNull
+        | crate::model::SqlExpression::LitDouble { .. }
+        | crate::model::SqlExpression::LitInt { .. }
+        | crate::model::SqlExpression::LitString { .. } => {}
+    }
+}
+
 pub(crate) fn table_matches(
     pattern: &crate::model::SerializedTablePattern,
     table: &SourceTable,

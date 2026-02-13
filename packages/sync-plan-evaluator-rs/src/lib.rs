@@ -5,4 +5,6 @@ pub mod model;
 mod node_bindings;
 mod value;
 
-pub use evaluator::{EvaluatorError, EvaluatorOptions, EvaluatorResult, SyncPlanEvaluator};
+pub use evaluator::{
+    EvaluatorError, EvaluatorOptions, EvaluatorResult, RowParseRequirements, SyncPlanEvaluator,
+};

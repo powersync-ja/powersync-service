@@ -5,16 +5,16 @@ impl SyncPlanEvaluator {
         row: &JsonMap,
     ) -> EvaluatorResult<Vec<EvaluatedParameters>> {
         let mut results = Vec::new();
+        let request = RequestParameters::default();
+        let context = EvalContext {
+            row: Some(row),
+            request: &request,
+        };
 
         for parameter_index in &self.plan.parameter_indexes {
             if !table_matches(&parameter_index.table, source_table) {
                 continue;
             }
-
-            let context = EvalContext {
-                row: Some(row),
-                request: &RequestParameters::default(),
-            };
 
             if !all_filters_match(&parameter_index.filters, &context)? {
                 continue;

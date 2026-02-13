@@ -20,8 +20,9 @@
     "build:extra": "node scripts/compile-schema.js",
     "build:tests": "tsc -b test/tsconfig.json",
     "build:native:rust": "pnpm --filter @powersync/sync-plan-compiler-rs run build:native && pnpm --filter @powersync/sync-plan-evaluator-rs run build:native",
+    "build:native:rust:release": "pnpm --filter @powersync/sync-plan-compiler-rs run build:native -- --release && pnpm --filter @powersync/sync-plan-evaluator-rs run build:native -- --release",
     "test": "pnpm run build:native:rust && vitest",
-    "bench:evaluator": "pnpm run build:native:rust && pnpm run build && node ./scripts/benchmark-evaluator.mjs"
+    "bench:evaluator": "pnpm run build:native:rust:release && pnpm run build && node ./scripts/benchmark-evaluator.mjs"
   },
   "dependencies": {
     "@powersync/sync-plan-compiler-rs": "workspace:^",

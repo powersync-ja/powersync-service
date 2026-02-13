@@ -168,14 +168,16 @@ fn sqlite_type_rank(value: &Value) -> u8 {
     }
 }
 
-pub fn filter_json_row(source: &Map<String, Value>) -> Map<String, Value> {
-    let mut out = Map::new();
+pub fn extend_filtered_json_row(target: &mut Map<String, Value>, source: &Map<String, Value>) {
     for (k, v) in source {
-        if matches!(v, Value::Null | Value::String(_) | Value::Number(_)) {
-            out.insert(k.clone(), v.clone());
+        if !matches!(v, Value::Null | Value::String(_) | Value::Number(_)) {
+            continue;
+        }
+
+        if !target.contains_key(k) {
+            target.insert(k.clone(), v.clone());
         }
     }
-    out
 }
 
 pub fn id_from_data(source: &Map<String, Value>) -> String {

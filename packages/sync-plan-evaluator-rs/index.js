@@ -65,6 +65,36 @@ export class RustSyncPlanEvaluator {
     return parseJson(this.evaluateRowSerialized(stringifyForRust(options)));
   }
 
+  prepareEvaluateRowSourceTableSerialized(sourceTableJson) {
+    return this.#inner.prepareEvaluateRowSourceTableJson(sourceTableJson);
+  }
+
+  prepareEvaluateRowSourceTable(sourceTable) {
+    return this.prepareEvaluateRowSourceTableSerialized(stringifyForRust(sourceTable));
+  }
+
+  evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId, recordJson) {
+    return this.#inner.evaluateRowWithPreparedSourceTableJson(preparedSourceTableId, recordJson);
+  }
+
+  evaluateRowWithPreparedSourceTable(preparedSourceTableId, record) {
+    return parseJson(
+      this.evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId, stringifyForRust(record))
+    );
+  }
+
+  benchmarkParseRecordMinimalSerialized(preparedSourceTableId, recordJson) {
+    return this.#inner.benchmarkParseRecordMinimalJson(preparedSourceTableId, recordJson);
+  }
+
+  benchmarkParseAndSerializeRecordMinimalSerialized(preparedSourceTableId, recordJson) {
+    return this.#inner.benchmarkParseAndSerializeRecordMinimalJson(preparedSourceTableId, recordJson);
+  }
+
+  releasePreparedSourceTable(preparedSourceTableId) {
+    return this.#inner.releasePreparedSourceTableJson(preparedSourceTableId);
+  }
+
   evaluateParameterRowSerialized(optionsJson) {
     return this.#inner.evaluateParameterRowJson(optionsJson);
   }

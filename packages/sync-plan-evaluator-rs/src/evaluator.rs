@@ -3,11 +3,12 @@ use crate::model::{
     BucketInclusionReason, DynamicBucketQuery, EvaluateRowOptions, EvaluatedParameters,
     EvaluatedRow, JsonMap, LookupRequest, LookupResults, ParameterLookupScope,
     PrepareBucketQueryOptions, PreparedBucketQueries, RequestParameters, ResolvedBucket,
-    ScopedParameterLookup, SerializedExpandingLookup, SerializedParameterValue, SerializedSyncPlan,
-    SourceTable,
+    ScopedParameterLookup, SerializedExpandingLookup, SerializedParameterValue,
+    SerializedSyncPlan, SourceTable,
 };
 use crate::value::{
-    filter_json_row, id_from_data, normalize_parameter_value, serialize_value_array, sqlite_bool,
+    extend_filtered_json_row, id_from_data, normalize_parameter_value, serialize_value_array,
+    sqlite_bool,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -30,6 +31,12 @@ impl Default for EvaluatorOptions {
 pub struct SyncPlanEvaluator {
     plan: SerializedSyncPlan,
     options: EvaluatorOptions,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RowParseRequirements {
+    pub include_star_scalars: bool,
+    pub full_columns: BTreeSet<String>,
 }
 
 impl SyncPlanEvaluator {
