@@ -69,9 +69,21 @@ function runJsStreamingNestedForBuffer(bytes) {
         row[key] = bytes[offset++] ? 1n : 0n;
         break;
       }
+      case 0x09: {
+        row[key] = legacyDateTimeString(Number(bytes.readBigInt64LE(offset)));
+        offset += 8;
+        break;
+      }
       case 0x10: {
         row[key] = BigInt(readInt32LE(bytes, offset));
         offset += 4;
+        break;
+      }
+      case 0x11: {
+        const increment = bytes.readUInt32LE(offset);
+        const time = bytes.readUInt32LE(offset + 4);
+        row[key] = `{"t":${time},"i":${increment}}`;
+        offset += 8;
         break;
       }
       case 0x12: {
@@ -79,6 +91,29 @@ function runJsStreamingNestedForBuffer(bytes) {
         offset += 8;
         break;
       }
+      case 0x13: {
+        row[key] = decimal128ToString(bytes, offset);
+        offset += 16;
+        break;
+      }
+      case 0x05: {
+        const [value, nextOffset] = parseTopLevelBinary(bytes, offset);
+        row[key] = value;
+        offset = nextOffset;
+        break;
+      }
+      case 0x0b: {
+        const [pattern, options, nextOffset] = parseRegex(bytes, offset);
+        row[key] = `{"pattern":${quoteJsonFast(pattern)},"options":${quoteJsonFast(options)}}`;
+        offset = nextOffset;
+        break;
+      }
+      case 0x06:
+      case 0x0a:
+      case 0xff:
+      case 0x7f:
+        row[key] = null;
+        break;
       case 0x01: {
         const value = bytes.readDoubleLE(offset);
         offset += 8;
@@ -100,28 +135,23 @@ function runScenario(name, documents) {
   const bsonBuffers = documents.map((document) => mongo.BSON.serialize(document));
   const jsFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsForBuffer(bytes, jsCompatibility));
   const rustFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => rustConverter.constructAfterRecordObject(bytes));
-  const jsStreamingNestedFromBson =
-    name === 'nested-array'
-      ? makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsStreamingNestedForBuffer(bytes))
-      : null;
+  const jsStreamingNestedFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsStreamingNestedForBuffer(bytes));
 
   const sampleInput = bsonBuffers[0];
   const sampleJs = runJsForBuffer(sampleInput, jsCompatibility);
   const sampleRust = rustConverter.constructAfterRecordObject(sampleInput);
-  const sampleJsStreamingNested = jsStreamingNestedFromBson ? runJsStreamingNestedForBuffer(sampleInput) : null;
+  const sampleJsStreamingNested = runJsStreamingNestedForBuffer(sampleInput);
   const parity = compareRows(sampleJs, sampleRust);
-  const streamingParity = sampleJsStreamingNested ? compareRows(sampleJs, sampleJsStreamingNested) : null;
+  const streamingParity = compareRows(sampleJs, sampleJsStreamingNested);
 
   console.log('');
   console.log(`[scenario=${name}]`);
   console.log(
-    `sizes bson_input=${sampleInput.length}B output[js]=${estimateObjectBytes(sampleJs)}B output[rust]=${estimateObjectBytes(sampleRust)}B variants=${bsonBuffers.length} parity_sample=${parity}${streamingParity == null ? '' : ` parity_js_streaming_sample=${streamingParity}`}`
+    `sizes bson_input=${sampleInput.length}B output[js]=${estimateObjectBytes(sampleJs)}B output[rust]=${estimateObjectBytes(sampleRust)}B variants=${bsonBuffers.length} parity_sample=${parity} parity_js_streaming_sample=${streamingParity}`
   );
 
   benchmark(`constructAfterRecord js (object out) [${name}]`, jsFromBson);
-  if (jsStreamingNestedFromBson) {
-    benchmark(`constructAfterRecord js (stream nested) [${name}]`, jsStreamingNestedFromBson);
-  }
+  benchmark(`constructAfterRecord js (stream nested) [${name}]`, jsStreamingNestedFromBson);
   benchmark(`constructAfterRecord rust (object out) [${name}]`, rustFromBson);
 }
 
@@ -221,6 +251,61 @@ function readCString(bytes, offset) {
   return [bytes.toString('utf8', offset, end), end + 1];
 }
 
+function skipCString(bytes, offset) {
+  const end = bytes.indexOf(0, offset);
+  if (end < 0) {
+    throw new Error('Invalid BSON: missing cstring terminator');
+  }
+  return end + 1;
+}
+
+function quoteJsonFast(text) {
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch < 0x20 || ch > 0x7e || ch === 0x22 || ch === 0x5c) {
+      return JSON.stringify(text);
+    }
+  }
+  return `"${text}"`;
+}
+
+function parseRegex(bytes, offset) {
+  const patternEnd = bytes.indexOf(0, offset);
+  const optionsEnd = bytes.indexOf(0, patternEnd + 1);
+  if (patternEnd < 0 || optionsEnd < 0) {
+    throw new Error('Invalid BSON regex');
+  }
+  const pattern = bytes.toString('utf8', offset, patternEnd);
+  const optionsRaw = bytes.toString('utf8', patternEnd + 1, optionsEnd);
+  return [pattern, regexOptionsToJsFlags(optionsRaw), optionsEnd + 1];
+}
+
+function decimal128ToString(bytes, offset) {
+  return new mongo.Decimal128(bytes.subarray(offset, offset + 16)).toString();
+}
+
+function uuidOrHex(bytes) {
+  const hex = bytes.toString('hex');
+  if (bytes.length != 16) {
+    return hex;
+  }
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function parseTopLevelBinary(bytes, offset) {
+  const length = readInt32LE(bytes, offset);
+  const subtype = bytes[offset + 4];
+  const dataStart = offset + 5;
+  const dataEnd = dataStart + length;
+  const data = bytes.subarray(dataStart, dataEnd);
+
+  if (subtype === mongo.Binary.SUBTYPE_UUID || subtype === mongo.Binary.SUBTYPE_UUID_OLD) {
+    return [uuidOrHex(data), dataEnd];
+  }
+
+  return [data, dataEnd];
+}
+
 function skipBsonValue(bytes, offset, type) {
   switch (type) {
     case 0x01:
@@ -281,8 +366,12 @@ function serializeNestedValueToJson(bytes, offset, isArray, depth) {
 
   while (cursor < bodyEnd) {
     const type = bytes[cursor++];
-    const [key, afterKey] = readCString(bytes, cursor);
-    cursor = afterKey;
+    let key = '';
+    if (isArray) {
+      cursor = skipCString(bytes, cursor);
+    } else {
+      [key, cursor] = readCString(bytes, cursor);
+    }
 
     const [serialized, nextCursor, defined] = serializeNestedElementValue(bytes, cursor, type, depth);
     cursor = nextCursor;
@@ -299,7 +388,7 @@ function serializeNestedValueToJson(bytes, offset, isArray, depth) {
     if (isArray) {
       parts.push(defined ? serialized : 'null');
     } else {
-      parts.push(JSON.stringify(key), ':', serialized);
+      parts.push(quoteJsonFast(key), ':', serialized);
     }
   }
 
@@ -318,7 +407,7 @@ function serializeNestedElementValue(bytes, offset, type, depth) {
       const length = readInt32LE(bytes, offset);
       const stringStart = offset + 4;
       const text = bytes.toString('utf8', stringStart, stringStart + length - 1);
-      return [JSON.stringify(text), stringStart + length, true];
+      return [quoteJsonFast(text), stringStart + length, true];
     }
     case 0x03: {
       const serialized = serializeNestedValueToJson(bytes, offset, false, depth + 1);
@@ -335,14 +424,14 @@ function serializeNestedElementValue(bytes, offset, type, depth) {
     case 0x06:
       return ['', offset, false];
     case 0x07: {
-      const value = JSON.stringify(hexLower(bytes, offset, 12));
+      const value = quoteJsonFast(hexLower(bytes, offset, 12));
       return [value, offset + 12, true];
     }
     case 0x08:
       return [bytes[offset] ? '1' : '0', offset + 1, true];
     case 0x09: {
       const millis = Number(bytes.readBigInt64LE(offset));
-      const value = JSON.stringify(legacyDateTimeString(millis));
+      const value = quoteJsonFast(legacyDateTimeString(millis));
       return [value, offset + 8, true];
     }
     case 0x0a:
@@ -350,15 +439,8 @@ function serializeNestedElementValue(bytes, offset, type, depth) {
     case 0x7f:
       return ['null', offset, true];
     case 0x0b: {
-      const patternEnd = bytes.indexOf(0, offset);
-      const optionsEnd = bytes.indexOf(0, patternEnd + 1);
-      if (patternEnd < 0 || optionsEnd < 0) {
-        throw new Error('Invalid BSON regex');
-      }
-      const pattern = bytes.toString('utf8', offset, patternEnd);
-      const optionsRaw = bytes.toString('utf8', patternEnd + 1, optionsEnd);
-      const options = regexOptionsToJsFlags(optionsRaw);
-      return [JSON.stringify({ pattern, options }), optionsEnd + 1, true];
+      const [pattern, options, nextOffset] = parseRegex(bytes, offset);
+      return [`{"pattern":${quoteJsonFast(pattern)},"options":${quoteJsonFast(options)}}`, nextOffset, true];
     }
     case 0x10: {
       const value = readInt32LE(bytes, offset);
@@ -367,14 +449,14 @@ function serializeNestedElementValue(bytes, offset, type, depth) {
     case 0x11: {
       const increment = bytes.readUInt32LE(offset);
       const time = bytes.readUInt32LE(offset + 4);
-      return [JSON.stringify({ t: time, i: increment }), offset + 8, true];
+      return [`{"t":${time},"i":${increment}}`, offset + 8, true];
     }
     case 0x12: {
       const value = bytes.readBigInt64LE(offset);
       return [value.toString(), offset + 8, true];
     }
     case 0x13:
-      return ['', offset + 16, false];
+      return [quoteJsonFast(decimal128ToString(bytes, offset)), offset + 16, true];
     default:
       throw new Error(`Unsupported BSON nested type: 0x${type.toString(16)}`);
   }
