@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { PowerSyncMongo } from '../storage/implementation/db.js';
-import { TestStorageOptions } from '@powersync/service-core';
+import { TestStorageConfig, TestStorageOptions } from '@powersync/service-core';
 import { MongoReportStorage } from '../storage/MongoReportStorage.js';
 import { MongoBucketStorage } from '../storage/MongoBucketStorage.js';
 import { MongoSyncBucketStorageOptions } from '../storage/implementation/MongoSyncBucketStorage.js';
@@ -12,22 +12,25 @@ export type MongoTestStorageOptions = {
 };
 
 export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorageOptions) {
-  return async (options?: TestStorageOptions) => {
-    const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI);
+  return {
+    factory: async (options?: TestStorageOptions) => {
+      const db = connectMongoForTests(factoryOptions.url, factoryOptions.isCI);
 
-    // None of the tests insert data into this collection, so it was never created
-    if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
-      await db.db.createCollection('bucket_parameters');
-    }
+      // None of the tests insert data into this collection, so it was never created
+      if (!(await db.db.listCollections({ name: db.bucket_parameters.collectionName }).hasNext())) {
+        await db.db.createCollection('bucket_parameters');
+      }
 
-    // Full migrations are not currently run for tests, so we manually create this
-    await db.createCheckpointEventsCollection();
+      // Full migrations are not currently run for tests, so we manually create this
+      await db.createCheckpointEventsCollection();
 
-    if (!options?.doNotClear) {
-      await db.clear();
-    }
+      if (!options?.doNotClear) {
+        await db.clear();
+      }
 
-    return new MongoBucketStorage(db, { slot_name_prefix: 'test_' }, factoryOptions.internalOptions);
+      return new MongoBucketStorage(db, { slot_name_prefix: 'test_' }, factoryOptions.internalOptions);
+    },
+    tableIdStrings: false
   };
 }
 

@@ -1,9 +1,8 @@
 import { JwtPayload, storage } from '@powersync/service-core';
 import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { TEST_TABLE } from './util.js';
-import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 
 /**
  * @example
@@ -15,7 +14,9 @@ import { ParameterLookupScope } from '@powersync/service-sync-rules/src/Hydratio
  *
  * ```
  */
-export function registerDataStorageParameterTests(generateStorageFactory: storage.TestStorageFactory) {
+export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
+  const generateStorageFactory = config.factory;
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
   const MYBUCKET_1: ParameterLookupScope = { lookupName: 'mybucket', queryId: '1' };
 
   test('save and load parameters', async () => {
@@ -32,6 +33,8 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
+
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -82,6 +85,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -139,9 +143,10 @@ bucket_definitions:
     });
     const bucketStorage = factory.getInstance(syncRules);
 
-    const table = test_utils.makeTestTable('todos', ['id', 'list_id']);
+    const table = test_utils.makeTestTable('todos', ['id', 'list_id'], config);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       // Create two todos which initially belong to different lists
       await batch.save({
         sourceTable: table,
@@ -213,6 +218,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -263,6 +269,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -301,7 +308,7 @@ bucket_definitions:
   });
 
   test('save and load parameters with workspaceId', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', ['id']);
+    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', ['id'], config);
 
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
@@ -318,6 +325,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -350,7 +358,7 @@ bucket_definitions:
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace');
+    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
 
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
@@ -367,6 +375,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -436,7 +445,7 @@ bucket_definitions:
   });
 
   test('multiple parameter queries', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace');
+    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
 
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
@@ -455,6 +464,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: WORKSPACE_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -545,6 +555,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,

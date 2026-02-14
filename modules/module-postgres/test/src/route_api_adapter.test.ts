@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'vitest';
-import { clearTestDb, connectPgPool } from './util.js';
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 import { TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '@powersync/service-sync-rules';
+import { describe, expect, test } from 'vitest';
+import { clearTestDb, connectPgPool } from './util.js';
 
 describe('PostgresRouteAPIAdapter tests', () => {
   test('infers connection schema', async () => {
@@ -20,7 +20,9 @@ describe('PostgresRouteAPIAdapter tests', () => {
       `);
 
       const schema = await api.getConnectionSchema();
-      expect(schema).toStrictEqual([
+      // Filter out powersync schema, for cases where we use the same database for storage and replication testing.
+      const filtered = schema.filter((s) => s.name != 'powersync');
+      expect(filtered).toStrictEqual([
         {
           name: 'public',
           tables: [
