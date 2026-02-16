@@ -1,10 +1,12 @@
 import sql from 'mssql';
 import { coerce, gte } from 'semver';
 import { logger } from '@powersync/lib-services-framework';
+import { retryOnDeadlock } from './deadlock.js';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { LSN } from '../common/LSN.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLParameter } from '../types/mssql-data-types.js';
+import * as sync_rules from '@powersync/service-sync-rules';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import {
   getPendingSchemaChanges,
@@ -13,7 +15,6 @@ import {
   ResolvedTable
 } from './schema.js';
 import * as service_types from '@powersync/service-types';
-import * as sync_rules from '@powersync/service-sync-rules';
 import { CaptureInstance } from '../common/CaptureInstance.js';
 
 export const POWERSYNC_CHECKPOINTS_TABLE = '_powersync_checkpoints';
@@ -84,13 +85,13 @@ export async function checkSourceConfiguration(connectionManager: MSSQLConnectio
   }
 
   // 4) Check if the _powersync_checkpoints table is correctly configured
-  const checkpointTableErrors = await ensurePowerSyncCheckpointsTable(connectionManager);
+  const checkpointTableErrors = await checkPowerSyncCheckpointsTable(connectionManager);
   errors.push(...checkpointTableErrors);
 
   return errors;
 }
 
-export async function ensurePowerSyncCheckpointsTable(connectionManager: MSSQLConnectionManager): Promise<string[]> {
+export async function checkPowerSyncCheckpointsTable(connectionManager: MSSQLConnectionManager): Promise<string[]> {
   const errors: string[] = [];
   try {
     // check if the dbo_powersync_checkpoints table exists
@@ -110,38 +111,16 @@ export async function ensurePowerSyncCheckpointsTable(connectionManager: MSSQLCo
         table: POWERSYNC_CHECKPOINTS_TABLE,
         schema: connectionManager.schema
       });
-      if (!isEnabled) {
-        // Enable CDC on the table
-        await enableCDCForTable({
-          connectionManager,
-          table: POWERSYNC_CHECKPOINTS_TABLE
-        });
+      if (isEnabled) {
+        return errors;
+      } else {
+        throw new Error(
+          `The ${POWERSYNC_CHECKPOINTS_TABLE} table exists but is not enabled for CDC. Please enable CDC on this table.`
+        );
       }
-      return errors;
     }
   } catch (error) {
     errors.push(`Failed ensure ${POWERSYNC_CHECKPOINTS_TABLE} table is correctly configured: ${error}`);
-  }
-
-  // Try to create the table
-  try {
-    await connectionManager.query(`
-  CREATE TABLE ${toQualifiedTableName(connectionManager.schema, POWERSYNC_CHECKPOINTS_TABLE)} (
-    id INT IDENTITY PRIMARY KEY,
-    last_updated DATETIME NOT NULL DEFAULT (GETDATE())
-  )`);
-  } catch (error) {
-    errors.push(`Failed to create ${POWERSYNC_CHECKPOINTS_TABLE} table: ${error}`);
-  }
-
-  try {
-    // Enable CDC on the table if not already enabled
-    await enableCDCForTable({
-      connectionManager,
-      table: POWERSYNC_CHECKPOINTS_TABLE
-    });
-  } catch (error) {
-    errors.push(`Failed to enable CDC on ${POWERSYNC_CHECKPOINTS_TABLE} table: ${error}`);
   }
 
   return errors;
@@ -185,22 +164,6 @@ export async function isTableEnabledForCDC(options: IsTableEnabledForCDCOptions)
     ]
   );
   return checkResult.length > 0;
-}
-
-export interface EnableCDCForTableOptions {
-  connectionManager: MSSQLConnectionManager;
-  table: string;
-}
-
-export async function enableCDCForTable(options: EnableCDCForTableOptions): Promise<void> {
-  const { connectionManager, table } = options;
-
-  await connectionManager.execute('sys.sp_cdc_enable_table', [
-    { name: 'source_schema', value: connectionManager.schema },
-    { name: 'source_name', value: table },
-    { name: 'role_name', value: 'NULL' },
-    { name: 'supports_net_changes', value: 1 }
-  ]);
 }
 
 /**
@@ -377,18 +340,28 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
     selectError = { level: 'fatal', message: e.message };
   }
 
-  // Check if CDC is enabled for the table
   let cdcError: service_types.ReplicationError | null = null;
+  let schemaDriftError: service_types.ReplicationError | null = null;
   try {
-    const isEnabled = await isTableEnabledForCDC({
+    const captureInstanceDetails = await getCaptureInstance({
       connectionManager: connectionManager,
-      table: table.name,
-      schema: schema
+      table: {
+        schema: schema,
+        name: table.name
+      }
     });
-    if (!isEnabled) {
+    if (captureInstanceDetails == null) {
       cdcError = {
-        level: 'fatal',
-        message: `CDC is not enabled for table ${toQualifiedTableName(schema, table.name)}. Enable CDC with: sys.sp_cdc_enable_table @source_schema = '${schema}', @source_name = '${table.name}', @role_name = NULL, @supports_net_changes = 1`
+        level: 'warning',
+        message: `CDC is not enabled for table ${toQualifiedTableName(schema, table.name)}. Please enable CDC on the table to capture changes.`
+      };
+    }
+
+    if (captureInstanceDetails && captureInstanceDetails.instances[0].pendingSchemaChanges.length > 0) {
+      schemaDriftError = {
+        level: 'warning',
+        message: `Source table ${toQualifiedTableName(schema, table.name)} has schema changes not reflected in the CDC capture instance. Please disable and re-enable CDC on the source table to update the capture instance schema.
+        Pending schema changes: ${captureInstanceDetails.instances[0].pendingSchemaChanges.join(', \n')}`
       };
     }
   } catch (e) {
@@ -404,7 +377,9 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
     replication_id: idColumns.map((c) => c.name),
     data_queries: syncData,
     parameter_queries: syncParameters,
-    errors: [idColumnsError, selectError, cdcError].filter((error) => error != null) as service_types.ReplicationError[]
+    errors: [idColumnsError, selectError, cdcError, schemaDriftError].filter(
+      (error) => error != null
+    ) as service_types.ReplicationError[]
   };
 }
 
@@ -434,54 +409,74 @@ export interface GetCaptureInstancesOptions {
 export async function getCaptureInstances(
   options: GetCaptureInstancesOptions
 ): Promise<Map<number, CaptureInstanceDetails>> {
-  const { connectionManager, table } = options;
-  const instances = new Map<number, CaptureInstanceDetails>();
+  return retryOnDeadlock(async () => {
+    const { connectionManager, table } = options;
+    const instances = new Map<number, CaptureInstanceDetails>();
 
-  const { recordset: results } = table
-    ? await connectionManager.execute('sys.sp_cdc_help_change_data_capture', [
-        { name: 'source_schema', value: table.schema },
-        { name: 'source_name', value: table.name }
-      ])
-    : await connectionManager.execute('sys.sp_cdc_help_change_data_capture', []);
+    const { recordset: results } = table
+      ? await connectionManager.execute('sys.sp_cdc_help_change_data_capture', [
+          { name: 'source_schema', value: table.schema },
+          { name: 'source_name', value: table.name }
+        ])
+      : await connectionManager.execute('sys.sp_cdc_help_change_data_capture', []);
 
-  if (results.length === 0) {
-    return new Map<number, CaptureInstanceDetails>();
-  }
-
-  for (const row of results) {
-    const instance: CaptureInstance = {
-      name: row.capture_instance,
-      objectId: row.object_id,
-      minLSN: LSN.fromBinary(row.start_lsn),
-      createDate: new Date(row.create_date),
-      pendingSchemaChanges: []
-    };
-
-    instance.pendingSchemaChanges = await getPendingSchemaChanges({
-      connectionManager: connectionManager,
-      captureInstance: instance
-    });
-
-    const sourceTable = {
-      schema: row.source_schema,
-      name: row.source_table,
-      objectId: row.source_object_id
-    };
-
-    // There can only ever be 2 capture instances active at any given time for a source table.
-    if (instances.has(row.source_object_id)) {
-      if (instance.createDate > instances.get(row.source_object_id)!.instances[0].createDate) {
-        instances.get(row.source_object_id)!.instances.unshift(instance);
-      } else {
-        instances.get(row.source_object_id)!.instances.push(instance);
-      }
-    } else {
-      instances.set(row.source_object_id, {
-        instances: [instance],
-        sourceTable
-      });
+    if (results.length === 0) {
+      return new Map<number, CaptureInstanceDetails>();
     }
+
+    for (const row of results) {
+      const instance: CaptureInstance = {
+        name: row.capture_instance,
+        objectId: row.object_id,
+        minLSN: LSN.fromBinary(row.start_lsn),
+        createDate: new Date(row.create_date),
+        pendingSchemaChanges: []
+      };
+
+      instance.pendingSchemaChanges = await getPendingSchemaChanges({
+        connectionManager: connectionManager,
+        captureInstance: instance
+      });
+
+      const sourceTable = {
+        schema: row.source_schema,
+        name: row.source_table,
+        objectId: row.source_object_id
+      };
+
+      // There can only ever be 2 capture instances active at any given time for a source table.
+      if (instances.has(row.source_object_id)) {
+        if (instance.createDate > instances.get(row.source_object_id)!.instances[0].createDate) {
+          instances.get(row.source_object_id)!.instances.unshift(instance);
+        } else {
+          instances.get(row.source_object_id)!.instances.push(instance);
+        }
+      } else {
+        instances.set(row.source_object_id, {
+          instances: [instance],
+          sourceTable
+        });
+      }
+    }
+
+    return instances;
+  }, 'getCaptureInstances');
+}
+
+export interface GetCaptureInstanceOptions {
+  connectionManager: MSSQLConnectionManager;
+  table: {
+    schema: string;
+    name: string;
+  };
+}
+export async function getCaptureInstance(options: GetCaptureInstanceOptions): Promise<CaptureInstanceDetails | null> {
+  const { connectionManager, table } = options;
+  const instances = await getCaptureInstances({ connectionManager, table });
+
+  if (instances.size === 0) {
+    return null;
   }
 
-  return instances;
+  return instances.values().next().value!;
 }

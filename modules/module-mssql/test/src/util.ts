@@ -8,13 +8,7 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { describe, TestOptions } from 'vitest';
 import { env } from './env.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
-import {
-  createCheckpoint,
-  enableCDCForTable,
-  escapeIdentifier,
-  getLatestLSN,
-  toQualifiedTableName
-} from '@module/utils/mssql.js';
+import { createCheckpoint, escapeIdentifier, getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
 import sql from 'mssql';
 import { v4 as uuid } from 'uuid';
 import { LSN } from '@module/common/LSN.js';
@@ -73,11 +67,11 @@ export async function clearTestDb(connectionManager: MSSQLConnectionManager) {
 }
 
 export async function dropTestTable(connectionManager: MSSQLConnectionManager, tableName: string) {
-  // await connectionManager.execute('sys.sp_cdc_disable_table', [
-  //   { name: 'source_schema', value: connectionManager.schema },
-  //   { name: 'source_name', value: tableName },
-  //   { name: 'capture_instance', value: 'all' }
-  // ]);
+  await connectionManager.execute('sys.sp_cdc_disable_table', [
+    { name: 'source_schema', value: connectionManager.schema },
+    { name: 'source_name', value: tableName },
+    { name: 'capture_instance', value: 'all' }
+  ]);
   await connectionManager.query(`DROP TABLE [${tableName}]`);
 }
 
@@ -97,19 +91,26 @@ export async function createTestDb(connectionManager: MSSQLConnectionManager, db
     GO`);
 }
 
-export async function createTestTable(connectionManager: MSSQLConnectionManager, tableName: string): Promise<void> {
+export async function createTestTable(
+  connectionManager: MSSQLConnectionManager,
+  tableName: string,
+  withCaptureInstance: boolean = true
+): Promise<void> {
   await connectionManager.query(`
     CREATE TABLE ${escapeIdentifier(connectionManager.schema)}.${escapeIdentifier(tableName)} (
       id UNIQUEIDENTIFIER PRIMARY KEY,
       description VARCHAR(MAX)
     )
   `);
-  await enableCDCForTable({ connectionManager, table: tableName });
+  if (withCaptureInstance) {
+    await enableCDCForTable({ connectionManager, table: tableName });
+  }
 }
 
 export async function createTestTableWithBasicId(
   connectionManager: MSSQLConnectionManager,
-  tableName: string
+  tableName: string,
+  withCaptureInstance: boolean = true
 ): Promise<void> {
   await connectionManager.query(`
     CREATE TABLE ${escapeIdentifier(connectionManager.schema)}.${escapeIdentifier(tableName)} (
@@ -117,7 +118,9 @@ export async function createTestTableWithBasicId(
       description VARCHAR(MAX)
     )
   `);
-  await enableCDCForTable({ connectionManager, table: tableName });
+  if (withCaptureInstance) {
+    await enableCDCForTable({ connectionManager, table: tableName });
+  }
 }
 
 export interface TestData {
@@ -174,7 +177,7 @@ export async function waitForPendingCDCChanges(
     );
 
     if (result.length === 0) {
-      logger.info(`CDC changes pending. Waiting for 200ms...`);
+      logger.info(`CDC changes pending. Waiting for a transaction newer than: ${beforeLSN.toString()} for 200ms...`);
       await new Promise((resolve) => setTimeout(resolve, 200));
     } else {
       logger.info(`Found LSN: ${LSN.fromBinary(result[0].start_lsn).toString()}`);
@@ -222,4 +225,37 @@ export async function getClientCheckpoint(
  */
 export function createUpperCaseUUID(): string {
   return uuid().toUpperCase();
+}
+
+export async function renameTable(connectionManager: MSSQLConnectionManager, fromTable: string, toTable: string) {
+  await connectionManager.execute('sp_rename', [
+    { name: 'objname', value: toQualifiedTableName(connectionManager.schema, fromTable) },
+    { name: 'newname', value: toTable }
+  ]);
+}
+
+export interface EnableCDCForTableOptions {
+  connectionManager: MSSQLConnectionManager;
+  table: string;
+  captureInstance?: string;
+}
+
+export async function enableCDCForTable(options: EnableCDCForTableOptions): Promise<void> {
+  const { connectionManager, table, captureInstance } = options;
+
+  await connectionManager.execute('sys.sp_cdc_enable_table', [
+    { name: 'source_schema', value: connectionManager.schema },
+    { name: 'source_name', value: table },
+    { name: 'role_name', value: 'NULL' },
+    { name: 'supports_net_changes', value: 1 },
+    ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : [])
+  ]);
+}
+
+export async function disableCDCForTable(connectionManager: MSSQLConnectionManager, tableName: string) {
+  await connectionManager.execute('sys.sp_cdc_disable_table', [
+    { name: 'source_schema', value: connectionManager.schema },
+    { name: 'source_name', value: tableName },
+    { name: 'capture_instance', value: 'all' }
+  ]);
 }
