@@ -10,6 +10,8 @@
     "check-updates": "ncu -u --deep",
     "validate:tsconfig-references": "node scripts/validate-tsconfig-references.mts",
     "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "format:dirty": "{ git diff --name-only --diff-filter=ACMR -z; git diff --name-only --cached --diff-filter=ACMR -z; git ls-files --others --exclude-standard -z; } | sort -zu | xargs -0 -r prettier --write --ignore-unknown",
     "build": "tsc -b && pnpm run -r build:extra",
     "build:production": "NODE_ENV=production pnpm run -r build",
     "build:ts": "tsc -b",
