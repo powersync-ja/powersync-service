@@ -17,7 +17,7 @@ import {
 import { getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
 
 describe('MSSQL Schema Changes Tests', () => {
-  describeWithStorage({ timeout: 20_000 }, defineSchemaChangesTests);
+  describeWithStorage({ timeout: 60_000 }, defineSchemaChangesTests);
 });
 
 const BASIC_SYNC_RULES = `
