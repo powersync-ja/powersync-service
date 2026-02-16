@@ -122,6 +122,11 @@ config:
         PARSE_OPTIONS
       ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
+      expect(rules.compatibility.isEnabled(CompatibilityOption.timestampsIso8601)).toStrictEqual(false);
+      // This does not have a direct effect on the hydration here anymore - we now do that one level higher.
+      // We do still check that the option is parsed correctly.
+      expect(rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)).toStrictEqual(false);
+
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
@@ -142,32 +147,6 @@ config:
         }
       ]);
     });
-  });
-
-  test('can use versioned bucket ids', () => {
-    const rules = SqlSyncRules.fromYaml(
-      `
-bucket_definitions:
-  mybucket:
-    data:
-      - SELECT id, description FROM assets
-
-config:
-  edition: 1
-  versioned_bucket_ids: true
-    `,
-      PARSE_OPTIONS
-    ).config.hydrate({ hydrationState: versionedHydrationState(1) });
-
-    expect(
-      rules.evaluateRow({
-        sourceTable: ASSETS,
-        record: {
-          id: 'id',
-          description: 'desc'
-        }
-      })
-    ).toStrictEqual([{ bucket: '1#mybucket[]', data: { description: 'desc', id: 'id' }, id: 'id', table: 'assets' }]);
   });
 
   test('streams use new options by default', () => {
