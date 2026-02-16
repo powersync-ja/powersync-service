@@ -1,9 +1,9 @@
 import {
+  DatabaseQueryError,
+  ErrorCode,
   Logger,
   logger as defaultLogger,
-  ReplicationAssertionError,
-  DatabaseQueryError,
-  ErrorCode
+  ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import timers from 'timers/promises';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
@@ -11,8 +11,9 @@ import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { LSN } from '../common/LSN.js';
 import sql from 'mssql';
 import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedTableName } from '../utils/mssql.js';
+import { isDeadlockError } from '../utils/deadlock.js';
 import { AdditionalConfig } from '../types/types.js';
-import { tableExists } from '../utils/schema.js';
+import { getPendingSchemaChanges, tableExists } from '../utils/schema.js';
 import { TablePattern } from '@powersync/service-sync-rules';
 import { CaptureInstance } from '../common/CaptureInstance.js';
 import { SourceEntityDescriptor } from '@powersync/service-core';
@@ -83,7 +84,6 @@ export class CDCPoller {
   private isStopped: boolean = false;
   private isStopping: boolean = false;
   private isPolling: boolean = false;
-  private warnedSchemaDriftCaptureInstances = new Set<number>();
 
   constructor(public options: CDCPollerOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -130,18 +130,31 @@ export class CDCPoller {
         for (const schemaChange of schemaChanges) {
           await this.eventHandler.onSchemaChange(schemaChange);
         }
+
         const hasChanges = await this.poll();
         if (!hasChanges) {
-          // No changes found, wait before next poll
+          // No changes found, wait before polling again
           await timers.setTimeout(this.pollingIntervalMs);
         }
+
         // If changes were found, poll immediately again (no wait)
       } catch (error) {
         if (!(this.isStopped || this.isStopping)) {
+          // Recoverable errors
           if (error instanceof DatabaseQueryError) {
             this.logger.warn(error.message);
             continue;
           }
+          // Deadlock errors are transient — even if all retries within retryOnDeadlock were
+          // exhausted, we should not crash the poller. Instead, log and retry the entire cycle.
+          if (isDeadlockError(error)) {
+            this.logger.warn(
+              `Deadlock persisted after all retry attempts during CDC polling cycle. Will retry on next cycle: ${(error as Error).message}`
+            );
+            continue;
+          }
+
+          // Non-recoverable errors
           this.listenerError = error as Error;
           this.logger.error('Error during CDC polling:', error);
           this.stop();
@@ -187,13 +200,17 @@ export class CDCPoller {
       this.logger.info(`Polling bounds are ${startLSN} -> ${endLSN} spanning ${results.length} transaction(s).`);
 
       let transactionCount = 0;
-      this.logger.info(`SourceTables are: ${this.replicatedTables.map((table) => table.toQualifiedName()).join(', ')}`);
+      this.logger.debug(
+        `Currently replicating tables: ${this.replicatedTables.map((table) => table.toQualifiedName()).join(', ')}`
+      );
       for (const table of this.replicatedTables) {
-        const tableTransactionCount = await this.pollTable(table, { startLSN, endLSN });
-        // We poll for batch size transactions, but these include transactions not applicable to our Source Tables.
-        // Each Source Table may or may not have transactions that are applicable to it, so just keep track of the highest number of transactions processed for any Source Table.
-        if (tableTransactionCount > transactionCount) {
-          transactionCount = tableTransactionCount;
+        if (table.enabledForCDC()) {
+          const tableTransactionCount = await this.pollTable(table, { startLSN, endLSN });
+          // We poll for batch size transactions, but these include transactions not applicable to our Source Tables.
+          // Each Source Table may or may not have transactions that are applicable to it, so just keep track of the highest number of transactions processed for any Source Table.
+          if (tableTransactionCount > transactionCount) {
+            transactionCount = tableTransactionCount;
+          }
         }
       }
 
@@ -273,6 +290,7 @@ export class CDCPoller {
 
       return transactionCount;
     } catch (error) {
+      this.logger.error(`Error polling table ${table.toQualifiedName()}:`, error);
       if (error.message.includes(`Invalid object name '${table.allChangesFunction}'`)) {
         throw new DatabaseQueryError(
           ErrorCode.PSYNC_S1601,
@@ -321,23 +339,17 @@ export class CDCPoller {
       const captureInstanceDetails = this.captureInstances.get(table.objectId);
       if (!captureInstanceDetails) {
         // Table had a capture instance but no longer does.
-        this.logger.warn(
-          `Table ${table.toQualifiedName()} has no active capture instance. Replication will only continue once CDC is enabled for this table.`
-        );
         schemaChanges.push({
           type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
           table
         });
+
         continue;
       }
 
       const latestCaptureInstance = captureInstanceDetails.instances[0];
       // If the table is not enabled for CDC or the capture instance is different, we need to re-snapshot the source table
       if (!table.enabledForCDC() || table.captureInstance!.objectId !== latestCaptureInstance.objectId) {
-        table.setCaptureInstance(latestCaptureInstance);
-        this.logger.info(
-          `New capture instance detected for table ${table.toQualifiedName()}. Re-snapshotting table...`
-        );
         schemaChanges.push({
           type: SchemaChangeType.NEW_CAPTURE_INSTANCE,
           table,
@@ -371,13 +383,12 @@ export class CDCPoller {
         continue;
       }
 
+      latestCaptureInstance.pendingSchemaChanges = await getPendingSchemaChanges({
+        connectionManager: this.connectionManager,
+        captureInstance: latestCaptureInstance
+      });
+
       if (latestCaptureInstance.pendingSchemaChanges.length > 0) {
-        if (!this.warnedSchemaDriftCaptureInstances.has(table.objectId)) {
-          this.logger.warn(
-            `Schema drift detected for table ${table.toQualifiedName()}. To ensure consistency, disable and re-enable CDC for this table.`
-          );
-          this.warnedSchemaDriftCaptureInstances.add(table.objectId);
-        }
         schemaChanges.push({
           type: SchemaChangeType.TABLE_COLUMN_CHANGES,
           table,
