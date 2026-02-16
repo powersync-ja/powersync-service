@@ -2,4 +2,5 @@
 '@powersync/service-schema': patch
 ---
 
-Export MergedServiceConfig ts-codec and TypeScript type.
+- Export JSON schema as a package export.
+- Add MSSQL connection types to schema.
