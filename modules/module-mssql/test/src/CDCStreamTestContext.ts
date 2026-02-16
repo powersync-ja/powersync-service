@@ -23,7 +23,7 @@ import timers from 'timers/promises';
 export class CDCStreamTestContext implements AsyncDisposable {
   private _cdcStream?: CDCStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<void>;
+  public streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private snapshotPromise?: Promise<void>;
   private replicationDone = false;
@@ -125,7 +125,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
    */
   async initializeReplication() {
     await this.replicateSnapshot();
-    // TODO: renable this.startStreaming();
+    await this.startStreaming();
     // Make sure we're up to date
     await this.getCheckpoint();
   }
@@ -135,11 +135,12 @@ export class CDCStreamTestContext implements AsyncDisposable {
     this.replicationDone = true;
   }
 
-  // TODO: Enable once streaming is implemented
   startStreaming() {
     if (!this.replicationDone) {
       throw new Error('Call replicateSnapshot() before startStreaming()');
     }
+
+    this.cdcStream.isStartingReplication = true;
     this.streamPromise = this.cdcStream.streamChanges();
     // Wait for the replication to start before returning.
     // This avoids a bunch of unpredictable race conditions that appear in testing
@@ -193,6 +194,11 @@ export class CDCStreamTestContext implements AsyncDisposable {
       map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
     }
     return data;
+  }
+
+  async getFinalBucketState(bucket: string) {
+    const data = await this.getBucketData(bucket);
+    return test_utils.reduceBucket(data).slice(1);
   }
 
   /**

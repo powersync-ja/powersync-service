@@ -1,5 +1,5 @@
 import { SourceTable } from '@powersync/service-core';
-import { escapeIdentifier, toQualifiedTableName } from '../utils/mssql.js';
+import { toQualifiedTableName } from '../utils/mssql.js';
 import { ServiceAssertionError } from '@powersync/service-errors';
 import { CaptureInstance } from './CaptureInstance.js';
 

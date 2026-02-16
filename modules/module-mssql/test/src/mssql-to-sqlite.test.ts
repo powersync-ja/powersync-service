@@ -6,11 +6,16 @@ import {
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
-import { clearTestDb, createUpperCaseUUID, TEST_CONNECTION_OPTIONS, waitForPendingCDCChanges } from './util.js';
+import {
+  clearTestDb,
+  createUpperCaseUUID,
+  enableCDCForTable,
+  TEST_CONNECTION_OPTIONS,
+  waitForPendingCDCChanges
+} from './util.js';
 import { CDCToSqliteRow, toSqliteInputRow } from '@module/common/mssqls-to-sqlite.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import {
-  enableCDCForTable,
   escapeIdentifier,
   getCaptureInstances,
   getLatestLSN,
