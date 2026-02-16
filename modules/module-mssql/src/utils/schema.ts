@@ -4,7 +4,6 @@ import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js
 import { MSSQLColumnDescriptor } from '../types/mssql-data-types.js';
 import sql from 'mssql';
 import { CaptureInstance } from '../common/CaptureInstance.js';
-import { retryOnDeadlock } from './deadlock.js';
 
 export interface GetColumnsOptions {
   connectionManager: MSSQLConnectionManager;
@@ -212,12 +211,10 @@ export interface GetPendingSchemaChangesOptions {
 export async function getPendingSchemaChanges(options: GetPendingSchemaChangesOptions): Promise<string[]> {
   const { connectionManager, captureInstance } = options;
 
-  return retryOnDeadlock(async () => {
-    const { recordset: results } = await connectionManager.execute('sys.sp_cdc_get_ddl_history', [
-      { name: 'capture_instance', type: sql.VarChar(sql.MAX), value: captureInstance.name }
-    ]);
-    return results.map((row) => row.ddl_command);
-  }, `getPendingSchemaChanges(${captureInstance.name})`);
+  const { recordset: results } = await connectionManager.execute('sys.sp_cdc_get_ddl_history', [
+    { name: 'capture_instance', type: sql.VarChar(sql.MAX), value: captureInstance.name }
+  ]);
+  return results.map((row) => row.ddl_command);
 }
 
 export async function tableExists(tableId: number, connectionManager: MSSQLConnectionManager): Promise<boolean> {

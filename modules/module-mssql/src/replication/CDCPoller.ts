@@ -13,7 +13,7 @@ import sql from 'mssql';
 import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedTableName } from '../utils/mssql.js';
 import { isDeadlockError } from '../utils/deadlock.js';
 import { AdditionalConfig } from '../types/types.js';
-import { getPendingSchemaChanges, tableExists } from '../utils/schema.js';
+import { tableExists } from '../utils/schema.js';
 import { TablePattern } from '@powersync/service-sync-rules';
 import { CaptureInstance } from '../common/CaptureInstance.js';
 import { SourceEntityDescriptor } from '@powersync/service-core';
@@ -382,11 +382,6 @@ export class CDCPoller {
         });
         continue;
       }
-
-      latestCaptureInstance.pendingSchemaChanges = await getPendingSchemaChanges({
-        connectionManager: this.connectionManager,
-        captureInstance: latestCaptureInstance
-      });
 
       if (latestCaptureInstance.pendingSchemaChanges.length > 0) {
         schemaChanges.push({
