@@ -25,8 +25,17 @@ export class SqlScope {
     return maybeRoot;
   }
 
-  get resultSets(): SyntacticResultSetSource[] {
-    return [...this.nameToResultSet.values()];
+  /**
+   * The default result set that unqualified references resolve to.
+   */
+  get defaultResultSet(): SyntacticResultSetSource | null {
+    if (this.nameToResultSet.size == 0) {
+      return this.parent?.defaultResultSet ?? null;
+    } else if (this.nameToResultSet.size == 1) {
+      return this.nameToResultSet.values().next().value!;
+    } else {
+      return null;
+    }
   }
 
   registerResultSet(errors: ParsingErrorListener, name: string, source: SyntacticResultSetSource) {

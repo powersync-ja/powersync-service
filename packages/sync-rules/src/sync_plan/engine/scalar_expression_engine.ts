@@ -2,7 +2,13 @@ import { SqliteValue } from '../../types.js';
 import { ExternalData, SqlExpression } from '../expression.js';
 import { ExpressionToSqlite, Precedence } from '../expression_to_sql.js';
 import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
-import { ColumnSqlParameterValue, RequestSqlParameterValue, SqlParameterValue } from '../plan.js';
+import {
+  ColumnSqlParameterValue,
+  RequestSqlParameterValue,
+  SqlParameterValue,
+  TableProcessorTableValuedFunction,
+  TableProcessorTableValuedFunctionOutput
+} from '../plan.js';
 
 /**
  * Description of a scalar SQL statement (without external dependencies on tables).
@@ -123,8 +129,10 @@ export function mapExternalDataToInstantiation<T extends SqlParameterValue>() {
   const instantiation: T[] = [];
   const columnsToIndex = new Map<ColumnSqlParameterValue, number>();
   const requestToIndex = new Map<RequestSqlParameterValue, number>();
+  // Map from table-valued functions on the plan to table-valued functions on the scalar statement
+  const tableValuedFunctions = new Map<TableProcessorTableValuedFunction, TableValuedFunction>();
 
-  const visitor = new MapSourceVisitor<T, number>((data) => {
+  const visitor = new MapSourceVisitor<T, number | TableValuedFunctionOutput>((data) => {
     const indexIfAdded = instantiation.length + 1;
     if ('column' in data) {
       if (columnsToIndex.has(data)) {
@@ -132,6 +140,16 @@ export function mapExternalDataToInstantiation<T extends SqlParameterValue>() {
       }
 
       columnsToIndex.set(data, indexIfAdded);
+    } else if ('function' in data) {
+      const fn = tableValuedFunctions.get(data.function);
+      if (fn == null) {
+        throw new Error('Referenced unregistered table-value function.');
+      }
+
+      return {
+        function: fn,
+        column: data.outputName
+      } satisfies TableValuedFunctionOutput;
     } else {
       if (requestToIndex.has(data)) {
         return requestToIndex.get(data)!;
@@ -146,8 +164,14 @@ export function mapExternalDataToInstantiation<T extends SqlParameterValue>() {
 
   return {
     instantiation,
+    tableValuedFunctions,
     transform(expr: SqlExpression<SqlParameterValue>) {
       return visitExpr(visitor, expr, null);
+    },
+    transformWithoutTableValued(expr: SqlExpression<Exclude<T, TableProcessorTableValuedFunctionOutput>>) {
+      // This cast is safe because the input doesn't contain table-valued function references, so the output won't
+      // contain them either.
+      return visitExpr(visitor, expr, null) as SqlExpression<number>;
     }
   };
 }
