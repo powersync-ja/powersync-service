@@ -11,11 +11,11 @@ import {
   Statement
 } from 'pgsql-ast-parser';
 import {
-  BaseSourceResultSet,
   PhysicalSourceResultSet,
-  RequestTableValuedResultSet,
+  TableValuedResultSet,
   SourceResultSet,
-  SyntacticResultSetSource
+  SyntacticResultSetSource,
+  BaseSourceResultSet
 } from './table.js';
 import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
 import { ColumnInRow, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
@@ -26,8 +26,7 @@ import {
   Or,
   And,
   RowExpression,
-  SingleDependencyExpression,
-  RequestExpression
+  SingleDependencyExpression
 } from './filter.js';
 import { expandNodeLocations } from '../errors.js';
 import { cartesianProduct } from '../streams/utils.js';
@@ -222,13 +221,16 @@ export class StreamQueryParser {
   }
 
   private nestedParser(parentScope: SqlScope): StreamQueryParser {
-    return new StreamQueryParser({
+    const parseInner = new StreamQueryParser({
       compiler: this.compiler,
       originalText: this.originalText,
       errors: this.errors,
       parentScope,
       locations: this.nodeLocations
     });
+
+    this.resultSets.forEach((v, k) => parseInner.resultSets.set(k, v));
+    return parseInner;
   }
 
   /**
@@ -342,23 +344,46 @@ export class StreamQueryParser {
     }
   }
 
-  private resolveTableValued(call: ExprCall, source: SyntacticResultSetSource): RequestTableValuedResultSet {
-    // Currently, inputs to table-valued functions must be derived from connection/subscription data only. We might
-    // revisit this in the future.
-    const resolvedArguments: RequestExpression[] = [];
+  private resolveTableValued(call: ExprCall, source: SyntacticResultSetSource): TableValuedResultSet {
+    const resolvedArguments: SingleDependencyExpression[] = [];
+    let referencedResultSet: PhysicalSourceResultSet | null = null;
+    let referencesConnectionData: boolean = false;
+    let validArgs = true;
 
     for (const argument of call.args) {
       const parsed = this.mustBeSingleDependency(this.parseExpression(argument));
+      resolvedArguments.push(parsed);
 
-      if (parsed.resultSet != null) {
-        this.errors.report(
-          'Parameters to table-valued functions may not reference other tables',
-          parsed.expression.location
-        );
+      if (referencesConnectionData && parsed.resultSet) {
+        validArgs = false;
+      } else if (referencedResultSet != null && referencedResultSet != parsed.resultSet) {
+        validArgs = false;
+      } else {
+        if (parsed.resultSet != null) {
+          if (parsed.resultSet instanceof PhysicalSourceResultSet) {
+            referencedResultSet = parsed.resultSet;
+          } else {
+            // Table-valued functions may not be based on other table-valued functions, we only allow a single layer.
+            this.errors.report('Table-valued functions must depend on source tables.', parsed.expression.location);
+            validArgs = false;
+          }
+        }
+
+        referencesConnectionData = parsed.dependsOnConnection;
       }
     }
 
-    return new RequestTableValuedResultSet(call.function.name, resolvedArguments, source);
+    if (!validArgs) {
+      this.errors.report('Table-valued functions may only have a single table as inputs', call);
+    }
+
+    return new TableValuedResultSet(
+      call.function.name,
+      // We would have reported an error if arguments were invalid. Continue with empty parameters to potentially report
+      // more errors.
+      validArgs ? resolvedArguments : [],
+      source
+    );
   }
 
   private inferColumnName(column: SelectedColumn): string {
@@ -375,16 +400,22 @@ export class StreamQueryParser {
             `Sync streams can only select from a single table, and this one already selects from '${this.primaryResultSet.tablePattern.name}'.`,
             node
           );
+          return false;
         }
       } else {
         this.errors.report('Sync streams can only select from actual tables', node);
+        return false;
       }
+
+      return true;
     };
 
     const addColumn = (expr: SyncExpression, name: string) => {
       for (const dependency of expr.instantiation) {
         if (dependency instanceof ColumnInRow) {
-          selectsFrom(dependency.resultSet, dependency.syntacticOrigin);
+          if (!selectsFrom(dependency.resultSet, dependency.syntacticOrigin)) {
+            return;
+          }
         } else {
           this.errors.report(
             'This attempts to sync a connection parameter. Only values from the source database can be synced.',
@@ -440,9 +471,9 @@ export class StreamQueryParser {
       // there are multiple tables because we don't know which column is available in which table with certainty (and
       // don't want to re-compile sync streams on schema changes). So, we just refuse to resolve those ambigious
       // references.
-      const resultSets = this.statementScope.resultSets;
-      if (resultSets.length == 1) {
-        return this.resolveSoure(resultSets[0]);
+      const defaultResultSet = this.statementScope.defaultResultSet;
+      if (defaultResultSet) {
+        return this.resolveSoure(defaultResultSet);
       } else {
         this.errors.report('Invalid unqualified reference since multiple tables are in scope', node);
         return null;

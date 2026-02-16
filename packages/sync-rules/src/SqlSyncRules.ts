@@ -1,6 +1,5 @@
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
 import { SyncRulesErrors, YamlError } from './errors.js';
-import { TablePattern } from './TablePattern.js';
 import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
@@ -15,6 +14,14 @@ export interface SyncRulesOptions {
   defaultSchema: string;
 
   throwOnError?: boolean;
+
+  /**
+   * Whether to allow the option of using the new sync compiler.
+   *
+   * This is currently disabled outside of tests because the format of sync plans is still unstable and we can't support
+   * deployments based on it yet. Once we have a stable sync plan, this option can be removed.
+   */
+  allowNewSyncCompiler?: boolean;
 }
 
 export interface RequestedStream {
@@ -76,6 +83,7 @@ export class SqlSyncRules extends SyncConfig {
     const parser = new SyncConfigFromYaml(
       {
         throwOnError: options.throwOnError ?? true,
+        allowNewSyncCompiler: options.allowNewSyncCompiler ?? false,
         schema: options.schema,
         defaultSchema: options.defaultSchema
       },

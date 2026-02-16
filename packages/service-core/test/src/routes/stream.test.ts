@@ -1,4 +1,4 @@
-import { BasicRouterRequest, Context, SyncRulesBucketStorage } from '@/index.js';
+import { BasicRouterRequest, Context, JwtPayload, SyncRulesBucketStorage } from '@/index.js';
 import { RouterResponse, ServiceError, logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { Readable, Writable } from 'stream';
@@ -16,11 +16,11 @@ describe('Stream Route', () => {
       const context: Context = {
         logger: logger,
         service_context: mockServiceContext(null),
-        token_payload: {
+        token_payload: new JwtPayload({
           sub: '',
           exp: 0,
           iat: 0
-        }
+        })
       };
 
       const request: BasicRouterRequest = {
@@ -57,11 +57,11 @@ describe('Stream Route', () => {
       const context: Context = {
         logger: logger,
         service_context: serviceContext,
-        token_payload: {
+        token_payload: new JwtPayload({
           exp: new Date().getTime() / 1000 + 10000,
           iat: new Date().getTime() / 1000 - 10000,
           sub: 'test-user'
-        }
+        })
       };
 
       // It may be worth eventually doing this via Fastify to test the full stack
@@ -109,11 +109,11 @@ describe('Stream Route', () => {
       const context: Context = {
         logger: testLogger,
         service_context: serviceContext,
-        token_payload: {
+        token_payload: new JwtPayload({
           exp: new Date().getTime() / 1000 + 10000,
           iat: new Date().getTime() / 1000 - 10000,
           sub: 'test-user'
-        }
+        })
       };
 
       const request: BasicRouterRequest = {

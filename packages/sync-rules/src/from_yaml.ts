@@ -82,7 +82,7 @@ export class SyncConfigFromYaml {
     const streamMap = parsed.get('streams') as YAMLMap | null;
 
     let result: SyncConfig;
-    if (useNewCompiler) {
+    if (useNewCompiler && this.options.allowNewSyncCompiler) {
       result = this.#compileSyncPlan(bucketMap, streamMap, compatibility);
     } else {
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
@@ -223,6 +223,7 @@ export class SyncConfigFromYaml {
     }
 
     return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), {
+      defaultSchema: this.options.defaultSchema,
       engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
     });
@@ -506,4 +507,9 @@ export interface SyncConfigFromYamlOptions {
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   readonly defaultSchema: string;
+
+  /**
+   * Whether to allow the option of using the new sync compiler.
+   */
+  readonly allowNewSyncCompiler: boolean;
 }
