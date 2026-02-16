@@ -5,7 +5,7 @@ export function putOp(table: string, data: Record<string, any>): Partial<utils.O
   return {
     op: 'PUT',
     object_type: table,
-    object_id: data.id,
+    object_id: String(data.id), // Object ids are always converted to strings
     data: JSONBig.stringify(data)
   };
 }
@@ -14,7 +14,7 @@ export function removeOp(table: string, id: string): Partial<utils.OplogEntry> {
   return {
     op: 'REMOVE',
     object_type: table,
-    object_id: id
+    object_id: String(id)
   };
 }
 
