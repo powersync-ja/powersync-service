@@ -707,7 +707,11 @@ importers:
 
   packages/sync-plan-compiler-rs: {}
 
-  packages/sync-plan-evaluator-rs: {}
+  packages/sync-plan-evaluator-rs:
+    dependencies:
+      '@powersync/service-jsonbig':
+        specifier: workspace:^
+        version: link:../jsonbig
 
   packages/sync-rules:
     dependencies:

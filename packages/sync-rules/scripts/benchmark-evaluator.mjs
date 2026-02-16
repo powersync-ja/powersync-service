@@ -69,16 +69,16 @@ const sourceTable = { connectionTag: 'default', schema: 'test_schema', name: 'co
 const commentRecord = buildLargeCommentRecord(TARGET_ROW_INPUT_BYTES);
 const commentRecordVariants = buildCommentRecordVariants(commentRecord, RECORD_VARIANTS);
 const jsInputs = commentRecordVariants.map((record) => ({ sourceTable, record }));
+const rustRecordInputs = commentRecordVariants;
 const rustRecordInputsJson = commentRecordVariants.map((record) => JSONBig.stringify(record));
-const sourceTableJson = JSONBig.stringify(sourceTable);
 
 const rustEvaluator = new RustSyncPlanEvaluator(serializedPlanJson, { defaultSchema: 'test_schema' });
-const rustPreparedSourceTableId = rustEvaluator.prepareEvaluateRowSourceTableSerialized(sourceTableJson);
+const rustPreparedSourceTableId = rustEvaluator.prepareEvaluateRowSourceTableSerialized(sourceTable);
 
 const evaluateJs = makeRoundRobinEvaluator(jsInputs, (input) => evaluateRowWithJsonBig(jsHydrated, input));
 const evaluateSqlite = makeRoundRobinEvaluator(jsInputs, (input) => evaluateRowWithJsonBig(sqliteHydrated, input));
-const evaluateRust = makeRoundRobinEvaluator(rustRecordInputsJson, (recordJson) =>
-  rustEvaluator.evaluateRowWithPreparedSourceTableSerialized(rustPreparedSourceTableId, recordJson)
+const evaluateRust = makeRoundRobinEvaluator(rustRecordInputs, (record) =>
+  rustEvaluator.evaluateRowWithPreparedSourceTableSerialized(rustPreparedSourceTableId, record)
 );
 const rustParseMinimalOnly = makeRoundRobinEvaluator(rustRecordInputsJson, (recordJson) =>
   rustEvaluator.benchmarkParseRecordMinimalSerialized(rustPreparedSourceTableId, recordJson)
@@ -91,10 +91,7 @@ const sampleJsInputJson = JSONBig.stringify(jsInputs[0]);
 const sampleRustRecordInputJson = rustRecordInputsJson[0];
 const sampleJsOutput = evaluateRowWithJsonBig(jsHydrated, jsInputs[0]);
 const sampleSqliteOutput = evaluateRowWithJsonBig(sqliteHydrated, jsInputs[0]);
-const sampleRustOutput = rustEvaluator.evaluateRowWithPreparedSourceTableSerialized(
-  rustPreparedSourceTableId,
-  rustRecordInputsJson[0]
-);
+const sampleRustOutput = rustEvaluator.evaluateRowWithPreparedSourceTableSerialized(rustPreparedSourceTableId, rustRecordInputs[0]);
 const sampleRustParseMinimalColumns = rustEvaluator.benchmarkParseRecordMinimalSerialized(
   rustPreparedSourceTableId,
   rustRecordInputsJson[0]
@@ -105,14 +102,14 @@ const sampleRustParseAndSerializeOutput = rustEvaluator.benchmarkParseAndSeriali
 );
 
 console.log(
-  `sizes evaluateRow js_input=${byteLength(sampleJsInputJson)}B rust_record_input=${byteLength(sampleRustRecordInputJson)}B output[js]=${byteLength(
+  `sizes evaluateRow js_input=${byteLength(sampleJsInputJson)}B rust_record_input_est=${byteLength(sampleRustRecordInputJson)}B output[js]=${byteLength(
     sampleJsOutput
   )}B output[sqlite]=${byteLength(sampleSqliteOutput)}B output[rust]=${byteLength(sampleRustOutput)}B parse_min_cols=${sampleRustParseMinimalColumns} parse_min_output=${byteLength(sampleRustParseAndSerializeOutput)}B variants=${commentRecordVariants.length}`
 );
 
 benchmark('evaluateRow js (obj in, JSONBig out)', evaluateJs);
 benchmark('evaluateRow sqlite (obj in, JSONBig out)', evaluateSqlite);
-benchmark('evaluateRow rust (prepared source + record json)', evaluateRust);
+benchmark('evaluateRow rust (prepared source + record object)', evaluateRust);
 benchmark('rust parse-only minimal (record json)', rustParseMinimalOnly);
 benchmark('rust parse+serialize minimal (record json)', rustParseAndSerializeMinimal);
 

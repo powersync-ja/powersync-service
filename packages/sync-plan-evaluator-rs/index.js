@@ -1,6 +1,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { JSONBig } from '@powersync/service-jsonbig';
 
 const require = createRequire(import.meta.url);
 const dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,7 +41,7 @@ function normalizeForRust(value) {
 }
 
 function parseJson(jsonText) {
-  return JSON.parse(jsonText);
+  return JSONBig.parse(jsonText);
 }
 
 function stringifyForRust(value) {
@@ -57,30 +58,40 @@ export class RustSyncPlanEvaluator {
     });
   }
 
-  evaluateRowSerialized(optionsJson) {
-    return this.#inner.evaluateRowJson(optionsJson);
+  evaluateRowSerialized(options) {
+    if (typeof options === 'string') {
+      return this.#inner.evaluateRowJson(options);
+    }
+
+    return this.#inner.evaluateRowObjectJson(options.sourceTable, options.record);
   }
 
   evaluateRow(options) {
-    return parseJson(this.evaluateRowSerialized(stringifyForRust(options)));
+    return parseJson(this.evaluateRowSerialized(options));
   }
 
-  prepareEvaluateRowSourceTableSerialized(sourceTableJson) {
-    return this.#inner.prepareEvaluateRowSourceTableJson(sourceTableJson);
+  prepareEvaluateRowSourceTableSerialized(sourceTable) {
+    if (typeof sourceTable === 'string') {
+      return this.#inner.prepareEvaluateRowSourceTableJson(sourceTable);
+    }
+
+    return this.#inner.prepareEvaluateRowSourceTableObject(sourceTable);
   }
 
   prepareEvaluateRowSourceTable(sourceTable) {
-    return this.prepareEvaluateRowSourceTableSerialized(stringifyForRust(sourceTable));
+    return this.prepareEvaluateRowSourceTableSerialized(sourceTable);
   }
 
-  evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId, recordJson) {
-    return this.#inner.evaluateRowWithPreparedSourceTableJson(preparedSourceTableId, recordJson);
+  evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId, record) {
+    if (typeof record === 'string') {
+      return this.#inner.evaluateRowWithPreparedSourceTableJson(preparedSourceTableId, record);
+    }
+
+    return this.#inner.evaluateRowWithPreparedSourceTableObjectJson(preparedSourceTableId, record);
   }
 
   evaluateRowWithPreparedSourceTable(preparedSourceTableId, record) {
-    return parseJson(
-      this.evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId, stringifyForRust(record))
-    );
+    return parseJson(this.evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId, record));
   }
 
   benchmarkParseRecordMinimalSerialized(preparedSourceTableId, recordJson) {
@@ -95,19 +106,16 @@ export class RustSyncPlanEvaluator {
     return this.#inner.releasePreparedSourceTableJson(preparedSourceTableId);
   }
 
-  evaluateParameterRowSerialized(optionsJson) {
-    return this.#inner.evaluateParameterRowJson(optionsJson);
+  evaluateParameterRowSerialized(options) {
+    if (typeof options === 'string') {
+      return this.#inner.evaluateParameterRowJson(options);
+    }
+
+    return this.#inner.evaluateParameterRowObjectJson(options.sourceTable, options.record);
   }
 
   evaluateParameterRow(sourceTable, record) {
-    return parseJson(
-      this.evaluateParameterRowSerialized(
-        stringifyForRust({
-          sourceTable,
-          record
-        })
-      )
-    );
+    return parseJson(this.evaluateParameterRowSerialized({ sourceTable, record }));
   }
 
   prepareBucketQueriesSerialized(optionsJson) {

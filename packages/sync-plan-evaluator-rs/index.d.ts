@@ -3,20 +3,35 @@ export interface RustEvaluatorOptions {
 }
 
 export type JsonObject = Record<string, unknown>;
+export type SqliteFlatValue = string | number | bigint | Uint8Array | null;
+export type SqliteFlatRow = Record<string, SqliteFlatValue>;
+export type SourceTable = {
+  connectionTag: string;
+  schema: string;
+  name: string;
+};
+export type EvaluateRowInput = {
+  sourceTable: SourceTable;
+  record: SqliteFlatRow;
+};
+export type EvaluateParameterRowInput = {
+  sourceTable: SourceTable;
+  record: SqliteFlatRow;
+};
 
 export class RustSyncPlanEvaluator {
   constructor(serializedPlan: unknown, options?: RustEvaluatorOptions);
-  evaluateRowSerialized(optionsJson: string): string;
-  evaluateRow(options: JsonObject): unknown[];
-  prepareEvaluateRowSourceTableSerialized(sourceTableJson: string): number;
-  prepareEvaluateRowSourceTable(sourceTable: JsonObject): number;
-  evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId: number, recordJson: string): string;
-  evaluateRowWithPreparedSourceTable(preparedSourceTableId: number, record: JsonObject): unknown[];
+  evaluateRowSerialized(options: EvaluateRowInput | string): string;
+  evaluateRow(options: EvaluateRowInput): unknown[];
+  prepareEvaluateRowSourceTableSerialized(sourceTable: SourceTable | string): number;
+  prepareEvaluateRowSourceTable(sourceTable: SourceTable): number;
+  evaluateRowWithPreparedSourceTableSerialized(preparedSourceTableId: number, record: SqliteFlatRow | string): string;
+  evaluateRowWithPreparedSourceTable(preparedSourceTableId: number, record: SqliteFlatRow): unknown[];
   benchmarkParseRecordMinimalSerialized(preparedSourceTableId: number, recordJson: string): number;
   benchmarkParseAndSerializeRecordMinimalSerialized(preparedSourceTableId: number, recordJson: string): string;
   releasePreparedSourceTable(preparedSourceTableId: number): boolean;
-  evaluateParameterRowSerialized(optionsJson: string): string;
-  evaluateParameterRow(sourceTable: JsonObject, record: JsonObject): unknown[];
+  evaluateParameterRowSerialized(options: EvaluateParameterRowInput | string): string;
+  evaluateParameterRow(sourceTable: SourceTable, record: SqliteFlatRow): unknown[];
   prepareBucketQueriesSerialized(optionsJson: string): string;
   prepareBucketQueries(options: JsonObject): JsonObject;
   resolveBucketQueriesSerialized(preparedJson: string, lookupResultsJson: string): string;
