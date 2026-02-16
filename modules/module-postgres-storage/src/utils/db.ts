@@ -9,6 +9,9 @@ export const NOTIFICATION_CHANNEL = 'powersynccheckpoints';
  */
 export const sql = lib_postgres.sql;
 
+/**
+ * Drop all Postgres storage tables used by the service, including migrations.
+ */
 export const dropTables = async (client: lib_postgres.DatabaseClient) => {
   // Lock a connection for automatic schema search paths
   await client.lockConnection(async (db) => {
@@ -23,5 +26,40 @@ export const dropTables = async (client: lib_postgres.DatabaseClient) => {
     await db.sql`DROP TABLE IF EXISTS custom_write_checkpoints`.execute();
     await db.sql`DROP SEQUENCE IF EXISTS op_id_sequence`.execute();
     await db.sql`DROP SEQUENCE IF EXISTS sync_rules_id_sequence`.execute();
+    await db.sql`DROP TABLE IF EXISTS migrations`.execute();
+  });
+};
+
+/**
+ * Clear all Postgres storage tables and reset sequences.
+ *
+ * Does not clear migration state.
+ */
+export const truncateTables = async (client: lib_postgres.DatabaseClient) => {
+  // Lock a connection for automatic schema search paths
+  await client.lockConnection(async (db) => {
+    await db.sql`
+      TRUNCATE TABLE bucket_data,
+      bucket_parameters,
+      sync_rules,
+      instance,
+      current_data,
+      source_tables,
+      write_checkpoints,
+      custom_write_checkpoints,
+      connection_report_events RESTART IDENTITY CASCADE
+    `.execute();
+
+    // These sequences are not tied to identity columns and must be reset explicitly.
+    await db.sql`
+      ALTER SEQUENCE IF EXISTS op_id_sequence RESTART
+      WITH
+        1
+    `.execute();
+    await db.sql`
+      ALTER SEQUENCE IF EXISTS sync_rules_id_sequence RESTART
+      WITH
+        1
+    `.execute();
   });
 };
