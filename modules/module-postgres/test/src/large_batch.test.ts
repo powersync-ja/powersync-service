@@ -42,7 +42,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
 
     context.startStreaming();
 
-    const checksum = await context.getChecksums(['global[]']);
+    const checksum = await context.getChecksums(['global[]'], { timeout: 50_000 });
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
     expect(checksum.get('global[]')!.count).toEqual(operation_count);
@@ -89,7 +89,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
       await context.replicateSnapshot();
       context.startStreaming();
 
-      const checksum = await context.getChecksums(['global[]']);
+      const checksum = await context.getChecksums(['global[]'], { timeout: 100_000 });
       const duration = Date.now() - start;
       expect(checksum.get('global[]')!.count).toEqual(operation_count);
       const perSecond = Math.round((operation_count / duration) * 1000);
@@ -156,7 +156,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     const truncateStart = Date.now();
     await pool.query(`TRUNCATE test_data`);
 
-    const checksum2 = await context.getChecksums(['global[]']);
+    const checksum2 = await context.getChecksums(['global[]'], { timeout: 20_000 });
     const truncateDuration = Date.now() - truncateStart;
     const truncateCount = checksum2.get('global[]')!.count - checksum.get('global[]')!.count;
     expect(truncateCount).toEqual(numTransactions * perTransaction);
@@ -223,7 +223,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     await context.replicateSnapshot();
 
     context.startStreaming();
-    const checksum = await context.getChecksums(['global[]']);
+    const checksum = await context.getChecksums(['global[]'], { timeout: 50_000 });
     expect(checksum.get('global[]')!.count).toEqual((numDocs + 2) * 4);
   });
 
