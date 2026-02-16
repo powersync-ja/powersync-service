@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "format:dirty": "{ git diff --name-only --diff-filter=ACMR -z; git diff --name-only --cached --diff-filter=ACMR -z; git ls-files --others --exclude-standard -z; } | sort -zu | xargs -0 -r prettier --write --ignore-unknown",
+    "lint-staged": "lint-staged",
     "build": "tsc -b && pnpm run -r build:extra",
     "build:production": "NODE_ENV=production pnpm run -r build",
     "build:ts": "tsc -b",
@@ -23,6 +24,9 @@
     "release": "pnpm build:production && pnpm changeset publish",
     "test:core": "pnpm run -r --filter '!./modules/*' test"
   },
+  "lint-staged": {
+    "*": "prettier --check"
+  },
   "devDependencies": {
     "@changesets/cli": "^2.27.8",
     "@pnpm/workspace.find-packages": "^1000.0.54",
@@ -33,6 +37,7 @@
     "fast-glob": "^3.3.3",
     "inquirer": "^9.2.7",
     "npm-check-updates": "^17.1.2",
+    "lint-staged": "^16.1.0",
     "prettier": "^3.4.1",
     "prettier-plugin-embed": "^0.4.15",
     "prettier-plugin-sql": "^0.18.1",
