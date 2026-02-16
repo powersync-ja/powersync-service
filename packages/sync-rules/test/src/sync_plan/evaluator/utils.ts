@@ -12,6 +12,7 @@ import {
   serializeSyncPlan,
   ScopedParameterLookup,
   SourceTableInterface,
+  SqliteRow,
   SqlSyncRules,
   SyncConfig,
   versionedHydrationState,
@@ -86,7 +87,7 @@ class RustHydratedSyncRulesFacade {
     this.#evaluator = new RustSyncPlanEvaluator(plan, { defaultSchema: 'test_schema' });
   }
 
-  evaluateRow(options: { sourceTable: SourceTableInterface; record: Record<string, unknown> }) {
+  evaluateRow(options: { sourceTable: SourceTableInterface; record: SqliteRow }) {
     return this.#evaluator.evaluateRow({
       sourceTable: toRustSourceTable(options.sourceTable),
       record: options.record
@@ -101,7 +102,7 @@ class RustHydratedSyncRulesFacade {
     return this.#plan.parameterIndexes.some((source: any) => tableMatchesPattern(source.table, table));
   }
 
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: Record<string, unknown>) {
+  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow) {
     const rows = this.#evaluator.evaluateParameterRow(toRustSourceTable(sourceTable), row) as any[];
     return rows.map((entry) => ({
       ...entry,
