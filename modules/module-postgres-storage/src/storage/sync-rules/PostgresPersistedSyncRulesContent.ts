@@ -20,7 +20,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
   public readonly active: boolean;
-  public readonly storage_version: number;
+  public readonly storageVersion: number;
   current_lock: storage.ReplicationLock | null = null;
 
   constructor(
@@ -35,7 +35,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
     this.last_checkpoint_ts = row.last_checkpoint_ts ? new Date(row.last_checkpoint_ts) : null;
     this.last_keepalive_ts = row.last_keepalive_ts ? new Date(row.last_keepalive_ts) : null;
     this.active = row.state == 'ACTIVE';
-    this.storage_version = row.storage_version ?? storage.LEGACY_STORAGE_VERSION;
+    this.storageVersion = row.storage_version ?? storage.LEGACY_STORAGE_VERSION;
   }
 
   /**
@@ -44,11 +44,11 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
    * This may throw if the persisted storage version is not supported.
    */
   getStorageConfig() {
-    const storageConfig = storage.STORAGE_VERSION_CONFIG[this.storage_version];
+    const storageConfig = storage.STORAGE_VERSION_CONFIG[this.storageVersion];
     if (storageConfig == null) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1403,
-        `Unsupported storage version ${this.storage_version} for sync rules ${this.id}`
+        `Unsupported storage version ${this.storageVersion} for sync rules ${this.id}`
       );
     }
     return storageConfig;

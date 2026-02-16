@@ -2,7 +2,7 @@ import { JwtPayload, storage } from '@powersync/service-core';
 import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { TEST_TABLE } from './util.js';
+import { bucketRequest, TEST_TABLE } from './util.js';
 import { ParameterLookupScope } from '@powersync/service-sync-rules';
 
 /**
@@ -345,7 +345,12 @@ bucket_definitions:
       }
     });
     expect(buckets).toEqual([
-      { bucket: 'by_workspace["workspace1"]', priority: 3, definition: 'by_workspace', inclusion_reasons: ['default'] }
+      {
+        bucket: bucketRequest(syncRules, 'by_workspace["workspace1"]'),
+        priority: 3,
+        definition: 'by_workspace',
+        inclusion_reasons: ['default']
+      }
     ]);
   });
 
@@ -421,13 +426,13 @@ bucket_definitions:
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
       {
-        bucket: 'by_public_workspace["workspace1"]',
+        bucket: bucketRequest(syncRules, 'by_public_workspace["workspace1"]'),
         priority: 3,
         definition: 'by_public_workspace',
         inclusion_reasons: ['default']
       },
       {
-        bucket: 'by_public_workspace["workspace3"]',
+        bucket: bucketRequest(syncRules, 'by_public_workspace["workspace3"]'),
         priority: 3,
         definition: 'by_public_workspace',
         inclusion_reasons: ['default']
@@ -528,7 +533,10 @@ bucket_definitions:
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
     buckets.sort();
-    expect(buckets).toEqual(['by_workspace["workspace1"]', 'by_workspace["workspace3"]']);
+    expect(buckets).toEqual([
+      bucketRequest(syncRules, 'by_workspace["workspace1"]'),
+      bucketRequest(syncRules, 'by_workspace["workspace3"]')
+    ]);
   });
 
   test('truncate parameters', async () => {

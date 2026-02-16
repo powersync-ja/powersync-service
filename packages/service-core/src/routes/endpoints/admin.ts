@@ -174,6 +174,7 @@ export const validate = routeDefinition({
       slot_name: '',
       active: false,
       last_checkpoint_lsn: '',
+      storageVersion: storage.LEGACY_STORAGE_VERSION,
 
       parsed() {
         return {

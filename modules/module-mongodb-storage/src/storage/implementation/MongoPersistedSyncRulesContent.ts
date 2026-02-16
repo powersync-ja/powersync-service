@@ -18,7 +18,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
   public readonly active: boolean;
-  public readonly storage_version: number;
+  public readonly storageVersion: number;
 
   public current_lock: MongoSyncRulesLock | null = null;
 
@@ -36,7 +36,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     this.last_checkpoint_ts = doc.last_checkpoint_ts;
     this.last_keepalive_ts = doc.last_keepalive_ts;
     this.active = doc.state == 'ACTIVE';
-    this.storage_version = doc.storage_version ?? storage.LEGACY_STORAGE_VERSION;
+    this.storageVersion = doc.storage_version ?? storage.LEGACY_STORAGE_VERSION;
   }
 
   /**
@@ -45,11 +45,11 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
    * This may throw if the persisted storage version is not supported.
    */
   getStorageConfig() {
-    const storageConfig = getMongoStorageConfig(this.storage_version);
+    const storageConfig = getMongoStorageConfig(this.storageVersion);
     if (storageConfig == null) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1403,
-        `Unsupported storage version ${this.storage_version} for sync rules ${this.id}`
+        `Unsupported storage version ${this.storageVersion} for sync rules ${this.id}`
       );
     }
     return storageConfig;
