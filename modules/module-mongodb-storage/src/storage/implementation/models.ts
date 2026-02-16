@@ -208,7 +208,7 @@ export interface SyncRuleDocument {
   storage_version?: number;
 }
 
-export interface StorageConfig {
+export interface StorageConfig extends storage.StorageVersionConfig {
   /**
    * When true, bucket_data.checksum is guaranteed to be persisted as a Long.
    *
@@ -216,28 +216,18 @@ export interface StorageConfig {
    * a Long before summing.
    */
   longChecksums: boolean;
-
-  /**
-   * Whether versioned bucket names are automatically enabled.
-   *
-   * If this is false, bucket names may still be versioned depending on the sync config.
-   */
-  versionedBuckets: boolean;
 }
 
-export const LEGACY_STORAGE_VERSION = 1;
-export const CURRENT_STORAGE_VERSION = 2;
+const LONG_CHECKSUMS_STORAGE_VERSION = 2;
 
-export const STORAGE_VERSION_CONFIG: Record<number, StorageConfig | undefined> = {
-  1: {
-    longChecksums: false,
-    versionedBuckets: false
-  },
-  2: {
-    longChecksums: true,
-    versionedBuckets: false
+export function getMongoStorageConfig(storageVersion: number): StorageConfig | undefined {
+  const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
+  if (baseConfig == null) {
+    return undefined;
   }
-};
+
+  return { ...baseConfig, longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION };
+}
 
 export interface CheckpointEventDocument {
   _id: bson.ObjectId;

@@ -9,7 +9,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { PowerSyncMongo } from './implementation/db.js';
-import { CURRENT_STORAGE_VERSION, STORAGE_VERSION_CONFIG, SyncRuleDocument } from './implementation/models.js';
+import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
@@ -215,7 +215,7 @@ export class MongoBucketStorage
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
-      const storageVersion = options.storageVersion ?? CURRENT_STORAGE_VERSION;
+      const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
       const doc: SyncRuleDocument = {
         _id: id,
         storage_version: storageVersion,
