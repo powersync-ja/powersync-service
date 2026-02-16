@@ -25,6 +25,9 @@
     },
     {
       "path": "../../modules/module-mysql"
+    },
+    {
+      "path": "../../modules/module-mssql"
     }
   ]
 }
