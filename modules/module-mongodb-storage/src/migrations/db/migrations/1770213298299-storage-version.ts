@@ -26,6 +26,12 @@ export const down: migrations.PowerSyncMigrationFunction = async (context) => {
   const db = storage.createPowerSyncMongo(configuration.storage as MongoStorageConfig);
 
   try {
+    const newRules = await db.sync_rules.find({ storage_version: { $gt: storage.LEGACY_STORAGE_VERSION } }).toArray();
+    if (newRules.length > 0) {
+      throw new Error(
+        `Cannot revert migration due to newer storage versions in use: ${newRules.map((r) => `${r._id}: v${r.storage_version}`).join(', ')}`
+      );
+    }
     await db.sync_rules.updateMany(
       { storage_version: storage.LEGACY_STORAGE_VERSION },
       { $unset: { storage_version: 1 } }
