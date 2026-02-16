@@ -35,31 +35,30 @@ export const dropTables = async (client: lib_postgres.DatabaseClient) => {
  *
  * Does not clear migration state.
  */
-export const truncateTables = async (client: lib_postgres.DatabaseClient) => {
+export const truncateTables = async (db: lib_postgres.DatabaseClient) => {
   // Lock a connection for automatic schema search paths
-  await client.lockConnection(async (db) => {
-    await db.sql`
-      TRUNCATE TABLE bucket_data,
-      bucket_parameters,
-      sync_rules,
-      instance,
-      current_data,
-      source_tables,
-      write_checkpoints,
-      custom_write_checkpoints,
-      connection_report_events RESTART IDENTITY CASCADE
-    `.execute();
-
-    // These sequences are not tied to identity columns and must be reset explicitly.
-    await db.sql`
-      ALTER SEQUENCE IF EXISTS op_id_sequence RESTART
+  await db.query(
+    {
+      statement: `TRUNCATE TABLE bucket_data,
+        bucket_parameters,
+        sync_rules,
+        instance,
+        current_data,
+        source_tables,
+        write_checkpoints,
+        custom_write_checkpoints,
+        connection_report_events RESTART IDENTITY CASCADE
+    `
+    },
+    {
+      statement: `ALTER SEQUENCE IF EXISTS op_id_sequence RESTART
       WITH
-        1
-    `.execute();
-    await db.sql`
-      ALTER SEQUENCE IF EXISTS sync_rules_id_sequence RESTART
+        1`
+    },
+    {
+      statement: `ALTER SEQUENCE IF EXISTS sync_rules_id_sequence RESTART
       WITH
-        1
-    `.execute();
-  });
+        1`
+    }
+  );
 };
