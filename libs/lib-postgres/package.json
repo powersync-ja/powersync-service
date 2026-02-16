@@ -2,7 +2,7 @@
   "name": "@powersync/lib-service-postgres",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
-  "version": "0.4.18",
+  "version": "0.4.20",
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
@@ -11,7 +11,6 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "build:tests": "tsc -b test/tsconfig.json",
     "clean": "rm -rf ./dist && tsc -b --clean",
     "test": "vitest"
   },

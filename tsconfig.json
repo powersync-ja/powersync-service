@@ -14,10 +14,19 @@
       "path": "./packages/service-core"
     },
     {
+      "path": "./packages/service-client"
+    },
+    {
+      "path": "./packages/service-core-tests"
+    },
+    {
       "path": "./packages/service-errors"
     },
     {
       "path": "./packages/sync-rules"
+    },
+    {
+      "path": "./modules/module-core"
     },
     {
       "path": "./modules/module-postgres"
@@ -50,7 +59,58 @@
       "path": "./packages/types"
     },
     {
+      "path": "./packages/schema"
+    },
+    {
       "path": "./service"
+    },
+    {
+      "path": "./test-client"
+    },
+    {
+      "path": "./packages/jpgwire/test"
+    },
+    {
+      "path": "./packages/rsocket-router/test"
+    },
+    {
+      "path": "./packages/service-core/test"
+    },
+    {
+      "path": "./packages/service-errors/test"
+    },
+    {
+      "path": "./packages/sync-rules/test"
+    },
+    {
+      "path": "./modules/module-core/test"
+    },
+    {
+      "path": "./modules/module-postgres/test"
+    },
+    {
+      "path": "./modules/module-postgres-storage/test"
+    },
+    {
+      "path": "./modules/module-mssql/test"
+    },
+    {
+      "path": "./modules/module-mysql/test"
+    },
+    {
+      "path": "./modules/module-mongodb/test"
+    },
+    {
+      "path": "./modules/module-mongodb-storage/test"
+    },
+    {
+      "path": "./libs/lib-services/test"
+    },
+    {
+      "path": "./libs/lib-mongodb/test"
+    },
+    {
+      "path": "./libs/lib-postgres/test"
     }
   ]
 }

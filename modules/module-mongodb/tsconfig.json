@@ -26,9 +26,6 @@
     },
     {
       "path": "../../libs/lib-mongodb"
-    },
-    {
-      "path": "../module-mongodb-storage"
     }
   ]
 }

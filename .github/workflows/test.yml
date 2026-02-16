@@ -61,7 +61,7 @@ jobs:
         run: docker pull mongo:8.0
 
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.0
+        uses: supercharge/mongodb-github-action@1.12.1
         with:
           mongodb-version: '8.0'
           mongodb-replica-set: test-rs
@@ -76,12 +76,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Validate tsconfig references
+        run: pnpm validate:tsconfig-references
+
       - name: Build
         shell: bash
         run: pnpm build
 
       - name: Test
-        run: pnpm --filter '!./modules/*' test
+        run: pnpm test:core
 
   run-postgres-tests:
     name: Postgres Test
@@ -134,7 +137,7 @@ jobs:
         run: docker pull mongo:8.0
 
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.0
+        uses: supercharge/mongodb-github-action@1.12.1
         with:
           mongodb-version: '8.0'
           mongodb-replica-set: test-rs
@@ -199,7 +202,7 @@ jobs:
         run: docker pull mongo:8.0
 
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.0
+        uses: supercharge/mongodb-github-action@1.12.1
         with:
           mongodb-version: '8.0'
           mongodb-replica-set: test-rs
@@ -260,7 +263,7 @@ jobs:
         run: docker pull mongo:${{ matrix.mongodb-version }}
 
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.0
+        uses: supercharge/mongodb-github-action@1.12.1
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
           mongodb-replica-set: test-rs
@@ -309,7 +312,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mssql-version: [2022, 2025]
+        mssql-version: [2019, 2022, 2025]
 
     steps:
       - uses: actions/checkout@v5
@@ -356,7 +359,7 @@ jobs:
         run: docker pull mongo:8.0
 
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.0
+        uses: supercharge/mongodb-github-action@1.12.1
         with:
           mongodb-version: '8.0'
           mongodb-replica-set: test-rs

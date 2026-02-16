@@ -20,6 +20,12 @@
       "path": "../../packages/service-core"
     },
     {
+      "path": "../../packages/service-errors"
+    },
+    {
+      "path": "../../packages/jsonbig"
+    },
+    {
       "path": "../../libs/lib-services"
     }
   ]

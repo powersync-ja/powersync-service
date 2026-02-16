@@ -8,25 +8,27 @@
   "author": "JourneyApps Platform",
   "scripts": {
     "check-updates": "ncu -u --deep",
+    "validate:tsconfig-references": "node scripts/validate-tsconfig-references.mts",
     "format": "prettier --write .",
-    "build": "pnpm run -r build && pnpm run -r build:tests",
-    "build:packages": "pnpm run build",
+    "build": "tsc -b && pnpm run -r build:extra",
     "build:production": "NODE_ENV=production pnpm run -r build",
     "build:ts": "tsc -b",
-    "watch:ts": "pnpm build:ts -w --preserveWatchOutput",
+    "watch:ts": "tsc -b -w --preserveWatchOutput",
     "watch:service": "concurrently --passthrough-arguments \"pnpm watch:ts\" \" pnpm start:service {@}\" -- ",
     "start:service": "pnpm --filter @powersync/service-image watch",
     "clean:modules": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
-    "test": "pnpm run -r test"
+    "test:core": "pnpm run -r --filter '!./modules/*' test"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.8",
+    "@pnpm/workspace.find-packages": "^1000.0.54",
     "@types/node": "^22.16.2",
     "async": "^3.2.4",
     "bson": "^6.10.4",
     "concurrently": "^8.2.2",
+    "fast-glob": "^3.3.3",
     "inquirer": "^9.2.7",
     "npm-check-updates": "^17.1.2",
     "prettier": "^3.4.1",
@@ -43,5 +45,5 @@
     "@vitest/coverage-v8": "catalog:",
     "ws": "^8.2.3"
   },
-  "packageManager": "pnpm@10.19.0+sha512.c9fc7236e92adf5c8af42fd5bf1612df99c2ceb62f27047032f4720b33f8eacdde311865e91c411f2774f618d82f320808ecb51718bfa82c060c4ba7c76a32b8"
+  "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264"
 }

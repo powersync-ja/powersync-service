@@ -169,7 +169,7 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules({
-      content: sync_rules.sync_rules.content,
+      content: sync_rules.sync_rules.config.content,
       // These sync rules already passed validation. But if the rules are not valid anymore due
       // to a service change, we do want to report the error here.
       validate: true
@@ -197,14 +197,14 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       // No schema-based validation at this point
       schema: undefined
     });
-    const source_table_patterns = rules.getSourceTables();
-    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
+    const source_table_patterns = rules.config.getSourceTables();
+    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
 
     return {
       valid: true,
-      bucket_definitions: rules.debugRepresentation(),
+      bucket_definitions: rules.config.debugRepresentation(),
       source_tables: resolved_tables,
-      data_tables: rules.debugGetOutputTables()
+      data_tables: rules.config.debugGetOutputTables()
     };
   } catch (e) {
     if (e instanceof SyncRulesErrors) {

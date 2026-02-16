@@ -1,5 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketDescription, BucketPriority, RequestJwtPayload, HydratedSyncRules } from '@powersync/service-sync-rules';
+import { BucketDescription, BucketPriority, HydratedSyncRules, SqliteJsonValue } from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -96,16 +96,13 @@ async function* streamResponseInner(
   bucketStorage: storage.SyncRulesBucketStorage,
   syncRules: HydratedSyncRules,
   params: util.StreamingSyncRequest,
-  tokenPayload: RequestJwtPayload,
+  tokenPayload: auth.JwtPayload,
   tracker: RequestTracker,
   signal: AbortSignal,
   logger: Logger,
   isEncodingAsBson: boolean
 ): AsyncGenerator<util.StreamingSyncLine | string | null> {
-  const { raw_data } = params;
-
-  const userId = tokenPayload.sub;
-  const checkpointUserId = util.checkpointUserId(userId as string, params.client_id);
+  const checkpointUserId = util.checkpointUserId(tokenPayload.userIdString, params.client_id);
 
   const checksumState = new BucketChecksumState({
     syncContext,
@@ -236,7 +233,7 @@ async function* streamResponseInner(
           onRowsSent: markOperationsSent,
           abort_connection: signal,
           abort_batch: abortCheckpointSignal,
-          user_id: userId,
+          userIdForLogs: tokenPayload.userIdJson,
           // Passing null here will emit a full sync complete message at the end. If we pass a priority, we'll emit a partial
           // sync complete message instead.
           forPriority: !isLast ? priority : null,
@@ -270,7 +267,8 @@ interface BucketDataRequest {
    * This signal also fires when abort_connection fires.
    */
   abort_batch: AbortSignal;
-  user_id?: string;
+  /** User id for debug purposes, not for sync rules. */
+  userIdForLogs?: SqliteJsonValue;
   forPriority: BucketPriority | null;
   onRowsSent: (stats: OperationsSentStats) => void;
   logger: Logger;
@@ -333,7 +331,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
   let checkpointInvalidated = false;
 
   if (syncContext.syncSemaphore.isLocked()) {
-    logger.info('Sync concurrency limit reached, waiting for lock', { user_id: request.user_id });
+    logger.info('Sync concurrency limit reached, waiting for lock', { user_id: request.userIdForLogs });
   }
   const acquired = await acquireSemaphoreAbortable(syncContext.syncSemaphore, AbortSignal.any([abort_batch]));
   if (acquired === 'aborted') {
@@ -346,7 +344,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       // This can be noisy, so we only log when we get close to the
       // concurrency limit.
       logger.info(`Got sync lock. Slots available: ${value - 1}`, {
-        user_id: request.user_id,
+        user_id: request.userIdForLogs,
         sync_data_slots: value - 1
       });
     }
@@ -429,7 +427,7 @@ async function* bucketDataBatch(request: BucketDataRequest): AsyncGenerator<Buck
       // This can be noisy, so we only log when we get close to the
       // concurrency limit.
       logger.info(`Releasing sync lock`, {
-        user_id: request.user_id
+        user_id: request.userIdForLogs
       });
     }
     release();
