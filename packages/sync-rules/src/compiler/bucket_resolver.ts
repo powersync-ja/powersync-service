@@ -2,7 +2,7 @@ import { Equatable, HashSet, StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList, equalsIgnoringResultSetUnordered } from './compatibility.js';
 import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
-import { RequestTableValuedResultSet } from './table.js';
+import { TableValuedResultSet } from './table.js';
 import { StreamOptions } from '../sync_plan/plan.js';
 
 /**
@@ -62,7 +62,7 @@ export class ParameterLookup implements Equatable {
 
 export class EvaluateTableValuedFunction implements Equatable {
   constructor(
-    readonly tableValuedFunction: RequestTableValuedResultSet,
+    readonly tableValuedFunction: TableValuedResultSet,
     readonly outputs: RowExpression[],
     readonly filters: RowExpression[]
   ) {}

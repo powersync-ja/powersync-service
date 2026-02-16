@@ -15,20 +15,24 @@ import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
 import {
-  mapExternalDataToInstantiation,
   ScalarExpressionEvaluator,
-  scalarStatementToSql
+  scalarStatementToSql,
+  TableValuedFunctionOutput
 } from '../engine/scalar_expression_engine.js';
+import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
   private readonly sources: PreparedStreamDataSource[] = [];
+  private readonly defaultSchema: string;
 
   constructor(
     readonly source: plan.StreamBucketDataSource,
     context: StreamEvaluationContext
   ) {
+    this.defaultSchema = context.defaultSchema;
+
     for (const data of source.sources) {
       const prepared = new PreparedStreamDataSource(data, context);
 
@@ -75,7 +79,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
   }
 
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
-    const analyzer = new SyncPlanSchemaAnalyzer(schema);
+    const analyzer = new SyncPlanSchemaAnalyzer(this.defaultSchema, schema);
     for (const source of this.source.sources) {
       analyzer.resolveResultSets(source, tables);
     }
@@ -102,34 +106,36 @@ class PreparedStreamDataSource {
   readonly fixedOutputTableName?: string;
   readonly debugSql: string;
 
-  constructor(evaluator: plan.StreamDataSource, { engine }: StreamEvaluationContext) {
-    const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
-    const outputExpressions: SqlExpression<number>[] = [];
+  constructor(evaluator: plan.StreamDataSource, { engine, defaultSchema }: StreamEvaluationContext) {
+    const translationHelper = new TableProcessorToSqlHelper(evaluator);
+    const outputExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
+
     for (const column of evaluator.columns) {
       if (column === 'star') {
         this.outputs.push('star');
       } else {
         const expressionIndex = outputExpressions.length;
-        outputExpressions.push(mapExpressions.transform(column.expr));
+        outputExpressions.push(translationHelper.mapper.transform(column.expr));
         this.outputs.push({ index: expressionIndex, alias: column.alias });
       }
     }
 
     this.numberOfOutputExpressions = outputExpressions.length;
     for (const parameter of evaluator.parameters) {
-      outputExpressions.push(mapExpressions.transform(parameter.expr));
+      outputExpressions.push(translationHelper.mapper.transform(parameter.expr));
     }
     this.numberOfParameters = evaluator.parameters.length;
 
     const evaluatorOptions = {
       outputs: outputExpressions,
-      filters: evaluator.filters.map((f) => mapExpressions.transform(f))
+      filters: translationHelper.filterExpressions,
+      tableValuedFunctions: translationHelper.tableValuedFunctions
     };
     this.debugSql = scalarStatementToSql(evaluatorOptions);
     this.evaluator = engine.prepareEvaluator(evaluatorOptions);
     this.fixedOutputTableName = evaluator.outputTableName;
-    this.tablePattern = evaluator.sourceTable;
-    this.evaluatorInputs = mapExpressions.instantiation;
+    this.tablePattern = evaluator.sourceTable.toTablePattern(defaultSchema);
+    this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
   evaluateRow(options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) {

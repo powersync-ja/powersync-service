@@ -28,7 +28,7 @@ export function testRules(content: string): storage.PersistedSyncRulesContent {
         sync_rules: SqlSyncRules.fromYaml(content, options),
         slot_name: 'test',
         hydratedSyncRules() {
-          return this.sync_rules.hydrate({ hydrationState: versionedHydrationState(1) });
+          return this.sync_rules.config.hydrate({ hydrationState: versionedHydrationState(1) });
         }
       };
     },
