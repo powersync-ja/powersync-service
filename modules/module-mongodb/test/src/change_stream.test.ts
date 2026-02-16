@@ -7,7 +7,7 @@ import { test_utils } from '@powersync/service-core-tests';
 
 import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
-import { describeWithStorageAndVersion, StorageVersionTestContext } from './util.js';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -17,7 +17,7 @@ bucket_definitions:
 `;
 
 describe('change stream', () => {
-  describeWithStorageAndVersion({ timeout: 20_000 }, defineChangeStreamTests);
+  describeWithStorage({ timeout: 20_000 }, defineChangeStreamTests);
 });
 
 function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
