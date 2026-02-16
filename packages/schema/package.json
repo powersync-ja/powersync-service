@@ -27,7 +27,7 @@
     "build": "pnpm build:ts && pnpm run build:extra",
     "build:extra": "node ./dist/scripts/compile-json-schema.js"
   },
-  "dependencies": {
+  "devDependencies": {
     "@powersync/service-module-postgres": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@powersync/service-module-mongodb": "workspace:*",
