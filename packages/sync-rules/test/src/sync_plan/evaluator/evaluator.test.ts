@@ -2,7 +2,6 @@ import { describe, expect } from 'vitest';
 import { syncTest } from './utils.js';
 import {
   HydratedSyncRules,
-  RequestParameters,
   ScopedParameterLookup,
   SourceTableInterface,
   SqliteJsonRow,
@@ -392,7 +391,7 @@ streams:
 `);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
-      globalParameters: new RequestParameters({ sub: 'user', a: ['a1', 'a2'], b: ['b1', 'b2'] }, {}),
+      globalParameters: requestParameters({ sub: 'user', a: ['a1', 'a2'], b: ['b1', 'b2'] }, {}),
       hasDefaultStreams: true,
       streams: {}
     });

@@ -1,7 +1,7 @@
 import { describe, expect } from 'vitest';
 import { syncTest } from './utils.js';
-import { TestSourceTable } from '../../util.js';
-import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '../../../../src/index.js';
+import { requestParameters, TestSourceTable } from '../../util.js';
+import { ScopedParameterLookup, SqliteJsonRow } from '../../../../src/index.js';
 
 describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {
@@ -64,7 +64,7 @@ streams:
     ]);
 
     const { querier } = desc.getBucketParameterQuerier({
-      globalParameters: new RequestParameters({ sub: 'user' }, {}),
+      globalParameters: requestParameters({ sub: 'user' }, {}),
       hasDefaultStreams: false,
       streams: {
         stream: [
