@@ -25,6 +25,6 @@ export const STORAGE_VERSION_CONFIG: Record<number, StorageVersionConfig | undef
     versionedBuckets: false
   },
   [CURRENT_STORAGE_VERSION]: {
-    versionedBuckets: false
+    versionedBuckets: true
   }
 };

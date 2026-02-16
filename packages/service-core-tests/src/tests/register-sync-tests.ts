@@ -1,6 +1,7 @@
 import {
   createCoreAPIMetrics,
   JwtPayload,
+  LEGACY_STORAGE_VERSION,
   storage,
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,

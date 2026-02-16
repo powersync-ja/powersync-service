@@ -4,6 +4,7 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
@@ -88,7 +89,11 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules({
+      content: content,
+      validate: true,
+      storageVersion: LEGACY_STORAGE_VERSION
+    });
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
