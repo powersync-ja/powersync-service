@@ -1,5 +1,18 @@
 # @powersync/service-core-tests
 
+## 0.13.1
+
+### Patch Changes
+
+- 479997b: Introduce `BaseSyncConfig` to represent SQL-based sync rules and precompiled sync plans.
+- d1c2228: [MongoDB Storage] Optimize the compact job, avoiding re-compacting buckets in the same job.
+- Updated dependencies [0e99ce0]
+- Updated dependencies [479997b]
+- Updated dependencies [d1c2228]
+- Updated dependencies [1a1a4cc]
+  - @powersync/service-sync-rules@0.31.0
+  - @powersync/service-core@1.19.1
+
 ## 0.13.0
 
 ### Minor Changes

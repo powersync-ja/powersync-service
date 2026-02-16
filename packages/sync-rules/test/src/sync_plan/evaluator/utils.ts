@@ -7,14 +7,14 @@ import {
   SyncConfig,
   PrecompiledSyncConfig
 } from '../../../../src/index.js';
-import { compileToSyncPlanWithoutErrors, SyncStreamInput } from '../../compiler/utils.js';
+import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
 import { test } from 'vitest';
 import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 
 interface SyncTest {
   engine: ScalarExpressionEngine;
-  prepareWithoutHydration(inputs: SyncStreamInput[]): SyncConfig;
-  prepareSyncStreams(inputs: SyncStreamInput[]): HydratedSyncRules;
+  prepareWithoutHydration(yaml: string): SyncConfig;
+  prepareSyncStreams(yaml: string): HydratedSyncRules;
 }
 
 export const syncTest = test.extend<{ sync: SyncTest }>({
@@ -25,7 +25,7 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
       engine,
       prepareWithoutHydration: (inputs) => {
         const plan = compileToSyncPlanWithoutErrors(inputs);
-        return new PrecompiledSyncConfig(plan, { engine, sourceText: '' });
+        return new PrecompiledSyncConfig(plan, { engine, sourceText: '', defaultSchema: 'test_schema' });
       },
       prepareSyncStreams(inputs) {
         return this.prepareWithoutHydration(inputs).hydrate({ hydrationState: versionedHydrationState(1) });

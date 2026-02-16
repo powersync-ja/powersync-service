@@ -1,5 +1,5 @@
 import { ParameterLookupScope } from '../HydrationState.js';
-import { TablePattern } from '../TablePattern.js';
+import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
 import {
   ColumnSource,
@@ -32,7 +32,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
   const expandingLookups = new Map<ExpandingLookup, LookupReference>();
 
-  function serializeTablePattern(pattern: TablePattern): SerializedTablePattern {
+  function serializeTablePattern(pattern: ImplicitSchemaTablePattern): SerializedTablePattern {
     return {
       connection: pattern.connectionTag,
       schema: pattern.schema,
@@ -147,8 +147,12 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
-  function deserializeTablePattern(pattern: SerializedTablePattern): TablePattern {
-    return new TablePattern(`${pattern.connection}.${pattern.schema}`, pattern.table);
+  function deserializeTablePattern(pattern: SerializedTablePattern): ImplicitSchemaTablePattern {
+    if (pattern.schema) {
+      return new TablePattern(`${pattern.connection}.${pattern.schema}`, pattern.table);
+    } else {
+      return new ImplicitSchemaTablePattern(null, pattern.table);
+    }
   }
 
   const plan = serialized as SerializedSyncPlanUnstable;
@@ -263,8 +267,8 @@ interface SerializedBucketDataSource {
 }
 
 interface SerializedTablePattern {
-  connection: string;
-  schema: string;
+  connection: string | null;
+  schema: string | null;
   table: string;
 }
 

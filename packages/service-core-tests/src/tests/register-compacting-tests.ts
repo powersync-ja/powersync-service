@@ -81,7 +81,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.oneFromAsync(
@@ -209,7 +210,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.oneFromAsync(
@@ -303,7 +305,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.oneFromAsync(
@@ -416,7 +419,8 @@ bucket_definitions:
       clearBatchLimit: 100,
       moveBatchLimit: 100,
       moveBatchQueryLimit: 100, // Larger limit for a larger window of operations
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.fromAsync(
@@ -503,7 +507,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -578,7 +583,8 @@ bucket_definitions:
       clearBatchLimit: 20,
       moveBatchLimit: 10,
       moveBatchQueryLimit: 10,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const checkpoint2 = result2!.flushed_op;

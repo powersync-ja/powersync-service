@@ -3,13 +3,16 @@ import {
   CompatibilityContext,
   CompatibilityEdition,
   CompatibilityOption,
+  RequestJwtPayload,
   RequestParameters,
   SqlParameterQuery
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { EMPTY_DATA_SOURCE, PARSE_OPTIONS } from './util.js';
+import { EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from './util.js';
 
 describe('table-valued function queries', () => {
+  const emptyPayload: RequestJwtPayload = { userIdJson: '', parsedPayload: {} };
+
   test('json_each(array param)', function () {
     const sql = "SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')";
     const query = SqlParameterQuery.fromSql(
@@ -26,7 +29,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), {
+      query.getStaticBucketDescriptions(requestParameters({}, { array: [1, 2, 3, null] }), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([
@@ -57,7 +60,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3, null] }), {
+      query.getStaticBucketDescriptions(requestParameters({}, { array: [1, 2, 3, null] }), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([
@@ -81,7 +84,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), {
+      query.getStaticBucketDescriptions(requestParameters({}, {}), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([
@@ -104,7 +107,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), {
+      query.getStaticBucketDescriptions(requestParameters({}, {}), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([]);
@@ -126,7 +129,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), {
+      query.getStaticBucketDescriptions(requestParameters({}, {}), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([]);
@@ -148,7 +151,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), {
+      query.getStaticBucketDescriptions(requestParameters({}, {}), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([]);
@@ -167,7 +170,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['value']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, {}), {
+      query.getStaticBucketDescriptions(requestParameters({}, {}), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([
@@ -193,7 +196,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['value']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), {
+      query.getStaticBucketDescriptions(requestParameters({}, { array: [1, 2, 3] }), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([
@@ -219,7 +222,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['value']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), {
+      query.getStaticBucketDescriptions(requestParameters({}, { array: [1, 2, 3] }), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([
@@ -245,7 +248,7 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['v']);
 
     expect(
-      query.getStaticBucketDescriptions(new RequestParameters({ sub: '' }, { array: [1, 2, 3] }), {
+      query.getStaticBucketDescriptions(requestParameters({}, { array: [1, 2, 3] }), {
         bucketPrefix: 'mybucket'
       })
     ).toEqual([
@@ -272,9 +275,8 @@ describe('table-valued function queries', () => {
 
     expect(
       query.getStaticBucketDescriptions(
-        new RequestParameters(
+        requestParameters(
           {
-            sub: '',
             projects: [
               { id: 1, role: 'admin' },
               { id: 2, role: 'user' }

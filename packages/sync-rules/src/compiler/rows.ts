@@ -7,7 +7,7 @@ import {
 } from './compatibility.js';
 import { RowExpression } from './filter.js';
 import { PhysicalSourceResultSet } from './table.js';
-import { TablePattern } from '../TablePattern.js';
+import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 
 /**
  * A key describing how buckets or parameter lookups are parameterized.
@@ -86,7 +86,7 @@ abstract class BaseSourceRowProcessor {
   /**
    * The table pattern matched by this bucket or parameter lookup creator.
    */
-  get tablePattern(): TablePattern {
+  get tablePattern(): ImplicitSchemaTablePattern {
     return this.syntacticSource.tablePattern;
   }
 

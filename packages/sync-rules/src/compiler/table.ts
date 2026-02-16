@@ -2,8 +2,7 @@ import { PGNode } from 'pgsql-ast-parser';
 import { RequestExpression } from './filter.js';
 import { StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList } from './compatibility.js';
-import { TablePattern } from '../TablePattern.js';
-import { SourceSchemaTable } from '../index.js';
+import { ImplicitSchemaTablePattern, SourceSchemaTable } from '../index.js';
 
 /**
  * A result set that a query stream selects from.
@@ -41,7 +40,7 @@ export abstract class BaseSourceResultSet {
  */
 export class PhysicalSourceResultSet extends BaseSourceResultSet {
   constructor(
-    readonly tablePattern: TablePattern,
+    readonly tablePattern: ImplicitSchemaTablePattern,
     source: SyntacticResultSetSource,
     /**
      * Source tables that the {@link tablePattern} resolves to in the static schema context used when compiling sync
