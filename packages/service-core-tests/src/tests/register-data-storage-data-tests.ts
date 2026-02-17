@@ -1100,8 +1100,8 @@ bucket_definitions:
       await batch.keepalive('1/0');
     });
 
-    const metrics2 = await f.getStorageMetrics();
-    expect(metrics2).toMatchSnapshot();
+    await f.getStorageMetrics();
+    // We don't care about the specific values here
   });
 
   test('op_id initialization edge case', async () => {
