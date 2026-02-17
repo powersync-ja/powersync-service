@@ -22,12 +22,4 @@ describe('ConvexLSN', () => {
     expect(parsed.timestamp).toBe(42n);
     expect(parsed.toCursorString()).toBe('42');
   });
-
-  it('supports self-hosted slash-hex cursor format', () => {
-    const parsed = ConvexLSN.fromCursor('00000000/0183E3A8');
-    const roundTrip = ConvexLSN.fromSerialized(parsed.comparable);
-
-    expect(roundTrip.toCursorString()).toBe('00000000/0183E3A8');
-    expect(roundTrip.timestamp).toBe(0x0183e3a8n);
-  });
 });

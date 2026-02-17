@@ -81,20 +81,6 @@ function getNumericSortKey(cursor: string): bigint | null {
     return BigInt(cursor);
   }
 
-  // Common Convex-style cursors on self-hosted deployments, e.g. "00000000/0183E3A8".
-  const slashHex = cursor.match(/^([0-9A-Fa-f]{8})\/([0-9A-Fa-f]{8})$/);
-  if (slashHex) {
-    const high = BigInt(`0x${slashHex[1]}`);
-    const low = BigInt(`0x${slashHex[2]}`);
-    return (high << 32n) + low;
-  }
-
-  // MSSQL-style hexadecimal LSN string, useful for migration compatibility.
-  const colonHex = cursor.match(/^([0-9A-Fa-f]{8}):([0-9A-Fa-f]{8}):([0-9A-Fa-f]{4})$/);
-  if (colonHex) {
-    return BigInt(`0x${colonHex[1]}${colonHex[2]}${colonHex[3]}`);
-  }
-
   return null;
 }
 

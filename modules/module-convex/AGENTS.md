@@ -33,7 +33,6 @@ This file is the working contract for agents modifying `module-convex`.
 - Never assume Convex cursors are numeric-only.
 - Supported cursor shapes include:
   - decimal numeric timestamp strings,
-  - slash-hex cursor strings (`00000000/0183E3A8`),
   - opaque strings.
 - Persist LSNs using `ConvexLSN` comparable format (`mode + sortable key + encoded cursor`).
 - Keep raw cursor round-trip safe.
