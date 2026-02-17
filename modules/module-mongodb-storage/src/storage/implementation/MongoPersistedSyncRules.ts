@@ -6,11 +6,11 @@ import {
   HydratedSyncRules,
   HydrationState,
   ParameterIndexLookupCreator,
-  SqlSyncRules
+  SyncConfigWithErrors,
+  versionedHydrationState
 } from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
-import { versionedHydrationState } from '@powersync/service-sync-rules';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
@@ -19,16 +19,15 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 
   constructor(
     public readonly id: number,
-    public readonly sync_rules: SqlSyncRules,
+    public readonly sync_rules: SyncConfigWithErrors,
     public readonly checkpoint_lsn: string | null,
     slot_name: string | null,
     public readonly mapping: BucketDefinitionMapping
   ) {
     this.slot_name = slot_name ?? `powersync_${id}`;
-    if (!this.sync_rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+    if (!this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
-    }
-    if (this.mapping == null) {
+    } else if (this.mapping == null) {
       this.hydrationState = versionedHydrationState(this.id);
     } else {
       this.hydrationState = new MongoHydrationState(this.mapping);
@@ -36,7 +35,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   }
 
   hydratedSyncRules(): HydratedSyncRules {
-    return this.sync_rules.hydrate({ hydrationState: this.hydrationState });
+    return this.sync_rules.config.hydrate({ hydrationState: this.hydrationState });
   }
 }
 

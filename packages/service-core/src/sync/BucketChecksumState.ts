@@ -4,7 +4,6 @@ import {
   BucketSource,
   HydratedSyncRules,
   RequestedStream,
-  RequestJwtPayload,
   RequestParameters,
   ResolvedBucket,
   SOURCE
@@ -20,8 +19,8 @@ import {
   ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { BucketParameterQuerier, QuerierError } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
+import { JwtPayload } from '../auth/JwtPayload.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';
 
@@ -29,7 +28,7 @@ export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
   syncRules: HydratedSyncRules;
-  tokenPayload: RequestJwtPayload;
+  tokenPayload: JwtPayload;
   syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
 }
@@ -114,7 +113,7 @@ export class BucketChecksumState {
    */
   async buildNextCheckpointLine(next: storage.StorageCheckpointUpdate): Promise<CheckpointLine | null> {
     const { writeCheckpoint, base } = next;
-    const user_id = this.parameterState.syncParams.userId;
+    const userIdForLogs = this.parameterState.syncParams.userId;
 
     const storage = this.bucketStorage;
 
@@ -227,7 +226,7 @@ export class BucketChecksumState {
         message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
         this.logger.info(message, {
           checkpoint: base.checkpoint,
-          user_id: user_id,
+          user_id: userIdForLogs,
           buckets: allBuckets.length,
           updated: diff.updatedBuckets.length,
           removed: diff.removedBuckets.length
@@ -246,7 +245,7 @@ export class BucketChecksumState {
       deferredLog = () => {
         let message = `New checkpoint: ${base.checkpoint} | write: ${writeCheckpoint} | `;
         message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-        this.logger.info(message, { checkpoint: base.checkpoint, user_id: user_id, buckets: allBuckets.length });
+        this.logger.info(message, { checkpoint: base.checkpoint, user_id: userIdForLogs, buckets: allBuckets.length });
       };
       bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority, [SOURCE]: b[SOURCE] }));
 
@@ -410,7 +409,7 @@ export class BucketParameterState {
     context: SyncContext,
     bucketStorage: BucketChecksumStateStorage,
     syncRules: HydratedSyncRules,
-    tokenPayload: RequestJwtPayload,
+    tokenPayload: JwtPayload,
     request: util.StreamingSyncRequest,
     logger: Logger
   ) {

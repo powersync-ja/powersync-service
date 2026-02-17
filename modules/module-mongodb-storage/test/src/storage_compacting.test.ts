@@ -72,6 +72,7 @@ bucket_definitions:
         moveBatchLimit: 10,
         moveBatchQueryLimit: 10,
         minBucketChanges: 1,
+        minChangeRatio: 0,
         maxOpId: checkpoint,
         signal: null as any
       });

@@ -1,8 +1,8 @@
 import { PGNode } from 'pgsql-ast-parser';
-import { RequestExpression } from './filter.js';
+import { RequestExpression, SingleDependencyExpression } from './filter.js';
 import { StableHasher } from './equality.js';
 import { equalsIgnoringResultSetList } from './compatibility.js';
-import { TablePattern } from '../TablePattern.js';
+import { ImplicitSchemaTablePattern, SourceSchemaTable } from '../index.js';
 
 /**
  * A result set that a query stream selects from.
@@ -15,7 +15,7 @@ import { TablePattern } from '../TablePattern.js';
  * {@link PhysicalSourceResultSet} sources with the same {@link PhysicalSourceResultSet.tablePattern} that are still
  * distinct.
  */
-export type SourceResultSet = PhysicalSourceResultSet | RequestTableValuedResultSet;
+export type SourceResultSet = PhysicalSourceResultSet | TableValuedResultSet;
 
 /**
  * The syntactic sources of a {@link SourceResultSet} being added to a table.
@@ -40,8 +40,16 @@ export abstract class BaseSourceResultSet {
  */
 export class PhysicalSourceResultSet extends BaseSourceResultSet {
   constructor(
-    readonly tablePattern: TablePattern,
-    source: SyntacticResultSetSource
+    readonly tablePattern: ImplicitSchemaTablePattern,
+    source: SyntacticResultSetSource,
+    /**
+     * Source tables that the {@link tablePattern} resolves to in the static schema context used when compiling sync
+     * streams.
+     *
+     * This information must only be used to generate analysis warnings, e.g. for column references that don't exist in
+     * resolved tables. It must not affect how sync streams are compiled, as that is always schema-independent.
+     */
+    readonly schemaTablesForWarnings: SourceSchemaTable[]
   ) {
     super(source);
   }
@@ -52,15 +60,35 @@ export class PhysicalSourceResultSet extends BaseSourceResultSet {
 }
 
 /**
- * A {@link SourceResultSet} applying a table-valued function with inputs that exclusively depend on request data.
+ * A {@link SourceResultSet} applying a table-valued function with inputs that all depend on either a single result set
+ * or request data.
  */
-export class RequestTableValuedResultSet extends BaseSourceResultSet {
+export class TableValuedResultSet extends BaseSourceResultSet {
   constructor(
     readonly tableValuedFunctionName: string,
-    readonly parameters: RequestExpression[],
+    readonly parameters: SingleDependencyExpression[],
     source: SyntacticResultSetSource
   ) {
     super(source);
+
+    // All parameters must depend on the same result set.
+    const resultSet = this.inputResultSet;
+    for (const parameter of parameters) {
+      if (parameter.resultSet !== resultSet) {
+        throw new Error(
+          'Illegal table-valued result set: All inputs must depend on a single result set or request data.'
+        );
+      }
+    }
+  }
+
+  get inputResultSet(): SourceResultSet | null {
+    // It's the same for all inputs, validated in the constructor
+    if (this.parameters.length) {
+      return this.parameters[0].resultSet;
+    }
+
+    return null;
   }
 
   get description(): string {
@@ -72,7 +100,7 @@ export class RequestTableValuedResultSet extends BaseSourceResultSet {
     equalsIgnoringResultSetList.hash(hasher, this.parameters);
   }
 
-  behavesIdenticalTo(other: RequestTableValuedResultSet) {
+  behavesIdenticalTo(other: TableValuedResultSet) {
     return (
       other.tableValuedFunctionName == this.tableValuedFunctionName &&
       equalsIgnoringResultSetList.equals(other.parameters, this.parameters)

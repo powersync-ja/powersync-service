@@ -231,9 +231,18 @@ export interface CompactOptions {
   moveBatchQueryLimit?: number;
 
   /**
+   * Minimum number new operations in a bucket to trigger compaction of that bucket.
+   *
    * Minimum of 1, default of 10.
    */
   minBucketChanges?: number;
+
+  /**
+   * Minimum ratio of new operations to existing operations in a bucket to trigger compaction of that bucket.
+   *
+   * Number between 0 and 1, default of 0.1.
+   */
+  minChangeRatio?: number;
 
   /**
    * Internal/testing use: Cache size for compacting parameters.

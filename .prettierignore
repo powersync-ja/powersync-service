@@ -3,3 +3,6 @@
 dist
 lib
 pnpm-lock.yaml
+# Prettier currently fails on most of our sql files, so we primarily use it for inline sql templates for now.
+# We can consider enabling this again if we can fix the parsing/config issues.
+**/*.sql

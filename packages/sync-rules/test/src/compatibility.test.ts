@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'vitest';
-import { DateTimeValue, SqlSyncRules, TimeValuePrecision, toSyncRulesValue } from '../../src/index.js';
+import {
+  CompatibilityContext,
+  CompatibilityOption,
+  DateTimeValue,
+  SerializedCompatibilityContext,
+  SqlSyncRules,
+  TimeValuePrecision,
+  toSyncRulesValue
+} from '../../src/index.js';
 
-import { DEFAULT_HYDRATION_STATE, versionedHydrationState } from '../../src/HydrationState.js';
-import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS, removeSource, removeSourceSymbol } from './util.js';
+import { versionedHydrationState } from '../../src/HydrationState.js';
+import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
@@ -20,18 +28,16 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate();
 
       expect(
-        rules
-          .evaluateRow({
-            sourceTable: ASSETS,
-            record: rules.applyRowContext<never>({
-              id: 'id',
-              description: value
-            })
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: rules.applyRowContext<never>({
+            id: 'id',
+            description: value
           })
-          .map(removeSource)
+        })
       ).toStrictEqual([
         { bucket: 'mybucket[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
@@ -49,18 +55,16 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate();
 
       expect(
-        rules
-          .evaluateRow({
-            sourceTable: ASSETS,
-            record: rules.applyRowContext<never>({
-              id: 'id',
-              description: value
-            })
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: rules.applyRowContext<never>({
+            id: 'id',
+            description: value
           })
-          .map(removeSource)
+        })
       ).toStrictEqual([
         { bucket: 'mybucket[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
@@ -78,27 +82,21 @@ config:
   edition: 2
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: versionedHydrationState(1) });
+      ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
-        rules
-          .evaluateRow({
-            sourceTable: ASSETS,
-            record: rules.applyRowContext<never>({
-              id: 'id',
-              description: value
-            })
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: rules.applyRowContext<never>({
+            id: 'id',
+            description: value
           })
-          .map(removeSource)
+        })
       ).toStrictEqual([
         { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
 
-      expect(
-        rules
-          .getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {}))
-          .querier.staticBuckets.map(removeSourceSymbol)
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
           bucket: '1#stream|0[]',
           definition: 'stream',
@@ -122,28 +120,22 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: versionedHydrationState(1) });
+      ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
-        rules
-          .evaluateRow({
-            sourceTable: ASSETS,
-            record: rules.applyRowContext<never>({
-              id: 'id',
-              description: value
-            })
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: rules.applyRowContext<never>({
+            id: 'id',
+            description: value
           })
-          .map(removeSource)
+        })
       ).toStrictEqual([
-        { bucket: '1#stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
+        { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
-      expect(
-        rules
-          .getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {}))
-          .querier.staticBuckets.map(removeSourceSymbol)
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
-          bucket: '1#stream|0[]',
+          bucket: 'stream|0[]',
           definition: 'stream',
           inclusion_reasons: ['default'],
           priority: 3
@@ -165,18 +157,16 @@ config:
   versioned_bucket_ids: true
     `,
       PARSE_OPTIONS
-    ).hydrate({ hydrationState: versionedHydrationState(1) });
+    ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
-      rules
-        .evaluateRow({
-          sourceTable: ASSETS,
-          record: {
-            id: 'id',
-            description: 'desc'
-          }
-        })
-        .map(removeSource)
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        record: {
+          id: 'id',
+          description: 'desc'
+        }
+      })
     ).toStrictEqual([{ bucket: '1#mybucket[]', data: { description: 'desc', id: 'id' }, id: 'id', table: 'assets' }]);
   });
 
@@ -191,21 +181,19 @@ config:
   edition: 2
     `,
       PARSE_OPTIONS
-    ).hydrate({ hydrationState: versionedHydrationState(1) });
+    ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
-      rules
-        .evaluateRow({
-          sourceTable: ASSETS,
-          record: rules.applyRowContext<never>({
-            id: 'id',
-            description: new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
-              subSecondPrecision: TimeValuePrecision.seconds,
-              defaultSubSecondPrecision: TimeValuePrecision.seconds
-            })
+      rules.evaluateRow({
+        sourceTable: ASSETS,
+        record: rules.applyRowContext<never>({
+          id: 'id',
+          description: new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+            subSecondPrecision: TimeValuePrecision.seconds,
+            defaultSubSecondPrecision: TimeValuePrecision.seconds
           })
         })
-        .map(removeSource)
+      })
     ).toStrictEqual([
       { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
     ]);
@@ -223,18 +211,16 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate();
 
       expect(
-        rules
-          .evaluateRow({
-            sourceTable: ASSETS,
-            record: {
-              id: 'id',
-              description: description
-            }
-          })
-          .map(removeSource)
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: description
+          }
+        })
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: 'baz', id: 'id' }, id: 'id', table: 'assets' }]);
     });
 
@@ -249,18 +235,16 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate();
 
       expect(
-        rules
-          .evaluateRow({
-            sourceTable: ASSETS,
-            record: {
-              id: 'id',
-              description: description
-            }
-          })
-          .map(removeSource)
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: {
+            id: 'id',
+            description: description
+          }
+        })
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: null, id: 'id' }, id: 'id', table: 'assets' }]);
     });
   });
@@ -306,22 +290,20 @@ config:
         `;
       }
 
-      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).hydrate({
+      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).config.hydrate({
         hydrationState: versionedHydrationState(1)
       });
       expect(
-        rules
-          .evaluateRow({
-            sourceTable: ASSETS,
-            record: rules.applyRowContext<never>({
-              id: 'id',
-              description: data
-            })
+        rules.evaluateRow({
+          sourceTable: ASSETS,
+          record: rules.applyRowContext<never>({
+            id: 'id',
+            description: data
           })
-          .map(removeSource)
+        })
       ).toStrictEqual([
         {
-          bucket: '1#mybucket[]',
+          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
           data: {
             description: withFixedQuirk
               ? '["static value","2025-08-19T09:21:00Z"]'
@@ -333,13 +315,9 @@ config:
         }
       ]);
 
-      expect(
-        rules
-          .getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {}))
-          .querier.staticBuckets.map(removeSourceSymbol)
-      ).toStrictEqual([
+      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
-          bucket: '1#mybucket[]',
+          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
           definition: 'mybucket',
           inclusion_reasons: ['default'],
           priority: 3
@@ -367,7 +345,7 @@ config:
     });
 
     test('can set max precision', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const { config: rules } = SqlSyncRules.fromYaml(
         `
 bucket_definitions:
   mybucket:
@@ -389,6 +367,57 @@ config:
           })
         })
       ).toStrictEqual({ a: '2025-11-07T10:45:03Z' });
+    });
+  });
+
+  describe('serialization', () => {
+    test('without overrides', () => {
+      expect(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY.serialize()).toStrictEqual({
+        edition: 1,
+        overrides: {}
+      });
+
+      const context = CompatibilityContext.deserialize({
+        edition: 1,
+        overrides: {}
+      });
+      expect(context.edition).toStrictEqual(1);
+      expect(context.overrides).toHaveLength(0);
+    });
+
+    test('with overrides', () => {
+      const expectedOverrides = new Map<CompatibilityOption, boolean>();
+      expectedOverrides.set(CompatibilityOption.fixedJsonExtract, false);
+      expectedOverrides.set(CompatibilityOption.timestampsIso8601, true);
+
+      const originalContext = new CompatibilityContext({
+        edition: 2,
+        overrides: expectedOverrides,
+        maxTimeValuePrecision: TimeValuePrecision.nanoseconds
+      });
+      const serialized: SerializedCompatibilityContext = {
+        edition: 2,
+        overrides: {
+          fixed_json_extract: false,
+          timestamps_iso8601: true
+        },
+        maxTimeValuePrecision: 9
+      };
+
+      expect(originalContext.serialize()).toStrictEqual(serialized);
+      const deserialized = CompatibilityContext.deserialize(serialized);
+      expect(deserialized.edition).toStrictEqual(2);
+      expect(deserialized.overrides).toStrictEqual(expectedOverrides);
+      expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.nanoseconds);
+    });
+
+    test('time precision', () => {
+      const deserialized = CompatibilityContext.deserialize({
+        edition: 2,
+        overrides: {},
+        maxTimeValuePrecision: 0
+      });
+      expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.seconds);
     });
   });
 });

@@ -14,17 +14,26 @@ import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
-import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
 import { idFromData } from '../../cast.js';
+import {
+  ScalarExpressionEvaluator,
+  scalarStatementToSql,
+  TableValuedFunctionOutput
+} from '../engine/scalar_expression_engine.js';
+import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables: TablePattern[] = [];
   private readonly sources: PreparedStreamDataSource[] = [];
+  private readonly defaultSchema: string;
 
   constructor(
     readonly source: plan.StreamBucketDataSource,
     context: StreamEvaluationContext
   ) {
+    this.defaultSchema = context.defaultSchema;
+
     for (const data of source.sources) {
       const prepared = new PreparedStreamDataSource(data, context);
 
@@ -71,11 +80,20 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
   }
 
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
-    throw new Error('resolveResultSets not implemented.');
+    const analyzer = new SyncPlanSchemaAnalyzer(this.defaultSchema, schema);
+    for (const source of this.source.sources) {
+      analyzer.resolveResultSets(source, tables);
+    }
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    throw new Error('debugWriteOutputTables not implemented.');
+    for (const source of this.sources) {
+      const table = source.fixedOutputTableName;
+      if (table != null) {
+        const queries = (result[table] ??= []);
+        queries.push({ query: source.debugSql });
+      }
+    }
   }
 }
 
@@ -86,34 +104,39 @@ class PreparedStreamDataSource {
   private readonly numberOfParameters: number;
   private readonly evaluator: ScalarExpressionEvaluator;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
-  private readonly fixedOutputTableName?: string;
+  readonly fixedOutputTableName?: string;
+  readonly debugSql: string;
 
-  constructor(evaluator: plan.StreamDataSource, { engine }: StreamEvaluationContext) {
-    const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
-    const outputExpressions: SqlExpression<number>[] = [];
+  constructor(evaluator: plan.StreamDataSource, { engine, defaultSchema }: StreamEvaluationContext) {
+    const translationHelper = new TableProcessorToSqlHelper(evaluator);
+    const outputExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
+
     for (const column of evaluator.columns) {
       if (column === 'star') {
         this.outputs.push('star');
       } else {
         const expressionIndex = outputExpressions.length;
-        outputExpressions.push(mapExpressions.transform(column.expr));
+        outputExpressions.push(translationHelper.mapper.transform(column.expr));
         this.outputs.push({ index: expressionIndex, alias: column.alias });
       }
     }
 
     this.numberOfOutputExpressions = outputExpressions.length;
     for (const parameter of evaluator.parameters) {
-      outputExpressions.push(mapExpressions.transform(parameter.expr));
+      outputExpressions.push(translationHelper.mapper.transform(parameter.expr));
     }
     this.numberOfParameters = evaluator.parameters.length;
 
-    this.evaluator = engine.prepareEvaluator({
+    const evaluatorOptions = {
       outputs: outputExpressions,
-      filters: evaluator.filters.map((f) => mapExpressions.transform(f))
-    });
+      filters: translationHelper.filterExpressions,
+      tableValuedFunctions: translationHelper.tableValuedFunctions
+    };
+    this.debugSql = scalarStatementToSql(evaluatorOptions);
+    this.evaluator = engine.prepareEvaluator(evaluatorOptions);
     this.fixedOutputTableName = evaluator.outputTableName;
-    this.tablePattern = evaluator.sourceTable;
-    this.evaluatorInputs = mapExpressions.instantiation;
+    this.tablePattern = evaluator.sourceTable.toTablePattern(defaultSchema);
+    this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
   evaluateRow(options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) {

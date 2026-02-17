@@ -1,5 +1,6 @@
 import {
   createCoreAPIMetrics,
+  JwtPayload,
   storage,
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
@@ -90,7 +91,7 @@ export function registerSyncTests(config: storage.TestStorageConfig) {
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -152,7 +153,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -216,7 +217,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -325,7 +326,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any,
+      token: new JwtPayload({ sub: 'user_one', exp: Date.now() / 1000 + 100000 }),
       isEncodingAsBson: false
     });
 
@@ -463,7 +464,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -578,7 +579,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 100000 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 100000 }),
       isEncodingAsBson: false
     });
 
@@ -643,7 +644,7 @@ bucket_definitions:
         raw_data: false
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -672,7 +673,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: 0 } as any,
+      token: new JwtPayload({ sub: '', exp: 0 }),
       isEncodingAsBson: false
     });
 
@@ -704,7 +705,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -773,7 +774,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -848,7 +849,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -912,7 +913,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -981,7 +982,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: exp } as any,
+      token: new JwtPayload({ sub: '', exp: exp }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -1045,7 +1046,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -1090,7 +1091,8 @@ bucket_definitions:
     await writer.commit('0/2');
 
     await bucketStorage.compact({
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
@@ -1172,7 +1174,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: 'test', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     };
     const stream1 = sync.streamResponse(params);
@@ -1259,7 +1261,7 @@ config:
           raw_data: true
         },
         tracker,
-        token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+        token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
         isEncodingAsBson: false
       });
 

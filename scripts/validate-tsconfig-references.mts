@@ -17,6 +17,7 @@ type TsconfigReference = {
 };
 
 type TsconfigFile = {
+  extends?: string;
   references?: TsconfigReference[];
 };
 
@@ -44,6 +45,11 @@ type ReferenceIssue = IssueBase & {
 
 type TestReferenceIssue = ReferenceIssue & {
   testTsconfigPath: string;
+};
+
+type TestExtendsIssue = {
+  testTsconfigPath: string;
+  extendsValue?: string;
 };
 
 function isString(value: unknown): value is string {
@@ -140,6 +146,7 @@ async function main() {
   const missingDevDependencyRefs: DependencyIssue[] = [];
   const extraTestReferences: TestReferenceIssue[] = [];
   const duplicateWorkspaceReferences: ReferenceIssue[] = [];
+  const invalidTestTsconfigExtends: TestExtendsIssue[] = [];
   const workspaceByRefPath = new Map([...workspaceByName.values()].map((pkg) => [pkg.refPath, pkg]));
 
   const testTsconfigFiles = await fg('**/test/tsconfig.json', {
@@ -151,11 +158,19 @@ async function main() {
     unique: true
   });
   const testRefsByPackageDir = new Map<string, { filePath: string; rawRefs: string[]; normalizedRefs: Set<string> }>();
+  const expectedTestsBaseRef = './tsconfig.tests.json';
   for (const filePath of testTsconfigFiles) {
     const tsconfig = await readJson<TsconfigFile>(filePath);
     const rawRefs = (tsconfig.references ?? []).map((ref) => ref?.path).filter(isString);
     const testDir = path.dirname(filePath);
     const normalizedRefs = new Set(rawRefs.map((refPath) => normalizeRefPath(refPath, testDir)));
+    const normalizedExtends = isString(tsconfig.extends) ? normalizeRefPath(tsconfig.extends, testDir) : undefined;
+    if (normalizedExtends !== expectedTestsBaseRef) {
+      invalidTestTsconfigExtends.push({
+        testTsconfigPath: filePath,
+        extendsValue: tsconfig.extends
+      });
+    }
     const packageDir = path.resolve(testDir, '..');
     testRefsByPackageDir.set(packageDir, {
       filePath,
@@ -301,6 +316,18 @@ async function main() {
     for (const refPath of missingTsconfigRefs.sort()) {
       console.error(`  - ${refPath}`);
     }
+  }
+
+  if (invalidTestTsconfigExtends.length > 0) {
+    hasIssues = true;
+    console.error('Invalid extends in test/tsconfig.json (must extend ./tsconfig.tests.json):');
+    invalidTestTsconfigExtends
+      .sort((a, b) => a.testTsconfigPath.localeCompare(b.testTsconfigPath))
+      .forEach((item) => {
+        const displayPath = toPosixPath(path.relative(ROOT_DIR, item.testTsconfigPath));
+        const extendsValue = item.extendsValue ?? '<missing>';
+        console.error(`  - ${displayPath} extends ${extendsValue}`);
+      });
   }
 
   // Step 2 report.

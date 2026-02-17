@@ -20,7 +20,7 @@ import {
   SqlEventDescriptor,
   SqliteInputValue,
   SqliteValue,
-  SqlSyncRules,
+  SyncConfig,
   TablePattern
 } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
@@ -62,7 +62,7 @@ export class HydratedSyncRules implements RowProcessor {
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-  readonly definition: SqlSyncRules;
+  readonly definition: SyncConfig;
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
@@ -70,7 +70,7 @@ export class HydratedSyncRules implements RowProcessor {
   private readonly bucketParameterIndexLookupCreators: ParameterIndexLookupCreator[];
 
   constructor(params: {
-    definition: SqlSyncRules;
+    definition: SyncConfig;
     createParams: CreateSourceParams;
     bucketDataSources: BucketDataSource[];
     bucketParameterIndexLookupCreators: ParameterIndexLookupCreator[];

@@ -411,7 +411,7 @@ describe('mongo data types', () => {
     await setupTable(db);
     await insert(collection);
 
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   global:
@@ -458,7 +458,7 @@ bucket_definitions:
     await setupTable(db);
     await insert(collection);
 
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   global:
@@ -506,7 +506,7 @@ bucket_definitions:
     await setupTable(db);
     await insert(collection);
 
-    const rules = SqlSyncRules.fromYaml(
+    const { config: rules } = SqlSyncRules.fromYaml(
       `
 bucket_definitions:
   global:

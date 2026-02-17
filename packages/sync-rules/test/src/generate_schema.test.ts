@@ -40,7 +40,7 @@ describe('schema generation', () => {
     }
   ]);
 
-  const rules = SqlSyncRules.fromYaml(
+  const { config: rules } = SqlSyncRules.fromYaml(
     `
 bucket_definitions:
   mybucket:

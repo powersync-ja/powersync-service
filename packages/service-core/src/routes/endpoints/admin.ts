@@ -7,6 +7,9 @@ import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
 
+/**
+ * @deprecated This will be removed in a future release
+ */
 export const executeSql = routeDefinition({
   path: '/api/admin/v1/execute-sql',
   method: router.HTTPMethod.POST,
@@ -128,7 +131,7 @@ export const reprocess = routeDefinition({
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules({
-      content: active.sync_rules.content,
+      content: active.sync_rules.config.content,
       // These sync rules already passed validation. But if the rules are not valid anymore due
       // to a service change, we do want to report the error here.
       validate: true
@@ -179,7 +182,7 @@ export const validate = routeDefinition({
             schema
           }),
           hydratedSyncRules() {
-            return this.sync_rules.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+            return this.sync_rules.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
           },
           hydrationState: DEFAULT_HYDRATION_STATE
         };

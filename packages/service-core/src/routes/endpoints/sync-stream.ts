@@ -42,12 +42,12 @@ export const syncStreamed = routeDefinition({
       ...logger.defaultMeta,
       user_agent: userAgent,
       client_id: clientId,
-      user_id: payload.context.user_id,
+      user_id: payload.context.token_payload!.userIdJson,
       bson: useBson
     };
     const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
       client_id: clientId ?? '',
-      user_id: payload.context.user_id!,
+      user_id: payload.context.token_payload!.userIdString,
       user_agent: userAgent as string,
       // At this point the token_payload is guaranteed to be present
       jwt_exp: new Date(token_payload!.exp * 1000),

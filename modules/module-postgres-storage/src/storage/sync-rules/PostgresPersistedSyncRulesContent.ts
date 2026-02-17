@@ -40,7 +40,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
     let hydrationState: HydrationState;
     const syncRules = SqlSyncRules.fromYaml(this.sync_rules_content, options);
-    if (syncRules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+    if (syncRules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
       hydrationState = versionedHydrationState(this.id);
     } else {
       hydrationState = DEFAULT_HYDRATION_STATE;
@@ -50,9 +50,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
       slot_name: this.slot_name,
       sync_rules: syncRules,
       hydratedSyncRules() {
-        return syncRules.hydrate({
-          hydrationState
-        });
+        return this.sync_rules.config.hydrate({ hydrationState });
       },
       hydrationState
     };

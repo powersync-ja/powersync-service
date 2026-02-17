@@ -13,7 +13,8 @@ export interface GetColumnsOptions {
 async function getColumns(options: GetColumnsOptions): Promise<MSSQLColumnDescriptor[]> {
   const { connectionManager, schema, tableName } = options;
 
-  const { recordset: columnResults } = await connectionManager.query(`
+  const { recordset: columnResults } = await connectionManager.query(
+    `
       SELECT
         col.name AS [name],
         typ.name AS [type],
@@ -26,10 +27,12 @@ async function getColumns(options: GetColumnsOptions): Promise<MSSQLColumnDescri
       WHERE sch.name = @schema
         AND tbl.name = @tableName
       ORDER BY col.column_id;
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
+    ]
+  );
 
   return columnResults.map((row) => {
     return {
@@ -56,7 +59,8 @@ export async function getReplicationIdentityColumns(
   options: GetReplicationIdentityColumnsOptions
 ): Promise<ReplicationIdentityColumnsResult> {
   const { connectionManager, schema, tableName } = options;
-  const { recordset: primaryKeyColumns } = await connectionManager.query(`
+  const { recordset: primaryKeyColumns } = await connectionManager.query(
+    `
       SELECT
         col.name AS [name],
         typ.name AS [type],
@@ -71,10 +75,12 @@ export async function getReplicationIdentityColumns(
       WHERE sch.name = @schema
         AND tbl.name = @tableName
       ORDER BY idx_col.key_ordinal;
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
+    ]
+  );
 
   if (primaryKeyColumns.length > 0) {
     return {
@@ -89,7 +95,8 @@ export async function getReplicationIdentityColumns(
   }
 
   // No primary key, check if any of the columns have a unique constraint we can use
-  const { recordset: uniqueKeyColumns } = await connectionManager.query(`
+  const { recordset: uniqueKeyColumns } = await connectionManager.query(
+    `
       SELECT
         col.name AS [name],
         typ.name AS [type],
@@ -104,10 +111,12 @@ export async function getReplicationIdentityColumns(
       WHERE sch.name = @schema
         AND tbl.name = @tableName
       ORDER BY idx_col.key_ordinal;
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
+    ]
+  );
 
   if (uniqueKeyColumns.length > 0) {
     return {
@@ -136,7 +145,8 @@ export async function getTablesFromPattern(
   tablePattern: TablePattern
 ): Promise<ResolvedTable[]> {
   if (tablePattern.isWildcard) {
-    const { recordset: tableResults } = await connectionManager.query(`
+    const { recordset: tableResults } = await connectionManager.query(
+      `
         SELECT
           tbl.name      AS [table],
           sch.name      AS [schema],
@@ -145,10 +155,12 @@ export async function getTablesFromPattern(
           JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
         WHERE sch.name = @schema
           AND tbl.name LIKE @tablePattern
-      `, [
+      `,
+      [
         { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern },
-      ]);
+        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
+      ]
+    );
 
     return tableResults
       .map((row) => {
@@ -170,10 +182,12 @@ export async function getTablesFromPattern(
           JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
           WHERE sch.name = @schema
           AND tbl.name = @tablePattern
-      `, [
+      `,
+      [
         { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern },
-      ]);
+        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
+      ]
+    );
 
     return tableResults.map((row) => {
       return {

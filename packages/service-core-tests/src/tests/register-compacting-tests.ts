@@ -81,7 +81,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -196,7 +197,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
@@ -291,7 +293,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const batchAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint2, [request]));
@@ -400,7 +403,8 @@ bucket_definitions:
       clearBatchLimit: 100,
       moveBatchLimit: 100,
       moveBatchQueryLimit: 100, // Larger limit for a larger window of operations
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const groupedBuckets = ['b1', 'b2'];
@@ -482,7 +486,8 @@ bucket_definitions:
       clearBatchLimit: 2,
       moveBatchLimit: 1,
       moveBatchQueryLimit: 1,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     await writer.save({
@@ -558,7 +563,8 @@ bucket_definitions:
       clearBatchLimit: 20,
       moveBatchLimit: 10,
       moveBatchQueryLimit: 10,
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const checkpoint2 = result2!.flushed_op;
