@@ -36,6 +36,7 @@
     "ts-codec": "^1.3.0"
   },
   "devDependencies": {
-    "@powersync/service-core-tests": "workspace:*"
+    "@powersync/service-core-tests": "workspace:*",
+    "@powersync/service-module-mongodb-storage": "workspace:*"
   }
 }
