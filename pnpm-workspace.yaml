@@ -9,5 +9,9 @@ packages:
 
 catalog:
   vitest: ^4.0.16
-  "@vitest/ui": ^4.0.16
-  "@vitest/coverage-v8": ^4.0.16
+  '@vitest/ui': ^4.0.16
+  '@vitest/coverage-v8': ^4.0.16
+
+allowBuilds:
+  # These need install scripts to download/build native modules
+  '@mongodb-js/zstd': true

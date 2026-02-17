@@ -8,10 +8,13 @@ export type SqliteType = 'null' | 'blob' | 'text' | 'integer' | 'real' | 'numeri
 
 export type SqliteValueType = 'null' | 'blob' | 'text' | 'integer' | 'real';
 
-export interface ColumnDefinition {
-  name: string;
+export interface ColumnType {
   type: ExpressionType;
   originalType?: string;
+}
+
+export interface ColumnDefinition extends ColumnType {
+  name: string;
 }
 
 export class ExpressionType {

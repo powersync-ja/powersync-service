@@ -1,4 +1,4 @@
-import { SqlSyncRules } from '../SqlSyncRules.js';
+import { SyncConfig } from '../SyncConfig.js';
 import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
@@ -17,7 +17,7 @@ export class SqlSchemaGenerator extends SchemaGenerator {
     super();
   }
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: SyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     let buffer =
       '-- Note: These definitions are only used to generate typed code. PowerSync manages the database schema.\n';
     const tables = super.getAllTables(source, schema);

@@ -4,9 +4,15 @@ import { compilationErrorsForSingleStream, compileToSyncPlanWithoutErrors } from
 describe('subqueries', () => {
   describe('names', () => {
     test('from inner columns', () => {
-      const plan = compileToSyncPlanWithoutErrors([
-        { name: 'a', queries: ['SELECT * FROM (SELECT id, name FROM users) AS subquery'] }
-      ]);
+      const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  a:
+    query: SELECT * FROM (SELECT id, name FROM users) AS subquery
+`);
       const sources = plan.dataSources;
       expect(sources).toHaveLength(1);
 
@@ -17,9 +23,15 @@ describe('subqueries', () => {
     });
 
     test('from outer alias', () => {
-      const plan = compileToSyncPlanWithoutErrors([
-        { name: 'a', queries: ['SELECT * FROM (SELECT id, name FROM users) AS subquery (my_id, custom_name)'] }
-      ]);
+      const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  a:
+    query: SELECT * FROM (SELECT id, name FROM users) AS subquery (my_id, custom_name)
+`);
       const sources = plan.dataSources;
       expect(sources).toHaveLength(1);
 
