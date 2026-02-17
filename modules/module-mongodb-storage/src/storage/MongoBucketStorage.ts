@@ -1,4 +1,4 @@
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { BucketDataSource, ParameterIndexLookupCreator, SqlSyncRules } from '@powersync/service-sync-rules';
 
 import { GetIntanceOptions, maxLsn, CreateWriterOptions, storage } from '@powersync/service-core';
 
@@ -286,9 +286,9 @@ export class MongoBucketStorage
         existingMapping = new BucketDefinitionMapping({}, {});
       }
 
-      syncRules.hydrate({
+      syncRules.config.hydrate({
         hydrationState: {
-          getBucketSourceScope(source) {
+          getBucketSourceScope(source: BucketDataSource) {
             const existingId = existingMapping.equivalentBucketSourceId(source);
             if (existingId != null) {
               bucketDefinitionMapping[source.uniqueName] = existingId;
@@ -302,7 +302,7 @@ export class MongoBucketStorage
               source
             };
           },
-          getParameterIndexLookupScope(source) {
+          getParameterIndexLookupScope(source: ParameterIndexLookupCreator) {
             const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
             const existingId = existingMapping.equivalentParameterLookupId(source);
             if (existingId != null) {

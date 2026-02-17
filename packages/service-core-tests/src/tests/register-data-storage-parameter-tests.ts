@@ -1,5 +1,5 @@
-import { JwtPayload, storage } from '@powersync/service-core';
-import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { storage } from '@powersync/service-core';
+import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
@@ -62,7 +62,7 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = new RequestParameters({ sub: 'user1' }, {});
+    const parameters = test_utils.requestParameters({ sub: 'user1' });
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
     const parameter_sets = await querier.queryDynamicBucketDescriptions(checkpoint);
     expect(parameter_sets).toMatchObject([{ bucket: expect.stringMatching(/"group1a"/) }]);
@@ -109,7 +109,7 @@ bucket_definitions:
     const checkpoint2 = await bucketStorage.getCheckpoint();
 
     const querier = hydrated.getBucketParameterQuerier(
-      test_utils.querierOptions(new RequestParameters({ sub: 'user1' }, {}))
+      test_utils.querierOptions(test_utils.requestParameters({ sub: 'user1' }))
     ).querier;
 
     const buckets1 = await querier.queryDynamicBucketDescriptions(checkpoint2);
@@ -188,7 +188,7 @@ bucket_definitions:
     // association of `list1`::`todo2`
     const querier = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(
-        new RequestParameters({ sub: 'user1', parameters: { list_id: ['list1', 'list2'] } }, {})
+        test_utils.requestParameters({ sub: 'user1', parameters: { list_id: ['list1', 'list2'] } })
       )
     ).querier;
     const checkpoint = await bucketStorage.getCheckpoint();
@@ -240,7 +240,7 @@ bucket_definitions:
 
     const querier1 = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(
-        new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3.14 } }, {})
+        test_utils.requestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3.14 } })
       )
     ).querier;
     const buckets1 = await querier1.queryDynamicBucketDescriptions(checkpoint);
@@ -248,14 +248,16 @@ bucket_definitions:
 
     const querier2 = hydrated.getBucketParameterQuerier(
       test_utils.querierOptions(
-        new RequestParameters({ sub: 'user1', parameters: { n1: 314, f2: 314n, f3: 3.14 } }, {})
+        test_utils.requestParameters({ sub: 'user1', parameters: { n1: 314, f2: 314n, f3: 3.14 } })
       )
     ).querier;
     const buckets2 = await querier2.queryDynamicBucketDescriptions(checkpoint);
     expect(buckets2).toMatchObject([{ bucket: expect.stringMatching(/"group1"/), definition: 'mybucket' }]);
 
     const querier3 = hydrated.getBucketParameterQuerier(
-      test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3 } }, {}))
+      test_utils.querierOptions(
+        test_utils.requestParameters({ sub: 'user1', parameters: { n1: 314n, f2: 314, f3: 3 } })
+      )
     ).querier;
     const buckets3 = await querier3.queryDynamicBucketDescriptions(checkpoint);
     expect(buckets3).toEqual([]);
@@ -310,7 +312,9 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const querier = hydrated.getBucketParameterQuerier(
-      test_utils.querierOptions(new RequestParameters({ sub: 'user1', parameters: { n1: 1152921504606846976n } }, {}))
+      test_utils.querierOptions(
+        test_utils.requestParameters({ sub: 'user1', parameters: { n1: 1152921504606846976n } })
+      )
     ).querier;
     const buckets = await querier.queryDynamicBucketDescriptions(checkpoint);
     expect(buckets.map(test_utils.removeSourceSymbol)).toMatchObject([
@@ -351,7 +355,7 @@ bucket_definitions:
     await writer.commit('1/1');
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = new RequestParameters(new JwtPayload({ sub: 'u1' }), {});
+    const parameters = test_utils.requestParameters({ sub: 'u1' });
 
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
@@ -427,7 +431,7 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = new RequestParameters(new JwtPayload({ sub: 'unknown' }), {});
+    const parameters = test_utils.requestParameters({ sub: 'unknown' });
 
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
@@ -523,7 +527,7 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = new RequestParameters(new JwtPayload({ sub: 'u1' }), {});
+    const parameters = test_utils.requestParameters({ sub: 'u1' });
 
     // Test intermediate values - could be moved to sync_rules.test.ts
     const querier = hydrated.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
@@ -588,7 +592,7 @@ bucket_definitions:
     const checkpoint = await bucketStorage.getCheckpoint();
 
     const querier = hydrated.getBucketParameterQuerier(
-      test_utils.querierOptions(new RequestParameters({ sub: 'user1' }, {}))
+      test_utils.querierOptions(test_utils.requestParameters({ sub: 'user1' }))
     ).querier;
     const parameters = await querier.queryDynamicBucketDescriptions(checkpoint);
     expect(parameters).toEqual([]);

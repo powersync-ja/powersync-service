@@ -213,7 +213,7 @@ streams:
 
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['user1']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['user1']),
         bucketParameters: [
           {
             '0': 'issue_id'
@@ -348,7 +348,8 @@ streams:
             ScopedParameterLookup.direct(
               {
                 lookupName: 'lookup',
-                queryId: '0'
+                queryId: '0',
+                source: {} as any
               },
               ['user']
             )
@@ -361,7 +362,8 @@ streams:
             ScopedParameterLookup.direct(
               {
                 lookupName: 'lookup',
-                queryId: '1'
+                queryId: '1',
+                source: {} as any
               },
               ['name']
             )

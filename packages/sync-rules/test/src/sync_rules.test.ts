@@ -114,7 +114,7 @@ bucket_definitions:
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1' }, ['user1'])
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1', source: {} as any }, ['user1'])
       }
     ]);
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -184,12 +184,13 @@ bucket_definitions:
     );
     const hydrationState: HydrationState = {
       getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}-test` };
+        return { bucketPrefix: `${source.uniqueName}-test`, source };
       },
       getParameterIndexLookupScope(source) {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };
@@ -207,13 +208,15 @@ bucket_definitions:
       }
     ]);
     expect(await findQuerierLookups(querier)).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+      ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test', source: {} as any }, ['user1'])
     ]);
 
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{ user_id: 'user1' }],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test', source: {} as any }, [
+          'user1'
+        ])
       }
     ]);
 
@@ -1044,7 +1047,7 @@ bucket_definitions:
     });
 
     expect(await findQuerierLookups(hydratedQuerier)).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
+      ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1', source: {} as any }, [1])
     ]);
   });
 

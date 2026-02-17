@@ -21,7 +21,7 @@ import {
   SqliteInputValue,
   SqliteRow,
   SqliteValue,
-  SqlSyncRules,
+  SyncConfig,
   TableDataSources,
   TablePattern
 } from '@powersync/service-sync-rules';
@@ -58,7 +58,7 @@ export class MergedSyncRules implements RowProcessor {
   // keyed by TablePattern.key
   private tableDataSources: Map<string, TableDataSources> = new Map();
 
-  private allSyncRules: SqlSyncRules[];
+  private allSyncRules: SyncConfig[];
 
   // all table patterns
   private sourcePatterns: TablePattern[];
@@ -77,7 +77,7 @@ export class MergedSyncRules implements RowProcessor {
 
     this.allSyncRules = [];
     for (let source of sources) {
-      const syncRules = source.sync_rules;
+      const syncRules = source.sync_rules.config;
       const mapping = source.mapping;
       const hydrationState = source.hydrationState;
       const dataSources = syncRules.bucketDataSources;

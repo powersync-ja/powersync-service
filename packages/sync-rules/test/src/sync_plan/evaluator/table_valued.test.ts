@@ -46,7 +46,7 @@ streams:
       desc.evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['user', 'another']) })
     ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['chat']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat']),
         bucketParameters: [
           {
             '0': 'user'
@@ -54,7 +54,7 @@ streams:
         ]
       },
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['chat']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat']),
         bucketParameters: [
           {
             '0': 'another'
@@ -82,7 +82,8 @@ streams:
           ScopedParameterLookup.direct(
             {
               lookupName: 'lookup',
-              queryId: '0'
+              queryId: '0',
+              source: {} as any
             },
             ['chat']
           )

@@ -29,11 +29,13 @@ import { normalizeQuerierOptions, PARSE_OPTIONS, requestParameters, TestSourceTa
 describe('streams', () => {
   const STREAM_0: ParameterLookupScope = {
     lookupName: 'stream',
-    queryId: '0'
+    queryId: '0',
+    source: {} as any
   };
   const STREAM_1: ParameterLookupScope = {
     lookupName: 'stream',
-    queryId: '1'
+    queryId: '1',
+    source: {} as any
   };
 
   test('refuses edition: 1', () => {
@@ -760,7 +762,7 @@ describe('streams', () => {
           parameters: {},
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([
-              ScopedParameterLookup.direct({ lookupName: 'account_member', queryId: '0' }, ['id'])
+              ScopedParameterLookup.direct({ lookupName: 'account_member', queryId: '0', source: {} as any }, ['id'])
             ]);
             return [{ result: 'account_id' }];
           }
@@ -973,12 +975,13 @@ WHERE
 
     const hydrationState: HydrationState = {
       getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}.test` };
+        return { bucketPrefix: `${source.uniqueName}.test`, source };
       },
       getParameterIndexLookupScope(source) {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };
@@ -997,7 +1000,9 @@ WHERE
       })
     ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test', source: {} as any }, [
+          'u1'
+        ]),
         bucketParameters: [
           {
             result: 'i1'
@@ -1006,7 +1011,9 @@ WHERE
       },
 
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '1.test' }, ['myname']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '1.test', source: {} as any }, [
+          'myname'
+        ]),
         bucketParameters: [
           {
             result: 'i1'
@@ -1022,7 +1029,9 @@ WHERE
       })
     ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test', source: {} as any }, [
+          'u1'
+        ]),
         bucketParameters: [
           {
             result: 'i1'

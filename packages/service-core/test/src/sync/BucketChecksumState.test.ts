@@ -20,7 +20,8 @@ import {
   ScopedParameterLookup,
   SqliteJsonRow,
   SqlSyncRules,
-  TablePattern
+  TablePattern,
+  versionedHydrationState
 } from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
 import { removeSource, removeSourceSymbol } from '../utils.js';

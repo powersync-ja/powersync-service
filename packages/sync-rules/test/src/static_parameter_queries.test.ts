@@ -6,7 +6,8 @@ import { EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from './util.js';
 
 describe('static parameter queries', () => {
   const MYBUCKET_SCOPE: BucketDataScope = {
-    bucketPrefix: 'mybucket'
+    bucketPrefix: 'mybucket',
+    source: EMPTY_DATA_SOURCE
   };
 
   test('basic query', function () {
@@ -38,7 +39,8 @@ describe('static parameter queries', () => {
     expect(query.bucketParameters!).toEqual(['user_id']);
     expect(
       query.getStaticBucketDescriptions(requestParameters({ sub: 'user1' }), {
-        bucketPrefix: '1#mybucket'
+        bucketPrefix: '1#mybucket',
+        source: EMPTY_DATA_SOURCE
       })
     ).toEqual([{ bucket: '1#mybucket["user1"]', priority: 3 }]);
   });
@@ -479,12 +481,13 @@ describe('static parameter queries', () => {
 
     const hydrationState: HydrationState = {
       getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}-test` };
+        return { bucketPrefix: `${source.uniqueName}-test`, source };
       },
       getParameterIndexLookupScope(source) {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };

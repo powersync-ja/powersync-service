@@ -1,4 +1,4 @@
-import { BucketDataRequest, InternalOpId, storage, utils } from '@powersync/service-core';
+import { BucketDataRequest, InternalOpId, JwtPayload, storage, utils } from '@powersync/service-core';
 import {
   GetQuerierOptions,
   RequestParameters,
@@ -136,6 +136,13 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
   };
 }
 
+export function requestParameters(
+  jwtPayload: Record<string, any>,
+  clientParameters?: Record<string, any>
+): RequestParameters {
+  return new RequestParameters(new JwtPayload(jwtPayload), clientParameters ?? {});
+}
+
 function isParsedSyncRules(
   syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
 ): syncRules is storage.PersistedSyncRules {
@@ -156,7 +163,7 @@ export function bucketRequest(
   bucket ??= 'global[]';
   const definitionName = bucket.substring(0, bucket.indexOf('['));
   const parameters = bucket.substring(bucket.indexOf('['));
-  const source = parsed.sync_rules.bucketDataSources.find((b) => b.uniqueName === definitionName);
+  const source = parsed.sync_rules.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
 
   if (source == null) {
     throw new Error(`Failed to find global bucket ${bucket}`);
