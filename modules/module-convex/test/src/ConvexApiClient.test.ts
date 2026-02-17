@@ -146,6 +146,27 @@ describe('ConvexApiClient', () => {
     expect(result.tables.map((table) => table.tableName)).toEqual(['lists', 'todos']);
   });
 
+  it('sends table_name as snake_case query parameter in list_snapshot', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          snapshot: '100',
+          cursor: null,
+          has_more: false,
+          values: []
+        }),
+        { status: 200 }
+      )
+    );
+
+    const client = new ConvexApiClient(baseConfig);
+    await client.listSnapshot({ tableName: 'lists', snapshot: '100' });
+
+    const url = String(fetchSpy.mock.calls[0]![0]);
+    expect(url).toContain('table_name=lists');
+    expect(url).not.toContain('tableName=lists');
+  });
+
   it('marks network failures as retryable', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fetch failed: ECONNRESET'));
 

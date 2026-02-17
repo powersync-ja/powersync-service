@@ -96,7 +96,8 @@ export class ConvexApiClient {
       params: {
         snapshot: options.snapshot,
         cursor: options.cursor,
-        tableName: options.tableName
+        //TODO: NB: test this against cloud. Seems to be `tableName` in the docs, but `table_name` when self-hosting.
+        table_name: options.tableName
       },
       signal: options.signal,
       allowStreamingFallback: true
