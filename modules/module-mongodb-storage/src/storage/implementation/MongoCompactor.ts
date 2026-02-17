@@ -487,7 +487,7 @@ export class MongoCompactor {
     let count = 0;
     while (!this.signal?.aborted) {
       const buckets = await this.dirtyBucketBatchForChecksums(options);
-      if (buckets.length == 0) {
+      if (buckets.length == 0 || this.signal?.aborted) {
         // All done
         break;
       }
@@ -509,7 +509,7 @@ export class MongoCompactor {
       );
       await this.updateChecksumsBatch(checkBuckets.map((b) => b.bucket));
       logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
-      count += buckets.length;
+      count += checkBuckets.length;
     }
     return { buckets: count };
   }
