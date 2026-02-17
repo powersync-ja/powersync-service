@@ -1,7 +1,66 @@
 import { describe, expect, test } from 'vitest';
-import { compilationErrorsForSingleStream } from './utils.js';
+import { compilationErrorsForSingleStream, yamlToSyncPlan } from './utils.js';
+import { SourceSchema } from '../../../src/types.js';
+import { SourceTableDefinition, StaticSchema } from '../../../src/StaticSchema.js';
+import { DEFAULT_TAG } from '../../../src/TablePattern.js';
 
 describe('compilation errors', () => {
+  test('parsing error in query', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    query: invalid syntax
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.source).toStrictEqual('syntax');
+  });
+
+  test('parsing error in CTE', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    with:
+      org_of_user: invalid syntax
+    query: SELECT * FROM projects
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.source).toStrictEqual('syntax');
+  });
+
+  test('missing query', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    with:
+      foo: SELECT 1
+`);
+
+    expect(errors).toStrictEqual([
+      {
+        message: 'One of `queries` or `query` must be given.',
+        source: `with:
+      foo: SELECT 1
+`
+      }
+    ]);
+  });
+
   test('not a select statement', () => {
     expect(compilationErrorsForSingleStream("INSERT INTO users (id) VALUES ('foo')")).toStrictEqual([
       {
@@ -29,6 +88,19 @@ describe('compilation errors', () => {
       {
         message: 'Must have a result column selecting from a table',
         source: "SELECT * FROM json_each(auth.parameter('x'))"
+      }
+    ]);
+  });
+
+  test('selecting column from table-valued function', () => {
+    expect(compilationErrorsForSingleStream("SELECT value FROM json_each(auth.parameter('x'))")).toStrictEqual([
+      {
+        message: 'Sync streams can only select from actual tables',
+        source: 'value'
+      },
+      {
+        message: 'Must have a result column selecting from a table',
+        source: "SELECT value FROM json_each(auth.parameter('x'))"
       }
     ]);
   });
@@ -204,5 +276,93 @@ describe('compilation errors', () => {
     expect(compilationErrorsForSingleStream('select * from users where id = subscription.whatever()')).toStrictEqual([
       { message: 'Unknown request function', source: 'subscription.whatever' }
     ]);
+  });
+
+  describe('schema errors', () => {
+    function schemaFromTables(...tables: SourceTableDefinition[]): StaticSchema {
+      return new StaticSchema([{ tag: DEFAULT_TAG, schemas: [{ name: 'test_schema', tables }] }]);
+    }
+
+    function compilationErrorsWithSchema(schema: SourceSchema, sql: string) {
+      const [errors] = yamlToSyncPlan(
+        `
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    query: ${sql}
+        `,
+        { defaultSchema: 'test_schema', schema }
+      );
+
+      return errors;
+    }
+
+    test('unknown tables', () => {
+      expect(compilationErrorsWithSchema(schemaFromTables(), 'SELECT * FROM users')).toStrictEqual([
+        {
+          message: 'This table could not be found in the source schema.',
+          source: 'users',
+          isWarning: true
+        }
+      ]);
+
+      // We don't want to warn on columns too if the table couldn't be resolved.
+      expect(compilationErrorsWithSchema(schemaFromTables(), 'SELECT id, name FROM users')).toStrictEqual([
+        {
+          message: 'This table could not be found in the source schema.',
+          source: 'users',
+          isWarning: true
+        }
+      ]);
+    });
+
+    test('unknown column', () => {
+      expect(
+        compilationErrorsWithSchema(
+          schemaFromTables({
+            name: 'users',
+            columns: [
+              { name: 'id', pg_type: 'uuid' },
+              { name: 'name', pg_type: 'text' }
+            ]
+          }),
+          'SELECT id, name, does_not_exist FROM users'
+        )
+      ).toStrictEqual([
+        {
+          message: 'Column not found.',
+          source: 'does_not_exist',
+          isWarning: true
+        }
+      ]);
+    });
+  });
+
+  test('does not allow bucket_definitions', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  foo:
+    query: SELECT * FROM users
+
+bucket_definitions:
+  a:
+    data:
+      - SELECT * FROM users
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.message).toContain("'bucket_definitions' are not supported by the new compiler.");
+    expect(error.source).toStrictEqual(`a:
+    data:
+      - SELECT * FROM users
+`);
   });
 });

@@ -8,11 +8,16 @@ import { CompoundConfigCollector } from './util-index.js';
 
 export function configureLogger(config?: configFile.LoggingConfig): void {
   const level = process.env.PS_LOG_LEVEL ?? config?.level ?? DEFAULT_LOG_LEVEL;
-  const format = (process.env.PS_LOG_FORMAT as configFile.LoggingConfig['format']) ?? config?.format ?? DEFAULT_LOG_FORMAT;
+  const format =
+    (process.env.PS_LOG_FORMAT as configFile.LoggingConfig['format']) ?? config?.format ?? DEFAULT_LOG_FORMAT;
   const winstonFormat = format === 'json' ? LogFormat.production : LogFormat.development;
 
+  // We want the user to always be aware that a log level was configured (they might forget they set it in the config and wonder why they aren't seeing logs)
+  // We log this using the configured format, but before we configure the level.
+  logger.configure({ level: DEFAULT_LOG_LEVEL, format: winstonFormat, transports: [new winston.transports.Console()] });
+  logger.info(`Configured logger with level "${level}" and format "${format}"`);
+
   logger.configure({ level, format: winstonFormat, transports: [new winston.transports.Console()] });
-  console.log(`[PREFLIGHT] Configured logger with level "${level}" and format "${format}"`); // we want the user to always be aware that a log level was configured (they might forget they set it in the config and wonder why they aren't seeing logs)
 }
 
 /**

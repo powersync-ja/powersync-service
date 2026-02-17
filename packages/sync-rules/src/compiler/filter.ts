@@ -105,7 +105,7 @@ export class RowExpression extends SingleDependencyExpression {
 
   constructor(expression: SyncExpression | SingleDependencyExpression) {
     super(expression);
-    if (this.resultSet == null) {
+    if (this.dependsOnConnection) {
       throw new InvalidExpressionError('Does not depend on a single result set');
     }
   }

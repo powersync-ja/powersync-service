@@ -1,5 +1,45 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.13.1
+
+### Patch Changes
+
+- 2dc1cae: Fix listening of checkpoint watch events, causing sync delays for MySQL and SQL Server in some cases.
+- 479997b: Introduce `BaseSyncConfig` to represent SQL-based sync rules and precompiled sync plans.
+- d1c2228: [MongoDB Storage] Optimize the compact job, avoiding re-compacting buckets in the same job.
+- Updated dependencies [0e99ce0]
+- Updated dependencies [479997b]
+- Updated dependencies [d1c2228]
+- Updated dependencies [1a1a4cc]
+  - @powersync/service-sync-rules@0.31.0
+  - @powersync/service-core@1.19.1
+  - @powersync/lib-services-framework@0.8.1
+  - @powersync/lib-service-mongodb@0.6.18
+
+## 0.13.0
+
+### Minor Changes
+
+- e578245: [Internal] Refactor sync rule representation to split out the parsed definitions from the hydrated state.
+
+### Patch Changes
+
+- 5d683cd: Add support for zstd and snappy compressors for MongoDB connections, in addition to zlib which was already supported.
+- 3b2c512: Reduced log output for waiting replication pod
+- Updated dependencies [5d683cd]
+- Updated dependencies [05b9661]
+- Updated dependencies [eaa04cc]
+- Updated dependencies [781d0e3]
+- Updated dependencies [e578245]
+- Updated dependencies [3040079]
+- Updated dependencies [3b2c512]
+- Updated dependencies [a02cc58]
+  - @powersync/lib-service-mongodb@0.6.17
+  - @powersync/service-core@1.19.0
+  - @powersync/service-sync-rules@0.30.0
+  - @powersync/lib-services-framework@0.8.0
+  - @powersync/service-types@0.14.0
+
 ## 0.12.16
 
 ### Patch Changes

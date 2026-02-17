@@ -4,7 +4,7 @@ exports[`common table expressions > as data source 1`] = `
 {
   "buckets": [
     {
-      "hash": 385206737,
+      "hash": 68553592,
       "sources": [
         0,
       ],
@@ -34,7 +34,7 @@ exports[`common table expressions > as data source 1`] = `
         },
       ],
       "filters": [],
-      "hash": 148949426,
+      "hash": 472729660,
       "outputTableName": "organisations",
       "partitionBy": [
         {
@@ -47,16 +47,21 @@ exports[`common table expressions > as data source 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "organisations",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 482282063,
+      "hash": 283023369,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -76,10 +81,11 @@ exports[`common table expressions > as data source 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "org_memberships",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
@@ -144,7 +150,7 @@ exports[`common table expressions > as parameter query 1`] = `
 {
   "buckets": [
     {
-      "hash": 402167552,
+      "hash": 29476625,
       "sources": [
         0,
       ],
@@ -157,7 +163,7 @@ exports[`common table expressions > as parameter query 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 151623292,
+      "hash": 27460384,
       "outputTableName": "projects",
       "partitionBy": [
         {
@@ -170,16 +176,21 @@ exports[`common table expressions > as parameter query 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "projects",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "parameterIndexes": [
     {
       "filters": [],
-      "hash": 482282063,
+      "hash": 283023369,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
       "output": [
         {
           "source": {
@@ -199,14 +210,19 @@ exports[`common table expressions > as parameter query 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "org_memberships",
       },
+      "tableValuedFunctions": [],
     },
     {
       "filters": [],
-      "hash": 158472400,
+      "hash": 500582714,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
       "output": [
         {
           "source": {
@@ -226,10 +242,11 @@ exports[`common table expressions > as parameter query 1`] = `
         },
       ],
       "table": {
-        "connection": "default",
-        "schema": "test_schema",
+        "connection": null,
+        "schema": null,
         "table": "organisations",
       },
+      "tableValuedFunctions": [],
     },
   ],
   "streams": [
