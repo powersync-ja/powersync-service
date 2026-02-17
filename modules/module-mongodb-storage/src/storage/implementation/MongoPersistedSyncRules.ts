@@ -1,12 +1,14 @@
 import {
   CompatibilityOption,
+  DEFAULT_HYDRATION_STATE,
   HydratedSyncRules,
+  HydrationState,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 
 import { storage } from '@powersync/service-core';
-import { DEFAULT_HYDRATION_STATE, HydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+
 import { StorageConfig } from './models.js';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
