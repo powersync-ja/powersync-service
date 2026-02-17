@@ -48,7 +48,7 @@ export class MongoPersistedSyncRulesContent implements storage.PersistedSyncRule
     const storageConfig = getMongoStorageConfig(this.storageVersion);
     if (storageConfig == null) {
       throw new ServiceError(
-        ErrorCode.PSYNC_S1403,
+        ErrorCode.PSYNC_S1005,
         `Unsupported storage version ${this.storageVersion} for sync rules ${this.id}`
       );
     }

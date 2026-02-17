@@ -47,7 +47,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
     const storageConfig = storage.STORAGE_VERSION_CONFIG[this.storageVersion];
     if (storageConfig == null) {
       throw new ServiceError(
-        ErrorCode.PSYNC_S1403,
+        ErrorCode.PSYNC_S1005,
         `Unsupported storage version ${this.storageVersion} for sync rules ${this.id}`
       );
     }
