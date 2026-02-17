@@ -94,7 +94,7 @@ export async function checkSourceConfiguration(connectionManager: MSSQLConnectio
 export async function checkPowerSyncCheckpointsTable(connectionManager: MSSQLConnectionManager): Promise<string[]> {
   const errors: string[] = [];
   try {
-    // check if the dbo_powersync_checkpoints table exists
+    // Check if the table exists
     const { recordset: checkpointsResult } = await connectionManager.query(
       `
     SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = @schema AND TABLE_NAME = @tableName;
@@ -104,20 +104,19 @@ export async function checkPowerSyncCheckpointsTable(connectionManager: MSSQLCon
         { name: 'tableName', type: sql.VarChar(sql.MAX), value: POWERSYNC_CHECKPOINTS_TABLE }
       ]
     );
-    if (checkpointsResult.length > 0) {
-      // Table already exists, check if CDC is enabled
-      const isEnabled = await isTableEnabledForCDC({
-        connectionManager,
-        table: POWERSYNC_CHECKPOINTS_TABLE,
-        schema: connectionManager.schema
-      });
-      if (isEnabled) {
-        return errors;
-      } else {
-        throw new Error(
-          `The ${POWERSYNC_CHECKPOINTS_TABLE} table exists but is not enabled for CDC. Please enable CDC on this table.`
-        );
-      }
+    if (checkpointsResult.length === 0) {
+      throw new Error(`The ${POWERSYNC_CHECKPOINTS_TABLE} table does not exist. Please create it.`);
+    }
+    // Check if CDC is enabled
+    const isEnabled = await isTableEnabledForCDC({
+      connectionManager,
+      table: POWERSYNC_CHECKPOINTS_TABLE,
+      schema: connectionManager.schema
+    });
+    if (!isEnabled) {
+      throw new Error(
+        `The ${POWERSYNC_CHECKPOINTS_TABLE} table exists but is not enabled for CDC. Please enable CDC on this table.`
+      );
     }
   } catch (error) {
     errors.push(`Failed ensure ${POWERSYNC_CHECKPOINTS_TABLE} table is correctly configured: ${error}`);
