@@ -921,7 +921,9 @@ describe('parameter queries', () => {
         id: 'group1',
         user_ids: JSON.stringify(['test-user', 'other-user'])
       });
-      expect(result.map((entry) => ({ ...entry, lookup: removeSource(entry.lookup) }))).toEqual([
+      expect(
+        result.map((entry) => ('lookup' in entry ? { ...entry, lookup: removeSource(entry.lookup) } : entry))
+      ).toEqual([
         {
           lookup: removeSource(
             ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [

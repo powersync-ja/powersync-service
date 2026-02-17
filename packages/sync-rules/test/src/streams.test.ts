@@ -15,6 +15,8 @@ import {
   UnscopedParameterLookup,
   QuerierError,
   RequestParameters,
+  EvaluatedParametersResult,
+  isEvaluatedParameters,
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
@@ -45,9 +47,10 @@ describe('streams', () => {
     source: {} as any
   };
 
-  function removeLookupSource<T extends { lookup: ScopedParameterLookup }>(
-    entry: T
-  ): Omit<T, 'lookup'> & { lookup: any } {
+  function removeLookupSource(entry: EvaluatedParametersResult) {
+    if (!isEvaluatedParameters(entry)) {
+      return entry;
+    }
     return { ...entry, lookup: removeSource(entry.lookup) };
   }
 

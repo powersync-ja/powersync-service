@@ -8,6 +8,7 @@ import {
   SqlParameterQuery
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
+import { BucketDataScope } from '../../src/HydrationState.js';
 import { EMPTY_DATA_SOURCE, PARSE_OPTIONS, removeSourceSymbol, requestParameters } from './util.js';
 
 describe('table-valued function queries', () => {
@@ -16,7 +17,7 @@ describe('table-valued function queries', () => {
   function getStaticBucketDescriptions(
     query: StaticSqlParameterQuery,
     parameters: RequestParameters,
-    scope: { bucketPrefix: string; source: unknown }
+    scope: BucketDataScope
   ) {
     return query.getStaticBucketDescriptions(parameters, scope).map(removeSourceSymbol);
   }
