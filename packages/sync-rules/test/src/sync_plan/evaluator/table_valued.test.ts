@@ -1,7 +1,11 @@
 import { describe, expect } from 'vitest';
 import { syncTest } from './utils.js';
-import { requestParameters, TestSourceTable } from '../../util.js';
+import { removeSource, requestParameters, TestSourceTable } from '../../util.js';
 import { ScopedParameterLookup, SqliteJsonRow } from '../../../../src/index.js';
+
+function removeLookupSource<T extends { lookup: ScopedParameterLookup }>(row: T): Omit<T, 'lookup'> & { lookup: any } {
+  return { ...row, lookup: removeSource(row.lookup) };
+}
 
 describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {
@@ -16,7 +20,7 @@ streams:
 `);
 
     const sourceTable = new TestSourceTable('stores');
-    expect(desc.evaluateRow({ sourceTable, record: { id: 'id', tags: '[1,2,3]' } })).toStrictEqual(
+    expect(desc.evaluateRow({ sourceTable, record: { id: 'id', tags: '[1,2,3]' } }).map(removeSource)).toStrictEqual(
       [1, 2, 3].map((e) => ({ bucket: `stream|0[${e}]`, data: { id: 'id' }, table: 's', id: 'id' }))
     );
   });
@@ -43,10 +47,14 @@ streams:
       'stream|0["user"]'
     ]);
     expect(
-      desc.evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['user', 'another']) })
+      desc
+        .evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['user', 'another']) })
+        .map(removeLookupSource)
     ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat']),
+        lookup: removeSource(
+          ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat'])
+        ),
         bucketParameters: [
           {
             '0': 'user'
@@ -54,7 +62,9 @@ streams:
         ]
       },
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat']),
+        lookup: removeSource(
+          ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat'])
+        ),
         bucketParameters: [
           {
             '0': 'another'
@@ -78,14 +88,16 @@ streams:
 
     const buckets = await querier.queryDynamicBucketDescriptions({
       getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-        expect(lookups).toStrictEqual([
-          ScopedParameterLookup.direct(
-            {
-              lookupName: 'lookup',
-              queryId: '0',
-              source: {} as any
-            },
-            ['chat']
+        expect(lookups.map(removeSource)).toStrictEqual([
+          removeSource(
+            ScopedParameterLookup.direct(
+              {
+                lookupName: 'lookup',
+                queryId: '0',
+                source: {} as any
+              },
+              ['chat']
+            )
           )
         ]);
 

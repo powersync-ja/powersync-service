@@ -12,7 +12,15 @@ import {
   UnscopedParameterLookup
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { BASIC_SCHEMA, EMPTY_DATA_SOURCE, findQuerierLookups, PARSE_OPTIONS, requestParameters } from './util.js';
+import {
+  BASIC_SCHEMA,
+  EMPTY_DATA_SOURCE,
+  findQuerierLookups,
+  PARSE_OPTIONS,
+  removeSource,
+  removeSourceSymbol,
+  requestParameters
+} from './util.js';
 
 describe('parameter queries', () => {
   const table = (name: string): SourceTableInterface => ({
@@ -123,17 +131,21 @@ describe('parameter queries', () => {
 
     // We _do_ need to care about the bucket string representation.
     expect(
-      query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], requestParameters({}), {
-        bucketPrefix: 'mybucket',
-        source: EMPTY_DATA_SOURCE
-      })
+      query
+        .resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], requestParameters({}), {
+          bucketPrefix: 'mybucket',
+          source: EMPTY_DATA_SOURCE
+        })
+        .map(removeSourceSymbol)
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
     expect(
-      query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], requestParameters({}), {
-        bucketPrefix: 'mybucket',
-        source: EMPTY_DATA_SOURCE
-      })
+      query
+        .resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], requestParameters({}), {
+          bucketPrefix: 'mybucket',
+          source: EMPTY_DATA_SOURCE
+        })
+        .map(removeSourceSymbol)
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
@@ -493,11 +505,13 @@ describe('parameter queries', () => {
     ]);
 
     expect(
-      query.resolveBucketDescriptions(
-        [{ user_id: 'user1' }],
-        requestParameters({ sub: 'user1', parameters: { is_admin: true } }),
-        { bucketPrefix: 'mybucket', source: EMPTY_DATA_SOURCE }
-      )
+      query
+        .resolveBucketDescriptions(
+          [{ user_id: 'user1' }],
+          requestParameters({ sub: 'user1', parameters: { is_admin: true } }),
+          { bucketPrefix: 'mybucket', source: EMPTY_DATA_SOURCE }
+        )
+        .map(removeSourceSymbol)
     ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });
 
@@ -907,18 +921,20 @@ describe('parameter queries', () => {
         id: 'group1',
         user_ids: JSON.stringify(['test-user', 'other-user'])
       });
-      expect(result).toEqual([
+      expect(result.map((entry) => ({ ...entry, lookup: removeSource(entry.lookup) }))).toEqual([
         {
-          lookup: ScopedParameterLookup.direct(
-            { lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any },
-            ['test-user']
+          lookup: removeSource(
+            ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [
+              'test-user'
+            ])
           ),
           bucketParameters: [{ group_id: 'group1' }]
         },
         {
-          lookup: ScopedParameterLookup.direct(
-            { lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any },
-            ['other-user']
+          lookup: removeSource(
+            ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [
+              'other-user'
+            ])
           ),
           bucketParameters: [{ group_id: 'group1' }]
         }
@@ -950,10 +966,12 @@ describe('parameter queries', () => {
 
       const querier = queriers[0];
       expect(querier.hasDynamicBuckets).toBeTruthy();
-      expect(await findQuerierLookups(querier)).toEqual([
-        ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [
-          'test-user'
-        ])
+      expect((await findQuerierLookups(querier)).map(removeSource)).toEqual([
+        removeSource(
+          ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [
+            'test-user'
+          ])
+        )
       ]);
     });
   });
