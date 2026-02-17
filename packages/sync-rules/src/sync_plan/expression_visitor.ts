@@ -94,7 +94,18 @@ export abstract class RecursiveExpressionVisitor<Data, R, Arg = undefined> imple
         }
         break;
       case 'case_when':
-        return this.visitCaseWhenExpression(expr, arg);
+        if (expr.operand) {
+          this.visit(expr.operand, arg);
+        }
+
+        for (const { when, then } of expr.whens) {
+          this.visit(when, arg);
+          this.visit(then, arg);
+        }
+        if (expr.else) {
+          this.visit(expr.else, arg);
+        }
+        break;
       case 'cast':
         this.visit(expr.operand, arg);
         break;

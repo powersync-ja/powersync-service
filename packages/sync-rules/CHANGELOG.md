@@ -1,5 +1,23 @@
 # @powersync/service-sync-rules
 
+## 0.31.0
+
+### Minor Changes
+
+- 0e99ce0: Add `sync_config_compiler` option to sync configurations, enabling the new compiler with support for JOINs and common table expressions.
+- 479997b: Introduce `BaseSyncConfig` to represent SQL-based sync rules and precompiled sync plans.
+
+## 0.30.0
+
+### Minor Changes
+
+- e578245: [Internal] Refactor sync rule representation to split out the parsed definitions from the hydrated state.
+
+### Patch Changes
+
+- 05b9661: Remove `parameterQueryLookups` from `BucketParameterQuerier`.
+- eaa04cc: Prepare new sync streams compiler.
+
 ## 0.29.10
 
 ### Patch Changes

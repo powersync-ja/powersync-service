@@ -162,6 +162,14 @@ describe('old streams test', () => {
     });
   });
 
+  test('overlap', () => {
+    expect(
+      compileSingleStreamAndSerialize(
+        'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = auth.user_id())'
+      )
+    ).toMatchSnapshot();
+  });
+
   test('OR in subquery', () => {
     // This used to be an error with the old sync streams compiler, but is supported now
     expect(

@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { JwtPayload, storage } from '@powersync/service-core';
 import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { expect, test } from 'vitest';
@@ -339,7 +339,7 @@ bucket_definitions:
     });
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = new RequestParameters({ sub: 'u1' }, {});
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'u1' }), {});
 
     const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
@@ -411,7 +411,7 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = new RequestParameters({ sub: 'unknown' }, {});
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'unknown' }), {});
 
     const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
@@ -512,7 +512,7 @@ bucket_definitions:
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters = new RequestParameters({ sub: 'u1' }, {});
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'u1' }), {});
 
     // Test intermediate values - could be moved to sync_rules.test.ts
     const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;

@@ -6,6 +6,7 @@ import {
   CHECKPOINT_INVALIDATE_ALL,
   ChecksumMap,
   InternalOpId,
+  JwtPayload,
   ReplicationCheckpoint,
   StreamingSyncRequest,
   SyncContext,
@@ -26,7 +27,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ hydrationState: versionedHydrationState(1) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -39,7 +40,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ hydrationState: versionedHydrationState(2) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(2) });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -50,7 +51,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).hydrate({ hydrationState: versionedHydrationState(3) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(3) });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -59,7 +60,7 @@ bucket_definitions:
   });
 
   const syncRequest: StreamingSyncRequest = {};
-  const tokenPayload: RequestJwtPayload = { sub: '' };
+  const tokenPayload = new JwtPayload({ sub: '' });
 
   test('global bucket with update', async () => {
     const storage = new MockBucketChecksumStateStorage();
@@ -497,7 +498,7 @@ bucket_definitions:
 
     const state = new BucketChecksumState({
       syncContext,
-      tokenPayload: { sub: 'u1' },
+      tokenPayload: new JwtPayload({ sub: 'u1' }),
       syncRequest,
       syncRules: SYNC_RULES_DYNAMIC,
       bucketStorage: storage
@@ -615,7 +616,7 @@ config:
 
       const rules = SqlSyncRules.fromYaml(source, {
         defaultSchema: 'public'
-      }).hydrate({ hydrationState: versionedHydrationState(1) });
+      }).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       return new BucketChecksumState({
         syncContext,

@@ -1,0 +1,20 @@
+{
+  "name": "@powersync/service-client",
+  "repository": "https://github.com/powersync-ja/powersync-service",
+  "types": "dist/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.0.2",
+  "main": "dist/index.js",
+  "license": "FSL-1.1-ALv2",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf ./dist && tsc -b --clean"
+  },
+  "dependencies": {
+    "@journeyapps-labs/common-sdk": "^1.0.2",
+    "@powersync/service-types": "workspace:*"
+  }
+}

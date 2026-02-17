@@ -81,7 +81,7 @@ export class StreamBucketSource implements BucketSource {
 
         // If the stream is subscribed to by default and there is no explicit subscription that would match the default
         // subscription, also include the default querier.
-        if (this.subscribedToByDefault && !hasExplicitDefaultSubscription) {
+        if (this.subscribedToByDefault && !hasExplicitDefaultSubscription && options.hasDefaultStreams) {
           for (const querier of queriers) {
             querier.querierForSubscription(params, result, options.globalParameters, null);
           }
