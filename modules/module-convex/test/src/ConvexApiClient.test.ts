@@ -171,30 +171,23 @@ describe('ConvexApiClient', () => {
 
     const body = JSON.parse(String(init?.body));
     expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].tableName).toBe('_powersync_checkpoints');
+    expect(body.messages[0].tableName).toBe('powersync_checkpoints');
     expect(body.messages[0].data.powersync_lsn).toBe('123');
+    expect(body.tables).toHaveProperty('powersync_checkpoints');
   });
 
-  it('falls back to an alternate checkpoint table name on table validation errors', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            code: 'InvalidTableName'
-          }),
-          { status: 400 }
-        )
+  it('propagates checkpoint write errors directly (no fallback)', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ code: 'SomeError' }),
+        { status: 400 }
       )
-      .mockResolvedValueOnce(new Response('', { status: 200 }));
+    );
 
     const client = new ConvexApiClient(baseConfig);
-    await client.createWriteCheckpointMarker({ headCursor: '123' });
-
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
-    const firstBody = JSON.parse(String(fetchSpy.mock.calls[0]![1]?.body));
-    const secondBody = JSON.parse(String(fetchSpy.mock.calls[1]![1]?.body));
-    expect(firstBody.messages[0].tableName).toBe('_powersync_checkpoints');
-    expect(secondBody.messages[0].tableName).toBe('powersync_checkpoints');
+    await expect(client.createWriteCheckpointMarker({ headCursor: '123' })).rejects.toMatchObject({
+      status: 400,
+      retryable: false
+    });
   });
 });

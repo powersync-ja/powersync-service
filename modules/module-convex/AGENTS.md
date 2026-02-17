@@ -74,10 +74,9 @@ This file is the working contract for agents modifying `module-convex`.
   1. resolve global head cursor,
   2. write a Convex source marker via streaming import,
   3. then pass the head to callback.
-- Source marker tables:
-  - primary: `_powersync_checkpoints`
-  - fallback: `powersync_checkpoints` (for deployments that reject leading underscore identifiers)
-  - Convex may materialize source-ingest/system-invalid names with `source_` prefix, so markers can appear as `source_powersync_checkpoints`.
+- Source marker table: `powersync_checkpoints`
+  - Convex rejects table names starting with `_`, so no leading-underscore variant is used.
+  - Convex streaming import materializes ingested tables with a `source_` prefix, so the marker may appear as `source_powersync_checkpoints` in streaming export.
 - Stream handling requirement:
   - checkpoint marker tables must always be excluded from replicated source tables and ignored in delta row application.
   - marker-only delta pages must trigger immediate `keepalive` checkpoint advancement (do not wait for 60s throttle).
@@ -99,6 +98,7 @@ This file is the working contract for agents modifying `module-convex`.
 ## 12) Conformance Suite (Must Stay Green)
 - Unit tests:
   - `test/src/ConvexApiClient.test.ts`
+  - `test/src/ConvexCheckpoints.test.ts`
   - `test/src/ConvexLSN.test.ts`
   - `test/src/ConvexRouteAPIAdapter.test.ts`
   - `test/src/ConvexStream.test.ts`

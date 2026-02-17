@@ -32,7 +32,7 @@ replication:
 
 ## Write checkpoint behavior
 
-- Route write checkpoints create a source marker row using Convex streaming import in `_powersync_checkpoints` (fallback: `powersync_checkpoints`).
+- Route write checkpoints create a source marker row using Convex streaming import in `powersync_checkpoints`.
 - Convex may materialize system/invalid source table names with a `source_` prefix (for example `source_powersync_checkpoints`).
 - Delta polling is global, so marker rows are observed even when not referenced in sync rules.
 - Checkpoint marker tables are always ignored during snapshot and delta replication.

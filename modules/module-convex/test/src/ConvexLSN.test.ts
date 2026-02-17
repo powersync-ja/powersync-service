@@ -17,9 +17,18 @@ describe('ConvexLSN', () => {
     expect(older < newer).toBe(true);
   });
 
-  it('supports legacy plain timestamp cursor format', () => {
+  it('handles bare numeric cursor string (no delimiter)', () => {
     const parsed = ConvexLSN.fromSerialized('42');
     expect(parsed.timestamp).toBe(42n);
     expect(parsed.toCursorString()).toBe('42');
+  });
+
+  it('round-trips opaque (non-numeric) cursors', () => {
+    const opaque = '{"tablet":"abc","id":"xyz"}';
+    const source = ConvexLSN.fromCursor(opaque);
+    const roundTrip = ConvexLSN.fromSerialized(source.comparable);
+
+    expect(roundTrip.toCursorString()).toBe(opaque);
+    expect(roundTrip.timestamp).toBe(0n);
   });
 });

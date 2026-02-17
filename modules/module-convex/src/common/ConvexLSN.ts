@@ -14,7 +14,7 @@ export class ConvexLSN {
 
   static fromSerialized(comparable: string): ConvexLSN {
     if (!comparable.includes(DELIMITER)) {
-      // Legacy support: raw cursor persisted directly.
+      // Bare cursor string (no encoded format). Treat as a raw cursor.
       return ConvexLSN.fromCursor(comparable);
     }
 
@@ -25,13 +25,7 @@ export class ConvexLSN {
       return ConvexLSN.fromCursor(decoded);
     }
 
-    // Backwards compatibility for early PoC format: "<numeric>|<base64 cursor>".
-    if (/^[0-9]+$/.test(first)) {
-      const decoded = decodeCursor(second ?? '');
-      return ConvexLSN.fromCursor(decoded.length == 0 ? first : decoded);
-    }
-
-    // Unknown future format: treat whole input as an opaque cursor.
+    // Unrecognized format: treat entire input as an opaque cursor.
     return ConvexLSN.fromCursor(comparable);
   }
 

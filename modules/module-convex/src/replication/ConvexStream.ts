@@ -432,16 +432,12 @@ export class ConvexStream {
 
     const resolved: SourceTable[] = [];
     for (const tableName of matchedTableNames) {
-      const table = await this.processTable(
-        batch,
-        {
-          schema: this.defaultSchema,
-          name: tableName,
-          objectId: tableName,
-          replicaIdColumns: [{ name: '_id' }]
-        },
-        false
-      );
+      const table = await this.processTable(batch, {
+        schema: this.defaultSchema,
+        name: tableName,
+        objectId: tableName,
+        replicaIdColumns: [{ name: '_id' }]
+      });
       resolved.push(table);
     }
 
@@ -468,7 +464,7 @@ export class ConvexStream {
     // Refresh schema cache when we discover a new table while streaming.
     await this.getAllTableSchemas({ force: true });
 
-    return await this.processTable(batch, descriptor, false);
+    return await this.processTable(batch, descriptor);
   }
 
   private isTableSelectedBySyncRules(tableName: string): boolean {
@@ -494,8 +490,7 @@ export class ConvexStream {
 
   private async processTable(
     batch: storage.BucketStorageBatch,
-    descriptor: SourceEntityDescriptor,
-    snapshot: boolean
+    descriptor: SourceEntityDescriptor
   ): Promise<SourceTable> {
     const resolved = await this.storage.resolveTable({
       group_id: this.storage.group_id,
@@ -510,11 +505,6 @@ export class ConvexStream {
     }
 
     this.relationCache.update(resolved.table);
-
-    if (snapshot && !resolved.table.snapshotComplete && resolved.table.syncAny) {
-      await batch.truncate([resolved.table]);
-    }
-
     return resolved.table;
   }
 
@@ -591,15 +581,11 @@ export class ConvexStream {
 }
 
 function getCacheIdentifier(source: SourceEntityDescriptor | SourceTable): string {
-  if (source instanceof SourceTable) {
-    return `${source.schema}.${source.name}`;
-  }
-
   return `${source.schema}.${source.name}`;
 }
 
-function readTableName(change: ConvexRawDocument, fallback?: string): string | null {
-  const table = change._table ?? change.tableName ?? change.table_name ?? fallback;
+function readTableName(change: ConvexRawDocument): string | null {
+  const table = change._table;
   if (typeof table != 'string' || table.length == 0) {
     return null;
   }

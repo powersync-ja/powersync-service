@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'timers/promises';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { NormalizedConvexConnectionConfig } from '../types/types.js';
-import { CONVEX_CHECKPOINT_TABLE_CANDIDATES, CONVEX_CHECKPOINT_TABLE_PRIMARY } from '../common/ConvexCheckpoints.js';
+import { CONVEX_CHECKPOINT_TABLE } from '../common/ConvexCheckpoints.js';
 
 export interface ConvexRawDocument {
   _id?: string;
@@ -36,7 +36,6 @@ export interface ConvexListSnapshotResult {
 
 export interface ConvexDocumentDeltasOptions {
   cursor?: string;
-  tableName?: string;
   signal?: AbortSignal;
 }
 
@@ -67,14 +66,11 @@ export class ConvexApiError extends Error {
     body?: unknown;
     cause?: unknown;
   }) {
-    super(options.message);
+    super(options.message, options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'ConvexApiError';
     this.status = options.status;
     this.retryable = options.retryable;
     this.body = options.body;
-    if (options.cause !== undefined) {
-      (this as Error & { cause?: unknown }).cause = options.cause;
-    }
   }
 }
 
@@ -100,8 +96,7 @@ export class ConvexApiClient {
       params: {
         snapshot: options.snapshot,
         cursor: options.cursor,
-        tableName: options.tableName,
-        table_name: options.tableName
+        tableName: options.tableName
       },
       signal: options.signal,
       allowStreamingFallback: true
@@ -123,9 +118,7 @@ export class ConvexApiClient {
     const payload = await this.requestJson({
       endpoint: 'document_deltas',
       params: {
-        cursor: options.cursor,
-        tableName: options.tableName,
-        table_name: options.tableName
+        cursor: options.cursor
       },
       signal: options.signal,
       allowStreamingFallback: true
@@ -145,16 +138,8 @@ export class ConvexApiClient {
     return page.snapshot;
   }
 
-  async getHeadCursor(options?: { tableName?: string; signal?: AbortSignal }): Promise<string> {
-    if (options?.tableName == null) {
-      return this.getGlobalSnapshotCursor({ signal: options?.signal });
-    }
-
-    const page = await this.listSnapshot({
-      tableName: options?.tableName,
-      signal: options?.signal
-    });
-    return page.snapshot;
+  async getHeadCursor(options?: { signal?: AbortSignal }): Promise<string> {
+    return this.getGlobalSnapshotCursor({ signal: options?.signal });
   }
 
   async importAirbyteRecords(options: {
@@ -185,33 +170,20 @@ export class ConvexApiClient {
       powersync_source: 'powersync'
     };
 
-    let lastError: unknown;
-    for (const tableName of CONVEX_CHECKPOINT_TABLE_CANDIDATES) {
-      try {
-        await this.importAirbyteRecords({
-          tables: {
-            [tableName]: {
-              jsonSchema: POWERSYNC_CHECKPOINT_SCHEMA
-            }
-          },
-          messages: [
-            {
-              tableName,
-              data: marker
-            }
-          ],
-          signal: options?.signal
-        });
-        return;
-      } catch (error) {
-        lastError = error;
-        if (!shouldRetryCheckpointWithFallbackTable(error, tableName)) {
-          throw error;
+    await this.importAirbyteRecords({
+      tables: {
+        [CONVEX_CHECKPOINT_TABLE]: {
+          jsonSchema: POWERSYNC_CHECKPOINT_SCHEMA
         }
-      }
-    }
-
-    throw lastError ?? new Error('Unable to create Convex write checkpoint marker');
+      },
+      messages: [
+        {
+          tableName: CONVEX_CHECKPOINT_TABLE,
+          data: marker
+        }
+      ],
+      signal: options?.signal
+    });
   }
 
   private async requestJson(options: {
@@ -324,7 +296,15 @@ export class ConvexApiClient {
       }
 
       const message = error instanceof Error ? error.message : `${error}`;
-      const retryable = message.includes('timed out') || message.includes('fetch') || message.includes('ECONN');
+      const retryable =
+        message.includes('timed out') ||
+        message.includes('fetch failed') ||
+        message.includes('ECONNREFUSED') ||
+        message.includes('ECONNRESET') ||
+        message.includes('ENOTFOUND') ||
+        message.includes('EAI_AGAIN') ||
+        message.includes('ETIMEDOUT') ||
+        error instanceof DOMException;
       throw new ConvexApiError({
         message: `Convex API request failed for ${url.pathname}: ${message}`,
         retryable,
@@ -491,22 +471,6 @@ function safeParseJson(value: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value == 'object' && value != null && !Array.isArray(value);
-}
-
-function shouldRetryCheckpointWithFallbackTable(error: unknown, tableName: string): boolean {
-  if (tableName != CONVEX_CHECKPOINT_TABLE_PRIMARY) {
-    return false;
-  }
-
-  if (!(error instanceof ConvexApiError)) {
-    return false;
-  }
-
-  if (error.retryable || error.status != 400) {
-    return false;
-  }
-
-  return true;
 }
 
 const RESERVED_SCHEMA_KEYS = new Set([
