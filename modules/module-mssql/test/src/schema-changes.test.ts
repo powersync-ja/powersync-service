@@ -87,20 +87,23 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
     await createTestTableWithBasicId(connectionManager, 'test_data');
-    const beforeLSN = await getLatestLSN(connectionManager);
-    await insertBasicIdTestData(connectionManager, 'test_data');
-    await waitForPendingCDCChanges(beforeLSN, connectionManager);
 
     await context.replicateSnapshot();
     await context.startStreaming();
-    await insertBasicIdTestData(connectionManager, 'test_data');
 
+    const testData1 = await insertBasicIdTestData(connectionManager, 'test_data');
+    let data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data', testData1)]);
+
+    let schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await dropTestTable(connectionManager, 'test_data');
+    await expectSpyCallsToResolve(schemaSpy);
 
     await createTestTableWithBasicId(connectionManager, 'test_data');
+
     const testData = await insertBasicIdTestData(connectionManager, 'test_data');
 
-    const data = await context.getFinalBucketState('global[]');
+    data = await context.getFinalBucketState('global[]');
     expect(data).toMatchObject([putOp('test_data', testData)]);
   });
 
