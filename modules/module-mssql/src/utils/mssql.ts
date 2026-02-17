@@ -149,20 +149,9 @@ export interface IsTableEnabledForCDCOptions {
 export async function isTableEnabledForCDC(options: IsTableEnabledForCDCOptions): Promise<boolean> {
   const { connectionManager, table, schema } = options;
 
-  const { recordset: checkResult } = await connectionManager.query(
-    `
-      SELECT 1 FROM cdc.change_tables ct
-         JOIN sys.tables    AS tbl ON tbl.object_id = ct.source_object_id
-         JOIN sys.schemas   AS sch ON sch.schema_id = tbl.schema_id
-      WHERE sch.name = @schema
-        AND tbl.name = @tableName
-      `,
-    [
-      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-      { name: 'tableName', type: sql.VarChar(sql.MAX), value: table }
-    ]
-  );
-  return checkResult.length > 0;
+  const captureInstance = await getCaptureInstance({ connectionManager, table: { schema, name: table } });
+
+  return captureInstance != null;
 }
 
 /**
@@ -432,6 +421,9 @@ export async function getCaptureInstances(
         pendingSchemaChanges: []
       };
 
+      logger.info(
+        `Requesting schema changes for capture instance ${instance.name} on table ${toQualifiedTableName(row.source_schema, row.source_table)}`
+      );
       instance.pendingSchemaChanges = await getPendingSchemaChanges({
         connectionManager: connectionManager,
         captureInstance: instance
