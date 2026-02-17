@@ -402,7 +402,7 @@ export class CDCPoller {
   private async checkForNewTables(): Promise<CaptureInstanceDetails[]> {
     const newTables: CaptureInstanceDetails[] = [];
     for (const [objectId, captureInstanceDetails] of this.captureInstances.entries()) {
-      // If a source table is not in the replicated tables array, but a capture instance exists for it, is is potentially a new table to replicate.
+      // If a source table is not in the replicated tables array, but a capture instance exists for it is potentially a new table to replicate.
       if (!this.replicatedTables.some((table) => table.objectId === objectId)) {
         // Check if the new table matches any of the sync rules source tables.
         if (

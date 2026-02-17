@@ -1,12 +1,6 @@
 import { logger } from '@powersync/lib-services-framework';
 import timers from 'timers/promises';
 
-/**
- * SQL Server deadlock victim error number.
- * When SQL Server detects a deadlock, it chooses one of the participating transactions
- * as the "deadlock victim" and terminates it with error 1205.
- */
-const MSSQL_DEADLOCK_ERROR_NUMBER = 1205;
 const MSSQL_DEADLOCK_RETRIES = 5;
 const MSSQL_DEADLOCK_BACKOFF_FACTOR = 2;
 const MSSQL_DEADLOCK_RETRY_DELAY_MS = 200;
@@ -41,7 +35,10 @@ export async function retryOnDeadlock<T>(fn: () => Promise<T>, operationName: st
 
 export function isDeadlockError(error: unknown): boolean {
   if (error != null && typeof error === 'object' && 'number' in error) {
-    return (error as { number: unknown }).number === MSSQL_DEADLOCK_ERROR_NUMBER;
+    // SQL Server deadlock victim error number.
+    // When SQL Server detects a deadlock, it chooses one of the participating transactions
+    // as the "deadlock victim" and terminates it with error 1205.
+    return (error as { number: unknown }).number === 1205;
   }
   return false;
 }
