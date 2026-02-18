@@ -173,13 +173,16 @@ export interface IsWithinRetentionThresholdOptions {
 }
 
 /**
- *  Checks that CDC the specified checkpoint LSN is within the retention threshold for specified tables.
+ *  Checks that the given checkpoint LSN is still within the retention threshold of the source table capture instances.
  *  CDC periodically cleans up old data up to the retention threshold. If replication has been stopped for too long it is
  *  possible for the checkpoint LSN to be older than the minimum LSN in the CDC tables. In such a case we need to perform a new snapshot.
  *  @param options
  */
-export async function isWithinRetentionThreshold(options: IsWithinRetentionThresholdOptions): Promise<boolean> {
+export async function checkRetentionThresholds(
+  options: IsWithinRetentionThresholdOptions
+): Promise<MSSQLSourceTable[]> {
   const { checkpointLSN, tables, connectionManager } = options;
+  const tablesOutsideRetentionThreshold: MSSQLSourceTable[] = [];
   for (const table of tables) {
     if (table.enabledForCDC()) {
       const minLSN = await getMinLSN(connectionManager, table.captureInstance!.name);
@@ -187,11 +190,11 @@ export async function isWithinRetentionThreshold(options: IsWithinRetentionThres
         logger.warn(
           `The checkpoint LSN:[${checkpointLSN}] is older than the minimum LSN:[${minLSN}] for table ${table.toQualifiedName()}. This indicates that the checkpoint LSN is outside of the retention window.`
         );
-        return false;
+        tablesOutsideRetentionThreshold.push(table);
       }
     }
   }
-  return true;
+  return tablesOutsideRetentionThreshold;
 }
 
 export async function getMinLSN(connectionManager: MSSQLConnectionManager, captureInstance: string): Promise<LSN> {

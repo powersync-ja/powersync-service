@@ -182,7 +182,9 @@ export async function waitForPendingCDCChanges(
       );
       await new Promise((resolve) => setTimeout(resolve, 200));
     } else {
-      logger.info(`Test Assertion: Found LSN: ${LSN.fromBinary(result[0].start_lsn).toString()}`);
+      logger.info(
+        `Test Assertion: Expected CDC change found with LSN: ${LSN.fromBinary(result[0].start_lsn).toString()}`
+      );
       return;
     }
   }

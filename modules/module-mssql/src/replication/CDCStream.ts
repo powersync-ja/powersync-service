@@ -16,13 +16,13 @@ import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from '.
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
 import {
+  checkRetentionThresholds,
   checkSourceConfiguration,
   createCheckpoint,
   getCaptureInstances,
   getLatestLSN,
   getLatestReplicatedLSN,
-  isIColumnMetadata,
-  isWithinRetentionThreshold
+  isIColumnMetadata
 } from '../utils/mssql.js';
 import sql from 'mssql';
 import { CDCToSqliteRow, toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
@@ -52,12 +52,19 @@ export interface CDCStreamOptions {
 export enum SnapshotStatus {
   IN_PROGRESS = 'in-progress',
   DONE = 'done',
-  RESTART_REQUIRED = 'restart-required'
+  RESNAPSHOT_REQUIRED = 'resnapshot-required'
 }
 
 export interface SnapshotStatusResult {
   status: SnapshotStatus;
   snapshotLSN: string | null;
+  /**
+   *  Under certain circumstances it may be necessary to re-snapshot specific tables:
+   *  * A new capture instance has been created for a table.
+   *  * A table has been renamed.
+   *  * The retention threshold has been exceeded for a table.
+   */
+  specificTablesToResnapshot?: MSSQLSourceTable[];
 }
 
 export class CDCConfigurationError extends Error {
@@ -204,7 +211,7 @@ export class CDCStream {
           objectId: matchedTable.objectId,
           replicaIdColumns: replicaIdColumns.columns
         },
-        captureInstanceDetails?.instances[0],
+        captureInstanceDetails?.instances[0] ?? null,
         false
       );
 
@@ -216,7 +223,7 @@ export class CDCStream {
   async processTable(
     batch: storage.BucketStorageBatch,
     table: SourceEntityDescriptor,
-    captureInstance: CaptureInstance | undefined,
+    captureInstance: CaptureInstance | null,
     snapshot: boolean
   ): Promise<MSSQLSourceTable> {
     if (!table.objectId && typeof table.objectId != 'number') {
@@ -433,13 +440,7 @@ export class CDCStream {
    * and starts again from scratch.
    */
   async startInitialReplication(snapshotStatus: SnapshotStatusResult) {
-    let { status, snapshotLSN } = snapshotStatus;
-
-    if (status === SnapshotStatus.RESTART_REQUIRED) {
-      this.logger.info(`Snapshot restart required, clearing state.`);
-      // This happens if the last replicated checkpoint LSN is no longer available in the CDC tables.
-      await this.storage.clear({ signal: this.abortSignal });
-    }
+    let { status, snapshotLSN, specificTablesToResnapshot } = snapshotStatus;
 
     await this.storage.startBatch(
       {
@@ -450,6 +451,14 @@ export class CDCStream {
         skipExistingRows: true
       },
       async (batch) => {
+        if (status === SnapshotStatus.RESNAPSHOT_REQUIRED) {
+          for (const table of specificTablesToResnapshot!) {
+            await batch.drop([table.sourceTable]);
+            // Update table in the table cache
+            await this.processTable(batch, table.sourceTable, table.captureInstance, false);
+          }
+        }
+
         if (snapshotLSN == null) {
           // First replication attempt - set the snapshot LSN to the current LSN before starting
           snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
@@ -510,6 +519,8 @@ export class CDCStream {
     const snapshotStatus = await this.checkSnapshotStatus();
     if (snapshotStatus.status !== SnapshotStatus.DONE) {
       await this.startInitialReplication(snapshotStatus);
+    } else {
+      this.logger.info(`Initial replication already done`);
     }
   }
 
@@ -531,21 +542,29 @@ export class CDCStream {
 
       // Snapshot is done, but we still need to check that the last known checkpoint LSN is still
       // within the threshold of the CDC tables
-      this.logger.info(`Initial replication already done`);
 
       const lastCheckpointLSN = LSN.fromString(status.checkpoint_lsn);
       // Check that the CDC tables still have valid data
-      const isAvailable = await isWithinRetentionThreshold({
+      const tablesOutsideRetentionThreshold = await checkRetentionThresholds({
         checkpointLSN: lastCheckpointLSN,
         tables: this.tableCache.getAll(),
         connectionManager: this.connections
       });
-      if (!isAvailable) {
+      if (tablesOutsideRetentionThreshold.length > 0) {
         this.logger.warn(
-          `Updates from the last checkpoint are no longer available in the CDC instance, starting initial replication again.`
+          `Updates from the last checkpoint are no longer available in the CDC instances of the following table(s): ${tablesOutsideRetentionThreshold.map((table) => table.toQualifiedName()).join(', ')}.`
         );
+        return {
+          status: SnapshotStatus.RESNAPSHOT_REQUIRED,
+          snapshotLSN: null,
+          specificTablesToResnapshot: tablesOutsideRetentionThreshold
+        };
+      } else {
+        return {
+          status: SnapshotStatus.DONE,
+          snapshotLSN: null
+        };
       }
-      return { status: isAvailable ? SnapshotStatus.DONE : SnapshotStatus.RESTART_REQUIRED, snapshotLSN: null };
     } else {
       return { status: SnapshotStatus.IN_PROGRESS, snapshotLSN: status.snapshot_lsn };
     }

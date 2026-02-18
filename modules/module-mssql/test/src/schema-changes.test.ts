@@ -288,6 +288,42 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
   });
 
+  test('New capture instance created for replicating table while PowerSync is stopped', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+    const { connectionManager } = context;
+
+    await createTestTableWithBasicId(connectionManager, 'test_data');
+    let beforeLSN = await getLatestLSN(connectionManager);
+    const testData1 = await insertBasicIdTestData(connectionManager, 'test_data');
+    await waitForPendingCDCChanges(beforeLSN, connectionManager);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    const testData2 = await insertBasicIdTestData(connectionManager, 'test_data');
+    let data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
+
+    await context.dispose();
+    await enableCDCForTable({ connectionManager, table: 'test_data', captureInstance: 'capture_instance_new' });
+
+    await using newContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+    await newContext.loadActiveSyncRules();
+
+    await newContext.replicateSnapshot();
+    await newContext.startStreaming();
+
+    const testData3 = await insertBasicIdTestData(connectionManager, 'test_data');
+
+    const finalState = await newContext.getFinalBucketState('global[]');
+    expect(finalState).toMatchObject([
+      putOp('test_data', testData1),
+      putOp('test_data', testData2),
+      putOp('test_data', testData3)
+    ]);
+  });
+
   test('Capture instance created for a sync rule table without a capture instance', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     await context.updateSyncRules(BASIC_SYNC_RULES);
