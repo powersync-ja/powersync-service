@@ -2,7 +2,7 @@ name: mssql-dev
 services:
   mssql-dev:
     platform: linux/amd64
-    image: mcr.microsoft.com/mssql/server:2025-latest  # 2025 Can also be used, but not on Mac 26 Tahoe due to this issue: https://github.com/microsoft/mssql-docker/issues/942
+    image: mcr.microsoft.com/mssql/server:2025-latest
     container_name: mssql-dev
     restart: unless-stopped
     ports:
