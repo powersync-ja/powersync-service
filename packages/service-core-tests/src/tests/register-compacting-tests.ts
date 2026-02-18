@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest, bucketRequestMap, bucketRequests } from './util.js';
@@ -8,13 +8,13 @@ const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 export function registerCompactTests(generateStorageFactory: storage.TestStorageFactory) {
   test('compacting (1)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
 bucket_definitions:
   global:
     data: [select * from test]
-    `
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -127,13 +127,13 @@ bucket_definitions:
 
   test('compacting (2)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
 bucket_definitions:
   global:
     data: [select * from test]
-    `
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -250,13 +250,13 @@ bucket_definitions:
 
   test('compacting (3)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
 bucket_definitions:
   global:
     data: [select * from test]
-    `
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -338,16 +338,16 @@ bucket_definitions:
 
   test('compacting (4)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      /* yaml */ content: ` bucket_definitions:
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(` bucket_definitions:
           grouped:
             # The parameter query here is not important
             # We specifically don't want to create bucket_parameter records here
             # since the op_ids for bucket_data could vary between storage implementations.
             parameters: select 'b' as b
             data:
-              - select * from test where b = bucket.b`
-    });
+              - select * from test where b = bucket.b`)
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -468,13 +468,13 @@ bucket_definitions:
 
   test('partial checksums after compacting', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
 bucket_definitions:
   global:
     data: [select * from test]
-    `
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -539,13 +539,13 @@ bucket_definitions:
 
   test('partial checksums after compacting (2)', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
 bucket_definitions:
   global:
     data: [select * from test]
-    `
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
