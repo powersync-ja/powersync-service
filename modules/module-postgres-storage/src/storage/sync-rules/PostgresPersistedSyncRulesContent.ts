@@ -30,30 +30,6 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
     });
   }
 
-  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
-    let hydrationState: HydrationState;
-    const syncRules = SqlSyncRules.fromYaml(this.sync_rules_content, options);
-    const storageConfig = this.getStorageConfig();
-    if (
-      storageConfig.versionedBuckets ||
-      syncRules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
-    ) {
-      hydrationState = versionedHydrationState(this.id);
-    } else {
-      hydrationState = DEFAULT_HYDRATION_STATE;
-    }
-    return {
-      id: this.id,
-      slot_name: this.slot_name,
-      sync_rules: syncRules,
-      hydratedSyncRules() {
-        return this.sync_rules.config.hydrate({
-          hydrationState
-        });
-      }
-    };
-  }
-
   async lock(): Promise<storage.ReplicationLock> {
     const manager = new lib_postgres.PostgresLockManager({
       db: this.db,

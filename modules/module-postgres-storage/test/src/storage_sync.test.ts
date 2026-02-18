@@ -20,12 +20,15 @@ function registerStorageVersionTests(storageVersion: number) {
       // Similar to the above test, but splits over 1MB chunks.
       await using factory = await storageFactory();
       const syncRules = await factory.updateSyncRules(
-        updateSyncRulesFromYaml(`
+        updateSyncRulesFromYaml(
+          `
     bucket_definitions:
       global:
         data:
           - SELECT id, description FROM "%"
-    `)
+    `,
+          { storageVersion }
+        )
       );
       const bucketStorage = factory.getInstance(syncRules);
       const globalBucket = bucketRequest(syncRules, 'global[]');
