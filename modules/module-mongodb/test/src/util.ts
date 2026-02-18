@@ -7,6 +7,7 @@ import {
   BSON_DESERIALIZE_DATA_OPTIONS,
   CURRENT_STORAGE_VERSION,
   LEGACY_STORAGE_VERSION,
+  TestStorageConfig,
   TestStorageFactory
 } from '@powersync/service-core';
 import { describe, TestOptions } from 'vitest';
@@ -36,12 +37,12 @@ export interface StorageVersionTestContext {
 }
 
 export function describeWithStorage(options: TestOptions, fn: (context: StorageVersionTestContext) => void) {
-  const describeFactory = (storageName: string, factory: TestStorageFactory) => {
+  const describeFactory = (storageName: string, config: TestStorageConfig) => {
     describe(`${storageName} storage`, options, function () {
       for (const storageVersion of TEST_STORAGE_VERSIONS) {
         describe(`storage v${storageVersion}`, function () {
           fn({
-            factory,
+            factory: config.factory,
             storageVersion
           });
         });

@@ -24,7 +24,7 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    await using factory = await POSTGRES_STORAGE_FACTORY();
+    await using factory = await POSTGRES_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules({
       content: `
     bucket_definitions:

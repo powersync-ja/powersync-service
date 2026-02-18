@@ -7,3 +7,4 @@ export * from './register-data-storage-checkpoint-tests.js';
 export * from './register-migration-tests.js';
 export * from './register-sync-tests.js';
 export * from './register-report-tests.js';
+export * from './util.js';
