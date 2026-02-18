@@ -143,9 +143,7 @@ FROM ticket t
       expect(compileSingleStreamAndSerialize(stream)).toMatchSnapshot();
     });
 
-    test.skip('response 12', () => {
-      // This is currently unsupported because pr.download_profiles can't be JSON-expanded (we only support that for
-      // request parameters). We can revisit this in the future.
+    test('response 12', () => {
       const stream = `
 SELECT p.* FROM profile p
 WHERE p.id IN (
@@ -181,5 +179,29 @@ where uas.user_id = auth.user_id()
     expect(
       compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state IN ARRAY['public', 'archived']`)
     ).toMatchSnapshot();
+  });
+
+  describe('table-valued functions', () => {
+    test('static filter', () => {
+      expect(
+        compileSingleStreamAndSerialize(`SELECT * FROM posts WHERE 'important' IN posts.descriptions`)
+      ).toMatchSnapshot();
+    });
+
+    test('partition on data', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          `SELECT * FROM posts WHERE subscription.parameter('tag') IN (SELECT value FROM json_each(posts.tags))`
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('partition on parameter lookup', () => {
+      expect(
+        compileSingleStreamAndSerialize(`SELECT 
+            users.* FROM users, orgs, json_each(orgs.members) as members
+          WHERE users.id = members.value AND orgs.id = auth.parameter('org')`)
+      ).toMatchSnapshot();
+    });
   });
 });

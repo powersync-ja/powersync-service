@@ -204,6 +204,29 @@ export interface SyncRuleDocument {
     id: string;
     expires_at: Date;
   } | null;
+
+  storage_version?: number;
+}
+
+export interface StorageConfig extends storage.StorageVersionConfig {
+  /**
+   * When true, bucket_data.checksum is guaranteed to be persisted as a Long.
+   *
+   * When false, it could also have been persisted as an Int32 or Double, in which case it must be converted to
+   * a Long before summing.
+   */
+  longChecksums: boolean;
+}
+
+const LONG_CHECKSUMS_STORAGE_VERSION = 2;
+
+export function getMongoStorageConfig(storageVersion: number): StorageConfig | undefined {
+  const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
+  if (baseConfig == null) {
+    return undefined;
+  }
+
+  return { ...baseConfig, longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION };
 }
 
 export interface CheckpointEventDocument {

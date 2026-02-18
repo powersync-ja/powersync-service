@@ -1,8 +1,13 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { SqlSyncRules, versionedHydrationState } from '@powersync/service-sync-rules';
-
+import {
+  CompatibilityOption,
+  DEFAULT_HYDRATION_STATE,
+  HydrationState,
+  SqlSyncRules,
+  versionedHydrationState
+} from '@powersync/service-sync-rules';
 import { models } from '../../types/types.js';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
@@ -15,6 +20,7 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
   public readonly last_keepalive_ts: Date | null;
   public readonly last_checkpoint_ts: Date | null;
   public readonly active: boolean;
+  public readonly storageVersion: number;
   current_lock: storage.ReplicationLock | null = null;
 
   constructor(
@@ -29,16 +35,44 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
     this.last_checkpoint_ts = row.last_checkpoint_ts ? new Date(row.last_checkpoint_ts) : null;
     this.last_keepalive_ts = row.last_keepalive_ts ? new Date(row.last_keepalive_ts) : null;
     this.active = row.state == 'ACTIVE';
+    this.storageVersion = row.storage_version ?? storage.LEGACY_STORAGE_VERSION;
+  }
+
+  /**
+   * Load the storage config.
+   *
+   * This may throw if the persisted storage version is not supported.
+   */
+  getStorageConfig() {
+    const storageConfig = storage.STORAGE_VERSION_CONFIG[this.storageVersion];
+    if (storageConfig == null) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1005,
+        `Unsupported storage version ${this.storageVersion} for sync rules ${this.id}`
+      );
+    }
+    return storageConfig;
   }
 
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+    let hydrationState: HydrationState;
+    const syncRules = SqlSyncRules.fromYaml(this.sync_rules_content, options);
+    const storageConfig = this.getStorageConfig();
+    if (
+      storageConfig.versionedBuckets ||
+      syncRules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+    ) {
+      hydrationState = versionedHydrationState(this.id);
+    } else {
+      hydrationState = DEFAULT_HYDRATION_STATE;
+    }
     return {
       id: this.id,
       slot_name: this.slot_name,
-      sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, options),
+      sync_rules: syncRules,
       hydratedSyncRules() {
         return this.sync_rules.config.hydrate({
-          hydrationState: versionedHydrationState(this.id)
+          hydrationState
         });
       }
     };

@@ -2,7 +2,6 @@ import { describe, expect } from 'vitest';
 import { syncTest } from './utils.js';
 import {
   HydratedSyncRules,
-  RequestParameters,
   ScopedParameterLookup,
   SourceTableInterface,
   SqliteJsonRow,
@@ -62,7 +61,7 @@ streams:
     // insights into how the stream has been turned into a scalar query.
     expect(desc.debugGetOutputTables()).toStrictEqual({
       users: [{ query: 'SELECT 1' }],
-      notes: [{ query: 'SELECT ?1 WHERE "length"(?2) > 10' }]
+      notes: [{ query: 'SELECT ?2 WHERE "length"(?1) > 10' }]
     });
   });
 
@@ -244,6 +243,26 @@ streams:
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: blob })).toHaveLength(0);
     expect(desc.evaluateParameterRow(ISSUES, { id: blob, owner_id: 'user1' })).toHaveLength(0);
   });
+
+  syncTest('respects filters', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT users.* FROM users, orgs WHERE users.org_id = orgs.id AND orgs.name = subscription.parameter('org') AND orgs.is_active = 1
+`);
+    const orgs = new TestSourceTable('orgs');
+
+    const active = desc.evaluateParameterRow(orgs, { id: 'a', name: 'org-a', is_active: 1 });
+    const inactive = desc.evaluateParameterRow(orgs, { id: 'b', name: 'org-b', is_active: 0 });
+
+    expect(active.length).toBe(1);
+    expect(inactive.length).toBe(0);
+  });
 });
 
 describe('querier', () => {
@@ -354,6 +373,36 @@ streams:
       }
     });
     expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
+  });
+
+  syncTest('multiple IN operators', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  stream:
+    auto_subscribe: true
+    with:
+      a: SELECT value FROM json_each(auth.parameter('a'))
+      b: SELECT value FROM json_each(auth.parameter('b'))
+    query: SELECT notes.* FROM notes, a, b WHERE notes.state = a.value AND notes.other = b.value
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user', a: ['a1', 'a2'], b: ['b1', 'b2'] }, {}),
+      hasDefaultStreams: true,
+      streams: {}
+    });
+    expect(errors).toStrictEqual([]);
+
+    expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([
+      'stream|0["a1","b1"]',
+      'stream|0["a1","b2"]',
+      'stream|0["a2","b1"]',
+      'stream|0["a2","b2"]'
+    ]);
   });
 });
 

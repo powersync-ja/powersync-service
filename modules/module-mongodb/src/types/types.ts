@@ -54,7 +54,7 @@ export interface NormalizedMongoConnectionConfig {
   postImages: PostImagesOption;
 }
 
-export const MongoConnectionConfig = lib_mongo.BaseMongoConfig.and(service_types.configFile.DataSourceConfig).and(
+export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.and(lib_mongo.BaseMongoConfig).and(
   t.object({
     // Replication specific settings
     post_images: t.literal('off').or(t.literal('auto_configure')).or(t.literal('read_only')).optional()

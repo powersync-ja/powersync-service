@@ -1,5 +1,29 @@
 # @powersync/service-module-mongodb
 
+## 0.13.2
+
+### Patch Changes
+
+- Updated dependencies [a04252d]
+  - @powersync/service-sync-rules@0.31.1
+  - @powersync/lib-services-framework@0.8.2
+  - @powersync/service-core@1.19.2
+  - @powersync/lib-service-mongodb@0.6.19
+
+## 0.13.1
+
+### Patch Changes
+
+- 479997b: Introduce `BaseSyncConfig` to represent SQL-based sync rules and precompiled sync plans.
+- Updated dependencies [0e99ce0]
+- Updated dependencies [479997b]
+- Updated dependencies [d1c2228]
+- Updated dependencies [1a1a4cc]
+  - @powersync/service-sync-rules@0.31.0
+  - @powersync/service-core@1.19.1
+  - @powersync/lib-services-framework@0.8.1
+  - @powersync/lib-service-mongodb@0.6.18
+
 ## 0.13.0
 
 ### Minor Changes

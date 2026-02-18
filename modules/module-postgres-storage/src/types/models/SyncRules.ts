@@ -47,6 +47,7 @@ export const SyncRules = t.object({
    */
   last_fatal_error: t.Null.or(t.string),
   keepalive_op: t.Null.or(bigint),
+  storage_version: t.Null.or(pgwire_number).optional(),
   content: t.string
 });
 

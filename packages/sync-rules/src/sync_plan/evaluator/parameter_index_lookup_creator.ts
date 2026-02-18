@@ -1,6 +1,6 @@
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { ParameterLookupScope } from '../../HydrationState.js';
-import { mapExternalDataToInstantiation, ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
+import { ScalarExpressionEvaluator, TableValuedFunctionOutput } from '../engine/scalar_expression_engine.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
 import { TablePattern } from '../../TablePattern.js';
@@ -8,6 +8,8 @@ import { SourceTableInterface } from '../../SourceTableInterface.js';
 import { SqliteJsonValue, SqliteRow, UnscopedEvaluatedParametersResult } from '../../types.js';
 import { isValidParameterValueRow } from './parameter_evaluator.js';
 import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
+import { SqlExpression } from '../expression.js';
+import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
   readonly defaultLookupScope: ParameterLookupScope;
@@ -22,21 +24,22 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     { engine, defaultSchema }: StreamEvaluationContext
   ) {
     this.defaultLookupScope = source.defaultLookupScope;
-    const mapExpressions = mapExternalDataToInstantiation<plan.ColumnSqlParameterValue>();
-    const expressions = source.outputs.map((o) => mapExpressions.transform(o));
+    const translationHelper = new TableProcessorToSqlHelper(source);
+    const expressions = source.outputs.map((o) => translationHelper.mapper.transform(o));
 
     this.numberOfOutputs = expressions.length;
     for (const parameter of source.parameters) {
-      expressions.push(mapExpressions.transform(parameter.expr));
+      expressions.push(translationHelper.mapper.transform(parameter.expr));
     }
     this.numberOfParameters = source.parameters.length;
 
     this.evaluator = engine.prepareEvaluator({
       outputs: expressions,
-      filters: source.filters.map((f) => mapExpressions.transform(f))
+      filters: translationHelper.filterExpressions,
+      tableValuedFunctions: translationHelper.tableValuedFunctions
     });
     this.sourceTable = source.sourceTable.toTablePattern(defaultSchema);
-    this.evaluatorInputs = mapExpressions.instantiation;
+    this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
   getSourceTables(): Set<TablePattern> {
