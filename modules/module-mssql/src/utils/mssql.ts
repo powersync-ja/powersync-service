@@ -421,23 +421,10 @@ export async function getCaptureInstances(
         pendingSchemaChanges: []
       };
 
-      logger.info(
-        `Requesting schema changes for capture instance ${instance.name} on table ${toQualifiedTableName(row.source_schema, row.source_table)}`
-      );
-
-      try {
-        instance.pendingSchemaChanges = await getPendingSchemaChanges({
-          connectionManager: connectionManager,
-          captureInstance: instance
-        });
-      } catch (e) {
-        if (isObjectNotExistError(e)) {
-          // Defensive check to cover the case where the capture instance has been dropped mid function
-          logger.warn(`Capture instance ${instance.name} has been dropped during metadata retrieval...`);
-          continue;
-        }
-        throw e;
-      }
+      instance.pendingSchemaChanges = await getPendingSchemaChanges({
+        connectionManager: connectionManager,
+        captureInstanceName: instance.name
+      });
 
       const sourceTable = {
         schema: row.source_schema,
@@ -480,12 +467,4 @@ export async function getCaptureInstance(options: GetCaptureInstanceOptions): Pr
   }
 
   return instances.values().next().value!;
-}
-
-function isObjectNotExistError(error: unknown): boolean {
-  if (error != null && typeof error === 'object' && 'number' in error) {
-    // SQL Server Object does not exist or access is denied error number.
-    return (error as { number: unknown }).number === 22981;
-  }
-  return false;
 }

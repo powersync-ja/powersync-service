@@ -132,8 +132,8 @@ export class CDCPoller {
           await this.eventHandler.onSchemaChange(schemaChange);
         }
 
-        this.logger.info(
-          `Schema change check complete. Found ${schemaChanges.length} change(s). Starting polling cycle...`
+        this.logger.debug(
+          `Schema change check complete. Schema changes found: ${schemaChanges.map((c) => c.type).join(', ')}`
         );
         const hasChanges = await this.poll();
         if (!hasChanges) {
@@ -342,12 +342,13 @@ export class CDCPoller {
 
       const captureInstanceDetails = this.captureInstances.get(table.objectId);
       if (!captureInstanceDetails) {
-        // Table had a capture instance but no longer does.
-        schemaChanges.push({
-          type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
-          table
-        });
-
+        if (table.enabledForCDC()) {
+          // Table had a capture instance but no longer does.
+          schemaChanges.push({
+            type: SchemaChangeType.MISSING_CAPTURE_INSTANCE,
+            table
+          });
+        }
         continue;
       }
 
@@ -362,11 +363,8 @@ export class CDCPoller {
         continue;
       }
 
-      // The table has been renamed.
+      // One of the replicated tables has been renamed
       if (table.sourceTable.name !== captureInstanceDetails.sourceTable.name) {
-        this.logger.info(
-          `Table ${table.sourceTable.name} has been renamed to ${captureInstanceDetails.sourceTable.name}. Handling schema change...`
-        );
         const newTable = this.tableMatchesSyncRules(
           captureInstanceDetails.sourceTable.schema,
           captureInstanceDetails.sourceTable.name

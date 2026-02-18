@@ -177,10 +177,12 @@ export async function waitForPendingCDCChanges(
     );
 
     if (result.length === 0) {
-      logger.info(`CDC changes pending. Waiting for a transaction newer than: ${beforeLSN.toString()} for 200ms...`);
+      logger.info(
+        `Test Assertion: CDC changes pending. Waiting for a transaction newer than: ${beforeLSN.toString()} for 200ms...`
+      );
       await new Promise((resolve) => setTimeout(resolve, 200));
     } else {
-      logger.info(`Found LSN: ${LSN.fromBinary(result[0].start_lsn).toString()}`);
+      logger.info(`Test Assertion: Found LSN: ${LSN.fromBinary(result[0].start_lsn).toString()}`);
       return;
     }
   }
@@ -202,14 +204,14 @@ export async function getClientCheckpoint(
   const timeout = options?.timeout ?? 50_000;
   let lastCp: ReplicationCheckpoint | null = null;
 
-  logger.info(`Waiting for LSN checkpoint: ${lsn}`);
+  logger.info(`Test Assertion: Waiting for LSN checkpoint: ${lsn}`);
   while (Date.now() - start < timeout) {
     const storage = await storageFactory.getActiveStorage();
     const cp = await storage?.getCheckpoint();
     if (cp != null) {
       lastCp = cp;
       if (cp.lsn != null && cp.lsn >= lsn.toString()) {
-        logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
+        logger.info(`Test Assertion: Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
         return cp.checkpoint;
       }
     }
@@ -246,8 +248,8 @@ export async function enableCDCForTable(options: EnableCDCForTableOptions): Prom
   await connectionManager.execute('sys.sp_cdc_enable_table', [
     { name: 'source_schema', value: connectionManager.schema },
     { name: 'source_name', value: table },
-    { name: 'role_name', value: 'NULL' },
-    { name: 'supports_net_changes', value: 1 },
+    { name: 'role_name', value: 'cdc_reader' },
+    { name: 'supports_net_changes', value: 0 },
     ...(captureInstance !== undefined ? [{ name: 'capture_instance', value: captureInstance }] : [])
   ]);
 }

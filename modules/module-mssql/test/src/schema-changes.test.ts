@@ -15,6 +15,8 @@ import {
   waitForPendingCDCChanges
 } from './util.js';
 import { getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
+import { SchemaChangeType } from '@module/replication/CDCPoller.js';
+import { logger } from '@powersync/lib-services-framework';
 
 describe('MSSQL Schema Changes Tests', () => {
   describeWithStorage({ timeout: 60_000 }, defineSchemaChangesTests);
@@ -42,6 +44,43 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
 
     const data = await context.getFinalBucketState('global[]');
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
+  });
+
+  test('Create table: New table created while PowerSync is stopped', async () => {
+    await using context = await CDCStreamTestContext.open(factory);
+    const { connectionManager } = context;
+    await context.updateSyncRules(`
+  bucket_definitions:
+    global:
+      data:
+        - SELECT id, description FROM "test_data%"
+  `);
+
+    await createTestTableWithBasicId(connectionManager, 'test_data1');
+    const testData = await insertBasicIdTestData(connectionManager, 'test_data1');
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    await context.dispose();
+
+    await createTestTableWithBasicId(connectionManager, 'test_data2');
+
+    await using newContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+    await newContext.loadActiveSyncRules();
+
+    await newContext.replicateSnapshot();
+    await newContext.startStreaming();
+
+    const testData1 = await insertBasicIdTestData(connectionManager, 'test_data2');
+    const testData2 = await insertBasicIdTestData(connectionManager, 'test_data2');
+
+    const finalState = await newContext.getFinalBucketState('global[]');
+    expect(finalState).toMatchObject([
+      putOp('test_data1', testData),
+      putOp('test_data2', testData1),
+      putOp('test_data2', testData2)
+    ]);
   });
 
   test('Create table: New table not in the sync rules', async () => {
@@ -97,7 +136,7 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
 
     let schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await dropTestTable(connectionManager, 'test_data');
-    await expectSpyCallsToResolve(schemaSpy);
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.TABLE_DROP);
 
     await createTestTableWithBasicId(connectionManager, 'test_data');
 
@@ -122,9 +161,9 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
 
     const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await renameTable(connectionManager, 'test_data_old', 'test_data');
-    const testData2 = await insertBasicIdTestData(connectionManager, 'test_data');
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.TABLE_CREATE);
 
-    await expectSpyCallsToResolve(schemaSpy);
+    const testData2 = await insertBasicIdTestData(connectionManager, 'test_data');
     const data = await context.getFinalBucketState('global[]');
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
   });
@@ -150,7 +189,7 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
 
     const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await renameTable(connectionManager, 'test_data1', 'test_data2');
-    await expectSpyCallsToResolve(schemaSpy);
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.TABLE_RENAME);
 
     const data = await context.getBucketData('global[]');
     expect(data.slice(0, 2)).toMatchObject([
@@ -161,6 +200,41 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
     ]);
 
     const finalState = await context.getFinalBucketState('global[]');
+    expect(finalState).toMatchObject([putOp('test_data2', testData1)]);
+  });
+
+  test('Rename table: Table renamed while PowerSync is stopped', async () => {
+    let context = await CDCStreamTestContext.open(factory);
+    let { connectionManager } = context;
+
+    await context.updateSyncRules(`
+  bucket_definitions:
+    global:
+      data:
+        - SELECT id, description FROM "test_data%"
+  `);
+
+    await createTestTableWithBasicId(connectionManager, 'test_data1');
+    const beforeLSN = await getLatestLSN(connectionManager);
+    const testData1 = await insertBasicIdTestData(connectionManager, 'test_data1');
+    await waitForPendingCDCChanges(beforeLSN, connectionManager);
+
+    await context.replicateSnapshot();
+    await context.startStreaming();
+
+    let data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data1', testData1)]);
+
+    await context.dispose();
+    await renameTable(connectionManager, 'test_data1', 'test_data2');
+
+    await using newContext = await CDCStreamTestContext.open(factory, { doNotClear: true });
+    await newContext.loadActiveSyncRules();
+
+    await newContext.replicateSnapshot();
+    await newContext.startStreaming();
+
+    const finalState = await newContext.getFinalBucketState('global[]');
     expect(finalState).toMatchObject([putOp('test_data2', testData1)]);
   });
 
@@ -177,11 +251,14 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
     await context.replicateSnapshot();
     await context.startStreaming();
 
+    let data = await context.getBucketData('global[]');
+    expect(data).toMatchObject([putOp('test_data', testData)]);
+
     const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await renameTable(connectionManager, 'test_data', 'test_data_ignored');
-    await expectSpyCallsToResolve(schemaSpy);
-    const data = await context.getBucketData('global[]');
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.TABLE_RENAME);
 
+    data = await context.getBucketData('global[]');
     expect(data).toMatchObject([
       // Initial replication
       putOp('test_data', testData),
@@ -224,7 +301,7 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
 
     const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await enableCDCForTable({ connectionManager, table: 'test_data' });
-    await expectSpyCallsToResolve(schemaSpy);
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.NEW_CAPTURE_INSTANCE);
 
     let data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', testData1)]);
@@ -254,7 +331,7 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
 
     const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await disableCDCForTable(connectionManager, 'test_data');
-    await expectSpyCallsToResolve(schemaSpy);
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.MISSING_CAPTURE_INSTANCE);
 
     data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', testData1), putOp('test_data', testData2)]);
@@ -277,15 +354,11 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
 
     let schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await disableCDCForTable(connectionManager, 'test_data');
-    await expectSpyCallsToResolve(schemaSpy);
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.MISSING_CAPTURE_INSTANCE);
 
     schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await enableCDCForTable({ connectionManager, table: 'test_data' });
-    await expectSpyCallsToResolve(schemaSpy);
-
-    await vi.waitFor(() =>
-      context.cdcStream.tableCache.getAll().some((t) => t.sourceTable.name === 'test_data' && t.enabledForCDC())
-    );
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.NEW_CAPTURE_INSTANCE);
 
     const testData3 = await insertBasicIdTestData(connectionManager, 'test_data');
     const testData4 = await insertBasicIdTestData(connectionManager, 'test_data');
@@ -313,7 +386,7 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
     await context.startStreaming();
     const schemaSpy = vi.spyOn(context.cdcStream, 'handleSchemaChange');
     await connectionManager.query(`ALTER TABLE test_data ADD new_column INT`);
-    await expectSpyCallsToResolve(schemaSpy);
+    await expectedSchemaChange(schemaSpy, SchemaChangeType.TABLE_COLUMN_CHANGES);
 
     const { recordset: result } = await connectionManager.query(
       `
@@ -342,10 +415,14 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
   });
 }
 
-async function expectSpyCallsToResolve(spy: any) {
-  await vi.waitFor(() => expect(spy).toHaveBeenCalled(), { timeout: 5000 });
+async function expectedSchemaChange(spy: any, type: SchemaChangeType) {
+  logger.info(`Test Assertion: Waiting for schema change: ${type}`);
+  await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type })), {
+    timeout: 20000
+  });
 
   const promises = spy.mock.results.filter((r: any) => r.type === 'return').map((r: any) => r.value);
 
   await Promise.all(promises.map((p: Promise<unknown>) => expect(p).resolves.toBeUndefined()));
+  logger.info(`Test Assertion: Received expected schema change: ${type}`);
 }

@@ -519,7 +519,16 @@ export class CDCStream {
    */
   private async checkSnapshotStatus(): Promise<SnapshotStatusResult> {
     const status = await this.storage.getStatus();
+
     if (status.snapshot_done && status.checkpoint_lsn) {
+      const unSnapshottedTables = this.tableCache.getAll().filter((table) => !table.sourceTable.snapshotComplete);
+      if (unSnapshottedTables.length > 0) {
+        this.logger.info(
+          `Detected new table(s) [${unSnapshottedTables.map((table) => table.toQualifiedName()).join(', ')}] that have not been snapshotted yet, resuming snapshot.`
+        );
+        return { status: SnapshotStatus.IN_PROGRESS, snapshotLSN: null };
+      }
+
       // Snapshot is done, but we still need to check that the last known checkpoint LSN is still
       // within the threshold of the CDC tables
       this.logger.info(`Initial replication already done`);
@@ -637,12 +646,15 @@ export class CDCStream {
   async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
     switch (change.type) {
       case SchemaChangeType.TABLE_RENAME:
-        const fromTable = change.table;
+        const fromTable = change.table!;
+        this.logger.info(
+          `Table ${fromTable.sourceTable.name} has been renamed ${change.newTable ? `to ${change.newTable.name}` : ''}`
+        );
+
         // Old table needs to be cleaned up
-        if (fromTable) {
-          await batch.drop([fromTable.sourceTable]);
-          this.tableCache.delete(fromTable.objectId);
-        }
+        await batch.drop([fromTable.sourceTable]);
+        this.tableCache.delete(fromTable.objectId);
+
         if (change.newTable) {
           await this.handleCreateOrUpdateTable(batch, change.newTable, change.newCaptureInstance!);
         }
@@ -673,6 +685,8 @@ export class CDCStream {
             `Table ${change.table!.toQualifiedName()} has no active capture instance. Re-enable CDC to continue replication.`
           );
           change.table!.clearCaptureInstance();
+        } else {
+          this.logger.warn(`Table ${change.table!.toQualifiedName()} still has no capture instance. `);
         }
         break;
       default:
@@ -719,11 +733,8 @@ export class CDCStream {
   private async handleColumnChanges(table: MSSQLSourceTable, captureInstance: CaptureInstance): Promise<void> {
     // Check there are any new pending schema changes
     if (
-      table.captureInstance?.name === captureInstance.name &&
-      table.captureInstance?.pendingSchemaChanges.length === captureInstance.pendingSchemaChanges.length &&
-      table.captureInstance?.pendingSchemaChanges.every(
-        (change, i) => change === captureInstance.pendingSchemaChanges[i]
-      )
+      table.captureInstance?.objectId === captureInstance.objectId &&
+      table.captureInstance?.pendingSchemaChanges.length === captureInstance.pendingSchemaChanges.length
     ) {
       return;
     }
