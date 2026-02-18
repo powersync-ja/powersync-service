@@ -4,11 +4,14 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
+  STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
-  TestStorageOptions
+  TestStorageOptions,
+  utils
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
@@ -23,6 +26,7 @@ export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<PromiseSettledResult<void>>;
+  private syncRulesId?: number;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -35,6 +39,7 @@ export class ChangeStreamTestContext {
     factory: (options: TestStorageOptions) => Promise<BucketStorageFactory>,
     options?: {
       doNotClear?: boolean;
+      storageVersion?: number;
       mongoOptions?: Partial<NormalizedMongoConnectionConfig>;
       streamOptions?: Partial<ChangeStreamOptions>;
     }
@@ -45,13 +50,19 @@ export class ChangeStreamTestContext {
     if (!options?.doNotClear) {
       await clearTestDb(connectionManager.db);
     }
-    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions);
+
+    const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
+    const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
+
+    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, versionedBuckets);
   }
 
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: MongoManager,
-    private streamOptions?: Partial<ChangeStreamOptions>
+    private streamOptions: Partial<ChangeStreamOptions> = {},
+    private storageVersion: number = LEGACY_STORAGE_VERSION,
+    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -88,7 +99,12 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules({
+      content: content,
+      validate: true,
+      storageVersion: this.storageVersion
+    });
+    this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -99,6 +115,7 @@ export class ChangeStreamTestContext {
       throw new Error(`Next sync rules not available`);
     }
 
+    this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -167,9 +184,21 @@ export class ChangeStreamTestContext {
     return checkpoint;
   }
 
+  private resolveBucketName(bucket: string) {
+    if (!this.versionedBuckets || /^\d+#/.test(bucket)) {
+      return bucket;
+    }
+    if (this.syncRulesId == null) {
+      throw new Error('Sync rules not configured - call updateSyncRules() first');
+    }
+    return `${this.syncRulesId}#${bucket}`;
+  }
+
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
+    const map = new Map<string, InternalOpId>(
+      Object.entries(buckets).map(([bucket, opId]) => [this.resolveBucketName(bucket), opId])
+    );
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -178,8 +207,9 @@ export class ChangeStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const resolvedBucket = this.resolveBucketName(bucket);
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    const map = new Map<string, InternalOpId>([[resolvedBucket, start]]);
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -189,20 +219,26 @@ export class ChangeStreamTestContext {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+      map.set(resolvedBucket, BigInt(batches[0]!.chunkData.next_after));
     }
     return data;
   }
 
-  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+  async getChecksums(buckets: string[], options?: { timeout?: number }): Promise<utils.ChecksumMap> {
     let checkpoint = await this.getCheckpoint(options);
-    return this.storage!.getChecksums(checkpoint, buckets);
+    const versionedBuckets = buckets.map((bucket) => this.resolveBucketName(bucket));
+    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
+
+    const unversioned: utils.ChecksumMap = new Map();
+    for (let i = 0; i < buckets.length; i++) {
+      unversioned.set(buckets[i], checksums.get(versionedBuckets[i])!);
+    }
+    return unversioned;
   }
 
   async getChecksum(bucket: string, options?: { timeout?: number }) {
-    let checkpoint = await this.getCheckpoint(options);
-    const map = await this.storage!.getChecksums(checkpoint, [bucket]);
-    return map.get(bucket);
+    const checksums = await this.getChecksums([bucket], options);
+    return checksums.get(bucket);
   }
 }
 

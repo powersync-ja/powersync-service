@@ -1,6 +1,5 @@
 import { storage, utils } from '@powersync/service-core';
-import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { GetQuerierOptions, RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
@@ -15,37 +14,14 @@ export const BATCH_OPTIONS: storage.StartBatchOptions = {
   storeCurrentData: true
 };
 
-export function testRules(content: string): storage.PersistedSyncRulesContent {
-  return {
-    id: 1,
-    sync_rules_content: content,
-    slot_name: 'test',
-    active: true,
-    last_checkpoint_lsn: '',
-    parsed(options) {
-      return {
-        id: 1,
-        sync_rules: SqlSyncRules.fromYaml(content, options),
-        slot_name: 'test',
-        hydratedSyncRules() {
-          return this.sync_rules.config.hydrate({ hydrationState: versionedHydrationState(1) });
-        }
-      };
-    },
-    lock() {
-      throw new Error('Not implemented');
-    }
-  };
-}
-
 export function makeTestTable(
   name: string,
-  replicaIdColumns: string[] | undefined,
-  options: { tableIdStrings: boolean }
+  replicaIdColumns?: string[] | undefined,
+  options?: { tableIdStrings: boolean }
 ) {
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
   const id =
-    options.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
+    options?.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
   return new storage.SourceTable({
     id: id,
     connectionTag: storage.SourceTable.DEFAULT_TAG,

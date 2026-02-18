@@ -2,8 +2,7 @@ import { compareIds, putOp, reduceBucket, removeOp, test_utils } from '@powersyn
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 
-import { storage } from '@powersync/service-core';
-import { describeWithStorage } from './util.js';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe('schema changes', { timeout: 20_000 }, function () {
@@ -24,11 +23,12 @@ const PUT_T3 = test_utils.putOp('test_data', { id: 't3', description: 'test3' })
 const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
 const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
-function defineTests(config: storage.TestStorageConfig) {
-  const { factory } = config;
-
+function defineTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof WalStreamTestContext.open>[1]) => {
+    return WalStreamTestContext.open(factory, { ...options, storageVersion });
+  };
   test('re-create table', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
 
     // Drop a table and re-create it.
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -75,7 +75,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('add table', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Add table after initial replication
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { pool } = context;
@@ -95,7 +95,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('rename table (1)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
 
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -134,7 +134,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('rename table (2)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Rename table in sync rules -> in sync rules
     const { pool } = context;
 
@@ -188,7 +188,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('rename table (3)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Rename table in sync rules -> not in sync rules
 
     const { pool } = context;
@@ -222,7 +222,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('change replica id', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change replica id from default to full
     // Causes a re-import of the table.
 
@@ -267,7 +267,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('change full replica id by adding column', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change replica id from full by adding column
     // Causes a re-import of the table.
     // Other changes such as renaming column would have the same effect
@@ -311,7 +311,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('change default replica id by changing column type', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change default replica id by changing column type
     // Causes a re-import of the table.
     const { pool } = context;
@@ -349,7 +349,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('change index id by changing column type', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change index replica id by changing column type
     // Causes a re-import of the table.
     // Secondary functionality tested here is that replica id column order stays
@@ -390,7 +390,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('add to publication', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Add table to publication after initial replication
     const { pool } = context;
 
@@ -434,7 +434,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('add to publication (not in sync rules)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Add table to publication after initial replication
     // Since the table is not in sync rules, it should not be replicated.
     const { pool } = context;
@@ -460,7 +460,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('replica identity nothing', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Technically not a schema change, but fits here.
     // Replica ID works a little differently here - the table doesn't have
     // one defined, but we generate a unique one for each replicated row.
@@ -506,7 +506,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('replica identity default without PK', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Same as no replica identity
     const { pool } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -557,7 +557,7 @@ function defineTests(config: storage.TestStorageConfig) {
   //   await new Promise((resolve) => setTimeout(resolve, 100));
   //   await this.snapshotTable(batch, db, result.table);
   test('table snapshot consistency', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
 
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -623,7 +623,7 @@ function defineTests(config: storage.TestStorageConfig) {
   });
 
   test('custom types', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
 
     await context.updateSyncRules(`
 streams:

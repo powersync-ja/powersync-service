@@ -1,19 +1,21 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { reduceBucket, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
+import { reduceBucket } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
-import { describeWithStorage } from './util.js';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
 describe('chunked snapshots', () => {
   describeWithStorage({ timeout: 120_000 }, defineBatchTests);
 });
 
-function defineBatchTests(config: TestStorageConfig) {
-  const { factory } = config;
+function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
+    return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
+  };
 
   // This is not as sensitive to the id type as postgres, but we still test a couple of cases
   test('chunked snapshot (int32)', async () => {
@@ -95,7 +97,7 @@ function defineBatchTests(config: TestStorageConfig) {
     const idToSqlite = options.idToSqlite ?? ((n) => n);
     const idToString = (id: any) => String(idToSqlite(id));
 
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openContext({
       // We need to use a smaller chunk size here, so that we can run a query in between chunks
       streamOptions: { snapshotChunkLength: 100 }
     });

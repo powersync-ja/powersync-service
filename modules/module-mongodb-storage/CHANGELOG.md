@@ -1,5 +1,16 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.13.2
+
+### Patch Changes
+
+- e21db9b: [MongoDB Storage] Revert logic for bucket checksum pre-calculations from 1.19.1
+- Updated dependencies [a04252d]
+  - @powersync/service-sync-rules@0.31.1
+  - @powersync/lib-services-framework@0.8.2
+  - @powersync/service-core@1.19.2
+  - @powersync/lib-service-mongodb@0.6.19
+
 ## 0.13.1
 
 ### Patch Changes

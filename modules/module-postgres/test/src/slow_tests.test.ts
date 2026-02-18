@@ -7,6 +7,7 @@ import {
   connectPgPool,
   describeWithStorage,
   getClientCheckpoint,
+  StorageVersionTestContext,
   TEST_CONNECTION_OPTIONS
 } from './util.js';
 
@@ -15,12 +16,7 @@ import { SqliteRow } from '@powersync/service-sync-rules';
 
 import { PgManager } from '@module/replication/PgManager.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
-import {
-  createCoreReplicationMetrics,
-  initializeCoreReplicationMetrics,
-  reduceBucket,
-  storage
-} from '@powersync/service-core';
+import { createCoreReplicationMetrics, initializeCoreReplicationMetrics, reduceBucket } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
@@ -28,14 +24,12 @@ import * as timers from 'node:timers/promises';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
-  describeWithStorage({ timeout: 120_000 }, function (config) {
-    defineSlowTests(config);
+  describeWithStorage({ timeout: 120_000 }, function ({ factory, storageVersion }) {
+    defineSlowTests({ factory, storageVersion });
   });
 });
 
-function defineSlowTests(config: storage.TestStorageConfig) {
-  const factory = config.factory;
-
+function defineSlowTests({ factory, storageVersion }: StorageVersionTestContext) {
   let walStream: WalStream | undefined;
   let connections: PgManager | undefined;
   let abortController: AbortController | undefined;
@@ -88,7 +82,7 @@ bucket_definitions:
     data:
       - SELECT * FROM "test_data"
 `;
-    const syncRules = await f.updateSyncRules({ content: syncRuleContent });
+    const syncRules = await f.updateSyncRules({ content: syncRuleContent, storageVersion });
     const storage = f.getInstance(syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
@@ -322,7 +316,7 @@ bucket_definitions:
     data:
       - SELECT id, description FROM "test_data"
 `;
-    const syncRules = await f.updateSyncRules({ content: syncRuleContent });
+    const syncRules = await f.updateSyncRules({ content: syncRuleContent, storageVersion });
     const storage = f.getInstance(syncRules);
 
     // 1. Setup some base data that will be replicated in initial replication

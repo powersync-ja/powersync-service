@@ -1,5 +1,21 @@
 # @powersync/service-image
 
+## 1.19.2
+
+### Patch Changes
+
+- Updated dependencies [e21db9b]
+  - @powersync/service-module-mongodb-storage@0.13.2
+  - @powersync/service-module-mongodb@0.13.2
+  - @powersync/service-module-mssql@0.3.1
+  - @powersync/service-module-mysql@0.10.2
+  - @powersync/service-module-postgres@0.17.2
+  - @powersync/lib-services-framework@0.8.2
+  - @powersync/service-module-postgres-storage@0.11.2
+  - @powersync/service-core@1.19.2
+  - @powersync/service-module-core@0.2.19
+  - @powersync/service-rsocket-router@0.2.14
+
 ## 1.19.1
 
 ### Patch Changes
