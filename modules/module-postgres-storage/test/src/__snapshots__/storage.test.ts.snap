@@ -1,0 +1,26 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Postgres Sync Bucket Storage - Data > (insert, delete, insert), (delete) 1`] = `
+[
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+  {
+    "checksum": 2871785649,
+    "object_id": "test1",
+    "op": "PUT",
+  },
+  {
+    "checksum": 2872534815,
+    "object_id": "test1",
+    "op": "REMOVE",
+  },
+]
+`;

@@ -1,4 +1,10 @@
-import { BucketDataBatchOptions, getUuidReplicaIdentityBson, OplogEntry, storage } from '@powersync/service-core';
+import {
+  BucketDataBatchOptions,
+  getUuidReplicaIdentityBson,
+  OplogEntry,
+  reduceBucket,
+  storage
+} from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest, bucketRequestMap, bucketRequests } from './util.js';
@@ -296,6 +302,79 @@ bucket_definitions:
         count: 1
       }
     ]);
+  });
+
+  test('(insert, delete, insert), (delete)', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "%"
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      const sourceTable = TEST_TABLE;
+      await batch.markAllSnapshotDone('1/1');
+
+      await batch.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test1',
+          description: 'test1'
+        },
+        afterReplicaId: test_utils.rid('test1')
+      });
+      await batch.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
+      });
+      await batch.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test1',
+          description: 'test1'
+        },
+        afterReplicaId: test_utils.rid('test1')
+      });
+      await batch.commit('1/1');
+    });
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      const sourceTable = TEST_TABLE;
+      await batch.markAllSnapshotDone('1/1');
+
+      await batch.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
+      });
+      await batch.commit('2/1');
+    });
+
+    const { checkpoint } = await bucketStorage.getCheckpoint();
+
+    const batch = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]))
+    );
+
+    expect(reduceBucket(batch[0].chunkData.data).slice(1)).toEqual([]);
+
+    const data = batch[0].chunkData.data.map((d) => {
+      return {
+        op: d.op,
+        object_id: d.object_id,
+        checksum: d.checksum
+      };
+    });
+
+    expect(data).toMatchSnapshot();
   });
 
   test('changing client ids', async () => {
