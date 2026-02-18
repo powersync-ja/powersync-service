@@ -26,13 +26,15 @@ export function makeConvexConnectionManager() {
     throw new Error('CONVEX_DEPLOY_KEY is required for slow tests');
   }
 
-  const config = normalizeConnectionConfig({
-    type: 'convex',
+  const rawConfig = {
+    type: 'convex' as const,
     deployment_url: env.CONVEX_URL,
     deploy_key: env.CONVEX_DEPLOY_KEY,
     polling_interval_ms: 200,
     request_timeout_ms: 15_000
-  });
+  };
+
+  const config = { ...rawConfig, ...normalizeConnectionConfig(rawConfig) };
 
   return new ConvexConnectionManager(config);
 }
