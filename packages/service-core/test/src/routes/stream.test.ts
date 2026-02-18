@@ -8,6 +8,7 @@ import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../../../src/util/param-logging.js';
 import { mockServiceContext } from './mocks.js';
+import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 
 describe('Stream Route', () => {
   describe('compressed stream', () => {
@@ -45,7 +46,7 @@ describe('Stream Route', () => {
 
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate();
+          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');
@@ -83,7 +84,7 @@ describe('Stream Route', () => {
     it('logs the application metadata', async () => {
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate();
+          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');

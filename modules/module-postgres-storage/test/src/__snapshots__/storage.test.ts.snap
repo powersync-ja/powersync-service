@@ -1,9 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`Postgres Sync Bucket Storage - Data > empty storage metrics 1`] = `
-{
-  "operations_size_bytes": 16384,
-  "parameters_size_bytes": 32768,
-  "replication_size_bytes": 16384,
-}
-`;
