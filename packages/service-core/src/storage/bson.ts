@@ -1,7 +1,7 @@
 import * as bson from 'bson';
 
 import { ScopedParameterLookup, SqliteJsonValue } from '@powersync/service-sync-rules';
-import { ReplicaId } from './BucketStorageBatch.js';
+import { ReplicaId } from './BucketDataWriter.js';
 
 type NodeBuffer = Buffer<ArrayBuffer>;
 

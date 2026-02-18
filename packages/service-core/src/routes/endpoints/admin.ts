@@ -1,5 +1,5 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';
@@ -182,8 +182,9 @@ export const validate = routeDefinition({
             schema
           }),
           hydratedSyncRules() {
-            return this.sync_rules.config.hydrate();
-          }
+            return this.sync_rules.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+          },
+          hydrationState: DEFAULT_HYDRATION_STATE
         };
       },
       sync_rules_content: content,

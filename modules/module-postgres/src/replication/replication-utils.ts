@@ -1,11 +1,18 @@
 import * as pgwire from '@powersync/service-jpgwire';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { PatternResult, storage } from '@powersync/service-core';
+import {
+  DatabaseConnectionError,
+  ErrorCode,
+  logger,
+  ServiceAssertionError,
+  ServiceError
+} from '@powersync/lib-services-framework';
+import { BucketStorageFactory, PatternResult, storage } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { ReplicationIdentity } from './PgRelation.js';
+import { getServerVersion } from '../utils/postgres_version.js';
 
 export interface ReplicaIdentityResult {
   replicationColumns: storage.ColumnDescriptor[];
@@ -395,4 +402,58 @@ export async function cleanUpReplicationSlot(slotName: string, db: pgwire.PgClie
     statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
     params: [{ type: 'varchar', value: slotName }]
   });
+}
+
+/**
+ * Ensures that the storage is compatible with the replication connection.
+ * @throws {DatabaseConnectionError} If the storage is not compatible with the replication connection.
+ */
+export async function ensureStorageCompatibility(
+  db: pgwire.PgClient,
+  factory: BucketStorageFactory
+): Promise<storage.ResolvedBucketBatchCommitOptions & { exposesLogicalMessages: boolean }> {
+  const supportsLogicalMessages = await checkLogicalMessageSupport(db);
+
+  const storageIdentifier = await factory.getSystemIdentifier();
+  if (storageIdentifier.type != lib_postgres.POSTGRES_CONNECTION_TYPE) {
+    return {
+      // Keep the same behaviour as before allowing Postgres storage.
+      createEmptyCheckpoints: true,
+      oldestUncommittedChange: null,
+      exposesLogicalMessages: supportsLogicalMessages
+    };
+  }
+
+  const parsedStorageIdentifier = lib_postgres.utils.decodePostgresSystemIdentifier(storageIdentifier.id);
+  /**
+   * Check if the same server is being used for both the sync bucket storage and the logical replication.
+   */
+  const replicationIdentifier = await lib_postgres.utils.queryPostgresSystemIdentifier(db);
+
+  if (!supportsLogicalMessages && replicationIdentifier.server_id == parsedStorageIdentifier.server_id) {
+    throw new DatabaseConnectionError(
+      ErrorCode.PSYNC_S1144,
+      `Separate Postgres servers are required for the replication source and sync bucket storage when using Postgres versions below 14.0.`,
+      new Error('Postgres version is below 14')
+    );
+  }
+
+  return {
+    /**
+     * Don't create empty checkpoints if the same Postgres database is used for the data source
+     * and sync bucket storage. Creating empty checkpoints will cause WAL feedback loops.
+     */
+    createEmptyCheckpoints: replicationIdentifier.database_name != parsedStorageIdentifier.database_name,
+    oldestUncommittedChange: null,
+    exposesLogicalMessages: supportsLogicalMessages
+  };
+}
+
+/**
+ * Check if the replication connection Postgres server supports
+ * viewing the contents of logical replication messages.
+ */
+export async function checkLogicalMessageSupport(db: pgwire.PgClient) {
+  const version = await getServerVersion(db);
+  return version ? version.compareMain('14.0.0') >= 0 : false;
 }

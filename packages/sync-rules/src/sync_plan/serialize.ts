@@ -350,7 +350,7 @@ interface SerializedDataSource {
 interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
-  lookupScope: ParameterLookupScope;
+  lookupScope: Omit<ParameterLookupScope, 'source'>;
   output: SqlExpression<ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput>[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
   tableValuedFunctions: TableProcessorTableValuedFunction[];

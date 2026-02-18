@@ -1,5 +1,6 @@
 import {
   BucketChecksum,
+  BucketChecksumRequest,
   BucketChecksumState,
   BucketChecksumStateOptions,
   BucketChecksumStateStorage,
@@ -13,9 +14,17 @@ import {
   WatchFilterEvent
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { RequestJwtPayload, ScopedParameterLookup, SqliteJsonRow, SqlSyncRules } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import {
+  DEFAULT_HYDRATION_STATE,
+  RequestJwtPayload,
+  ScopedParameterLookup,
+  SqliteJsonRow,
+  SqlSyncRules,
+  TablePattern,
+  versionedHydrationState
+} from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
+import { removeSource, removeSourceSymbol } from '../utils.js';
 
 describe('BucketChecksumState', () => {
   // Single global[] bucket.
@@ -27,7 +36,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(1) });
+  ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -40,7 +49,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(2) });
+  ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -51,7 +60,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(3) });
+  ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -89,14 +98,14 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
         bucket: 'global[]',
         priority: 3
       }
     ]);
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions()).toEqual(new Map([['global[]', 0n]]));
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 0n }]);
 
     // This similuates the bucket data being sent
     line.advance();
@@ -125,7 +134,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.getFilteredBucketPositions()).toEqual(new Map([['global[]', 1n]]));
+    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 1n }]);
   });
 
   test('global bucket with initial state', async () => {
@@ -159,14 +168,14 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
         bucket: 'global[]',
         priority: 3
       }
     ]);
     // This is the main difference between this and the previous test
-    expect(line.getFilteredBucketPositions()).toEqual(new Map([['global[]', 1n]]));
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 1n }]);
   });
 
   test('multiple static buckets', async () => {
@@ -199,7 +208,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
         bucket: 'global[1]',
         priority: 3
@@ -267,13 +276,13 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
         bucket: 'global[]',
         priority: 3
       }
     ]);
-    expect(line.getFilteredBucketPositions()).toEqual(new Map([['global[]', 0n]]));
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 0n }]);
   });
 
   test('invalidating individual bucket', async () => {
@@ -330,7 +339,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([{ bucket: 'global[1]', priority: 3 }]);
+    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([{ bucket: 'global[1]', priority: 3 }]);
   });
 
   test('invalidating all buckets', async () => {
@@ -380,7 +389,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([
+    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       { bucket: 'global[1]', priority: 3 },
       { bucket: 'global[2]', priority: 3 }
     ]);
@@ -417,7 +426,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
         bucket: 'global[1]',
         priority: 3
@@ -429,12 +438,16 @@ bucket_definitions:
     ]);
 
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions()).toEqual(
-      new Map([
-        ['global[1]', 0n],
-        ['global[2]', 0n]
-      ])
-    );
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([
+      {
+        bucket: 'global[1]',
+        start: 0n
+      },
+      {
+        bucket: 'global[2]',
+        start: 0n
+      }
+    ]);
 
     // No data changes here.
     // We simulate partial data sent, before a checkpoint is interrupted.
@@ -470,7 +483,7 @@ bucket_definitions:
       }
     });
     // This should contain both buckets, even though only one changed.
-    expect(line2.bucketsToFetch).toEqual([
+    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
         bucket: 'global[1]',
         priority: 3
@@ -481,12 +494,16 @@ bucket_definitions:
       }
     ]);
 
-    expect(line2.getFilteredBucketPositions()).toEqual(
-      new Map([
-        ['global[1]', 3n],
-        ['global[2]', 1n]
-      ])
-    );
+    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([
+      {
+        bucket: 'global[1]',
+        start: 3n
+      },
+      {
+        bucket: 'global[2]',
+        start: 1n
+      }
+    ]);
   });
 
   test('dynamic buckets with updates', async () => {
@@ -504,9 +521,14 @@ bucket_definitions:
       bucketStorage: storage
     });
 
+    const source = SYNC_RULES_DYNAMIC.getMatchingSources(new TablePattern('public', 'projects'))
+      .parameterIndexLookupCreators[0];
+
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
+        ]);
         return [{ id: 1 }, { id: 2 }];
       }),
       writeCheckpoint: null,
@@ -541,7 +563,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
         bucket: 'by_project[1]',
         priority: 3
@@ -553,12 +575,16 @@ bucket_definitions:
     ]);
     line.advance();
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions()).toEqual(
-      new Map([
-        ['by_project[1]', 0n],
-        ['by_project[2]', 0n]
-      ])
-    );
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([
+      {
+        bucket: 'by_project[1]',
+        start: 0n
+      },
+      {
+        bucket: 'by_project[2]',
+        start: 0n
+      }
+    ]);
 
     line.advance();
     line.updateBucketPosition({ bucket: 'by_project[1]', nextAfter: 1n, hasMore: false });
@@ -567,7 +593,9 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
+        ]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
       writeCheckpoint: null,
@@ -595,7 +623,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.getFilteredBucketPositions()).toEqual(new Map([['by_project[3]', 0n]]));
+    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'by_project[3]', start: 0n }]);
   });
 
   describe('streams', () => {
@@ -837,14 +865,14 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     this.filter?.({ invalidate: true });
   }
 
-  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksums(checkpoint: InternalOpId, requests: BucketChecksumRequest[]): Promise<ChecksumMap> {
     return new Map<string, BucketChecksum>(
-      buckets.map((bucket) => {
-        const checksum = this.state.get(bucket);
+      requests.map((request) => {
+        const checksum = this.state.get(request.bucket);
         return [
-          bucket,
+          request.bucket,
           {
-            bucket: bucket,
+            bucket: request.bucket,
             checksum: checksum?.checksum ?? 0,
             count: checksum?.count ?? 0
           }

@@ -2,6 +2,9 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
   BroadcastIterable,
   BucketChecksum,
+  BucketChecksumRequest,
+  BucketDataRequest,
+  BucketDataWriter,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   GetCheckpointChangesOptions,
@@ -10,6 +13,7 @@ import {
   LastValueSink,
   maxLsn,
   PartialChecksum,
+  PersistedSyncRules,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ReplicationCheckpoint,
@@ -35,6 +39,8 @@ import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
+import { postgresTableId } from './batch/PostgresPersistedBatch.js';
+import { PostgresSourceTable } from './PostgresSourceTable.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -60,7 +66,7 @@ export class PostgresSyncRulesStorage
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | { parsed: PersistedSyncRules; hydrated: sync_rules.HydratedSyncRules; options: storage.ParseSyncRulesOptions }
     | undefined;
   private _checksumCache: storage.ChecksumCache | undefined;
 
@@ -97,17 +103,24 @@ export class PostgresSyncRulesStorage
   }
 
   //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
+
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): PersistedSyncRules {
+    this.getHydratedSyncRules(options);
+    return this.parsedSyncRulesCache!.parsed;
+  }
+
+  getHydratedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      const parsed = this.sync_rules.parsed(options);
+      this.parsedSyncRulesCache = { parsed, hydrated: parsed.hydratedSyncRules(), options };
     }
 
-    return this.parsedSyncRulesCache!.parsed;
+    return this.parsedSyncRulesCache!.hydrated;
   }
 
   async reportError(e: any): Promise<void> {
@@ -166,9 +179,11 @@ export class PostgresSyncRulesStorage
   }
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
+    const { connection_id, connection_tag, entity_descriptor } = options;
 
     const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
+
+    const group_id = this.group_id;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
@@ -212,6 +227,7 @@ export class PostgresSyncRulesStorage
       }
 
       if (sourceTableRow == null) {
+        const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
         const row = await db.sql`
           INSERT INTO
             source_tables (
@@ -225,7 +241,7 @@ export class PostgresSyncRulesStorage
             )
           VALUES
             (
-              ${{ type: 'varchar', value: uuid.v4() }},
+              ${{ type: 'varchar', value: id }},
               ${{ type: 'int4', value: group_id }},
               ${{ type: 'int4', value: connection_id }},
               --- The objectId can be string | number | undefined, we store it as jsonb value
@@ -242,15 +258,18 @@ export class PostgresSyncRulesStorage
         sourceTableRow = row;
       }
 
-      const sourceTable = new storage.SourceTable({
-        id: sourceTableRow!.id,
-        connectionTag: connection_tag,
-        objectId: objectId,
-        schema: schema,
-        name: table,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true
-      });
+      const sourceTable = new PostgresSourceTable(
+        {
+          id: sourceTableRow!.id,
+          connectionTag: connection_tag,
+          objectId: objectId,
+          schema: schema,
+          name: table,
+          replicaIdColumns: replicaIdColumns,
+          snapshotComplete: sourceTableRow!.snapshot_done ?? true
+        },
+        { groupId: group_id }
+      );
       if (!sourceTable.snapshotComplete) {
         sourceTable.snapshotStatus = {
           totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
@@ -308,29 +327,33 @@ export class PostgresSyncRulesStorage
         table: sourceTable,
         dropTables: truncatedTables.map(
           (doc) =>
-            new storage.SourceTable({
-              id: doc.id,
-              connectionTag: connection_tag,
-              objectId: doc.relation_id?.object_id ?? 0,
-              schema: doc.schema_name,
-              name: doc.table_name,
-              replicaIdColumns:
-                doc.replica_id_columns?.map((c) => ({
-                  name: c.name,
-                  typeOid: c.typeId,
-                  type: c.type
-                })) ?? [],
-              snapshotComplete: doc.snapshot_done ?? true
-            })
+            new PostgresSourceTable(
+              {
+                id: doc.id,
+                connectionTag: connection_tag,
+                objectId: doc.relation_id?.object_id ?? 0,
+                schema: doc.schema_name,
+                name: doc.table_name,
+                replicaIdColumns:
+                  doc.replica_id_columns?.map((c) => ({
+                    name: c.name,
+                    typeOid: c.typeId,
+                    type: c.type
+                  })) ?? [],
+                snapshotComplete: doc.snapshot_done ?? true
+              },
+              { groupId: group_id }
+            )
         )
       };
     });
   }
 
-  async startBatch(
-    options: storage.StartBatchOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
+  async createWriter(options: storage.CreateWriterOptions): Promise<BucketDataWriter> {
+    return await this.factory.createCombinedWriter([this], options);
+  }
+
+  async createBucketBatch(options: storage.CreateWriterOptions): Promise<PostgresBucketBatch> {
     const syncRules = await this.db.sql`
       SELECT
         last_checkpoint_lsn,
@@ -350,6 +373,7 @@ export class PostgresSyncRulesStorage
     const batch = new PostgresBucketBatch({
       logger: options.logger ?? framework.logger,
       db: this.db,
+      storage: this,
       sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
       group_id: this.group_id,
       slot_name: this.slot_name,
@@ -362,14 +386,7 @@ export class PostgresSyncRulesStorage
       markRecordUnavailable: options.markRecordUnavailable
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
-
-    await callback(batch);
-    await batch.flush();
-    if (batch.last_flushed_op != null) {
-      return { flushed_op: batch.last_flushed_op };
-    } else {
-      return null;
-    }
+    return batch;
   }
 
   async getParameterSets(
@@ -414,10 +431,10 @@ export class PostgresSyncRulesStorage
 
   async *getBucketDataBatch(
     checkpoint: InternalOpId,
-    dataBuckets: Map<string, InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.size == 0) {
+    if (dataBuckets.length == 0) {
       return;
     }
 
@@ -429,10 +446,11 @@ export class PostgresSyncRulesStorage
     // not match up with chunks.
 
     const end = checkpoint ?? BIGINT_MAX;
-    const filters = Array.from(dataBuckets.entries()).map(([name, start]) => ({
-      bucket_name: name,
+    const filters = dataBuckets.map(({ bucket, start }) => ({
+      bucket_name: bucket,
       start: start
     }));
+    const bucketMap = new Map<string, InternalOpId>(dataBuckets.map((d) => [d.bucket, d.start]));
 
     const batchRowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
     const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
@@ -532,7 +550,7 @@ export class PostgresSyncRulesStorage
           }
 
           if (start == null) {
-            const startOpId = dataBuckets.get(bucket_name);
+            const startOpId = bucketMap.get(bucket_name);
             if (startOpId == null) {
               throw new framework.ServiceAssertionError(`data for unexpected bucket: ${bucket_name}`);
             }
@@ -587,7 +605,7 @@ export class PostgresSyncRulesStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(checkpoint: utils.InternalOpId, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 

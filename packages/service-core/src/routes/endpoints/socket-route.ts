@@ -84,7 +84,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
         return;
       }
 
-      const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
+      const syncRules = bucketStorage.getHydratedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
 
       const removeStopHandler = routerEngine.addStopHandler(() => {
         closeReason ??= 'process shutdown';

@@ -2,11 +2,12 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage } from '@powersync/service-core';
+import { settledPromise, storage, unsettledPromise } from '@powersync/service-core';
 
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
 import { describeWithStorage } from './util.js';
+import { bucketRequest, PARSE_OPTIONS } from '@powersync/service-core-tests';
 
 describe.runIf(env.CI || env.SLOW_TESTS)('change stream slow tests', { timeout: 60_000 }, function () {
   describeWithStorage({}, defineSlowTests);
@@ -23,13 +24,14 @@ function defineSlowTests(config: storage.TestStorageConfig) {
     // snapshot session.
     await using _ = await setSnapshotHistorySeconds(context.client, 1);
     const { db } = context;
-    await context.updateSyncRules(`
+    const instance = await context.updateSyncRules(`
 bucket_definitions:
   global:
     data:
       - SELECT _id as id, description, num FROM "test_data1"
       - SELECT _id as id, description, num FROM "test_data2"
       `);
+    const syncRules = instance.getParsedSyncRules(PARSE_OPTIONS);
 
     const collection1 = db.collection('test_data1');
     const collection2 = db.collection('test_data2');
@@ -41,9 +43,9 @@ bucket_definitions:
     await collection1.bulkWrite(operations);
     await collection2.bulkWrite(operations);
 
-    await context.replicateSnapshot();
-    context.startStreaming();
-    const checksum = await context.getChecksum('global[]');
+    await context.initializeReplication();
+    const request = bucketRequest(syncRules, 'global[]');
+    const checksum = await context.getChecksum(request);
     expect(checksum).toMatchObject({
       count: 20_000
     });
@@ -71,7 +73,7 @@ bucket_definitions:
     }
     await collection.bulkWrite(operations);
 
-    const snapshotPromise = context.replicateSnapshot();
+    const snapshotPromise = settledPromise(context.initializeReplication());
 
     for (let i = 49; i >= 0; i--) {
       await collection.updateMany(
@@ -81,8 +83,7 @@ bucket_definitions:
       await setTimeout(20);
     }
 
-    await snapshotPromise;
-    context.startStreaming();
+    await unsettledPromise(snapshotPromise);
 
     const data = await context.getBucketData('global[]');
 

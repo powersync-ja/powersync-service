@@ -10,7 +10,7 @@ import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
 import { TablePattern } from './TablePattern.js';
 import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
-import { buildBucketName, isJsonValue, serializeBucketParameters } from './utils.js';
+import { buildBucketInfo, isJsonValue, serializeBucketParameters } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface StaticSqlParameterQueryOptions {
@@ -227,7 +227,7 @@ export class StaticSqlParameterQuery {
 
     return [
       {
-        bucket: buildBucketName(bucketSourceScope, serializedParamters),
+        ...buildBucketInfo(bucketSourceScope, serializedParamters),
         priority: this.priority
       }
     ];

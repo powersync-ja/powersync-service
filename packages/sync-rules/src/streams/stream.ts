@@ -96,8 +96,8 @@ export class SyncStreamDataSource implements BucketDataSource {
     return this.variant.defaultBucketPrefix(this.stream.name);
   }
 
-  getSourceTables(): Set<TablePattern> {
-    return new Set<TablePattern>([this.data.sourceTable]);
+  getSourceTables() {
+    return [this.data.sourceTable];
   }
 
   tableSyncsData(table: SourceTableInterface): boolean {

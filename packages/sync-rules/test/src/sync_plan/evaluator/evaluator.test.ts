@@ -8,7 +8,11 @@ import {
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
-import { requestParameters, TestSourceTable } from '../../util.js';
+import { removeSource, requestParameters, TestSourceTable } from '../../util.js';
+
+function removeLookupSource<T extends { lookup: ScopedParameterLookup }>(row: T): Omit<T, 'lookup'> & { lookup: any } {
+  return { ...row, lookup: removeSource(row.lookup) };
+}
 
 describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {
@@ -23,17 +27,19 @@ streams:
 `);
 
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo',
-          _double: 1,
-          _int: 1n,
-          _null: null,
-          _text: 'text',
-          _blob: new Uint8Array(10) // non-JSON columns should be removed
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo',
+            _double: 1,
+            _int: 1n,
+            _null: null,
+            _text: 'text',
+            _blob: new Uint8Array(10) // non-JSON columns should be removed
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',
@@ -108,12 +114,14 @@ streams:
       query: SELECT * FROM users u
 `);
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo'
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo'
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',
@@ -135,12 +143,14 @@ streams:
       query: SELECT * FROM "%" output
 `);
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo'
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo'
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',
@@ -162,12 +172,14 @@ streams:
       query: SELECT * FROM "%"
 `);
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo'
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo'
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',
@@ -211,9 +223,13 @@ streams:
     expect(desc.tableSyncsData(ISSUES)).toBeFalsy();
     expect(desc.tableSyncsParameters(ISSUES)).toBeTruthy();
 
-    expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
+    expect(
+      desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' }).map(removeLookupSource)
+    ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['user1']),
+        lookup: removeSource(
+          ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['user1'])
+        ),
         bucketParameters: [
           {
             '0': 'issue_id'
@@ -344,26 +360,32 @@ streams:
         if (call == 0) {
           // First call. Lookup from users.id => users.name
           call++;
-          expect(lookups).toStrictEqual([
-            ScopedParameterLookup.direct(
-              {
-                lookupName: 'lookup',
-                queryId: '0'
-              },
-              ['user']
+          expect(lookups.map(removeSource)).toStrictEqual([
+            removeSource(
+              ScopedParameterLookup.direct(
+                {
+                  lookupName: 'lookup',
+                  queryId: '0',
+                  source: {} as any
+                },
+                ['user']
+              )
             )
           ]);
           return [{ '0': 'name' }];
         } else if (call == 1) {
           // Second call. Lookup from issues.owned_by => issues.id
           call++;
-          expect(lookups).toStrictEqual([
-            ScopedParameterLookup.direct(
-              {
-                lookupName: 'lookup',
-                queryId: '1'
-              },
-              ['name']
+          expect(lookups.map(removeSource)).toStrictEqual([
+            removeSource(
+              ScopedParameterLookup.direct(
+                {
+                  lookupName: 'lookup',
+                  queryId: '1',
+                  source: {} as any
+                },
+                ['name']
+              )
             )
           ]);
           return [{ '0': 'issue' }];
