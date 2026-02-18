@@ -45,19 +45,15 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Flush and commit any saved ops. This creates a new checkpoint by default.
    *
    * Only call this after a transaction.
-   *
-   * Returns true if either (1) a new checkpoint was created, or (2) there are no changes to commit.
    */
-  commit(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
+  commit(lsn: string, options?: BucketBatchCommitOptions): Promise<CheckpointResult>;
 
   /**
    * Advance the checkpoint LSN position, without any associated op.
    *
    * This must only be called when not inside a transaction.
-   *
-   * @returns true if the checkpoint was advanced, false if this was a no-op
    */
-  keepalive(lsn: string): Promise<boolean>;
+  keepalive(lsn: string): Promise<CheckpointResult>;
 
   /**
    * Set the LSN that replication should resume from.
@@ -164,6 +160,16 @@ export interface SaveDelete {
   beforeReplicaId: ReplicaId;
   after?: undefined;
   afterReplicaId?: undefined;
+}
+
+export interface CheckpointResult {
+  /**
+   * True if any of these are true:
+   * 1. A snapshot is in progress.
+   * 2. The last checkpoint is older than "no_checkpoint_before" (if provided).
+   * 3. Replication was restarted with a lower LSN, and has not caught up yet.
+   */
+  checkpointBlocked: boolean;
 }
 
 export interface BucketBatchStorageListener {

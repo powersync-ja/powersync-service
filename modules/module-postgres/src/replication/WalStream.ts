@@ -989,12 +989,12 @@ WHERE  oid = $1::regclass`,
                   await this.resnapshot(batch, resnapshot);
                   resnapshot = [];
                 }
-                const didCommit = await batch.commit(msg.lsn!, {
+                const { checkpointBlocked } = await batch.commit(msg.lsn!, {
                   createEmptyCheckpoints,
                   oldestUncommittedChange: this.oldestUncommittedChange
                 });
                 await this.ack(msg.lsn!, replicationStream);
-                if (didCommit) {
+                if (!checkpointBlocked) {
                   this.oldestUncommittedChange = null;
                   this.isStartingReplication = false;
                 }
@@ -1036,8 +1036,8 @@ WHERE  oid = $1::regclass`,
               // Big caveat: This _must not_ be used to skip individual messages, since this LSN
               // may be in the middle of the next transaction.
               // It must only be used to associate checkpoints with LSNs.
-              const didCommit = await batch.keepalive(chunkLastLsn);
-              if (didCommit) {
+              const { checkpointBlocked } = await batch.keepalive(chunkLastLsn);
+              if (!checkpointBlocked) {
                 this.oldestUncommittedChange = null;
               }
 

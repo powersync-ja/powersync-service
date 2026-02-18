@@ -472,15 +472,17 @@ export class BinLogStream {
         });
       },
       onKeepAlive: async (lsn: string) => {
-        const didCommit = await batch.keepalive(lsn);
-        if (didCommit) {
+        const { checkpointBlocked } = await batch.keepalive(lsn);
+        if (!checkpointBlocked) {
           this.oldestUncommittedChange = null;
         }
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-        const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
-        if (didCommit) {
+        const { checkpointBlocked } = await batch.commit(lsn, {
+          oldestUncommittedChange: this.oldestUncommittedChange
+        });
+        if (!checkpointBlocked) {
           this.oldestUncommittedChange = null;
           this.isStartingReplication = false;
         }

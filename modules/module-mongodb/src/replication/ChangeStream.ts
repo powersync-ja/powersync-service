@@ -1022,9 +1022,11 @@ export class ChangeStream {
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+            const { checkpointBlocked } = await batch.commit(lsn, {
+              oldestUncommittedChange: this.oldestUncommittedChange
+            });
 
-            if (didCommit) {
+            if (!checkpointBlocked) {
               this.oldestUncommittedChange = null;
               this.isStartingReplication = false;
               changesSinceLastCheckpoint = 0;
