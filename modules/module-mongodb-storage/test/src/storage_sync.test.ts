@@ -1,5 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { bucketRequest, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -8,6 +8,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     storageVersion,
     tableIdStrings: storageConfig.tableIdStrings
   });
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageConfig);
 
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {

@@ -1,5 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { bucketRequest, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -11,6 +11,7 @@ import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 function registerStorageVersionTests(storageVersion: number) {
   describe(`storage v${storageVersion}`, () => {
     const storageFactory = POSTGRES_STORAGE_FACTORY;
+    const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageFactory);
 
     register.registerSyncTests(storageFactory.factory, {
       storageVersion,
