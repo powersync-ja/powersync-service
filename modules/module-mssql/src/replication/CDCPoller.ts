@@ -126,7 +126,6 @@ export class CDCPoller {
         // Refresh capture instance details
         this.captureInstances = await getCaptureInstances({ connectionManager: this.connectionManager });
         // Check and handle any schema changes before polling
-        this.logger.info(`Checking for schema changes before polling...`);
         const schemaChanges = await this.checkForSchemaChanges();
         for (const schemaChange of schemaChanges) {
           await this.eventHandler.onSchemaChange(schemaChange);
