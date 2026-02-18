@@ -1,5 +1,11 @@
 # @powersync/service-sync-rules
 
+## 0.31.1
+
+### Patch Changes
+
+- a04252d: Support joining table-valued functions in sync streams.
+
 ## 0.31.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@powersync/service-schema",
-  "version": "1.19.1",
+  "version": "1.19.2",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "FSL-1.1-ALv2",
@@ -12,6 +12,14 @@
     "dist/**/*",
     "json-schema/*"
   ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./schema.json": "./json-schema/powersync-config.json"
+  },
   "repository": "https://github.com/powersync-ja/powersync-service",
   "scripts": {
     "clean": "rm -r ./dist && tsc -b --clean",
@@ -19,13 +27,13 @@
     "build": "pnpm build:ts && pnpm run build:extra",
     "build:extra": "node ./dist/scripts/compile-json-schema.js"
   },
-  "dependencies": {},
   "devDependencies": {
     "@powersync/service-module-postgres": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@powersync/service-module-mongodb": "workspace:*",
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-mysql": "workspace:*",
+    "@powersync/service-module-mssql": "workspace:*",
     "@powersync/service-types": "workspace:*",
     "ts-codec": "^1.3.0"
   }

@@ -303,19 +303,6 @@ export enum ErrorCode {
    */
   PSYNC_S1500 = 'PSYNC_S1500',
 
-  // ## PSYNC_S16xx: MSSQL replication issues
-
-  /**
-   *  A replicated source table's capture instance has been dropped during a polling cycle.
-   *
-   *  Possible causes:
-   *  * CDC has been disabled for the table.
-   *  * The table has been dropped, which also drops the capture instance.
-   *
-   *  Replication for the table will only resume once CDC has been re-enabled for the table.
-   */
-  PSYNC_S1601 = 'PSYNC_S1601',
-
   // ## PSYNC_S2xxx: Service API
 
   /**

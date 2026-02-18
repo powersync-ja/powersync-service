@@ -2,7 +2,7 @@
   "name": "@powersync/service-module-mssql",
   "repository": "https://github.com/powersync-ja/powersync-service",
   "types": "dist/index.d.ts",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "FSL-1.1-ALv2",
   "main": "dist/index.js",
   "type": "module",
