@@ -519,11 +519,14 @@ bucket_definitions:
     const checkpoint2 = result2!.flushed_op;
     await bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, bucketRequests(syncRules, ['global[]']));
-    expect(checksumAfter.get(bucketRequest(syncRules, 'global[]'))).toEqual({
+    const globalChecksum = checksumAfter.get(bucketRequest(syncRules, 'global[]'));
+    expect(globalChecksum).toMatchObject({
       bucket: bucketRequest(syncRules, 'global[]'),
-      count: 4,
-      checksum: 1874612650
+      count: 4
     });
+
+    // storage-specific checksum - just check that it does not change
+    expect(globalChecksum).toMatchSnapshot();
   });
 
   test('partial checksums after compacting (2)', async () => {
@@ -585,10 +588,12 @@ bucket_definitions:
     const checkpoint2 = result2!.flushed_op;
     // Check that the checksum was correctly updated with the clear operation after having a cached checksum
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, bucketRequests(syncRules, ['global[]']));
-    expect(checksumAfter.get(bucketRequest(syncRules, 'global[]'))).toMatchObject({
+    const globalChecksum = checksumAfter.get(bucketRequest(syncRules, 'global[]'));
+    expect(globalChecksum).toMatchObject({
       bucket: bucketRequest(syncRules, 'global[]'),
-      count: 1,
-      checksum: -1481659821
+      count: 1
     });
+    // storage-specific checksum - just check that it does not change
+    expect(globalChecksum).toMatchSnapshot();
   });
 }
