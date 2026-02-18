@@ -156,7 +156,7 @@ export interface UpdateSyncRulesOptions {
 
 export function updateSyncRulesFromYaml(
   content: string,
-  options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate: boolean }
+  options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
   const { config } = SqlSyncRules.fromYaml(content, {
     // No schema-based validation at this point
