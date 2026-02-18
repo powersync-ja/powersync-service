@@ -1,14 +1,13 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { PowerSyncMongo } from '../storage/implementation/db.js';
 import { TestStorageOptions } from '@powersync/service-core';
+import { MongoBucketStorage, MongoBucketStorageOptions } from '../storage/MongoBucketStorage.js';
 import { MongoReportStorage } from '../storage/MongoReportStorage.js';
-import { MongoBucketStorage } from '../storage/MongoBucketStorage.js';
-import { MongoSyncBucketStorageOptions } from '../storage/implementation/MongoSyncBucketStorage.js';
+import { PowerSyncMongo } from '../storage/implementation/db.js';
 
 export type MongoTestStorageOptions = {
   url: string;
   isCI: boolean;
-  internalOptions?: MongoSyncBucketStorageOptions;
+  internalOptions?: MongoBucketStorageOptions;
 };
 
 export function mongoTestStorageFactoryGenerator(factoryOptions: MongoTestStorageOptions) {

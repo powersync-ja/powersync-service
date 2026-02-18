@@ -7,6 +7,7 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
@@ -68,7 +69,11 @@ export class BinlogStreamTestContext {
   }
 
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules({
+      content: content,
+      validate: true,
+      storageVersion: LEGACY_STORAGE_VERSION
+    });
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
