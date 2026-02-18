@@ -1,5 +1,12 @@
 # @powersync/lib-services-framework
 
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [a04252d]
+  - @powersync/service-sync-rules@0.31.1
+
 ## 0.8.1
 
 ### Patch Changes
