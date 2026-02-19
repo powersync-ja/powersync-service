@@ -248,10 +248,13 @@ export class PostgresToSqlite {
             operand: { type: 'function', function: 'like', parameters: [left, right] }
           };
         } else if (expr.op === '!=') {
+          const equals: SqlExpression<ExpressionInput> = { type: 'binary', left, right, operator: '=' };
+          this.options.locations.sourceForNode.set(equals, expr);
+
           return {
             type: 'unary',
             operator: 'not',
-            operand: { type: 'binary', left, right, operator: '=' }
+            operand: equals
           };
         }
 
