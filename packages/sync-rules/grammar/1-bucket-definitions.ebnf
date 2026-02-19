@@ -1,19 +1,10 @@
 /*
-  PowerSync sync-rules SQL grammar: bucket_definitions mode (legacy parser path).
+  PowerSync sync-rules SQL grammar: bucket_definitions mode
 
   SQL appears in YAML at:
     - bucket_definitions.<bucket_name>.parameters
       - string or array of strings
     - bucket_definitions.<bucket_name>.data[]
-
-  Source-of-truth files:
-    - src/SqlBucketDescriptor.ts
-    - src/SqlParameterQuery.ts
-    - src/StaticSqlParameterQuery.ts
-    - src/TableValuedFunctionSqlParameterQuery.ts
-    - src/SqlDataQuery.ts
-    - src/sql_filters.ts
-    - src/sql_support.ts
 */
 
 BucketDefinitionSql ::= ParameterQuery | DataQuery

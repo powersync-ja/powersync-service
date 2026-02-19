@@ -7,12 +7,6 @@
   Notes:
     - This is the sync streams alpha SQL parser path.
     - YAML keys `with` and `queries` are not supported in this mode.
-
-  Source-of-truth files:
-    - src/streams/from_sql.ts
-    - src/streams/functions.ts
-    - src/sql_filters.ts
-    - src/sql_support.ts
 */
 
 SyncStreamsAlphaSql ::= SyncStreamsAlphaQuery

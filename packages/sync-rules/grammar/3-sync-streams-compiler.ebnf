@@ -7,13 +7,7 @@
     - streams.<stream_name>.with.<cte_name>
 
   Notes:
-    - This grammar is used when config.sync_config_compiler = true (and edition >= 2).
-    - In this mode, bucket_definitions are rejected.
-
-  Source-of-truth files:
-    - src/compiler/compiler.ts
-    - src/compiler/parser.ts
-    - src/compiler/sqlite.ts
+    - This grammar is used when config.sync_config_compiler = true (and edition >= 2)
 */
 
 SyncStreamsCompilerSql ::= CompilerStreamQuery | CompilerSubquery | CompilerCteSubquery
