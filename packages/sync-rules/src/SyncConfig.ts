@@ -1,11 +1,9 @@
 import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
-import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
+import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { HydratedSyncRules } from './HydratedSyncRules.js';
-import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { SyncPlan } from './sync_plan/plan.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
 import { applyRowContext } from './utils.js';

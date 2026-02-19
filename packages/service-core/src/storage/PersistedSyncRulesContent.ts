@@ -1,16 +1,22 @@
 import {
+  CompatibilityContext,
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
+  deserializeSyncPlan,
   HydratedSyncRules,
   HydrationState,
+  javaScriptExpressionEngine,
+  PrecompiledSyncConfig,
+  SqlEventDescriptor,
   SqlSyncRules,
+  SyncConfig,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { UpdateSyncRulesOptions } from './BucketStorageFactory.js';
+import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 
 export interface ParseSyncRulesOptions {
   defaultSchema: string;
@@ -19,6 +25,7 @@ export interface ParseSyncRulesOptions {
 export interface PersistedSyncRulesContentData {
   readonly id: number;
   readonly sync_rules_content: string;
+  readonly compiled_plan: SerializedSyncPlan | null;
   readonly slot_name: string;
   /**
    * True if this is the "active" copy of the sync rules.
@@ -37,6 +44,7 @@ export interface PersistedSyncRulesContentData {
 export abstract class PersistedSyncRulesContent implements PersistedSyncRulesContentData {
   readonly id!: number;
   readonly sync_rules_content!: string;
+  readonly compiled_plan!: SerializedSyncPlan | null;
   readonly slot_name!: string;
   readonly active!: boolean;
   readonly storageVersion!: number;
@@ -72,6 +80,31 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
   parsed(options: ParseSyncRulesOptions): PersistedSyncRules {
     let hydrationState: HydrationState;
+
+    // Do we have a compiled sync plan? If so, restore from there instead of parsing everything again.
+    let config: SyncConfigWithErrors;
+    if (this.compiled_plan != null) {
+      const plan = deserializeSyncPlan(this.compiled_plan.plan);
+      const compatibility = CompatibilityContext.deserialize(this.compiled_plan.compatibility);
+
+      const precompiled = new PrecompiledSyncConfig(plan, {
+        defaultSchema: options.defaultSchema,
+        engine: javaScriptExpressionEngine(compatibility),
+        sourceText: this.sync_rules_content
+      });
+
+      for (const [name, queries] of Object.entries(this.compiled_plan.eventDescriptors)) {
+        const descriptor = new SqlEventDescriptor(name, compatibility);
+        for (const query of queries) {
+          descriptor.addSourceQuery(query, options);
+        }
+      }
+
+      config = { config: precompiled, errors: [] };
+    } else {
+      config = SqlSyncRules.fromYaml(this.sync_rules_content, options);
+    }
+
     const syncRules = SqlSyncRules.fromYaml(this.sync_rules_content, options);
     const storageConfig = this.getStorageConfig();
     if (
@@ -95,7 +128,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
   asUpdateOptions(options?: Omit<UpdateSyncRulesOptions, 'config'>): UpdateSyncRulesOptions {
     return {
-      config: { yaml: this.sync_rules_content },
+      config: { yaml: this.sync_rules_content, plan: this.compiled_plan },
       ...options
     };
   }
