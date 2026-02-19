@@ -21,6 +21,9 @@ parameters:
     - sql: SELECT token_parameters.user_id AS user_id WHERE request.user_id() IS NOT NULL
     - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = token_parameters.user_id AND token_parameters.user_id IS NOT NULL
     - sql: SELECT CAST(request.parameters() ->> 'org_id' AS text) AS org_id
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = request.user_id() AND users.is_admin = TRUE
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.owner_id = request.user_id() OR users.shared_with = request.user_id()
+    - sql: SELECT users.org_id AS org_id FROM users WHERE NOT users.is_admin = TRUE
 
   rejected_syntax:
     # table aliases are not supported in parameter queries
@@ -44,6 +47,16 @@ parameters:
     # parser: Left and right sides of OR must use the same parameters, or split into separate queries. [{"key":"token_parameters.user_id","expands":false}] != [{"key":"request.user_id()","expands":false}]
     - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = token_parameters.user_id OR users.id = request.user_id()
       err: same parameters
+
+    # OR sides reference different parameters
+    # parser: Left and right sides of OR must use the same parameters, or split into separate queries. [{"key":"request.user_id()","expands":false}] != [{"key":"token_parameters.org_id","expands":false}]
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.owner_id = request.user_id() OR users.org_id = token_parameters.org_id
+      err: same parameters
+
+    # two IN expressions in one AND
+    # parser: Cannot have multiple array input parameters
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.id IN token_parameters.list_ids AND users.org_id IN token_parameters.org_ids
+      err: multiple array input parameters
 
 data:
   accepted:
@@ -78,13 +91,26 @@ data:
       params: [user_id]
     - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (id = id)
       params: [user_id]
-    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (owner_id = bucket.user_id OR owner_id = bucket.user_id)
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (owner_id = bucket.user_id OR other_id = bucket.user_id)
       params: [user_id]
+    - sql: SELECT id FROM assets WHERE status = 'active'
+    - sql: SELECT id FROM assets WHERE deleted_at IS NULL
+    - sql: SELECT id FROM assets WHERE status != 'archived'
+    - sql: SELECT id FROM assets WHERE deleted_at IS NOT NULL
+    - sql: SELECT id FROM assets WHERE category IN '["draft", "hidden"]'
 
   rejected_syntax:
     # parser: Must SELECT from a single table
     - sql: SELECT assets.id FROM assets JOIN users ON users.id = assets.owner_id
       err: single table
+
+    # NOT IN with fixed value list
+    # parser: list not supported here
+    - sql: SELECT id FROM assets WHERE category NOT IN ('draft', 'hidden')
+      err: list not supported here
+    - sql: SELECT id FROM assets WHERE category NOT IN '["draft", "hidden"]'
+
+    - sql: SELECT id FROM assets WHERE category IN ('draft', 'hidden')
 
   rejected_semantic:
     # parser: alias is required

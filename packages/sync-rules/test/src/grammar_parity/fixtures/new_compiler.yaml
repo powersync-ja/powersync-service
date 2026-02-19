@@ -26,6 +26,23 @@ query:
     - sql: SELECT u.id FROM users AS u WHERE (u.id = subscription.parameter('id'))
     - sql: SELECT u.id FROM users AS u WHERE u.id IN (SELECT id FROM users AS x)
     - sql: SELECT * FROM users WHERE id && (SELECT id FROM users WHERE id IS NOT NULL)
+    - sql: SELECT * FROM comments WHERE status = 'active'
+    - sql: SELECT * FROM comments WHERE deleted_at IS NULL
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id()
+    - sql: SELECT * FROM comments WHERE region = connection.parameter('region')
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() AND org_id = auth.parameter('org_id')
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() AND status = 'active'
+    - sql: SELECT * FROM comments WHERE list_id = subscription.parameter('list_id') AND list_id IN (SELECT id FROM lists WHERE owner_id = auth.user_id())
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() OR shared_with = auth.user_id()
+    - sql: SELECT * FROM comments WHERE status = 'active' AND (owner_id = auth.user_id() OR shared_with = auth.user_id())
+    - sql: SELECT * FROM comments WHERE deleted_at IS NOT NULL
+    - sql: SELECT * FROM comments WHERE category IN '["draft", "hidden"]'
+    # FIXME: This one should work:
+    # - sql: SELECT * FROM comments WHERE status != 'archived'
+    # FIXME: This one should work:
+    # - sql: SELECT * FROM comments WHERE category NOT IN '["draft", "hidden"]'
+    # TODO: should we support this?
+    # - sql: SELECT id FROM assets WHERE category IN ('draft', 'hidden')
 
   rejected_syntax:
     # double quotes denote identifiers, not string literals
@@ -51,6 +68,16 @@ query:
     - sql: DELETE FROM users
       err: SELECT
 
+    # where-clause-support.md example (NOT IN with fixed value list)
+    # parser: This expression is not supported by PowerSync
+    - sql: SELECT * FROM comments WHERE category NOT IN ('draft', 'hidden')
+      err: not supported by PowerSync
+
+    # where-clause-support.md example (NOT IN with parameter source)
+    # parser: This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator.
+    - sql: SELECT * FROM comments WHERE id NOT IN subscription.parameter('excluded_ids')
+      err: can't also reference data from this row
+
   rejected_semantic:
     # parser: This expression already references 'users', so it can't also reference data from this row unless the two are compared with an equals operator. | This filter is unrelated to the request or the table being synced, and not supported.
     - sql: SELECT * FROM users WHERE id NOT IN (SELECT id FROM users WHERE id IS NOT NULL)
@@ -67,6 +94,11 @@ query:
     # parser: This attempts to sync a connection parameter. Only values from the source database can be synced.
     - sql: SELECT u.*, auth.parameter('x') FROM users AS u
       err: connection parameter
+
+    # where-clause-support.md example (NOT IN with subquery)
+    # parser: This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator. | This expression already references row data, so it can't also reference connection parameters unless the two are compared with an equals operator.
+    - sql: SELECT * FROM comments WHERE issue_id NOT IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+      err: can't also reference data from this row
 
 with:
   accepted:
