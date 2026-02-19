@@ -48,7 +48,18 @@ export const SyncRules = t.object({
   last_fatal_error: t.Null.or(t.string),
   keepalive_op: t.Null.or(bigint),
   storage_version: t.Null.or(pgwire_number).optional(),
-  content: t.string
+  content: t.string,
+  sync_plan: t.Null.or(
+    t.object({
+      plan: t.any,
+      compatibility: t.object({
+        edition: t.number,
+        overrides: t.record(t.boolean),
+        maxTimeValuePrecision: t.number.optional()
+      }),
+      eventDescriptors: t.record(t.array(t.string))
+    })
+  )
 });
 
 export type SyncRules = t.Encoded<typeof SyncRules>;
