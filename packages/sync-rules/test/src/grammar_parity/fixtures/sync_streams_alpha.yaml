@@ -1,0 +1,27 @@
+query:
+  accepted:
+    - sql: SELECT * FROM comments
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+
+  rejected_syntax:
+    - sql: SELECT id FROM comments GROUP BY id
+      err: GROUP BY
+
+    - sql: INSERT INTO comments (id) VALUES ('c1')
+      err: SELECT
+
+    - sql: SELECT * FROM comments; SELECT * FROM issues
+      err: single
+
+    - sql: SELECT * FROM json_each(auth.parameter('x'))
+      err: single table
+
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() OR name = 'test')
+      err: OR
+
+  rejected_semantic:
+    - sql: SELECT * FROM comments WHERE 'static' IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+      err: left operand
+
+    - sql: SELECT * FROM issues WHERE owner_id = request.user_id()
+      err: not defined

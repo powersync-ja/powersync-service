@@ -1,0 +1,115 @@
+/*
+  PowerSync sync-rules SQL grammar: new sync streams compiler.
+
+  SQL appears in YAML at:
+    - streams.<stream_name>.query
+    - streams.<stream_name>.queries[]
+    - streams.<stream_name>.with.<cte_name>
+
+  Notes:
+    - This grammar is used when config.sync_config_compiler = true (and edition >= 2).
+    - In this mode, bucket_definitions are rejected.
+
+  Source-of-truth files:
+    - src/compiler/compiler.ts
+    - src/compiler/parser.ts
+    - src/compiler/sqlite.ts
+*/
+
+SyncStreamsCompilerSql ::= CompilerStreamQuery | CompilerSubquery | CompilerCteSubquery
+
+/* Top-level stream query form: streams.<name>.query / streams.<name>.queries[] */
+CompilerStreamQuery ::= "SELECT" ResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
+
+ResultColumnList ::= ResultColumn ("," ResultColumn)*
+
+/* Supports wildcard, table wildcard, or scalar expression columns */
+ResultColumn ::= "*" | Reference "." "*" | ScalarExpr Alias?
+
+FromContinuation ::= "," FromSource | JoinClause
+
+FromSource ::= TableSource | TableValuedSource | SubquerySource
+
+/* Table and table-valued sources may be unaliased or AS-aliased */
+TableSource ::= TableRef Alias | TableRef
+
+TableValuedSource ::= TableValuedCall Alias | TableValuedCall
+
+/* Subqueries require an alias; optional column-name list is supported */
+SubquerySource ::= "(" CompilerSubquery ")" Alias ("(" ColumnNameList ")")?
+
+JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereExpr)?
+
+TableValuedCall ::= Identifier "(" ArgList? ")"
+
+WhereExpr ::= OrExpr
+
+/* WHERE boolean expression subset */
+OrExpr ::= AndExpr ("OR" AndExpr)*
+
+AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
+
+UnaryExpr ::= "NOT"? Predicate
+
+Predicate ::= ScalarExpr PredicateTail | ScalarExpr
+
+/* Includes IN/NOT IN, overlap, null checks, and BETWEEN */
+PredicateTail ::= "=" ScalarExpr | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" ScalarExpr "AND" ScalarExpr
+
+InSource ::= "(" CompilerSubquery ")" | CteShorthandRef | ScalarExpr
+
+/* CTE shorthand supports expressions like: x IN cte_name */
+CteShorthandRef ::= Identifier
+
+CompilerSubquery ::= "SELECT" ResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
+
+/* CTE bodies (streams.<name>.with.<cte_name>) disallow wildcard columns by using ScalarExpr columns only */
+CompilerCteSubquery ::= "SELECT" CteResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
+
+CteResultColumnList ::= CteResultColumn ("," CteResultColumn)*
+
+CteResultColumn ::= ScalarExpr Alias?
+
+/* Scalar expression subset lowered by compiler/sqlite.ts */
+ScalarExpr ::= ValueTerm (BinaryOp ValueTerm)*
+
+ValueTerm ::= PrimaryTerm MemberSuffix*
+
+PrimaryTerm ::= Literal | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+
+MemberSuffix ::= ("->" | "->>") (StringLiteral | IntegerLiteral)
+
+CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
+
+/* CASE expression subset supported by compiler parser */
+CaseExpr ::= "CASE" ScalarExpr? "WHEN" ScalarExpr "THEN" ScalarExpr ("WHEN" ScalarExpr "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+
+FunctionCall ::= (Identifier ".")? Identifier "(" ArgList? ")"
+
+ArgList ::= ScalarExpr ("," ScalarExpr)*
+
+Reference ::= Identifier ("." Identifier)?
+
+Alias ::= "AS" Identifier
+
+TableRef ::= Identifier ("." Identifier)?
+
+ColumnNameList ::= Identifier ("," Identifier)*
+
+BinaryOp ::= "=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>"
+
+CastType ::= "TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB"
+
+/* Identifiers are matched after SQL normalization to uppercase in tests. */
+Identifier ::= [A-Z_][A-Z_0-9]*
+
+Literal ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL"
+
+StringLiteral ::= '"' ([#x20-#x21] | [#x23-#x5B] | [#x5D-#x7E])* '"' | "'" ([#x20-#x26] | [#x28-#x7E])* "'"
+
+IntegerLiteral ::= [0-9]+
+
+NumericLiteral ::= [0-9]+ ("." [0-9]+)?
+
+/* Explicit whitespace rule used by the runtime parser adapter. */
+WS ::= [#x20#x09#x0A#x0D]+

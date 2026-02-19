@@ -1,0 +1,98 @@
+/*
+  PowerSync sync-rules SQL grammar: bucket_definitions mode (legacy parser path).
+
+  SQL appears in YAML at:
+    - bucket_definitions.<bucket_name>.parameters
+      - string or array of strings
+    - bucket_definitions.<bucket_name>.data[]
+
+  Source-of-truth files:
+    - src/SqlBucketDescriptor.ts
+    - src/SqlParameterQuery.ts
+    - src/StaticSqlParameterQuery.ts
+    - src/TableValuedFunctionSqlParameterQuery.ts
+    - src/SqlDataQuery.ts
+    - src/sql_filters.ts
+    - src/sql_support.ts
+*/
+
+BucketDefinitionSql ::= ParameterQuery | DataQuery
+
+/* Parameter-query SQL forms used under bucket_definitions.<name>.parameters */
+ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParameterQuery
+
+StaticParameterQuery ::= "SELECT" SelectList ("WHERE" ParameterExpr)?
+
+TableParameterQuery ::= "SELECT" SelectList "FROM" TableRef ("WHERE" MatchExpr)?
+
+/* Only json_each(...) table-valued FROM is supported in this mode. */
+TableValuedParameterQuery ::= "SELECT" SelectList "FROM" JsonEachCall Alias? ("WHERE" ParameterExpr)?
+
+JsonEachCall ::= "JSON_EACH" "(" ParameterExpr ")"
+
+/* Data-query SQL forms used under bucket_definitions.<name>.data[] */
+DataQuery ::= "SELECT" DataSelectList "FROM" TableRef ("WHERE" DataMatchExpr)?
+
+SelectList ::= SelectItem ("," SelectItem)*
+
+DataSelectList ::= DataSelectItem ("," DataSelectItem)*
+
+SelectItem ::= ScalarExpr Alias?
+
+DataSelectItem ::= "*" | ScalarExpr Alias?
+
+Alias ::= "AS" Identifier
+
+TableRef ::= Identifier ("." Identifier)?
+
+ParameterExpr ::= ScalarExpr
+
+DataMatchExpr ::= MatchExpr
+
+MatchExpr ::= OrExpr
+
+/* WHERE boolean expression subset */
+OrExpr ::= AndExpr ("OR" AndExpr)*
+
+AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
+
+UnaryExpr ::= "NOT"? Predicate
+
+Predicate ::= ScalarExpr PredicateTail | ScalarExpr
+
+PredicateTail ::= "=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL"
+
+/* Scalar expression subset (sql_filters/sql_functions) */
+ScalarExpr ::= ValueTerm (BinaryOp ValueTerm)*
+
+ValueTerm ::= PrimaryTerm MemberSuffix*
+
+PrimaryTerm ::= Literal | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+
+MemberSuffix ::= ("->" | "->>") (StringLiteral | IntegerLiteral)
+
+CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
+
+FunctionCall ::= (Identifier ".")? Identifier "(" ArgList? ")"
+
+ArgList ::= ScalarExpr ("," ScalarExpr)*
+
+Reference ::= Identifier ("." Identifier)?
+
+BinaryOp ::= "=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>"
+
+CastType ::= "TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB"
+
+/* Identifiers are matched after SQL normalization to uppercase in tests. */
+Identifier ::= [A-Z_][A-Z_0-9]*
+
+Literal ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL"
+
+StringLiteral ::= '"' ([#x20-#x21] | [#x23-#x5B] | [#x5D-#x7E])* '"' | "'" ([#x20-#x26] | [#x28-#x7E])* "'"
+
+IntegerLiteral ::= [0-9]+
+
+NumericLiteral ::= [0-9]+ ("." [0-9]+)?
+
+/* Explicit whitespace rule used by the runtime parser adapter. */
+WS ::= [#x20#x09#x0A#x0D]+

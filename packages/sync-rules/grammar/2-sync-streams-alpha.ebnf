@@ -1,0 +1,93 @@
+/*
+  PowerSync sync-rules SQL grammar: sync streams alpha (syncStreamFromSql path, not new compiler).
+
+  SQL appears in YAML at:
+    - streams.<stream_name>.query
+
+  Notes:
+    - This is the sync streams alpha SQL parser path.
+    - YAML keys `with` and `queries` are not supported in this mode.
+
+  Source-of-truth files:
+    - src/streams/from_sql.ts
+    - src/streams/functions.ts
+    - src/sql_filters.ts
+    - src/sql_support.ts
+*/
+
+SyncStreamsAlphaSql ::= SyncStreamsAlphaQuery
+
+/* SQL form used under streams.<name>.query in sync streams alpha mode */
+SyncStreamsAlphaQuery ::= "SELECT" StreamSelectList "FROM" TableRef ("WHERE" StreamWhereExpr)?
+
+StreamSelectList ::= StreamSelectItem ("," StreamSelectItem)*
+
+StreamSelectItem ::= "*" | ScalarExpr Alias?
+
+StreamWhereExpr ::= OrExpr
+
+/* WHERE boolean expression subset */
+OrExpr ::= AndExpr ("OR" AndExpr)*
+
+AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
+
+UnaryExpr ::= "NOT"? StreamPredicate
+
+StreamPredicate ::= ScalarExpr StreamPredicateTail | ScalarExpr
+
+/* IN/NOT IN/&& may target a scalar expression or a restricted subquery */
+StreamPredicateTail ::= "=" ScalarExpr | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL"
+
+InSource ::= ScalarExpr | StreamSubquery
+
+StreamSubquery ::= "(" "SELECT" SubqueryResultExpr "FROM" TableRef ("WHERE" SubqueryWhereExpr)? ")"
+
+SubqueryResultExpr ::= ScalarExpr
+
+/* Sync streams alpha subquery filters are AND-only (no OR) */
+SubqueryWhereExpr ::= SubqueryAndExpr
+
+SubqueryAndExpr ::= SubqueryPredicate ("AND" SubqueryPredicate)*
+
+SubqueryPredicate ::= ScalarExpr SubqueryPredicateTail | ScalarExpr
+
+SubqueryPredicateTail ::= "=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr
+
+/* Scalar expression subset (sql_filters/sql_functions) */
+ScalarExpr ::= ValueTerm (BinaryOp ValueTerm)*
+
+ValueTerm ::= PrimaryTerm MemberSuffix*
+
+PrimaryTerm ::= Literal | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+
+MemberSuffix ::= ("->" | "->>") (StringLiteral | IntegerLiteral)
+
+CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
+
+FunctionCall ::= (Identifier ".")? Identifier "(" ArgList? ")"
+
+ArgList ::= ScalarExpr ("," ScalarExpr)*
+
+Reference ::= Identifier ("." Identifier)?
+
+Alias ::= "AS" Identifier
+
+TableRef ::= Identifier ("." Identifier)?
+
+BinaryOp ::= "=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>"
+
+CastType ::= "TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB"
+
+/* Identifiers are matched after SQL normalization to uppercase in tests. */
+Identifier ::= [A-Z_][A-Z_0-9]*
+
+Literal ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL"
+
+StringLiteral ::= '"' ([#x20-#x21] | [#x23-#x5B] | [#x5D-#x7E])* '"' | "'" ([#x20-#x26] | [#x28-#x7E])* "'"
+
+IntegerLiteral ::= [0-9]+
+
+NumericLiteral ::= [0-9]+ ("." [0-9]+)?
+
+/* Explicit whitespace rule used by the runtime parser adapter. */
+WS ::= [#x20#x09#x0A#x0D]+

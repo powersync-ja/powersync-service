@@ -1,0 +1,36 @@
+parameters:
+  accepted:
+    - sql: SELECT token_parameters.user_id AS user_id
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = token_parameters.user_id
+    - sql: SELECT json_each.value AS tag FROM json_each(request.parameters() -> 'tags')
+
+  rejected_syntax:
+    # table aliases are not supported in parameter queries
+    - sql: SELECT u.org_id AS org_id FROM users u WHERE u.id = token_parameters.user_id
+      err: alias
+
+    # only json_each(...) table-valued functions are supported
+    - sql: SELECT x FROM generate_series(1, 3) AS x
+      err: not defined
+
+    - sql: SELECT token_parameters.user_id AS user_id LIMIT 1
+      err: LIMIT
+
+data:
+  accepted:
+    - sql: SELECT id FROM assets
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id
+      params: [user_id]
+
+  rejected_syntax:
+    - sql: SELECT assets.id FROM assets JOIN users ON users.id = assets.owner_id
+      err: single table
+
+  rejected_semantic:
+    - sql: SELECT upper(name) FROM assets
+      err: alias
+
+    # missing owner_id = bucket.user_id condition
+    - sql: SELECT id FROM assets
+      params: [user_id]
+      err: cover all bucket parameters
