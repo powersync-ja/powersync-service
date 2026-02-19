@@ -1,7 +1,6 @@
 import { describe, test } from 'vitest';
 import {
   assertGrammarExpectation,
-  assertMatrixExpectation,
   assertParserExpectation,
   loadFixtureFile,
   runGrammarChecker,
@@ -19,11 +18,5 @@ describe('grammar parity fixtures: sync_streams_alpha', () => {
   test.each(fixtures)('grammar contract: $slot/$kind/$label', (fixture) => {
     const outcome = runGrammarChecker(fixture);
     assertGrammarExpectation(fixture, outcome);
-  });
-
-  test.each(fixtures)('parser/grammar matrix: $slot/$kind/$label', (fixture) => {
-    const parserOutcome = runParser(fixture);
-    const grammarOutcome = runGrammarChecker(fixture);
-    assertMatrixExpectation(fixture, parserOutcome, grammarOutcome);
   });
 });

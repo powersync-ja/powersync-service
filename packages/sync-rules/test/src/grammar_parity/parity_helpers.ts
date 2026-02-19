@@ -140,23 +140,6 @@ export function assertGrammarExpectation(fixture: FixtureCase, outcome: Outcome)
   ).toMatchObject({ actual: fixture.grammarOk });
 }
 
-export function assertMatrixExpectation(fixture: FixtureCase, parserOutcome: Outcome, grammarOutcome: Outcome): void {
-  if (parserOutcome.accept === fixture.parserOk && grammarOutcome.accept === fixture.grammarOk) {
-    return;
-  }
-
-  expect.fail(
-    [
-      `Parser/grammar matrix mismatch for ${fixtureRef(fixture)}`,
-      `Expected matrix: parser=${fixture.parserOk}, grammar=${fixture.grammarOk}`,
-      `Actual matrix: parser=${parserOutcome.accept}, grammar=${grammarOutcome.accept}`,
-      `Parser messages: ${formatMessages(parserOutcome.messages)}`,
-      `Grammar messages: ${formatMessages(grammarOutcome.messages)}`,
-      `SQL: ${fixture.sql}`
-    ].join('\n')
-  );
-}
-
 export function fixtureRef(fixture: FixtureCase): string {
   return `${fixture.mode}/${fixture.slot}/${fixture.kind}/${fixture.label}`;
 }
