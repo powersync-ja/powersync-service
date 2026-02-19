@@ -170,7 +170,7 @@ export class BinLogStream {
       } finally {
         connection.release();
       }
-      const [table] = await batch.markSnapshotDone([result.table], gtid.comparable);
+      const [table] = await batch.markTableSnapshotDone([result.table], gtid.comparable);
       return table;
     }
 
@@ -275,10 +275,12 @@ export class BinLogStream {
             const tables = await this.getQualifiedTableNames(batch, tablePattern);
             for (let table of tables) {
               await this.snapshotTable(connection as mysql.Connection, batch, table);
-              await batch.markSnapshotDone([table], headGTID.comparable);
+              await batch.markTableSnapshotDone([table], headGTID.comparable);
               await framework.container.probes.touch();
             }
           }
+          const snapshotDoneGtid = await common.readExecutedGtid(promiseConnection);
+          await batch.markAllSnapshotDone(snapshotDoneGtid.comparable);
           await batch.commit(headGTID.comparable);
         }
       );
@@ -322,7 +324,10 @@ export class BinLogStream {
 
     for await (let row of stream) {
       if (this.stopped) {
-        throw new ReplicationAbortedError('Abort signal received - initial replication interrupted.');
+        throw new ReplicationAbortedError(
+          'Abort signal received - initial replication interrupted.',
+          this.abortSignal.reason
+        );
       }
 
       if (columns == null) {
@@ -467,15 +472,17 @@ export class BinLogStream {
         });
       },
       onKeepAlive: async (lsn: string) => {
-        const didCommit = await batch.keepalive(lsn);
-        if (didCommit) {
+        const { checkpointBlocked } = await batch.keepalive(lsn);
+        if (!checkpointBlocked) {
           this.oldestUncommittedChange = null;
         }
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-        const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
-        if (didCommit) {
+        const { checkpointBlocked } = await batch.commit(lsn, {
+          oldestUncommittedChange: this.oldestUncommittedChange
+        });
+        if (!checkpointBlocked) {
           this.oldestUncommittedChange = null;
           this.isStartingReplication = false;
         }

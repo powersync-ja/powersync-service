@@ -35,6 +35,12 @@ export interface CurrentDataDocument {
   data: bson.Binary;
   buckets: CurrentBucket[];
   lookups: bson.Binary[];
+  /**
+   * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
+   *
+   * This must only be set if buckets = [], lookups = [].
+   */
+  pending_delete?: bigint;
 }
 
 export interface CurrentBucket {

@@ -40,9 +40,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
 
     const start = Date.now();
 
-    context.startStreaming();
-
-    const checksum = await context.getChecksums(['global[]'], { timeout: 50_000 });
+    const checksum = await context.getChecksums(['global[]'], { timeout: 100_000 });
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
     expect(checksum.get('global[]')!.count).toEqual(operation_count);
@@ -87,7 +85,6 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
       const start = Date.now();
 
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const checksum = await context.getChecksums(['global[]'], { timeout: 100_000 });
       const duration = Date.now() - start;
@@ -137,8 +134,6 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     }
 
     const start = Date.now();
-
-    context.startStreaming();
 
     const checksum = await context.getChecksums(['global[]']);
     const duration = Date.now() - start;
@@ -222,7 +217,6 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     });
     await context.replicateSnapshot();
 
-    context.startStreaming();
     const checksum = await context.getChecksums(['global[]'], { timeout: 50_000 });
     expect(checksum.get('global[]')!.count).toEqual((numDocs + 2) * 4);
   });

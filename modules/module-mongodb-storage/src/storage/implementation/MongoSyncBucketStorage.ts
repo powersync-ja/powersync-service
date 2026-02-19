@@ -186,7 +186,6 @@ export class MongoSyncBucketStorage
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
       resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
-      noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
@@ -576,7 +575,7 @@ export class MongoSyncBucketStorage
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
     while (true) {
       if (options?.signal?.aborted) {
-        throw new ReplicationAbortedError('Aborted clearing data');
+        throw new ReplicationAbortedError('Aborted clearing data', options.signal.reason);
       }
       try {
         await this.clearIteration();

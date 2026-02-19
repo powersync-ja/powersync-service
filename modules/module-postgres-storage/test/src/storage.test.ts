@@ -1,5 +1,5 @@
 import { storage } from '@powersync/service-core';
-import { bucketRequestMap, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequestMap, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
 
@@ -24,7 +24,7 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    await using factory = await POSTGRES_STORAGE_FACTORY();
+    await using factory = await POSTGRES_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules({
       content: `
     bucket_definitions:
@@ -36,7 +36,7 @@ describe('Postgres Sync Bucket Storage - pg-specific', () => {
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      const sourceTable = TEST_TABLE;
+      const sourceTable = test_utils.makeTestTable('test', ['id'], POSTGRES_STORAGE_FACTORY);
 
       const largeDescription = '0123456789'.repeat(2_000_00);
 

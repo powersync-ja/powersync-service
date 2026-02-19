@@ -1,7 +1,4 @@
 import { storage } from '@powersync/service-core';
-import { test_utils } from '../index.js';
-
-export const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
 export function bucketRequest(syncRules: storage.PersistedSyncRulesContent, bucketName: string): string {
   if (/^\d+#/.test(bucketName)) {

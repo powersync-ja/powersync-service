@@ -167,3 +167,8 @@ export interface TestStorageOptions {
 }
 export type TestStorageFactory = (options?: TestStorageOptions) => Promise<BucketStorageFactory>;
 export type TestReportStorageFactory = (options?: TestStorageOptions) => Promise<ReportStorage>;
+
+export interface TestStorageConfig {
+  factory: TestStorageFactory;
+  tableIdStrings: boolean;
+}

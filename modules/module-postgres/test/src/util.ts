@@ -7,6 +7,7 @@ import {
   CURRENT_STORAGE_VERSION,
   InternalOpId,
   LEGACY_STORAGE_VERSION,
+  TestStorageConfig,
   TestStorageFactory
 } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
@@ -22,7 +23,7 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoT
   isCI: env.CI
 });
 
-export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestStorageFactoryGenerator({
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL
 });
 
@@ -34,12 +35,12 @@ export interface StorageVersionTestContext {
 }
 
 export function describeWithStorage(options: TestOptions, fn: (context: StorageVersionTestContext) => void) {
-  const describeFactory = (storageName: string, factory: TestStorageFactory) => {
+  const describeFactory = (storageName: string, config: TestStorageConfig) => {
     describe(`${storageName} storage`, options, function () {
       for (const storageVersion of TEST_STORAGE_VERSIONS) {
         describe(`storage v${storageVersion}`, function () {
           fn({
-            factory,
+            factory: config.factory,
             storageVersion
           });
         });

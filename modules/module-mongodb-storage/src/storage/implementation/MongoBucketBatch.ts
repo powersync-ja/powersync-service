@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqlEventDescriptor, SqliteRow, SqliteValue, HydratedSyncRules } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -14,15 +14,17 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageMarkRecordUnavailable,
+  CheckpointResult,
   deserializeBson,
   InternalOpId,
   isCompleteRow,
   SaveOperationTag,
   storage,
+  SyncRuleState,
   utils
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
-import { idPrefixFilter } from '../../utils/util.js';
+import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 import { PowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
@@ -42,6 +44,8 @@ export const MAX_ROW_SIZE = 15 * 1024 * 1024;
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new utils.Mutex();
 
+export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
+
 export interface MongoBucketBatchOptions {
   db: PowerSyncMongo;
   syncRules: HydratedSyncRules;
@@ -49,7 +53,6 @@ export interface MongoBucketBatchOptions {
   slotName: string;
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
-  noCheckpointBeforeLsn: string;
   resumeFromLsn: string | null;
   storeCurrentData: boolean;
   /**
@@ -93,8 +96,6 @@ export class MongoBucketBatch
    */
   private last_checkpoint_lsn: string | null = null;
 
-  private no_checkpoint_before_lsn: string;
-
   private persisted_op: InternalOpId | null = null;
 
   /**
@@ -123,7 +124,6 @@ export class MongoBucketBatch
     this.db = options.db;
     this.group_id = options.groupId;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
-    this.no_checkpoint_before_lsn = options.noCheckpointBeforeLsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.session = this.client.startSession();
     this.slot_name = options.slotName;
@@ -145,10 +145,6 @@ export class MongoBucketBatch
 
   get lastCheckpointLsn() {
     return this.last_checkpoint_lsn;
-  }
-
-  get noCheckpointBeforeLsn() {
-    return this.no_checkpoint_before_lsn;
   }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
@@ -217,7 +213,7 @@ export class MongoBucketBatch
       // the order of processing, which then becomes really tricky to manage.
       // This now takes 2+ queries, but doesn't have any issues with order of operations.
       const sizeLookups: SourceKey[] = batch.batch.map((r) => {
-        return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
+        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
       });
 
       sizes = new Map<string, number>();
@@ -260,7 +256,7 @@ export class MongoBucketBatch
         continue;
       }
       const lookups: SourceKey[] = b.map((r) => {
-        return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
+        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
       });
       let current_data_lookup = new Map<string, CurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
@@ -340,7 +336,7 @@ export class MongoBucketBatch
     let existing_lookups: bson.Binary[] = [];
     let new_lookups: bson.Binary[] = [];
 
-    const before_key: SourceKey = { g: this.group_id, t: record.sourceTable.id, k: beforeId };
+    const before_key: SourceKey = { g: this.group_id, t: mongoTableId(record.sourceTable.id), k: beforeId };
 
     if (this.skipExistingRows) {
       if (record.tag == SaveOperationTag.INSERT) {
@@ -403,7 +399,7 @@ export class MongoBucketBatch
 
     let afterData: bson.Binary | undefined;
     if (afterId != null && !this.storeCurrentData) {
-      afterData = new bson.Binary(bson.serialize({}));
+      afterData = EMPTY_DATA;
     } else if (afterId != null) {
       try {
         // This will fail immediately if the record is > 16MB.
@@ -551,7 +547,7 @@ export class MongoBucketBatch
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key: SourceKey = { g: this.group_id, t: sourceTable.id, k: afterId };
+      const after_key: SourceKey = { g: this.group_id, t: mongoTableId(sourceTable.id), k: afterId };
       batch.upsertCurrentData(after_key, {
         data: afterData,
         buckets: new_buckets,
@@ -567,7 +563,10 @@ export class MongoBucketBatch
 
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
-      batch.deleteCurrentData(before_key);
+      // Note that this is a soft delete.
+      // We don't specifically need a new or unique op_id here, but it must be greater than the
+      // last checkpoint, so we use next().
+      batch.softDeleteCurrentData(before_key, opSeq.next());
     }
     return result;
   }
@@ -670,69 +669,12 @@ export class MongoBucketBatch
 
   private lastWaitingLogThottled = 0;
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
     await this.flush(options);
 
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // When re-applying transactions, don't create a new checkpoint until
-      // we are past the last transaction.
-      this.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
-      // Cannot create a checkpoint yet - return false
-      return false;
-    }
-    if (lsn < this.no_checkpoint_before_lsn) {
-      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
-        this.logger.info(
-          `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
-        );
-        this.lastWaitingLogThottled = Date.now();
-      }
-
-      // Edge case: During initial replication, we have a no_checkpoint_before_lsn set,
-      // and don't actually commit the snapshot.
-      // The first commit can happen from an implicit keepalive message.
-      // That needs the persisted_op to get an accurate checkpoint, so
-      // we persist that in keepalive_op.
-
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.group_id
-        },
-        {
-          $set: {
-            keepalive_op: this.persisted_op == null ? null : String(this.persisted_op)
-          }
-        },
-        { session: this.session }
-      );
-      await this.db.notifyCheckpoint();
-
-      // Cannot create a checkpoint yet - return false
-      return false;
-    }
-
-    if (!createEmptyCheckpoints && this.persisted_op == null) {
-      // Nothing to commit - also return true
-      await this.autoActivate(lsn);
-      return true;
-    }
-
     const now = new Date();
-    const update: Partial<SyncRuleDocument> = {
-      last_checkpoint_lsn: lsn,
-      last_checkpoint_ts: now,
-      last_keepalive_ts: now,
-      snapshot_done: true,
-      last_fatal_error: null,
-      last_fatal_error_ts: null,
-      keepalive_op: null
-    };
-
-    if (this.persisted_op != null) {
-      update.last_checkpoint = this.persisted_op;
-    }
 
     // Mark relevant write checkpoints as "processed".
     // This makes it easier to identify write checkpoints that are "valid" in order.
@@ -751,21 +693,166 @@ export class MongoBucketBatch
       }
     );
 
-    await this.db.sync_rules.updateOne(
+    const can_checkpoint = {
+      $and: [
+        { $eq: ['$snapshot_done', true] },
+        {
+          $or: [{ $eq: ['$last_checkpoint_lsn', null] }, { $lte: ['$last_checkpoint_lsn', { $literal: lsn }] }]
+        },
+        {
+          $or: [{ $eq: ['$no_checkpoint_before', null] }, { $lte: ['$no_checkpoint_before', { $literal: lsn }] }]
+        }
+      ]
+    };
+
+    const new_keepalive_op = {
+      $cond: [
+        can_checkpoint,
+        { $literal: null },
+        {
+          $toString: {
+            $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }, 0n]
+          }
+        }
+      ]
+    };
+
+    const new_last_checkpoint = {
+      $cond: [
+        can_checkpoint,
+        {
+          $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }, 0n]
+        },
+        '$last_checkpoint'
+      ]
+    };
+
+    let filter: mongo.Filter<SyncRuleDocument> = { _id: this.group_id };
+    if (!createEmptyCheckpoints) {
+      // Only create checkpoint if we have new data
+      filter = {
+        _id: this.group_id,
+        $expr: {
+          $or: [{ $ne: ['$keepalive_op', new_keepalive_op] }, { $ne: ['$last_checkpoint', new_last_checkpoint] }]
+        }
+      };
+    }
+
+    // For this query, we need to handle multiple cases, depending on the state:
+    // 1. Normal commit - advance last_checkpoint to this.persisted_op.
+    // 2. Commit delayed by no_checkpoint_before due to snapshot. In this case we only advance keepalive_op.
+    // 3. Commit with no new data - here may may set last_checkpoint = keepalive_op, if a delayed commit is relevant.
+    // We want to do as much as possible in a single atomic database operation, which makes this somewhat complex.
+    let updateResult = await this.db.sync_rules.findOneAndUpdate(
+      filter,
+      [
+        {
+          $set: {
+            _can_checkpoint: can_checkpoint
+          }
+        },
+        {
+          $set: {
+            last_checkpoint_lsn: {
+              $cond: ['$_can_checkpoint', { $literal: lsn }, '$last_checkpoint_lsn']
+            },
+            last_checkpoint_ts: {
+              $cond: ['$_can_checkpoint', { $literal: now }, '$last_checkpoint_ts']
+            },
+            last_keepalive_ts: { $literal: now },
+            last_fatal_error: { $literal: null },
+            last_fatal_error_ts: { $literal: null },
+            keepalive_op: new_keepalive_op,
+            last_checkpoint: new_last_checkpoint,
+            // Unset snapshot_lsn on checkpoint
+            snapshot_lsn: {
+              $cond: ['$_can_checkpoint', { $literal: null }, '$snapshot_lsn']
+            }
+          }
+        },
+        {
+          $unset: '_can_checkpoint'
+        }
+      ],
       {
-        _id: this.group_id
-      },
-      {
-        $set: update,
-        $unset: { snapshot_lsn: 1 }
-      },
-      { session: this.session }
+        session: this.session,
+        returnDocument: 'after',
+        projection: {
+          snapshot_done: 1,
+          last_checkpoint_lsn: 1,
+          no_checkpoint_before: 1,
+          keepalive_op: 1,
+          last_checkpoint: 1
+        }
+      }
     );
-    await this.autoActivate(lsn);
-    await this.db.notifyCheckpoint();
-    this.persisted_op = null;
-    this.last_checkpoint_lsn = lsn;
-    return true;
+    const checkpointCreated =
+      updateResult != null &&
+      updateResult.snapshot_done === true &&
+      updateResult.last_checkpoint_lsn === lsn &&
+      updateResult.last_checkpoint != null;
+
+    // If updateResult == null, the checkpoint was not created due to no data, not due to being blocked.
+    const checkpointBlocked = !checkpointCreated && updateResult != null;
+
+    if (updateResult == null || !checkpointCreated) {
+      // Failed on snapshot_done or no_checkpoint_before.
+      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
+        // This is for debug info only.
+        if (updateResult == null) {
+          const existing = await this.db.sync_rules.findOne(
+            { _id: this.group_id },
+            {
+              session: this.session,
+              projection: {
+                snapshot_done: 1,
+                last_checkpoint_lsn: 1,
+                no_checkpoint_before: 1,
+                keepalive_op: 1,
+                last_checkpoint: 1
+              }
+            }
+          );
+          if (existing == null) {
+            throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
+          }
+          // No-op update - reuse existing document for downstream logic.
+          // This can happen when last_checkpoint and keepalive_op would remain unchanged.
+          updateResult = existing;
+        }
+
+        this.logger.info(
+          `Waiting before creating checkpoint, currently at ${lsn} / ${updateResult.keepalive_op}. Current state: ${JSON.stringify(
+            {
+              snapshot_done: updateResult.snapshot_done,
+              last_checkpoint_lsn: updateResult.last_checkpoint_lsn,
+              no_checkpoint_before: updateResult.no_checkpoint_before
+            }
+          )}`
+        );
+        this.lastWaitingLogThottled = Date.now();
+      }
+    } else {
+      this.logger.debug(`Created checkpoint at ${lsn} / ${updateResult.last_checkpoint}`);
+      await this.autoActivate(lsn);
+      await this.db.notifyCheckpoint();
+      this.persisted_op = null;
+      this.last_checkpoint_lsn = lsn;
+      await this.cleanupCurrentData(updateResult.last_checkpoint!);
+    }
+    return { checkpointBlocked };
+  }
+
+  private async cleanupCurrentData(lastCheckpoint: bigint) {
+    const result = await this.db.current_data.deleteMany({
+      '_id.g': this.group_id,
+      pending_delete: { $exists: true, $lte: lastCheckpoint }
+    });
+    if (result.deletedCount > 0) {
+      this.logger.info(
+        `Cleaned up ${result.deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`
+      );
+    }
   }
 
   /**
@@ -785,7 +872,7 @@ export class MongoBucketBatch
     let activated = false;
     await session.withTransaction(async () => {
       const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
-      if (doc && doc.state == 'PROCESSING') {
+      if (doc && doc.state == SyncRuleState.PROCESSING && doc.snapshot_done && doc.last_checkpoint != null) {
         await this.db.sync_rules.updateOne(
           {
             _id: this.group_id
@@ -811,68 +898,19 @@ export class MongoBucketBatch
           { session }
         );
         activated = true;
+      } else if (doc?.state != SyncRuleState.PROCESSING) {
+        this.needsActivation = false;
       }
     });
     if (activated) {
       this.logger.info(`Activated new sync rules at ${lsn}`);
       await this.db.notifyCheckpoint();
+      this.needsActivation = false;
     }
-    this.needsActivation = false;
   }
 
-  async keepalive(lsn: string): Promise<boolean> {
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // No-op
-      return false;
-    }
-
-    if (lsn < this.no_checkpoint_before_lsn) {
-      return false;
-    }
-
-    if (this.persisted_op != null) {
-      // The commit may have been skipped due to "no_checkpoint_before_lsn".
-      // Apply it now if relevant
-      this.logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
-      return await this.commit(lsn);
-    }
-
-    await this.db.write_checkpoints.updateMany(
-      {
-        processed_at_lsn: null,
-        'lsns.1': { $lte: lsn }
-      },
-      {
-        $set: {
-          processed_at_lsn: lsn
-        }
-      },
-      {
-        session: this.session
-      }
-    );
-
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          last_checkpoint_lsn: lsn,
-          snapshot_done: true,
-          last_fatal_error: null,
-          last_fatal_error_ts: null,
-          last_keepalive_ts: new Date()
-        },
-        $unset: { snapshot_lsn: 1 }
-      },
-      { session: this.session }
-    );
-    await this.autoActivate(lsn);
-    await this.db.notifyCheckpoint();
-    this.last_checkpoint_lsn = lsn;
-
-    return true;
+  async keepalive(lsn: string): Promise<CheckpointResult> {
+    return await this.commit(lsn, { createEmptyCheckpoints: true });
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
@@ -938,7 +976,7 @@ export class MongoBucketBatch
 
     await this.withTransaction(async () => {
       for (let table of sourceTables) {
-        await this.db.source_tables.deleteOne({ _id: table.id });
+        await this.db.source_tables.deleteOne({ _id: mongoTableId(table.id) });
       }
     });
     return result;
@@ -973,7 +1011,9 @@ export class MongoBucketBatch
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
         const current_data_filter: mongo.Filter<CurrentDataDocument> = {
-          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: sourceTable.id }, ['k'])
+          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: mongoTableId(sourceTable.id) }, ['k']),
+          // Skip soft-deleted data
+          pending_delete: { $exists: false }
         };
 
         const cursor = this.db.current_data.find(current_data_filter, {
@@ -1004,7 +1044,8 @@ export class MongoBucketBatch
             sourceKey: value._id.k
           });
 
-          persistedBatch.deleteCurrentData(value._id);
+          // Since this is not from streaming replication, we can do a hard delete
+          persistedBatch.hardDeleteCurrentData(value._id);
         }
         await persistedBatch.flush(this.db, session);
         lastBatchCount = batch.length;
@@ -1030,7 +1071,7 @@ export class MongoBucketBatch
 
     await this.withTransaction(async () => {
       await this.db.source_tables.updateOne(
-        { _id: table.id },
+        { _id: mongoTableId(table.id) },
         {
           $set: {
             snapshot_status: {
@@ -1047,9 +1088,41 @@ export class MongoBucketBatch
     return copy;
   }
 
-  async markSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn: string) {
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string) {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          snapshot_done: true,
+          last_keepalive_ts: new Date()
+        },
+        $max: {
+          no_checkpoint_before: no_checkpoint_before_lsn
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          snapshot_done: false
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async markTableSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn?: string) {
     const session = this.session;
-    const ids = tables.map((table) => table.id);
+    const ids = tables.map((table) => mongoTableId(table.id));
 
     await this.withTransaction(async () => {
       await this.db.source_tables.updateMany(
@@ -1065,17 +1138,17 @@ export class MongoBucketBatch
         { session }
       );
 
-      if (no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
-        this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-
+      if (no_checkpoint_before_lsn != null) {
         await this.db.sync_rules.updateOne(
           {
             _id: this.group_id
           },
           {
             $set: {
-              no_checkpoint_before: no_checkpoint_before_lsn,
               last_keepalive_ts: new Date()
+            },
+            $max: {
+              no_checkpoint_before: no_checkpoint_before_lsn
             }
           },
           { session: this.session }
