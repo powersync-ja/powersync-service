@@ -663,11 +663,13 @@ export class CDCStream {
   }
 
   async handleSchemaChange(batch: storage.BucketStorageBatch, change: SchemaChange): Promise<void> {
+    let actionedSchemaChange = true;
+
     switch (change.type) {
       case SchemaChangeType.TABLE_RENAME:
         const fromTable = change.table!;
         this.logger.info(
-          `Table ${fromTable.sourceTable.name} has been renamed ${change.newTable ? `to ${change.newTable.name}` : ''}`
+          `Table ${fromTable.toQualifiedName()} has been renamed ${change.newTable ? `to [${change.newTable.name}].` : '.'}`
         );
 
         // Old table needs to be cleaned up
@@ -683,10 +685,11 @@ export class CDCStream {
         break;
       case SchemaChangeType.TABLE_COLUMN_CHANGES:
         await this.handleColumnChanges(change.table!, change.newCaptureInstance!);
+        actionedSchemaChange = false;
         break;
       case SchemaChangeType.NEW_CAPTURE_INSTANCE:
         this.logger.info(
-          `New capture instance detected for table ${change.table!.toQualifiedName()}. Re-snapshotting table...`
+          `New CDC capture instance detected for table ${change.table!.toQualifiedName()}. Re-snapshotting table...`
         );
         await batch.drop([change.table!.sourceTable]);
         this.tableCache.delete(change.table!.objectId);
@@ -699,21 +702,20 @@ export class CDCStream {
         break;
       case SchemaChangeType.MISSING_CAPTURE_INSTANCE:
         // Stop replication for this table until CDC is re-enabled.
-        if (change.table?.captureInstance) {
-          this.logger.warn(
-            `Table ${change.table!.toQualifiedName()} has no active capture instance. Re-enable CDC to continue replication.`
-          );
-          change.table!.clearCaptureInstance();
-        } else {
-          this.logger.warn(`Table ${change.table!.toQualifiedName()} still has no capture instance. `);
-        }
+        this.logger.warn(
+          `Table ${change.table!.toQualifiedName()} has been disabled for CDC. Re-enable CDC to continue replication.`
+        );
+        change.table!.clearCaptureInstance();
+        actionedSchemaChange = false;
         break;
       default:
         throw new ReplicationAssertionError(`Unknown schema change type: ${change.type}`);
     }
 
     // Create a new checkpoint after the schema change
-    await createCheckpoint(this.connections);
+    if (actionedSchemaChange) {
+      await createCheckpoint(this.connections);
+    }
   }
 
   private async handleCreateOrUpdateTable(
