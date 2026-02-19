@@ -320,6 +320,7 @@ export class PostgresToSqlite {
           low: this.translateNodeWithLocation(expr.lo),
           high: this.translateNodeWithLocation(expr.hi)
         };
+        this.options.locations.sourceForNode.set(between, expr);
 
         return expr.op === 'BETWEEN' ? between : { type: 'unary', operator: 'not', operand: between };
       }
