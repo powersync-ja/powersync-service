@@ -1790,7 +1790,7 @@ exports[`new sync stream features > not in array 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
