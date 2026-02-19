@@ -21,6 +21,9 @@ query:
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND id = id
 
   rejected_syntax:
+    # double quotes denote identifiers, not string literals
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.parameter("owner_id"))
+
     # parser: GROUP BY is not supported
     - sql: SELECT id FROM comments GROUP BY id
       err: GROUP BY

@@ -28,6 +28,9 @@ query:
     - sql: SELECT * FROM users WHERE id && (SELECT id FROM users WHERE id IS NOT NULL)
 
   rejected_syntax:
+    # double quotes denote identifiers, not string literals
+    - sql: SELECT * FROM users WHERE id = auth.parameter("id")
+
     # parser: FULL JOIN is not supported
     - sql: SELECT u.* FROM users u FULL JOIN orgs o ON u.org_id = o.id
       err: JOIN

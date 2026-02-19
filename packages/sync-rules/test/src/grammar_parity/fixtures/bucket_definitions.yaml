@@ -28,6 +28,9 @@ parameters:
     - sql: SELECT u.org_id AS org_id FROM users u WHERE u.id = token_parameters.user_id
       err: alias
 
+    # double quotes denote identifiers, not string literals
+    - sql: SELECT request.parameter("tenant_id") AS tenant_id
+
     # only json_each(...) table-valued functions are supported
     # parser: Table-valued function generate_series is not defined.
     - sql: SELECT x FROM generate_series(1, 3) AS x

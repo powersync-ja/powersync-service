@@ -85,7 +85,7 @@ Identifier ::= [A-Z_][A-Z_0-9]*
 
 Literal ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL"
 
-StringLiteral ::= '"' ([#x20-#x21] | [#x23-#x5B] | [#x5D-#x7E])* '"' | "'" ([#x20-#x26] | [#x28-#x7E])* "'"
+StringLiteral ::= "'" ([#x20-#x26] | [#x28-#x7E])* "'"
 
 IntegerLiteral ::= [0-9]+
 
