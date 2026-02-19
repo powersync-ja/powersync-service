@@ -7,8 +7,6 @@
     - bucket_definitions.<bucket_name>.data[]
 */
 
-BucketDefinitionSql ::= ParameterQuery | DataQuery
-
 /* Parameter-query SQL forms used under bucket_definitions.<name>.parameters */
 ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParameterQuery
 

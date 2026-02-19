@@ -9,8 +9,6 @@
     - YAML keys `with` and `queries` are not supported in this mode.
 */
 
-SyncStreamsAlphaSql ::= SyncStreamsAlphaQuery
-
 /* SQL form used under streams.<name>.query in sync streams alpha mode */
 SyncStreamsAlphaQuery ::= "SELECT" StreamSelectList "FROM" TableRef ("WHERE" StreamWhereExpr)?
 

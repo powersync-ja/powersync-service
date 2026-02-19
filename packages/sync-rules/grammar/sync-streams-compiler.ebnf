@@ -10,8 +10,6 @@
     - This grammar is used when config.sync_config_compiler = true (and edition >= 2)
 */
 
-SyncStreamsCompilerSql ::= CompilerStreamQuery | CompilerSubquery | CompilerCteSubquery
-
 /* Top-level stream query form: streams.<name>.query / streams.<name>.queries[] */
 CompilerStreamQuery ::= "SELECT" ResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
 
