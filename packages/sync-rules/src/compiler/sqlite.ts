@@ -242,6 +242,7 @@ export class PostgresToSqlite {
           this.options.errors.report('LIKE expressions are not currently supported.', expr);
           return { type: 'function', function: 'like', parameters: [left, right] };
         } else if (expr.op === 'NOT LIKE') {
+          this.options.errors.report('LIKE expressions are not currently supported.', expr);
           return this.negate(expr, { type: 'function', function: 'like', parameters: [left, right] });
         } else if (expr.op === '!=') {
           const equals: SqlExpression<ExpressionInput> = { type: 'binary', left, right, operator: '=' };
