@@ -21,14 +21,14 @@ BucketDefinitionSql ::= ParameterQuery | DataQuery
 /* Parameter-query SQL forms used under bucket_definitions.<name>.parameters */
 ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParameterQuery
 
-StaticParameterQuery ::= "SELECT" SelectList ("WHERE" ParameterExpr)?
+StaticParameterQuery ::= "SELECT" SelectList ("WHERE" MatchExpr)?
 
 TableParameterQuery ::= "SELECT" SelectList "FROM" TableRef ("WHERE" MatchExpr)?
 
 /* Only json_each(...) table-valued FROM is supported in this mode. */
-TableValuedParameterQuery ::= "SELECT" SelectList "FROM" JsonEachCall Alias? ("WHERE" ParameterExpr)?
+TableValuedParameterQuery ::= "SELECT" SelectList "FROM" JsonEachCall Alias? ("WHERE" MatchExpr)?
 
-JsonEachCall ::= "JSON_EACH" "(" ParameterExpr ")"
+JsonEachCall ::= "JSON_EACH" "(" ScalarExpr ")"
 
 /* Data-query SQL forms used under bucket_definitions.<name>.data[] */
 DataQuery ::= "SELECT" DataSelectList "FROM" TableRef ("WHERE" DataMatchExpr)?
@@ -45,8 +45,6 @@ Alias ::= "AS" Identifier
 
 TableRef ::= Identifier ("." Identifier)?
 
-ParameterExpr ::= ScalarExpr
-
 DataMatchExpr ::= MatchExpr
 
 MatchExpr ::= OrExpr
@@ -56,7 +54,9 @@ OrExpr ::= AndExpr ("OR" AndExpr)*
 
 AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
 
-UnaryExpr ::= "NOT"? Predicate
+UnaryExpr ::= "NOT"? MatchAtom
+
+MatchAtom ::= Predicate | "(" MatchExpr ")"
 
 Predicate ::= ScalarExpr PredicateTail | ScalarExpr
 
@@ -69,7 +69,7 @@ ValueTerm ::= PrimaryTerm MemberSuffix*
 
 PrimaryTerm ::= Literal | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
 
-MemberSuffix ::= ("->" | "->>") (StringLiteral | IntegerLiteral)
+MemberSuffix ::= ("->>" | "->") (StringLiteral | IntegerLiteral)
 
 CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
 

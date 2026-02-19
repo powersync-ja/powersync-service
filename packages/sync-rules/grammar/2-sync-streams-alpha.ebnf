@@ -31,7 +31,9 @@ OrExpr ::= AndExpr ("OR" AndExpr)*
 
 AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
 
-UnaryExpr ::= "NOT"? StreamPredicate
+UnaryExpr ::= "NOT"? StreamMatchAtom
+
+StreamMatchAtom ::= StreamPredicate | "(" StreamWhereExpr ")"
 
 StreamPredicate ::= ScalarExpr StreamPredicateTail | ScalarExpr
 
@@ -51,7 +53,7 @@ SubqueryAndExpr ::= SubqueryPredicate ("AND" SubqueryPredicate)*
 
 SubqueryPredicate ::= ScalarExpr SubqueryPredicateTail | ScalarExpr
 
-SubqueryPredicateTail ::= "=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr
+SubqueryPredicateTail ::= "=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL"
 
 /* Scalar expression subset (sql_filters/sql_functions) */
 ScalarExpr ::= ValueTerm (BinaryOp ValueTerm)*
@@ -60,7 +62,7 @@ ValueTerm ::= PrimaryTerm MemberSuffix*
 
 PrimaryTerm ::= Literal | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
 
-MemberSuffix ::= ("->" | "->>") (StringLiteral | IntegerLiteral)
+MemberSuffix ::= ("->>" | "->") (StringLiteral | IntegerLiteral)
 
 CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
 

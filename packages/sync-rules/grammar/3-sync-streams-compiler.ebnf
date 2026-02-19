@@ -28,7 +28,7 @@ ResultColumn ::= "*" | Reference "." "*" | ScalarExpr Alias?
 
 FromContinuation ::= "," FromSource | JoinClause
 
-FromSource ::= TableSource | TableValuedSource | SubquerySource
+FromSource ::= TableValuedSource | SubquerySource | TableSource
 
 /* Table and table-valued sources may be unaliased or AS-aliased */
 TableSource ::= TableRef Alias | TableRef
@@ -49,7 +49,9 @@ OrExpr ::= AndExpr ("OR" AndExpr)*
 
 AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
 
-UnaryExpr ::= "NOT"? Predicate
+UnaryExpr ::= "NOT"? WhereAtom
+
+WhereAtom ::= Predicate | "(" WhereExpr ")"
 
 Predicate ::= ScalarExpr PredicateTail | ScalarExpr
 
@@ -77,12 +79,18 @@ ValueTerm ::= PrimaryTerm MemberSuffix*
 
 PrimaryTerm ::= Literal | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
 
-MemberSuffix ::= ("->" | "->>") (StringLiteral | IntegerLiteral)
+MemberSuffix ::= ("->>" | "->") (StringLiteral | IntegerLiteral)
 
 CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
 
 /* CASE expression subset supported by compiler parser */
-CaseExpr ::= "CASE" ScalarExpr? "WHEN" ScalarExpr "THEN" ScalarExpr ("WHEN" ScalarExpr "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+CaseExpr ::= SearchedCaseExpr | SimpleCaseExpr
+
+SearchedCaseExpr ::= "CASE" "WHEN" CaseCondition "THEN" ScalarExpr ("WHEN" CaseCondition "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+
+SimpleCaseExpr ::= "CASE" ScalarExpr "WHEN" ScalarExpr "THEN" ScalarExpr ("WHEN" ScalarExpr "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+
+CaseCondition ::= OrExpr
 
 FunctionCall ::= (Identifier ".")? Identifier "(" ArgList? ")"
 
