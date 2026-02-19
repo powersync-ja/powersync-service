@@ -30,11 +30,10 @@ This file is the working contract for agents modifying `module-convex`.
 - The overall system must ensure causal consistency of replicated data in bucket storage.
 
 ## 4) LSN and Cursor Rules
-- Never assume Convex cursors are numeric-only.
-- Supported cursor shapes include:
-  - decimal numeric timestamp strings,
-  - opaque strings.
-- Persist LSNs using `ConvexLSN` comparable format (`mode + sortable key + encoded cursor`).
+- Convex snapshot and delta cursors are always `i64` timestamps (serialized as decimal numeric strings in JSON).
+- `ConvexLSN.fromCursor` rejects non-numeric cursors.
+- The `list_snapshot` pagination cursor is a separate JSON-serialized `{tablet, id}` string — it is pagination state, not a replication cursor.
+- Persist LSNs using `ConvexLSN` comparable format (`n` + zero-padded timestamp + `|` + base64url-encoded cursor).
 - Keep raw cursor round-trip safe.
 
 ## 5) API Client Contract

@@ -1,12 +1,9 @@
 const CURSOR_WIDTH = 20;
 const DELIMITER = '|';
 
-type CursorMode = 'numeric' | 'opaque';
-
 export interface ConvexLSNSpecification {
   cursor: string;
-  mode: CursorMode;
-  sortKey: bigint;
+  timestamp: bigint;
 }
 
 export class ConvexLSN {
@@ -14,18 +11,16 @@ export class ConvexLSN {
 
   static fromSerialized(comparable: string): ConvexLSN {
     if (!comparable.includes(DELIMITER)) {
-      // Bare cursor string (no encoded format). Treat as a raw cursor.
       return ConvexLSN.fromCursor(comparable);
     }
 
     const [first, second] = comparable.split(DELIMITER, 2);
-    const prefixed = first.match(/^([no])([0-9]+)$/);
+    const prefixed = first.match(/^[no]([0-9]+)$/);
     if (prefixed && second != null) {
       const decoded = decodeCursor(second);
       return ConvexLSN.fromCursor(decoded);
     }
 
-    // Unrecognized format: treat entire input as an opaque cursor.
     return ConvexLSN.fromCursor(comparable);
   }
 
@@ -35,20 +30,17 @@ export class ConvexLSN {
       throw new Error('Convex cursor cannot be empty');
     }
 
-    const numericSortKey = getNumericSortKey(asString);
-    const mode: CursorMode = numericSortKey == null ? 'opaque' : 'numeric';
-
+    const ts = parseTimestamp(asString);
     return new ConvexLSN({
       cursor: asString,
-      mode,
-      sortKey: numericSortKey ?? 0n
+      timestamp: ts
     });
   }
 
   constructor(private readonly options: ConvexLSNSpecification) {}
 
   get timestamp() {
-    return this.options.sortKey;
+    return this.options.timestamp;
   }
 
   get cursor() {
@@ -56,9 +48,8 @@ export class ConvexLSN {
   }
 
   get comparable() {
-    const prefix = this.options.mode == 'numeric' ? 'n' : 'o';
-    const sortPart = this.options.sortKey.toString().padStart(CURSOR_WIDTH, '0');
-    return `${prefix}${sortPart}${DELIMITER}${encodeCursor(this.options.cursor)}`;
+    const sortPart = this.options.timestamp.toString().padStart(CURSOR_WIDTH, '0');
+    return `n${sortPart}${DELIMITER}${encodeCursor(this.options.cursor)}`;
   }
 
   toString() {
@@ -70,12 +61,11 @@ export class ConvexLSN {
   }
 }
 
-function getNumericSortKey(cursor: string): bigint | null {
+function parseTimestamp(cursor: string): bigint {
   if (/^[0-9]+$/.test(cursor)) {
     return BigInt(cursor);
   }
-
-  return null;
+  throw new Error(`Convex cursor is not a valid numeric timestamp: ${cursor}`);
 }
 
 function encodeCursor(value: string): string {

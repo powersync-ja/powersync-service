@@ -23,12 +23,9 @@ describe('ConvexLSN', () => {
     expect(parsed.toCursorString()).toBe('42');
   });
 
-  it('round-trips opaque (non-numeric) cursors', () => {
-    const opaque = '{"tablet":"abc","id":"xyz"}';
-    const source = ConvexLSN.fromCursor(opaque);
-    const roundTrip = ConvexLSN.fromSerialized(source.comparable);
-
-    expect(roundTrip.toCursorString()).toBe(opaque);
-    expect(roundTrip.timestamp).toBe(0n);
+  it('rejects non-numeric cursors', () => {
+    expect(() => ConvexLSN.fromCursor('{"tablet":"abc","id":"xyz"}')).toThrow(
+      'Convex cursor is not a valid numeric timestamp'
+    );
   });
 });
