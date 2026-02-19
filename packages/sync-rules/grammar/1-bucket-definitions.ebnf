@@ -93,6 +93,3 @@ StringLiteral ::= "'" ([#x20-#x26] | [#x28-#x7E])* "'"
 IntegerLiteral ::= [0-9]+
 
 NumericLiteral ::= [0-9]+ ("." [0-9]+)?
-
-/* Explicit whitespace rule used by the runtime parser adapter. */
-WS ::= [#x20#x09#x0A#x0D]+

@@ -30,7 +30,10 @@ function getOrCreateParser(grammarFilePath: string, startRule: string): GrammarP
     return cached;
   }
 
-  const source = `${readFileSync(grammarFilePath, 'utf8')}\nENTRY ::= ${startRule} EOF\n`;
+  const grammarSource = readFileSync(grammarFilePath, 'utf8');
+  const hasExplicitWs = /\bWS\s*::=/.test(grammarSource);
+  const injectedWs = hasExplicitWs ? '' : '\nWS ::= [#x20#x09#x0A#x0D]+\n';
+  const source = `${grammarSource}${injectedWs}\nENTRY ::= ${startRule} EOF\n`;
   const parser = new Grammars.W3C.Parser(source);
   for (const rule of (parser as any).grammarRules ?? []) {
     if (
