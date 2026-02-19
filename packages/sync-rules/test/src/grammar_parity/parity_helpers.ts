@@ -58,9 +58,9 @@ export interface Outcome {
 }
 
 const GRAMMAR_FILE_BY_MODE: Record<FixtureMode, string> = {
-  bucket_definitions: fileURLToPath(new URL('../../../grammar/1-bucket-definitions.ebnf', import.meta.url)),
-  sync_streams_alpha: fileURLToPath(new URL('../../../grammar/2-sync-streams-alpha.ebnf', import.meta.url)),
-  new_compiler: fileURLToPath(new URL('../../../grammar/3-sync-streams-compiler.ebnf', import.meta.url))
+  bucket_definitions: fileURLToPath(new URL('../../../grammar/bucket-definitions.ebnf', import.meta.url)),
+  sync_streams_alpha: fileURLToPath(new URL('../../../grammar/sync-streams-alpha.ebnf', import.meta.url)),
+  new_compiler: fileURLToPath(new URL('../../../grammar/sync-streams-compiler.ebnf', import.meta.url))
 };
 
 export function loadFixtureFile(relativePath: string, mode: FixtureMode): FixtureCase[] {
