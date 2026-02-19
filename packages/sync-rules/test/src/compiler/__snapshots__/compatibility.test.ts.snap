@@ -186,7 +186,7 @@ exports[`old streams test > OR in subquery 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -288,7 +288,7 @@ exports[`old streams test > in > on parameter data 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -464,7 +464,7 @@ exports[`old streams test > in > on parameter data and table 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -590,7 +590,7 @@ exports[`old streams test > in > parameter and auth match on same column 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -701,7 +701,7 @@ exports[`old streams test > in > parameter value in subquery 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -830,7 +830,7 @@ exports[`old streams test > in > row value in subquery 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1034,7 +1034,7 @@ exports[`old streams test > in > two subqueries 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1189,7 +1189,7 @@ exports[`old streams test > nested subqueries 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1405,7 +1405,7 @@ exports[`old streams test > normalization > distribute and 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1534,7 +1534,7 @@ exports[`old streams test > normalization > double negation 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1716,7 +1716,7 @@ exports[`old streams test > normalization > negated and 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1870,7 +1870,7 @@ exports[`old streams test > normalization > negated or 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1994,7 +1994,7 @@ exports[`old streams test > or > parameter match or request condition 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2122,7 +2122,7 @@ exports[`old streams test > or > parameter match or row condition 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2209,7 +2209,7 @@ exports[`old streams test > or > request condition or request condition 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2325,7 +2325,7 @@ exports[`old streams test > or > row condition or parameter condition 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2420,7 +2420,7 @@ exports[`old streams test > or > row condition or row condition 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2594,7 +2594,7 @@ exports[`old streams test > or > subquery or token parameter 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2737,7 +2737,7 @@ exports[`old streams test > overlap 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2808,7 +2808,7 @@ exports[`old streams test > row condition 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2908,7 +2908,7 @@ exports[`old streams test > row filter and stream parameter 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2987,7 +2987,7 @@ exports[`old streams test > stream parameter 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -3116,7 +3116,7 @@ exports[`old streams test > table alias 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -3166,6 +3166,6 @@ exports[`old streams test > without filter 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
