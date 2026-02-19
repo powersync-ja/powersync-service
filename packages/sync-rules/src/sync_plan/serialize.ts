@@ -154,7 +154,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   }
 
   return {
-    version: 'unstable', // TODO: Mature to 1 before storing in bucket storage
+    version: 1,
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
       bucketIndex.set(bkt, index);
@@ -173,8 +173,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 }
 
 export function deserializeSyncPlan(serialized: unknown): SyncPlan {
-  // TODO: Mature to version 1
-  if ((serialized as SerializedSyncPlanUnstable).version != 'unstable') {
+  if ((serialized as SerializedSyncPlanUnstable).version != 1) {
     throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
@@ -309,7 +308,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
 }
 
 interface SerializedSyncPlanUnstable {
-  version: 'unstable';
+  version: number;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];
