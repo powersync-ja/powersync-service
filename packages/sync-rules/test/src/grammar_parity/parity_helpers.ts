@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
-import { describe, expect, test } from 'vitest';
 import {
   CompatibilityContext,
   CompatibilityEdition,
@@ -12,16 +11,17 @@ import {
 } from '../../../src/index.js';
 import { EMPTY_DATA_SOURCE, PARSE_OPTIONS } from '../util.js';
 import { grammarAcceptsSql } from './generated_grammar.js';
+import { expect } from 'vitest';
 
-type FixtureMode = 'bucket_definitions' | 'sync_streams_alpha' | 'new_compiler';
-type BucketSlot = 'parameters' | 'data';
-type StreamSlot = 'query';
-type CompilerSlot = 'query' | 'with';
-type FixtureSlot = BucketSlot | StreamSlot | CompilerSlot;
+export type FixtureMode = 'bucket_definitions' | 'sync_streams_alpha' | 'new_compiler';
+export type BucketSlot = 'parameters' | 'data';
+export type StreamSlot = 'query';
+export type CompilerSlot = 'query' | 'with';
+export type FixtureSlot = BucketSlot | StreamSlot | CompilerSlot;
 
-type FixtureKind = 'accepted' | 'rejected_syntax' | 'rejected_semantic';
+export type FixtureKind = 'accepted' | 'rejected_syntax' | 'rejected_semantic';
 
-interface FixtureCase {
+export interface FixtureCase {
   label: string;
   mode: FixtureMode;
   slot: FixtureSlot;
@@ -47,14 +47,14 @@ interface FixtureGroup {
 
 type FixtureFile = Partial<Record<FixtureSlot, FixtureGroup>>;
 
-interface Outcome {
-  accept: boolean;
-  messages: string[];
-}
-
 interface ListenerError {
   message: string;
   isWarning: boolean;
+}
+
+export interface Outcome {
+  accept: boolean;
+  messages: string[];
 }
 
 const GRAMMAR_FILE_BY_MODE: Record<FixtureMode, string> = {
@@ -63,41 +63,7 @@ const GRAMMAR_FILE_BY_MODE: Record<FixtureMode, string> = {
   new_compiler: fileURLToPath(new URL('../../../grammar/3-sync-streams-compiler.ebnf', import.meta.url))
 };
 
-const fixtures: FixtureCase[] = [
-  ...loadFixtureFile('fixtures/bucket_definitions.yaml', 'bucket_definitions'),
-  ...loadFixtureFile('fixtures/sync_streams_alpha.yaml', 'sync_streams_alpha'),
-  ...loadFixtureFile('fixtures/new_compiler.yaml', 'new_compiler')
-];
-
-describe('grammar parity fixtures', () => {
-  test.each(fixtures)('parser contract: $mode/$slot/$kind/$label', (fixture) => {
-    const outcome = runParser(fixture);
-    assertParserExpectation(fixture, outcome);
-  });
-
-  test.each(fixtures)('grammar contract: $mode/$slot/$kind/$label', (fixture) => {
-    const outcome = runGrammarChecker(fixture);
-    assertGrammarExpectation(fixture, outcome);
-  });
-
-  test.each(fixtures)('parser/grammar matrix: $mode/$slot/$kind/$label', (fixture) => {
-    const parserOutcome = runParser(fixture);
-    const grammarOutcome = runGrammarChecker(fixture);
-
-    expect(
-      {
-        parser: parserOutcome.accept,
-        grammar: grammarOutcome.accept
-      },
-      `Parser/grammar matrix mismatch for ${fixtureRef(fixture)}`
-    ).toEqual({
-      parser: fixture.parserOk,
-      grammar: fixture.grammarOk
-    });
-  });
-});
-
-function loadFixtureFile(relativePath: string, mode: FixtureMode): FixtureCase[] {
+export function loadFixtureFile(relativePath: string, mode: FixtureMode): FixtureCase[] {
   const filePath = fileURLToPath(new URL(relativePath, import.meta.url));
   const parsed = parseYaml(readFileSync(filePath, 'utf8')) as FixtureFile;
   const output: FixtureCase[] = [];
@@ -113,6 +79,70 @@ function loadFixtureFile(relativePath: string, mode: FixtureMode): FixtureCase[]
   }
 
   return output;
+}
+
+export function runParser(fixture: FixtureCase): Outcome {
+  switch (fixture.mode) {
+    case 'bucket_definitions':
+      return runBucketParser(fixture);
+    case 'sync_streams_alpha':
+      return runSyncStreamsAlphaParser(fixture);
+    case 'new_compiler':
+      return runNewCompilerParser(fixture);
+  }
+}
+
+export function runGrammarChecker(fixture: FixtureCase): Outcome {
+  const grammarPath = GRAMMAR_FILE_BY_MODE[fixture.mode];
+  const startRule = grammarStartRule(fixture.mode, fixture.slot);
+
+  const accept = grammarAcceptsSql(grammarPath, startRule, fixture.sql);
+  return {
+    accept,
+    messages: accept ? [] : [`Grammar ${startRule} did not accept SQL.`]
+  };
+}
+
+export function assertParserExpectation(fixture: FixtureCase, outcome: Outcome): void {
+  expect(
+    {
+      mode: fixture.mode,
+      slot: fixture.slot,
+      kind: fixture.kind,
+      sql: fixture.sql,
+      expected: fixture.parserOk,
+      actual: outcome.accept,
+      messages: outcome.messages
+    },
+    `Parser expectation mismatch for ${fixtureRef(fixture)}`
+  ).toMatchObject({ actual: fixture.parserOk });
+
+  if (!fixture.parserOk && fixture.err) {
+    const needle = fixture.err.toLowerCase();
+    expect(
+      outcome.messages.some((message) => message.toLowerCase().includes(needle)),
+      `Expected a parser error containing '${fixture.err}' for ${fixtureRef(fixture)}`
+    ).toBe(true);
+  }
+}
+
+export function assertGrammarExpectation(fixture: FixtureCase, outcome: Outcome): void {
+  expect(
+    {
+      mode: fixture.mode,
+      slot: fixture.slot,
+      kind: fixture.kind,
+      sql: fixture.sql,
+      expected: fixture.grammarOk,
+      actual: outcome.accept,
+      messages: outcome.messages
+    },
+    `Grammar expectation mismatch for ${fixtureRef(fixture)}`
+  ).toMatchObject({ actual: fixture.grammarOk });
+}
+
+export function fixtureRef(fixture: FixtureCase): string {
+  return `${fixture.mode}/${fixture.slot}/${fixture.kind}/${fixture.label}`;
 }
 
 function pushGroup(
@@ -150,63 +180,10 @@ function expectedOutcomes(kind: FixtureKind): { parserOk: boolean; grammarOk: bo
   }
 }
 
-function assertParserExpectation(fixture: FixtureCase, outcome: Outcome): void {
-  expect(
-    {
-      mode: fixture.mode,
-      slot: fixture.slot,
-      kind: fixture.kind,
-      sql: fixture.sql,
-      expected: fixture.parserOk,
-      actual: outcome.accept,
-      messages: outcome.messages
-    },
-    `Parser expectation mismatch for ${fixtureRef(fixture)}`
-  ).toMatchObject({ actual: fixture.parserOk });
-
-  if (!fixture.parserOk && fixture.err) {
-    const needle = fixture.err.toLowerCase();
-    expect(
-      outcome.messages.some((message) => message.toLowerCase().includes(needle)),
-      `Expected a parser error containing '${fixture.err}' for ${fixtureRef(fixture)}`
-    ).toBe(true);
-  }
-}
-
-function assertGrammarExpectation(fixture: FixtureCase, outcome: Outcome): void {
-  expect(
-    {
-      mode: fixture.mode,
-      slot: fixture.slot,
-      kind: fixture.kind,
-      sql: fixture.sql,
-      expected: fixture.grammarOk,
-      actual: outcome.accept,
-      messages: outcome.messages
-    },
-    `Grammar expectation mismatch for ${fixtureRef(fixture)}`
-  ).toMatchObject({ actual: fixture.grammarOk });
-}
-
 function fixtureLabel(sql: string, index: number): string {
   const oneLine = sql.replace(/\s+/g, ' ').trim();
   const clipped = oneLine.length > 60 ? `${oneLine.slice(0, 57)}...` : oneLine;
   return `${index + 1}. ${clipped}`;
-}
-
-function fixtureRef(fixture: FixtureCase): string {
-  return `${fixture.mode}/${fixture.slot}/${fixture.kind}/${fixture.label}`;
-}
-
-function runParser(fixture: FixtureCase): Outcome {
-  switch (fixture.mode) {
-    case 'bucket_definitions':
-      return runBucketParser(fixture);
-    case 'sync_streams_alpha':
-      return runSyncStreamsAlphaParser(fixture);
-    case 'new_compiler':
-      return runNewCompilerParser(fixture);
-  }
 }
 
 function runBucketParser(fixture: FixtureCase): Outcome {
@@ -239,8 +216,8 @@ function runBucketParser(fixture: FixtureCase): Outcome {
 
     const messages = hardParserMessages(parsed.errors);
     return { accept: messages.length === 0, messages };
-  } catch (e) {
-    return rejectFromException(e);
+  } catch (error) {
+    return rejectFromException(error);
   }
 }
 
@@ -254,8 +231,8 @@ function runSyncStreamsAlphaParser(fixture: FixtureCase): Outcome {
 
     const messages = hardParserMessages(errors);
     return { accept: messages.length === 0, messages };
-  } catch (e) {
-    return rejectFromException(e);
+  } catch (error) {
+    return rejectFromException(error);
   }
 }
 
@@ -281,22 +258,11 @@ function runNewCompilerParser(fixture: FixtureCase): Outcome {
       stream.finish();
     }
 
-    const messages = errors.filter((e) => !e.isWarning).map((e) => e.message);
+    const messages = errors.filter((error) => !error.isWarning).map((error) => error.message);
     return { accept: messages.length === 0, messages };
-  } catch (e) {
-    return rejectFromException(e);
+  } catch (error) {
+    return rejectFromException(error);
   }
-}
-
-function runGrammarChecker(fixture: FixtureCase): Outcome {
-  const grammarPath = GRAMMAR_FILE_BY_MODE[fixture.mode];
-  const startRule = grammarStartRule(fixture.mode, fixture.slot);
-
-  const accept = grammarAcceptsSql(grammarPath, startRule, fixture.sql);
-  return {
-    accept,
-    messages: accept ? [] : [`Grammar ${startRule} did not accept SQL.`]
-  };
 }
 
 function grammarStartRule(mode: FixtureMode, slot: FixtureSlot): string {

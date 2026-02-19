@@ -3,16 +3,38 @@ parameters:
     - sql: SELECT token_parameters.user_id AS user_id
     - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = token_parameters.user_id
     - sql: SELECT json_each.value AS tag FROM json_each(request.parameters() -> 'tags')
+    - sql: SELECT request.user_id() AS user_id
+    - sql: SELECT request.parameter('tenant_id') AS tenant_id
+    - sql: SELECT request.parameters() ->> 'org_id' AS org_id
+    - sql: SELECT request.jwt() ->> 'sub' AS sub
+    - sql: SELECT CAST(token_parameters.user_id AS text) AS user_id
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = request.user_id()
+    - sql: SELECT users.org_id AS org_id FROM test_schema.users WHERE users.id = token_parameters.user_id
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = request.parameter('user_id')
+    - sql: SELECT json_each.value AS tag FROM json_each(request.parameter('tags'))
+    - sql: SELECT json_each.value AS tag FROM json_each(request.parameters() -> 'tags') WHERE json_each.value IS NOT NULL
+    - sql: SELECT token_parameters.user_id || '' AS user_id
+    - sql: SELECT (token_parameters.user_id) AS user_id
+    - sql: SELECT request.parameters() -> 'profile' AS profile
+    - sql: SELECT request.parameter('features') ->> 'beta' AS beta
+    - sql: SELECT CAST(request.parameter('limit') AS integer) AS limit_value
+    - sql: SELECT token_parameters.user_id AS user_id WHERE request.user_id() IS NOT NULL
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = token_parameters.user_id AND token_parameters.user_id IS NOT NULL
+    - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = token_parameters.user_id OR users.id = request.user_id()
+    - sql: SELECT CAST(request.parameters() ->> 'org_id' AS text) AS org_id
 
   rejected_syntax:
     # table aliases are not supported in parameter queries
+    # parser: Table aliases not supported in parameter queries
     - sql: SELECT u.org_id AS org_id FROM users u WHERE u.id = token_parameters.user_id
       err: alias
 
     # only json_each(...) table-valued functions are supported
+    # parser: Table-valued function generate_series is not defined.
     - sql: SELECT x FROM generate_series(1, 3) AS x
       err: not defined
 
+    # parser: LIMIT is not supported
     - sql: SELECT token_parameters.user_id AS user_id LIMIT 1
       err: LIMIT
 
@@ -21,16 +43,53 @@ data:
     - sql: SELECT id FROM assets
     - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id
       params: [user_id]
+    - sql: SELECT id, name FROM assets WHERE owner_id = bucket.user_id
+      params: [user_id]
+    - sql: SELECT assets.id AS id FROM assets WHERE assets.owner_id = bucket.user_id
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE bucket.user_id = owner_id
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND id IS NOT NULL
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE NOT (owner_id != bucket.user_id)
+      params: [user_id]
+    - sql: SELECT id, name AS asset_name FROM assets WHERE owner_id = bucket.user_id
+      params: [user_id]
+    - sql: SELECT id FROM test_schema.assets WHERE owner_id = bucket.user_id
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE (owner_id = bucket.user_id)
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id OR bucket.user_id = owner_id
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (name IS NOT NULL)
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND id = id
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (bucket.user_id IS NOT NULL)
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (owner_id = bucket.user_id)
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (owner_id IS NOT NULL)
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (name = name)
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (id = id)
+      params: [user_id]
+    - sql: SELECT id FROM assets WHERE owner_id = bucket.user_id AND (owner_id = bucket.user_id OR owner_id = bucket.user_id)
+      params: [user_id]
 
   rejected_syntax:
+    # parser: Must SELECT from a single table
     - sql: SELECT assets.id FROM assets JOIN users ON users.id = assets.owner_id
       err: single table
 
   rejected_semantic:
+    # parser: alias is required
     - sql: SELECT upper(name) FROM assets
       err: alias
 
     # missing owner_id = bucket.user_id condition
+    # parser: Query must cover all bucket parameters. Expected: ["bucket.user_id"] Got: []
     - sql: SELECT id FROM assets
       params: [user_id]
       err: cover all bucket parameters

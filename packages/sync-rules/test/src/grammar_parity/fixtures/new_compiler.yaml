@@ -2,32 +2,78 @@ query:
   accepted:
     - sql: SELECT * FROM users
     - sql: SELECT u.* FROM users AS u JOIN orgs AS o ON u.org_id = o.id WHERE o.owner_id = auth.user_id()
+    - sql: SELECT id FROM users
+    - sql: SELECT u.id FROM users AS u
+    - sql: SELECT u.id, u.org_id FROM users AS u
+    - sql: SELECT CAST(u.id AS text) AS id_text FROM users AS u
+    - sql: SELECT CASE WHEN u.id IS NULL THEN 'x' ELSE 'y' END AS state FROM users AS u
+    - sql: SELECT u.* FROM users AS u INNER JOIN orgs AS o ON u.org_id = o.id
+    - sql: SELECT u.* FROM users AS u JOIN orgs AS o ON u.org_id = o.id
+    - sql: SELECT u.* FROM users AS u JOIN orgs AS o ON u.org_id = o.id WHERE o.owner_id = auth.parameter('owner_id')
+    - sql: SELECT * FROM users WHERE id IS NOT NULL
+    - sql: SELECT * FROM users WHERE id = id
+    - sql: SELECT * FROM users WHERE id IN (SELECT id FROM users)
+    - sql: SELECT * FROM users WHERE id IN (SELECT id FROM users WHERE id IS NOT NULL)
+    - sql: SELECT * FROM users WHERE id NOT IN (SELECT id FROM users WHERE id IS NOT NULL)
+    - sql: SELECT * FROM users WHERE id BETWEEN 1 AND 10
+    - sql: SELECT * FROM users WHERE id NOT BETWEEN 1 AND 10
+    - sql: SELECT * FROM users WHERE auth.user_id() IS NOT NULL
+    - sql: SELECT * FROM users WHERE auth.parameter('tenant') IS NOT NULL
+    - sql: SELECT * FROM users WHERE subscription.parameter('plan') IS NOT NULL
+    - sql: SELECT * FROM users WHERE connection.parameter('id') IS NOT NULL
+    - sql: SELECT j.value AS value FROM json_each(auth.parameters()) AS j
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = u.id)
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = auth.parameter('id'))
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = connection.parameter('id'))
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = subscription.parameter('id'))
+    - sql: SELECT u.id, o.id FROM users AS u JOIN orgs AS o ON u.org_id = o.id
+    - sql: SELECT u.id FROM users AS u WHERE u.id IN (SELECT id FROM users AS x)
+    - sql: SELECT * FROM users WHERE id && (SELECT id FROM users WHERE id IS NOT NULL)
 
   rejected_syntax:
+    # parser: FULL JOIN is not supported
     - sql: SELECT u.* FROM users u FULL JOIN orgs o ON u.org_id = o.id
       err: JOIN
 
+    # parser: USING is not supported
     - sql: SELECT u.* FROM users u INNER JOIN orgs USING (org_id)
       err: USING
 
+    # parser: ORDER BY is not supported
     - sql: SELECT * FROM users ORDER BY id
       err: ORDER BY
 
+    # parser: SQL parameters are not allowed. Use parameter functions instead: https://docs.powersync.com/usage/sync-streams#accessing-parameters
     - sql: SELECT * FROM users WHERE id = $1
       err: parameters are not allowed
 
+    # parser: Expected a SELECT statement
     - sql: DELETE FROM users
       err: SELECT
 
   rejected_semantic:
+    # parser: This attempts to sync a connection parameter. Only values from the source database can be synced.
     - sql: SELECT u.*, auth.parameter('x') FROM users AS u
       err: connection parameter
 
 with:
   accepted:
     - sql: SELECT id FROM orgs WHERE owner_id = auth.user_id()
+    - sql: SELECT id FROM orgs
+    - sql: SELECT id FROM orgs WHERE id IS NOT NULL
+    - sql: SELECT CAST(id AS text) AS id_text FROM orgs
+    - sql: SELECT CASE WHEN id IS NULL THEN 'x' ELSE 'y' END AS state FROM orgs
+    - sql: SELECT o.id FROM orgs AS o
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = auth.user_id()
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = auth.parameter('owner_id')
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = connection.parameter('owner_id')
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = subscription.parameter('owner_id')
+    - sql: SELECT o.id FROM orgs AS o WHERE o.id IN (SELECT id FROM orgs AS x)
+    - sql: SELECT o.id FROM orgs AS o WHERE o.id NOT IN (SELECT id FROM orgs AS x)
+    - sql: SELECT o.id FROM orgs AS o WHERE o.id BETWEEN 1 AND 10
 
   rejected_syntax:
     # CTE output columns cannot include wildcard
+    # parser: * columns are not allowed in subqueries or common table expressions
     - sql: SELECT * FROM orgs
       err: '*'
