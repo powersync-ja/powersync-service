@@ -242,17 +242,11 @@ export class PostgresToSqlite {
           this.options.errors.report('LIKE expressions are not currently supported.', expr);
           return { type: 'function', function: 'like', parameters: [left, right] };
         } else if (expr.op === 'NOT LIKE') {
-          return {
-            type: 'unary',
-            operator: 'not',
-            operand: { type: 'function', function: 'like', parameters: [left, right] }
-          };
+          this.options.errors.report('LIKE expressions are not currently supported.', expr);
+          return this.negate(expr, { type: 'function', function: 'like', parameters: [left, right] });
         } else if (expr.op === '!=') {
-          return {
-            type: 'unary',
-            operator: 'not',
-            operand: { type: 'binary', left, right, operator: '=' }
-          };
+          const equals: SqlExpression<ExpressionInput> = { type: 'binary', left, right, operator: '=' };
+          return this.negate(expr, equals);
         }
 
         const supported = supportedBinaryOperators[expr.op];
@@ -272,7 +266,7 @@ export class PostgresToSqlite {
           case '+':
             return { type: 'unary', operator: expr.op, operand: this.translateNodeWithLocation(expr.operand) };
           case 'NOT':
-            return { type: 'unary', operator: 'not', operand: this.translateNodeWithLocation(expr.operand) };
+            return this.negate(expr, this.translateToNode(expr.operand));
           case 'IS NOT NULL':
             not = true;
           case 'IS NULL': // fallthrough
@@ -298,9 +292,7 @@ export class PostgresToSqlite {
         };
 
         if (not) {
-          // Also track the location of the inner node.
-          this.options.locations.sourceForNode.set(mappedIs, expr);
-          return { type: 'unary', operator: 'not', operand: mappedIs };
+          return this.negate(expr, mappedIs);
         } else {
           return mappedIs;
         }
@@ -321,7 +313,7 @@ export class PostgresToSqlite {
           high: this.translateNodeWithLocation(expr.hi)
         };
 
-        return expr.op === 'BETWEEN' ? between : { type: 'unary', operator: 'not', operand: between };
+        return expr.op === 'NOT BETWEEN' ? this.negate(expr, between) : between;
       }
       case 'case': {
         return {
@@ -430,9 +422,9 @@ export class PostgresToSqlite {
       // Additionally, we support IN ARRAY[...] and IN ROW(...) expressions which are always scalar.
       // TODO: We might be able to simplify expressions by translating them into json_array() invocations in expand()?
       if (original.right.type == 'array') {
-        return this.desugarInValues(negated, translatedLeft, original.right.expressions);
+        return this.desugarInValues(negated, original, translatedLeft, original.right.expressions);
       } else if (original.right.type == 'call' && original.right.function.name.toLowerCase() == 'row') {
-        return this.desugarInValues(negated, translatedLeft, original.right.args);
+        return this.desugarInValues(negated, original, translatedLeft, original.right.args);
       }
     }
 
@@ -452,7 +444,7 @@ export class PostgresToSqlite {
     );
 
     if (negated) {
-      replacement = { type: 'unary', operator: 'not', operand: replacement };
+      replacement = this.negate(original, replacement);
     }
 
     return replacement;
@@ -460,6 +452,7 @@ export class PostgresToSqlite {
 
   private desugarInValues(
     negated: boolean,
+    source: Expr,
     left: SqlExpression<ExpressionInput>,
     right: Expr[]
   ): SqlExpression<ExpressionInput> {
@@ -468,7 +461,14 @@ export class PostgresToSqlite {
       target: left,
       in: right.map((e) => this.translateNodeWithLocation(e))
     };
-    return negated ? { type: 'unary', operator: 'not', operand: scalarIn } : scalarIn;
+
+    return negated ? this.negate(source, scalarIn) : scalarIn;
+  }
+
+  /// Generates a `NOT` wrapper around the `inner` expression, using `source` as a syntactic location.
+  private negate(source: Expr, inner: SqlExpression<ExpressionInput>): SqlExpression<ExpressionInput> {
+    this.options.locations.sourceForNode.set(inner, source);
+    return { type: 'unary', operator: 'not', operand: inner };
   }
 
   private translateRequestParameter(source: ConnectionParameterSource, expr: ExprCall): SqlExpression<ExpressionInput> {

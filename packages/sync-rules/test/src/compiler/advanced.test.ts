@@ -181,6 +181,12 @@ where uas.user_id = auth.user_id()
     ).toMatchSnapshot();
   });
 
+  test('not in array', () => {
+    expect(
+      compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state NOT IN ARRAY['public', 'archived']`)
+    ).toMatchSnapshot();
+  });
+
   describe('table-valued functions', () => {
     test('static filter', () => {
       expect(
