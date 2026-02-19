@@ -76,7 +76,6 @@ This file is the working contract for agents modifying `module-convex`.
   3. then pass the head to callback.
 - Source marker table: `powersync_checkpoints`
   - Convex rejects table names starting with `_`, so no leading-underscore variant is used.
-  - Convex streaming import materializes ingested tables with a `source_` prefix, so the marker may appear as `source_powersync_checkpoints` in streaming export.
 - Stream handling requirement:
   - checkpoint marker tables must always be excluded from replicated source tables and ignored in delta row application.
   - marker-only delta pages must trigger immediate `keepalive` checkpoint advancement (do not wait for 60s throttle).

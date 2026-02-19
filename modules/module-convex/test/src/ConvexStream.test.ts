@@ -379,7 +379,7 @@ describe('ConvexStream', () => {
             return {
               cursor: '102',
               hasMore: false,
-              values: [{ _table: 'source_powersync_checkpoints', _id: 'cp1' }]
+              values: [{ _table: 'powersync_checkpoints', _id: 'cp1' }]
             };
           }
         }
