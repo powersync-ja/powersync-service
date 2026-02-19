@@ -3,6 +3,7 @@ import { MSSQLConnectionManagerFactory } from './MSSQLConnectionManagerFactory.j
 import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { CDCDataExpiredError, CDCStream } from './CDCStream.js';
 import { AdditionalConfig } from '../types/types.js';
+import { POWERSYNC_CHECKPOINTS_TABLE } from '../utils/mssql.js';
 
 export interface CDCReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: MSSQLConnectionManagerFactory;
@@ -22,7 +23,13 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
   }
 
   async keepAlive() {
-    // TODO Might need to leverage checkpoints table as a keepAlive
+    if (this.lastStream) {
+      try {
+        await this.lastStream.keepAlive();
+      } catch (e) {
+        this.logger.warn(`KeepAlive failed, unable to write an update to the ${POWERSYNC_CHECKPOINTS_TABLE} table`, e);
+      }
+    }
   }
 
   async replicate() {

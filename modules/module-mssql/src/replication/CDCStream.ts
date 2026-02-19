@@ -794,4 +794,13 @@ export class CDCStream {
       this.logger.error(`Error touching probe`, e);
     });
   }
+
+  /**
+   *  Creates an update in the source database to ensure regular checkpoints via the CDC
+   */
+  public async keepAlive() {
+    if (!this.isStartingReplication && !this.stopped) {
+      await createCheckpoint(this.connections);
+    }
+  }
 }
