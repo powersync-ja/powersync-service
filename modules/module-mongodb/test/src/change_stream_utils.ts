@@ -11,6 +11,7 @@ import {
   STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   TestStorageOptions,
+  updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
@@ -99,11 +100,9 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({
-      content: content,
-      validate: true,
-      storageVersion: this.storageVersion
-    });
+    const syncRules = await this.factory.updateSyncRules(
+      updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
+    );
     this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
