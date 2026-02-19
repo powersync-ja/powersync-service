@@ -5,15 +5,12 @@ query:
     - sql: SELECT id FROM comments
     - sql: SELECT comments.id FROM comments
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND id IS NOT NULL)
-    - sql: SELECT * FROM comments WHERE issue_id NOT IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
     - sql: SELECT * FROM comments WHERE auth.user_id() IS NOT NULL
-    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues)
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.parameter('owner_id'))
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = connection.parameter('owner_id'))
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = subscription.parameter('owner_id'))
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND owner_id = auth.user_id())
     - sql: SELECT * FROM comments WHERE issue_id = issue_id
-    - sql: SELECT * FROM comments WHERE NOT (issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()))
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND name = 'x')
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND id = id)
     - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM test_schema.issues WHERE owner_id = auth.user_id())
@@ -45,6 +42,18 @@ query:
       err: OR
 
   rejected_semantic:
+    # parser: Negations are not allowed here
+    - sql: SELECT * FROM comments WHERE issue_id NOT IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+      err: negations are not allowed
+
+    # parser: Unsupported subquery without parameter, must depend on request parameters
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues)
+      err: unsupported subquery without parameter
+
+    # parser: Negations are not allowed here
+    - sql: SELECT * FROM comments WHERE NOT (issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()))
+      err: negations are not allowed
+
     # parser: For IN subqueries, the left operand must either depend on the row to sync or stream parameters.
     - sql: SELECT * FROM comments WHERE 'static' IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
       err: left operand

@@ -104,18 +104,17 @@ export function runGrammarChecker(fixture: FixtureCase): Outcome {
 }
 
 export function assertParserExpectation(fixture: FixtureCase, outcome: Outcome): void {
-  expect(
-    {
-      mode: fixture.mode,
-      slot: fixture.slot,
-      kind: fixture.kind,
-      sql: fixture.sql,
-      expected: fixture.parserOk,
-      actual: outcome.accept,
-      messages: outcome.messages
-    },
-    `Parser expectation mismatch for ${fixtureRef(fixture)}`
-  ).toMatchObject({ actual: fixture.parserOk });
+  if (outcome.accept !== fixture.parserOk) {
+    expect.fail(
+      [
+        `Parser expectation mismatch for ${fixtureRef(fixture)}`,
+        `Expected parser acceptance: ${fixture.parserOk}`,
+        `Actual parser acceptance: ${outcome.accept}`,
+        `Parser messages: ${formatMessages(outcome.messages)}`,
+        `SQL: ${fixture.sql}`
+      ].join('\n')
+    );
+  }
 
   if (!fixture.parserOk && fixture.err) {
     const needle = fixture.err.toLowerCase();
@@ -139,6 +138,23 @@ export function assertGrammarExpectation(fixture: FixtureCase, outcome: Outcome)
     },
     `Grammar expectation mismatch for ${fixtureRef(fixture)}`
   ).toMatchObject({ actual: fixture.grammarOk });
+}
+
+export function assertMatrixExpectation(fixture: FixtureCase, parserOutcome: Outcome, grammarOutcome: Outcome): void {
+  if (parserOutcome.accept === fixture.parserOk && grammarOutcome.accept === fixture.grammarOk) {
+    return;
+  }
+
+  expect.fail(
+    [
+      `Parser/grammar matrix mismatch for ${fixtureRef(fixture)}`,
+      `Expected matrix: parser=${fixture.parserOk}, grammar=${fixture.grammarOk}`,
+      `Actual matrix: parser=${parserOutcome.accept}, grammar=${grammarOutcome.accept}`,
+      `Parser messages: ${formatMessages(parserOutcome.messages)}`,
+      `Grammar messages: ${formatMessages(grammarOutcome.messages)}`,
+      `SQL: ${fixture.sql}`
+    ].join('\n')
+  );
 }
 
 export function fixtureRef(fixture: FixtureCase): string {
@@ -287,4 +303,12 @@ function rejectFromException(error: unknown): Outcome {
   }
 
   return { accept: false, messages: [String(error)] };
+}
+
+function formatMessages(messages: string[]): string {
+  if (messages.length === 0) {
+    return '<none>';
+  }
+
+  return messages.join(' | ');
 }

@@ -1,8 +1,8 @@
-import { describe, expect, test } from 'vitest';
+import { describe, test } from 'vitest';
 import {
   assertGrammarExpectation,
+  assertMatrixExpectation,
   assertParserExpectation,
-  fixtureRef,
   loadFixtureFile,
   runGrammarChecker,
   runParser
@@ -24,16 +24,6 @@ describe('grammar parity fixtures: sync_streams_alpha', () => {
   test.each(fixtures)('parser/grammar matrix: $slot/$kind/$label', (fixture) => {
     const parserOutcome = runParser(fixture);
     const grammarOutcome = runGrammarChecker(fixture);
-
-    expect(
-      {
-        parser: parserOutcome.accept,
-        grammar: grammarOutcome.accept
-      },
-      `Parser/grammar matrix mismatch for ${fixtureRef(fixture)}`
-    ).toEqual({
-      parser: fixture.parserOk,
-      grammar: fixture.grammarOk
-    });
+    assertMatrixExpectation(fixture, parserOutcome, grammarOutcome);
   });
 });
