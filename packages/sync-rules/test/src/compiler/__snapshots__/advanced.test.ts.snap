@@ -1720,6 +1720,80 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
 }
 `;
 
+exports[`new sync stream features > not in array 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 185054388,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "operand": {
+            "in": [
+              {
+                "type": "lit_string",
+                "value": "public",
+              },
+              {
+                "type": "lit_string",
+                "value": "archived",
+              },
+            ],
+            "target": {
+              "source": {
+                "column": "state",
+              },
+              "type": "data",
+            },
+            "type": "scalar_in",
+          },
+          "operator": "not",
+          "type": "unary",
+        },
+      ],
+      "hash": 2294649,
+      "outputTableName": "notes",
+      "partitionBy": [],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "notes",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": "unstable",
+}
+`;
+
 exports[`new sync stream features > order-independent parameters 1`] = `
 {
   "buckets": [
