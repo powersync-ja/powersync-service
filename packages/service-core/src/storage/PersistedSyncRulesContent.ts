@@ -105,11 +105,10 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
       config = SqlSyncRules.fromYaml(this.sync_rules_content, options);
     }
 
-    const syncRules = SqlSyncRules.fromYaml(this.sync_rules_content, options);
     const storageConfig = this.getStorageConfig();
     if (
       storageConfig.versionedBuckets ||
-      syncRules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+      config.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
     ) {
       hydrationState = versionedHydrationState(this.id);
     } else {
@@ -119,9 +118,9 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
     return {
       id: this.id,
       slot_name: this.slot_name,
-      sync_rules: syncRules,
+      sync_rules: config,
       hydratedSyncRules: () => {
-        return syncRules.config.hydrate({ hydrationState });
+        return config.config.hydrate({ hydrationState });
       }
     };
   }
