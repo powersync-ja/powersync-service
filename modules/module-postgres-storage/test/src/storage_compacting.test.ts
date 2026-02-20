@@ -17,24 +17,21 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(
-      test_utils.BATCH_OPTIONS,
-      async (batch) => {
-        await batch.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.INSERT,
-          after: { id: 't1' },
-          afterReplicaId: test_utils.rid('t1')
-        });
-        await batch.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.UPDATE,
-          after: { id: 't1' },
-          afterReplicaId: test_utils.rid('t1')
-        });
-        await batch.commit('1/1');
-      }
-    );
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 't1' },
+        afterReplicaId: test_utils.rid('t1')
+      });
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.UPDATE,
+        after: { id: 't1' },
+        afterReplicaId: test_utils.rid('t1')
+      });
+      await batch.commit('1/1');
+    });
 
     const checkpoint = result!.flushed_op;
 

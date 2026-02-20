@@ -30,13 +30,16 @@ export function registerCompactAction(program: Command) {
   wrapConfigCommand(compactCommand);
 
   return compactCommand.description('Compact storage').action(async (options) => {
-    const buckets = options.buckets?.split(',').map((b: string) => b.trim()).filter(Boolean);
+    const buckets = options.buckets
+      ?.split(',')
+      .map((b: string) => b.trim())
+      .filter(Boolean);
     if (buckets) {
       const invalid = buckets.filter((b: string) => !b.includes('['));
       if (invalid.length > 0) {
         logger.error(
           `Invalid bucket names: ${invalid.join(', ')}. ` +
-          `Pass full bucket names (e.g., "global[]"), not bucket definition names (e.g., "global").`
+            `Pass full bucket names (e.g., "global[]"), not bucket definition names (e.g., "global").`
         );
         process.exit(1);
       }

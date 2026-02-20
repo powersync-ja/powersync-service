@@ -88,13 +88,17 @@ export class PostgresCompactor {
 
     while (true) {
       const bucketRows = (await this.db.sql`
-        SELECT DISTINCT bucket_name
-        FROM bucket_data
+        SELECT DISTINCT
+          bucket_name
+        FROM
+          bucket_data
         WHERE
           group_id = ${{ type: 'int4', value: this.group_id }}
           AND bucket_name > ${{ type: 'varchar', value: lastBucket }}
-        ORDER BY bucket_name ASC
-        LIMIT ${{ type: 'int4', value: DISCOVERY_BATCH_SIZE }}
+        ORDER BY
+          bucket_name ASC
+        LIMIT
+          ${{ type: 'int4', value: DISCOVERY_BATCH_SIZE }}
       `.rows()) as { bucket_name: string }[];
 
       if (bucketRows.length === 0) {
