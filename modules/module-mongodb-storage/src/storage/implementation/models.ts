@@ -1,4 +1,4 @@
-import { InternalOpId, storage } from '@powersync/service-core';
+import { InternalOpId, SerializedSyncPlan, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
@@ -199,6 +199,7 @@ export interface SyncRuleDocument {
   last_fatal_error_ts: Date | null;
 
   content: string;
+  serialized_plan?: SerializedSyncPlan | null;
 
   lock?: {
     id: string;

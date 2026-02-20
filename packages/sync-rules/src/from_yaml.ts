@@ -82,7 +82,7 @@ export class SyncConfigFromYaml {
     const streamMap = parsed.get('streams') as YAMLMap | null;
 
     let result: SyncConfig;
-    if (useNewCompiler && this.options.allowNewSyncCompiler) {
+    if (useNewCompiler) {
       result = this.#compileSyncPlan(bucketMap, streamMap, compatibility);
     } else {
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
@@ -222,11 +222,16 @@ export class SyncConfigFromYaml {
       streamCompiler.finish();
     }
 
-    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), {
+    const config = new PrecompiledSyncConfig(compiler.output.toSyncPlan(), {
       defaultSchema: this.options.defaultSchema,
       engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
     });
+    // We still need to store the compatibility with the precompiled sync config because it doesn't just affect how
+    // we compile sync streams. They also affects how the replicators encode custom types or what JSON compatibility
+    // options we need.
+    config.compatibility = compatibility;
+    return config;
   }
 
   #legacyParseBucketDefinitionsAndStreams(
@@ -507,9 +512,4 @@ export interface SyncConfigFromYamlOptions {
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   readonly defaultSchema: string;
-
-  /**
-   * Whether to allow the option of using the new sync compiler.
-   */
-  readonly allowNewSyncCompiler: boolean;
 }

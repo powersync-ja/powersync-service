@@ -205,7 +205,8 @@ export const validate = routeDefinition({
       active: false,
       last_checkpoint_lsn: '',
       storageVersion: storage.LEGACY_STORAGE_VERSION,
-      sync_rules_content: content
+      sync_rules_content: content,
+      compiled_plan: null
     });
 
     const connectionStatus = await apiHandler.getConnectionStatus();
