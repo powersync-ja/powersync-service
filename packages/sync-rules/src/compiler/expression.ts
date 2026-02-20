@@ -7,6 +7,7 @@ import { ExternalData, SqlExpression } from '../sync_plan/expression.js';
 import { ExpressionToSqlite } from '../sync_plan/expression_to_sql.js';
 import { RecursiveExpressionVisitor } from '../sync_plan/expression_visitor.js';
 import { getLocation } from '../errors.js';
+import { ParsingErrorListener } from './compiler.js';
 
 /**
  * An analyzed SQL expression tracking dependencies on non-static data (i.e. rows or connection sources).
@@ -48,7 +49,7 @@ export class SyncExpression implements EqualsIgnoringResultSet {
     return (this.#instantiation = instantiation);
   }
 
-  get location(): NodeLocation {
+  get location(): SourceLocation {
     return this.locations.locationFor(this.node);
   }
 
@@ -129,14 +130,27 @@ export class ConnectionParameter implements EqualsIgnoringResultSet {
  * in-memory map.
  */
 export class NodeLocations {
-  readonly sourceForNode = new Map<SqlExpression<unknown>, PGNode | NodeLocation>();
+  readonly sourceForNode = new Map<SqlExpression<unknown>, SourceLocation>();
 
-  locationFor(source: SqlExpression<unknown>): NodeLocation {
-    const location = getLocation(this.sourceForNode.get(source));
+  locationFor(source: SqlExpression<unknown>): SourceLocation {
+    const resolved = this.sourceForNode.get(source);
+    const location = getLocation(resolved?.location);
     if (location == null) {
       throw new Error('Missing location');
     }
 
-    return location;
+    return { location, errors: resolved!.errors };
   }
+}
+
+export interface SourceLocation {
+  location: PGNode | NodeLocation;
+  /**
+   * An error reporter that can understand the given {@link location}.
+   *
+   * Because sync streams might be composed of multiple source statements (like common table expressions) that can
+   * ultimately only be fully analyzed together, this is necessary to ensure we can report errors on the correct source
+   * everywhere.
+   */
+  errors: ParsingErrorListener;
 }

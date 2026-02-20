@@ -360,4 +360,67 @@ bucket_definitions:
       - SELECT * FROM users
 `);
   });
+
+  describe('warns about potentially dangerous queries', () => {
+    function checkDangerousQueryWarning(query: string, expectedError: boolean) {
+      const [errors] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  foo:
+    query: ${query}
+`);
+
+      if (expectedError) {
+        expect(errors).toHaveLength(1);
+
+        // Should not report the dangerous queries warning with the tag applied.
+        const [errorsWithOptIn] = yamlToSyncPlan(`
+config:
+  edition: 2
+  sync_config_compiler: true
+
+streams:
+  foo:
+    accept_potentially_dangerous_queries: true
+    query: ${query}
+`);
+        expect(errorsWithOptIn).toStrictEqual([]);
+      } else {
+        expect(errors).toStrictEqual([]);
+      }
+    }
+
+    // These examples are taken from SqlParameterQuery.usesDangerousRequestParameters
+    test('safe', () => {
+      checkDangerousQueryWarning('SELECT * FROM users WHERE user_id = auth.user_id()', false);
+      checkDangerousQueryWarning(
+        `SELECT * FROM notes WHERE org = auth.parameter('org') AND project = subscription.parameter('project')`,
+        false
+      );
+      checkDangerousQueryWarning(
+        `SELECT * FROM notes WHERE org = auth.parameter('org') AND project = connection.parameter('project')`,
+        false
+      );
+      checkDangerousQueryWarning('SELECT * FROM users', false);
+
+      checkDangerousQueryWarning(`SELECT * FROM projects WHERE is_public OR owner = auth.user_id()`, false);
+    });
+
+    test('dangerous', () => {
+      checkDangerousQueryWarning(`SELECT * FROM projects WHERE id = subscription.parameter('project')`, true);
+      checkDangerousQueryWarning(
+        `SELECT * FROM projects WHERE id = subscription.parameter('project') AND auth.parameter('role') = 'authenticated'`,
+        true
+      );
+      checkDangerousQueryWarning(`SELECT * FROM categories WHERE connection.parameters('include_categories')`, true);
+
+      checkDangerousQueryWarning(
+        `SELECT * FROM projects WHERE id = subscription.parameter('id') OR owner = auth.user_id()`,
+        true
+      );
+    });
+  });
 });
