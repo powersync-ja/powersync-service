@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
@@ -8,13 +8,13 @@ describe('Postgres Sync Bucket Storage Compact', () => register.registerCompactT
 describe('Postgres Compact - explicit bucket name', () => {
   test('compacts a specific bucket by exact name', async () => {
     await using factory = await POSTGRES_STORAGE_FACTORY();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
 bucket_definitions:
   global:
     data: [select * from test]
-      `
-    });
+      `)
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(
