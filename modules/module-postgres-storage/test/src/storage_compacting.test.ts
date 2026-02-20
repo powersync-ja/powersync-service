@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, bucketRequestMap, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
 
@@ -38,12 +38,12 @@ bucket_definitions:
     // Compact with an explicit bucket name — exercises the this.buckets
     // iteration path, NOT the compactAllBuckets discovery path.
     await bucketStorage.compact({
-      compactBuckets: ['global[]'],
+      compactBuckets: [bucketRequest(syncRules, 'global[]')],
       minBucketChanges: 1
     });
 
     const batch = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]))
     );
 
     expect(batch.chunkData.data).toMatchObject([
