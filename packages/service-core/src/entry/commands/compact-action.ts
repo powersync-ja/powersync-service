@@ -25,12 +25,25 @@ const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
 export function registerCompactAction(program: Command) {
   const compactCommand = program
     .command(COMMAND_NAME)
-    .option(`-b, --buckets [buckets]`, 'Bucket name (optional, comma-separate multiple names)');
+    .option(`-b, --buckets [buckets]`, 'Full bucket names, comma-separated (e.g., "global[],mybucket[\\"user1\\"]")');
 
   wrapConfigCommand(compactCommand);
 
   return compactCommand.description('Compact storage').action(async (options) => {
-    const buckets = options.buckets?.split(',');
+    const buckets = options.buckets
+      ?.split(',')
+      .map((b: string) => b.trim())
+      .filter(Boolean);
+    if (buckets) {
+      const invalid = buckets.filter((b: string) => !b.includes('['));
+      if (invalid.length > 0) {
+        logger.error(
+          `Invalid bucket names: ${invalid.join(', ')}. ` +
+            `Pass full bucket names (e.g., "global[]"), not bucket definition names (e.g., "global").`
+        );
+        process.exit(1);
+      }
+    }
     if (buckets == null) {
       logger.info('Compacting storage for all buckets...');
     } else {

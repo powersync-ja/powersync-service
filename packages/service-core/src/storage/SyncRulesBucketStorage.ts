@@ -202,7 +202,8 @@ export interface CompactOptions {
    *
    * If not specified, compacts all buckets.
    *
-   * These can be individual bucket names, or bucket definition names.
+   * These must be full bucket names (e.g., "global[]", "mybucket[\"user1\"]").
+   * Bucket definition names (e.g., "global") are not supported.
    */
   compactBuckets?: string[];
 
