@@ -15,7 +15,7 @@ export class ConvexLSN {
     }
 
     const [first, second] = comparable.split(DELIMITER, 2);
-    const prefixed = first.match(/^[no]([0-9]+)$/);
+    const prefixed = first.match(/^n([0-9]+)$/);
     if (prefixed && second != null) {
       const decoded = decodeCursor(second);
       return ConvexLSN.fromCursor(decoded);
