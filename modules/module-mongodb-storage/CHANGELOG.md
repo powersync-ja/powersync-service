@@ -1,5 +1,24 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.14.0
+
+### Minor Changes
+
+- 8a4c34e: Refactor `BucketStorageFactory` and `PersistedSyncRulesContent` to be abstract classes instead of interfaces.
+- 8bd83e8: Introduce storage versions.
+
+### Patch Changes
+
+- Updated dependencies [0998251]
+- Updated dependencies [1c45667]
+- Updated dependencies [8a4c34e]
+- Updated dependencies [8bd83e8]
+  - @powersync/service-core@1.20.0
+  - @powersync/service-types@0.15.0
+  - @powersync/service-sync-rules@0.32.0
+  - @powersync/lib-services-framework@0.8.3
+  - @powersync/lib-service-mongodb@0.6.20
+
 ## 0.13.2
 
 ### Patch Changes

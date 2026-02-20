@@ -1,5 +1,15 @@
 # @powersync/service-sync-rules
 
+## 0.32.0
+
+### Minor Changes
+
+- 8bd83e8: Introduce storage versions.
+
+### Patch Changes
+
+- 1c45667: New compiler: Fix some crashes compiling `NOT IN`, `NOT LIKE` and `NOT BETWEEN` operators.
+
 ## 0.31.1
 
 ### Patch Changes

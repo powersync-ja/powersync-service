@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.15.0
+
+### Minor Changes
+
+- 0998251: For errors related to a sync configuration, report a source offset.
+
 ## 0.14.0
 
 ### Minor Changes
