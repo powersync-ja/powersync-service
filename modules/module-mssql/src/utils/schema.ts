@@ -3,6 +3,7 @@ import { TablePattern } from '@powersync/service-sync-rules';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { MSSQLColumnDescriptor } from '../types/mssql-data-types.js';
 import sql from 'mssql';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface GetColumnsOptions {
   connectionManager: MSSQLConnectionManager;
@@ -197,4 +198,46 @@ export async function getTablesFromPattern(
       };
     });
   }
+}
+
+export interface GetPendingSchemaChangesOptions {
+  connectionManager: MSSQLConnectionManager;
+  captureInstanceName: string;
+}
+
+/**
+ *  Returns the DDL commands that have been applied to the source table since the capture instance was created.
+ */
+export async function getPendingSchemaChanges(options: GetPendingSchemaChangesOptions): Promise<string[]> {
+  const { connectionManager, captureInstanceName } = options;
+
+  try {
+    const { recordset: results } = await connectionManager.execute('sys.sp_cdc_get_ddl_history', [
+      { name: 'capture_instance', type: sql.VarChar(sql.MAX), value: captureInstanceName }
+    ]);
+    return results.map((row) => row.ddl_command);
+  } catch (e) {
+    if (isObjectNotExistError(e)) {
+      // Defensive check to cover the case where the capture instance metadata is temporarily unavailable.
+      logger.warn(`Unable to retrieve schema changes for capture instance: [${captureInstanceName}].`);
+      return [];
+    }
+    throw e;
+  }
+}
+
+function isObjectNotExistError(error: unknown): boolean {
+  if (error != null && typeof error === 'object' && 'number' in error) {
+    // SQL Server Object does not exist or access is denied error number.
+    return (error as { number: unknown }).number === 22981;
+  }
+  return false;
+}
+
+export async function tableExists(tableId: number, connectionManager: MSSQLConnectionManager): Promise<boolean> {
+  const { recordset: results } = await connectionManager.query(`SELECT 1 FROM sys.tables WHERE object_id = @tableId`, [
+    { name: 'tableId', type: sql.Int, value: tableId }
+  ]);
+
+  return results.length > 0;
 }

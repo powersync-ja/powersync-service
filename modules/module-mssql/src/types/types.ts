@@ -4,6 +4,8 @@ import { LookupFunction } from 'node:net';
 import * as t from 'ts-codec';
 import * as urijs from 'uri-js';
 
+export const DEFAULT_POLLING_BATCH_SIZE = 10;
+export const DEFAULT_POLLING_INTERVAL_MS = 1000;
 export const MSSQL_CONNECTION_TYPE = 'mssql' as const;
 
 export const AzureActiveDirectoryPasswordAuthentication = t.object({
@@ -208,8 +210,8 @@ export function normalizeConnectionConfig(options: MSSQLConnectionConfig): Norma
     authentication: options.authentication,
 
     additionalConfig: {
-      pollingIntervalMs: options.additionalConfig?.pollingIntervalMs ?? 1000,
-      pollingBatchSize: options.additionalConfig?.pollingBatchSize ?? 10,
+      pollingIntervalMs: options.additionalConfig?.pollingIntervalMs ?? DEFAULT_POLLING_INTERVAL_MS,
+      pollingBatchSize: options.additionalConfig?.pollingBatchSize ?? DEFAULT_POLLING_BATCH_SIZE,
       trustServerCertificate: options.additionalConfig?.trustServerCertificate ?? false
     }
   } satisfies NormalizedMSSQLConnectionConfig;
