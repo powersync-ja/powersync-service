@@ -20,6 +20,8 @@ export class MongoManager extends BaseObserver<MongoManagerListener> {
     overrides?: mongo.MongoClientOptions
   ) {
     super();
+    const params = options.connectionParams;
+
     // The pool is lazy - no connections are opened until a query is performed.
     this.client = new mongo.MongoClient(options.uri, {
       auth: {
@@ -28,12 +30,12 @@ export class MongoManager extends BaseObserver<MongoManagerListener> {
       },
 
       lookup: options.lookup,
-      // Time for connection to timeout
-      connectTimeoutMS: 5_000,
-      // Time for individual requests to timeout
-      socketTimeoutMS: 60_000,
-      // How long to wait for new primary selection
-      serverSelectionTimeoutMS: 30_000,
+      // Time for connection to timeout (URL param overrides default)
+      connectTimeoutMS: params.connectTimeoutMS ?? 5_000,
+      // Time for individual requests to timeout (URL param overrides default)
+      socketTimeoutMS: params.socketTimeoutMS ?? 60_000,
+      // How long to wait for new primary selection (URL param overrides default)
+      serverSelectionTimeoutMS: params.serverSelectionTimeoutMS ?? 30_000,
 
       // Identify the client
       appName: `powersync ${POWERSYNC_VERSION}`,
@@ -47,10 +49,10 @@ export class MongoManager extends BaseObserver<MongoManagerListener> {
       // Avoid too many connections:
       // 1. It can overwhelm the source database.
       // 2. Processing too many queries in parallel can cause the process to run out of memory.
-      maxPoolSize: 8,
+      maxPoolSize: params.maxPoolSize ?? 8,
 
       maxConnecting: 3,
-      maxIdleTimeMS: 60_000,
+      maxIdleTimeMS: params.maxIdleTimeMS ?? 60_000,
 
       ...BSON_DESERIALIZE_DATA_OPTIONS,
 
