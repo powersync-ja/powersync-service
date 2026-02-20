@@ -1067,6 +1067,27 @@ event_definitions:
     expect(rules.eventDescriptors).toHaveLength(1);
   });
 
+  test('suggests upgrading for streams on edition 2', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+
+streams:
+  a:
+    query: SELECT * FROM users
+    `,
+      {
+        ...PARSE_OPTIONS,
+        // Should not throw, this is a suggestion.
+        throwOnError: true
+      }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('This is using an alpha version of Sync Streams. We recommend upgrading');
+  });
+
   test('does not support CTEs', () => {
     const { config: rules, errors } = SqlSyncRules.fromYaml(
       `
@@ -1084,7 +1105,6 @@ streams:
         throwOnError: false
       }
     );
-    expect(errors).toHaveLength(1);
-    expect(errors[0].message).toContain('Common table expressions are not supported');
+    expect(errors[1].message).toContain('Common table expressions are not supported');
   });
 });

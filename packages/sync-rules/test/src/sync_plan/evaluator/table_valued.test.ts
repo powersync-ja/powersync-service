@@ -7,8 +7,7 @@ describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -24,8 +23,7 @@ streams:
   syncTest('as parameter output', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -98,8 +96,7 @@ streams:
   syncTest('filter on function output', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:

@@ -14,8 +14,7 @@ describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -47,8 +46,7 @@ streams:
   syncTest('debugWriteOutputTables', ({ sync }) => {
     const desc = sync.prepareWithoutHydration(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -68,8 +66,7 @@ streams:
   syncTest('forwards parameters', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -100,8 +97,7 @@ streams:
   syncTest('output table name', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -127,8 +123,7 @@ streams:
   syncTest('wildcard with alias', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -154,8 +149,7 @@ streams:
   syncTest('wildcard without alias', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -181,8 +175,7 @@ streams:
   syncTest('multiple tables in bucket', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -199,8 +192,7 @@ describe('evaluating parameters', () => {
   syncTest('emits parameters', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -226,8 +218,7 @@ streams:
   syncTest('skips null and binary values', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -247,8 +238,7 @@ streams:
   syncTest('respects filters', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -269,8 +259,7 @@ describe('querier', () => {
   syncTest('static', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -295,8 +284,7 @@ streams:
   syncTest('request data', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -317,8 +305,7 @@ streams:
   syncTest('parameter lookups', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -378,8 +365,7 @@ streams:
   syncTest('multiple IN operators', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
