@@ -45,15 +45,6 @@ export interface ConvexDocumentDeltasResult {
   values: ConvexRawDocument[];
 }
 
-export interface ConvexImportTable {
-  jsonSchema: Record<string, unknown>;
-}
-
-export interface ConvexImportMessage {
-  tableName: string;
-  data: Record<string, unknown>;
-}
-
 export class ConvexApiError extends Error {
   readonly status?: number;
   readonly retryable: boolean;
@@ -143,47 +134,20 @@ export class ConvexApiClient {
     return this.getGlobalSnapshotCursor({ signal: options?.signal });
   }
 
-  async importAirbyteRecords(options: {
-    tables: Record<string, ConvexImportTable>;
-    messages: ConvexImportMessage[];
-    signal?: AbortSignal;
-  }): Promise<void> {
+  async createWriteCheckpointMarker(options?: { signal?: AbortSignal }): Promise<void> {
     await this.performRequest({
       method: 'POST',
-      path: '/api/streaming_import/import_airbyte_records',
+      path: '/api/mutation',
       body: {
-        tables: options.tables,
-        messages: options.messages
+        path: `${CONVEX_CHECKPOINT_TABLE}:createCheckpoint`,
+        args: {},
+        format: 'json'
       },
-      signal: options.signal,
+      signal: options?.signal,
       extraHeaders: {
-        'Content-Type': 'application/json',
-        'Convex-Client': 'streaming-import-1.0.0'
+        'Content-Type': 'application/json'
       },
       includeJsonFormat: false
-    });
-  }
-
-  async createWriteCheckpointMarker(options?: { headCursor?: string; signal?: AbortSignal }): Promise<void> {
-    const marker = {
-      powersync_lsn: options?.headCursor ?? (await this.getHeadCursor({ signal: options?.signal })),
-      powersync_created_at: Date.now(),
-      powersync_source: 'powersync'
-    };
-
-    await this.importAirbyteRecords({
-      tables: {
-        [CONVEX_CHECKPOINT_TABLE]: {
-          jsonSchema: POWERSYNC_CHECKPOINT_SCHEMA
-        }
-      },
-      messages: [
-        {
-          tableName: CONVEX_CHECKPOINT_TABLE,
-          data: marker
-        }
-      ],
-      signal: options?.signal
     });
   }
 
@@ -487,18 +451,6 @@ const RESERVED_SCHEMA_KEYS = new Set([
   'error',
   'errors'
 ]);
-
-const POWERSYNC_CHECKPOINT_SCHEMA = {
-  type: 'object',
-  properties: {
-    powersync_lsn: { type: 'string' },
-    powersync_created_at: { type: 'number' },
-    powersync_source: { type: 'string' }
-  },
-  additionalProperties: false,
-  required: ['powersync_lsn', 'powersync_created_at', 'powersync_source'],
-  $schema: 'http://json-schema.org/draft-07/schema#'
-} as const;
 
 function looksLikeJsonSchema(value: unknown): boolean {
   if (!isRecord(value)) {

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConvexApiClient } from '@module/client/ConvexApiClient.js';
+import { CONVEX_CHECKPOINT_TABLE } from '@module/common/ConvexCheckpoints.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
 
 const baseConfig = normalizeConnectionConfig({
@@ -177,24 +178,24 @@ describe('ConvexApiClient', () => {
     });
   });
 
-  it('creates write checkpoint markers via streaming import', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('', { status: 200 }));
+  it('creates write checkpoint markers via mutation', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ status: 'success' }), { status: 200 })
+    );
 
     const client = new ConvexApiClient(baseConfig);
-    await client.createWriteCheckpointMarker({ headCursor: '123' });
+    await client.createWriteCheckpointMarker();
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(String(url)).toContain('/api/streaming_import/import_airbyte_records');
+    expect(String(url)).toContain('/api/mutation');
     expect(init?.method).toBe('POST');
     expect((init?.headers as Record<string, string>).Authorization).toBe('Convex test-key');
-    expect((init?.headers as Record<string, string>)['Convex-Client']).toBe('streaming-import-1.0.0');
 
     const body = JSON.parse(String(init?.body));
-    expect(body.messages).toHaveLength(1);
-    expect(body.messages[0].tableName).toBe('powersync_checkpoints');
-    expect(body.messages[0].data.powersync_lsn).toBe('123');
-    expect(body.tables).toHaveProperty('powersync_checkpoints');
+    expect(body.path).toBe(`${CONVEX_CHECKPOINT_TABLE}:createCheckpoint`);
+    expect(body.args).toEqual({});
+    expect(body.format).toBe('json');
   });
 
   it('propagates checkpoint write errors directly (no fallback)', async () => {
@@ -206,7 +207,7 @@ describe('ConvexApiClient', () => {
     );
 
     const client = new ConvexApiClient(baseConfig);
-    await expect(client.createWriteCheckpointMarker({ headCursor: '123' })).rejects.toMatchObject({
+    await expect(client.createWriteCheckpointMarker()).rejects.toMatchObject({
       status: 400,
       retryable: false
     });

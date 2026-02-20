@@ -121,7 +121,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const head = await this.connectionManager.client.getHeadCursor();
-    await this.connectionManager.client.createWriteCheckpointMarker({ headCursor: head });
+    await this.connectionManager.client.createWriteCheckpointMarker();
     return await callback(ConvexLSN.fromCursor(head).comparable);
   }
 

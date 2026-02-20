@@ -71,10 +71,12 @@ This file is the working contract for agents modifying `module-convex`.
 ## 9) Checkpointing and Consistency
 - `createReplicationHead` must:
   1. resolve global head cursor,
-  2. write a Convex source marker via streaming import,
+  2. write a Convex checkpoint marker via `POST /api/mutation` (calls `powersync_checkpoints:createCheckpoint`),
   3. then pass the head to callback.
 - Source marker table: `powersync_checkpoints`
   - Convex rejects table names starting with `_`, so no leading-underscore variant is used.
+  - The table has a single `last_updated` field; the mutation upserts one row (bounded to one row total).
+  - The developer must deploy the `powersync_checkpoints` schema and mutation to their Convex project (see README).
 - Stream handling requirement:
   - checkpoint marker tables must always be excluded from replicated source tables and ignored in delta row application.
   - marker-only delta pages must trigger immediate `keepalive` checkpoint advancement (do not wait for 60s throttle).

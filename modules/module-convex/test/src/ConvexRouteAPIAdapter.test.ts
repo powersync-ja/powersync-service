@@ -84,7 +84,7 @@ bucket_definitions:
     expect(getHeadCursor).toHaveBeenCalledTimes(1);
     expect(getHeadCursor).toHaveBeenCalledWith();
     expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);
-    expect(createWriteCheckpointMarker).toHaveBeenCalledWith({ headCursor: '123' });
+    expect(createWriteCheckpointMarker).toHaveBeenCalledWith();
 
     await adapter.shutdown();
   });
