@@ -66,15 +66,11 @@ export class SyncConfigFromYaml {
     }
 
     let compatibility: CompatibilityContext;
-    let useNewCompiler: boolean;
     if (parsed.has('config')) {
       const declaredOptions = parsed.get('config') as YAMLMap;
-      const compatibilityOptions = this.#parseCompatibilityOptions(declaredOptions);
-      compatibility = compatibilityOptions.compatibility;
-      useNewCompiler = compatibilityOptions.useNewCompiler;
+      compatibility = this.#parseCompatibilityOptions(declaredOptions);
     } else {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
-      useNewCompiler = false;
     }
 
     // Bucket definitions using explicit parameter and data queries.
@@ -82,7 +78,7 @@ export class SyncConfigFromYaml {
     const streamMap = parsed.get('streams') as YAMLMap | null;
 
     let result: SyncConfig;
-    if (useNewCompiler && this.options.allowNewSyncCompiler) {
+    if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
       result = this.#compileSyncPlan(bucketMap, streamMap, compatibility);
     } else {
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
@@ -150,7 +146,7 @@ export class SyncConfigFromYaml {
       );
     }
 
-    return { compatibility, useNewCompiler };
+    return compatibility;
   }
 
   #compileSyncPlan(bucketMap: YAMLMap | null, streamMap: YAMLMap | null, compatibility: CompatibilityContext) {
@@ -240,6 +236,17 @@ export class SyncConfigFromYaml {
     if (bucketMap == null && streamMap == null) {
       this.#errors.push(new YamlError(new Error(`'bucket_definitions' or 'streams' is required`)));
       this.#throwOnErrorIfRequested();
+    }
+
+    if (streamMap != null) {
+      // This is with config.edition <= 2, we want to encourage users with streams to migrate to version 3 to use
+      // compiled sync plans.
+      const error = this.#yamlError(
+        streamMap,
+        'This is using an alpha version of Sync Streams. We recommend upgrading `config.edition` to version 3 to support the latest features.'
+      );
+      error.type = 'warning';
+      this.#errors.push(error);
     }
 
     for (let entry of bucketMap?.items ?? []) {
@@ -507,9 +514,4 @@ export interface SyncConfigFromYamlOptions {
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   readonly defaultSchema: string;
-
-  /**
-   * Whether to allow the option of using the new sync compiler.
-   */
-  readonly allowNewSyncCompiler: boolean;
 }

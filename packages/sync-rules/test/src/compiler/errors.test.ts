@@ -8,8 +8,7 @@ describe('compilation errors', () => {
   test('parsing error in query', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -24,8 +23,7 @@ streams:
   test('parsing error in CTE', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -42,8 +40,7 @@ streams:
   test('missing query', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -287,8 +284,7 @@ streams:
       const [errors] = yamlToSyncPlan(
         `
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -344,8 +340,7 @@ streams:
   test('does not allow bucket_definitions', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   foo:
