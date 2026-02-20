@@ -54,7 +54,9 @@ export class QuerierGraphBuilder {
    * Merges created stream resolvers and adds them to the compiler.
    */
   finish() {
-    this.compiler.output.resolvers.push(...this.mergeBuckets());
+    const buckets = this.mergeBuckets();
+    this.compiler.output.resolvers.push(...buckets);
+    return buckets;
   }
 
   /**
@@ -167,7 +169,7 @@ class PendingQuerierPath {
         if (remaining.resultSet != null) {
           this.errors.report(
             'This filter is unrelated to the request or the table being synced, and not supported.',
-            remaining.expression.location
+            remaining.expression.location.location
           );
         } else {
           requestConditions.push(new RequestExpression(remaining));

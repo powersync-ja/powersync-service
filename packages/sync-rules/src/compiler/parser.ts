@@ -364,7 +364,10 @@ export class StreamQueryParser {
             referencedResultSet = parsed.resultSet;
           } else {
             // Table-valued functions may not be based on other table-valued functions, we only allow a single layer.
-            this.errors.report('Table-valued functions must depend on source tables.', parsed.expression.location);
+            this.errors.report(
+              'Table-valued functions must depend on source tables.',
+              parsed.expression.location.location
+            );
             validArgs = false;
           }
         }

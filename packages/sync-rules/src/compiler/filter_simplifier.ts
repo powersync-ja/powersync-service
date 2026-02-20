@@ -140,9 +140,12 @@ export function composeExpressionNodes<T>(
     inner = { type: 'binary', operator, left: inner, right: additional };
   }
 
-  const location = expandNodeLocations(terms.map((e) => locations.locationFor(e)));
+  const location = expandNodeLocations(terms.map((e) => locations.locationFor(e).location));
   if (location) {
-    locations.sourceForNode.set(inner, location);
+    locations.sourceForNode.set(inner, {
+      location,
+      errors: locations.locationFor(terms[0]).errors
+    });
   }
 
   return inner;

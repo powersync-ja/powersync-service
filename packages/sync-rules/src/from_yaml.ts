@@ -183,7 +183,8 @@ export class SyncConfigFromYaml {
       const streamCompiler = compiler.stream({
         name: key,
         isSubscribedByDefault: value.get('auto_subscribe', true)?.value == true,
-        priority: this.#parsePriority(value) ?? DEFAULT_BUCKET_PRIORITY
+        priority: this.#parsePriority(value) ?? DEFAULT_BUCKET_PRIORITY,
+        warnOnDangerousParameter: !this.#acceptPotentiallyUnsafeQueries(value)
       });
 
       if ($with != null) {
@@ -254,8 +255,7 @@ export class SyncConfigFromYaml {
         continue;
       }
 
-      const accept_potentially_dangerous_queries =
-        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+      const accept_potentially_dangerous_queries = this.#acceptPotentiallyUnsafeQueries(value);
       const parseOptionPriority = this.#parsePriority(value);
 
       const queryOptions: QueryParseOptions = {
@@ -410,6 +410,10 @@ export class SyncConfigFromYaml {
         return priorityValue.value;
       }
     }
+  }
+
+  #acceptPotentiallyUnsafeQueries(definition: YAMLMap): boolean {
+    return definition.get('accept_potentially_dangerous_queries', true)?.value == true;
   }
 
   #yamlError(node: Node, message: string) {
