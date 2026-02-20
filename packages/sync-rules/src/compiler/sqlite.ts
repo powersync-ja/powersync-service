@@ -5,11 +5,19 @@ import {
   ExprCall,
   ExprRef,
   nil,
+  NodeLocation,
   PGNode,
   SelectFromStatement
 } from 'pgsql-ast-parser';
 import { CAST_TYPES } from '../sql_functions.js';
-import { ColumnInRow, ConnectionParameter, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
+import {
+  ColumnInRow,
+  ConnectionParameter,
+  ExpressionInput,
+  NodeLocations,
+  SourceLocation,
+  SyncExpression
+} from './expression.js';
 import {
   BetweenExpression,
   LiteralExpression,
@@ -21,7 +29,6 @@ import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
 import { BaseSourceResultSet, PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
 import { SqlScope } from './scope.js';
-import { SourceSchema } from '../types.js';
 
 export interface ResolvedSubqueryExpression {
   filters: SqlExpression<ExpressionInput>[];
@@ -90,7 +97,7 @@ export class PostgresToSqlite {
 
   private translateNodeWithLocation(expr: Expr): SqlExpression<ExpressionInput> {
     const translated = this.translateToNode(expr);
-    this.options.locations.sourceForNode.set(translated, expr);
+    this.options.locations.sourceForNode.set(translated, this.sourceLocation(expr));
     return translated;
   }
 
@@ -374,7 +381,7 @@ export class PostgresToSqlite {
         if (resolved == null) {
           // An error would have been logged.
           const bogusValue: SqlExpression<ExpressionInput> = { type: 'lit_null' };
-          this.options.locations.sourceForNode.set(bogusValue, expr);
+          this.options.locations.sourceForNode.set(bogusValue, this.sourceLocation(expr));
           return bogusValue;
         }
 
@@ -389,7 +396,7 @@ export class PostgresToSqlite {
             const columns = Object.keys(cte.resultColumns);
             if (columns.length != 1) {
               const bogus = this.invalidExpression(expr, 'Common-table expression must return a single column');
-              this.options.locations.sourceForNode.set(bogus, expr);
+              this.options.locations.sourceForNode.set(bogus, this.sourceLocation(expr));
               return bogus;
             }
 
@@ -436,7 +443,7 @@ export class PostgresToSqlite {
       left: translatedLeft,
       right: translatedRight
     };
-    this.options.locations.sourceForNode.set(replacement, original);
+    this.options.locations.sourceForNode.set(replacement, this.sourceLocation(original));
 
     replacement = additionalFilters.reduce(
       (left, right) => ({ type: 'binary', operator: 'and', left, right }),
@@ -467,7 +474,7 @@ export class PostgresToSqlite {
 
   /// Generates a `NOT` wrapper around the `inner` expression, using `source` as a syntactic location.
   private negate(source: Expr, inner: SqlExpression<ExpressionInput>): SqlExpression<ExpressionInput> {
-    this.options.locations.sourceForNode.set(inner, source);
+    this.options.locations.sourceForNode.set(inner, this.sourceLocation(source));
     return { type: 'unary', operator: 'not', operand: inner };
   }
 
@@ -477,7 +484,7 @@ export class PostgresToSqlite {
       type: 'data',
       source: parameter
     };
-    this.options.locations.sourceForNode.set(replacement, expr.function);
+    this.options.locations.sourceForNode.set(replacement, this.sourceLocation(expr.function));
 
     switch (expr.function.name.toLowerCase()) {
       case 'parameters':
@@ -507,6 +514,10 @@ export class PostgresToSqlite {
       default:
         return this.invalidExpression(expr.function, 'Unknown request function');
     }
+  }
+
+  private sourceLocation(location: PGNode | NodeLocation): SourceLocation {
+    return { location, errors: this.options.errors };
   }
 }
 

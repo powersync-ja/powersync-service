@@ -56,7 +56,12 @@ function compileSingleStream(...sql: string[]): [TranslationError[], SyncPlan] {
     };
   }
 
-  const builder = compiler.stream({ name: 'stream', isSubscribedByDefault: true, priority: 3 });
+  const builder = compiler.stream({
+    name: 'stream',
+    isSubscribedByDefault: true,
+    priority: 3,
+    warnOnDangerousParameter: false
+  });
   for (const query of sql) {
     builder.addQuery(query, errorListenerOnSql(query));
   }

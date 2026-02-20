@@ -73,6 +73,7 @@ config:
   
 streams:
   stream:
+      accept_potentially_dangerous_queries: true
       query: SELECT * FROM users WHERE value = subscription.parameter('p')
 `);
 
@@ -253,6 +254,7 @@ config:
 streams:
   stream:
       auto_subscribe: true
+      accept_potentially_dangerous_queries: true
       query: SELECT users.* FROM users, orgs WHERE users.org_id = orgs.id AND orgs.name = subscription.parameter('org') AND orgs.is_active = 1
 `);
     const orgs = new TestSourceTable('orgs');
