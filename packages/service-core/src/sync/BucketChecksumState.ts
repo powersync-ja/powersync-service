@@ -214,33 +214,27 @@ export class BucketChecksumState {
       });
 
       deferredLog = () => {
+        const totalParamResults = computeTotalParamResults(parameterQueryResultsByDefinition);
         let message = `Updated checkpoint: ${base.checkpoint} | `;
         message += `write: ${writeCheckpoint} | `;
         message += `buckets: ${allBuckets.length} | `;
-        if (parameterQueryResultsByDefinition) {
-          const totalParamResults = Array.from(parameterQueryResultsByDefinition.values()).reduce(
-            (sum, count) => sum + count,
-            0
-          );
+        if (totalParamResults !== undefined) {
           message += `param_results: ${totalParamResults} | `;
         }
         message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
         message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
-        const logData: any = {
-          checkpoint: base.checkpoint,
-          user_id: userIdForLogs,
-          buckets: allBuckets.length,
-          updated: diff.updatedBuckets.length,
-          removed: diff.removedBuckets.length
-        };
-        if (parameterQueryResultsByDefinition) {
-          const totalParamResults = Array.from(parameterQueryResultsByDefinition.values()).reduce(
-            (sum, count) => sum + count,
-            0
-          );
-          logData.parameter_query_results = totalParamResults;
-        }
-        this.logger.info(message, logData);
+        logCheckpoint(
+          this.logger,
+          message,
+          {
+            checkpoint: base.checkpoint,
+            user_id: userIdForLogs,
+            buckets: allBuckets.length,
+            updated: diff.updatedBuckets.length,
+            removed: diff.removedBuckets.length
+          },
+          totalParamResults
+        );
       };
 
       checkpointLine = {
@@ -253,25 +247,23 @@ export class BucketChecksumState {
       } satisfies util.StreamingSyncCheckpointDiff;
     } else {
       deferredLog = () => {
+        const totalParamResults = computeTotalParamResults(parameterQueryResultsByDefinition);
         let message = `New checkpoint: ${base.checkpoint} | write: ${writeCheckpoint} | `;
         message += `buckets: ${allBuckets.length}`;
-        if (parameterQueryResultsByDefinition) {
-          const totalParamResults = Array.from(parameterQueryResultsByDefinition.values()).reduce(
-            (sum, count) => sum + count,
-            0
-          );
+        if (totalParamResults !== undefined) {
           message += ` | param_results: ${totalParamResults}`;
         }
         message += ` ${limitedBuckets(allBuckets, 20)}`;
-        const logData: any = { checkpoint: base.checkpoint, user_id: userIdForLogs, buckets: allBuckets.length };
-        if (parameterQueryResultsByDefinition) {
-          const totalParamResults = Array.from(parameterQueryResultsByDefinition.values()).reduce(
-            (sum, count) => sum + count,
-            0
-          );
-          logData.parameter_query_results = totalParamResults;
-        }
-        this.logger.info(message, logData);
+        logCheckpoint(
+          this.logger,
+          message,
+          {
+            checkpoint: base.checkpoint,
+            user_id: userIdForLogs,
+            buckets: allBuckets.length
+          },
+          totalParamResults
+        );
       };
       bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
 
@@ -541,7 +533,6 @@ export class BucketParameterState {
         `Too many parameter query results: ${update.buckets.length} (limit of ${this.context.maxParameterQueryResults})`
       );
 
-      // Build breakdown of parameter query results by definition
       let errorMessage = error.message;
       const logData: any = {
         checkpoint: checkpoint,
@@ -550,23 +541,9 @@ export class BucketParameterState {
       };
 
       if (update.parameterQueryResultsByDefinition && update.parameterQueryResultsByDefinition.size > 0) {
-        // Sort definitions by count (descending) and take top 10
-        const sortedDefinitions = Array.from(update.parameterQueryResultsByDefinition.entries())
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 10);
-
-        errorMessage += '\nParameter query results by definition:';
-        const countsByDefinition: Record<string, number> = {};
-        for (const [definition, count] of sortedDefinitions) {
-          errorMessage += `\n  ${definition}: ${count}`;
-          countsByDefinition[definition] = count;
-        }
-
-        if (update.parameterQueryResultsByDefinition.size > 10) {
-          errorMessage += `\n  ... and ${update.parameterQueryResultsByDefinition.size - 10} more`;
-        }
-
-        logData.parameter_query_results_by_definition = countsByDefinition;
+        const breakdown = formatParameterQueryBreakdown(update.parameterQueryResultsByDefinition);
+        errorMessage += breakdown.message;
+        logData.parameter_query_results_by_definition = breakdown.countsByDefinition;
       }
 
       this.logger.error(errorMessage, logData);
@@ -708,6 +685,68 @@ export interface CheckpointLine {
 
 // Use a more specific type to simplify testing
 export type BucketChecksumStateStorage = Pick<storage.SyncRulesBucketStorage, 'getChecksums'>;
+
+/**
+ * Compute the total number of parameter query results across all definitions.
+ */
+function computeTotalParamResults(
+  parameterQueryResultsByDefinition: Map<string, number> | undefined
+): number | undefined {
+  if (!parameterQueryResultsByDefinition) {
+    return undefined;
+  }
+  return Array.from(parameterQueryResultsByDefinition.values()).reduce((sum, count) => sum + count, 0);
+}
+
+/**
+ * Log a checkpoint message, enriching it with parameter query result counts if available.
+ *
+ * @param logger The logger instance to use
+ * @param message The base message string (param_results will NOT be appended — caller includes it if needed)
+ * @param logData The base log data object
+ * @param totalParamResults The total parameter query results count, or undefined if not applicable
+ */
+function logCheckpoint(
+  logger: Logger,
+  message: string,
+  logData: Record<string, any>,
+  totalParamResults: number | undefined
+): void {
+  if (totalParamResults !== undefined) {
+    logData.parameter_query_results = totalParamResults;
+  }
+  logger.info(message, logData);
+}
+
+/**
+ * Format a breakdown of parameter query results by sync rule definition.
+ *
+ * Sorts definitions by count (descending), includes the top 10, and returns both the
+ * formatted message string and the counts record suitable for structured log data.
+ */
+function formatParameterQueryBreakdown(parameterQueryResultsByDefinition: Map<string, number>): {
+  message: string;
+  countsByDefinition: Record<string, number>;
+} {
+  // Sort definitions by count (descending) and take top 10
+  const allSorted = Array.from(parameterQueryResultsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
+  const sortedDefinitions = allSorted.slice(0, 10);
+
+  let message = '\nParameter query results by definition:';
+  const countsByDefinition: Record<string, number> = {};
+  for (const [definition, count] of sortedDefinitions) {
+    message += `\n  ${definition}: ${count}`;
+    countsByDefinition[definition] = count;
+  }
+
+  if (allSorted.length > 10) {
+    const remainingResults = allSorted.slice(10).reduce((sum, [, count]) => sum + count, 0);
+    const remainingDefinitions = allSorted.length - 10;
+    message += `\n  ... and ${remainingResults} more results from ${remainingDefinitions} definitions`;
+  }
+
+  return { message, countsByDefinition };
+}
 
 function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number) {
   buckets = buckets.map((b) => {

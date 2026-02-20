@@ -849,7 +849,7 @@ config:
 
       const state = new BucketChecksumState({
         syncContext,
-        tokenPayload: { sub: 'u1' },
+        tokenPayload: new JwtPayload({ sub: 'u1' }),
         syncRequest,
         syncRules: SYNC_RULES_DYNAMIC,
         bucketStorage: storage,
@@ -884,7 +884,7 @@ bucket_definitions:
     data: []
     `,
         { defaultSchema: 'public' }
-      ).hydrate({ hydrationState: versionedHydrationState(4) });
+      ).config.hydrate({ hydrationState: versionedHydrationState(4) });
 
       const storage = new MockBucketChecksumStateStorage();
 
@@ -908,7 +908,7 @@ bucket_definitions:
 
       const state = new BucketChecksumState({
         syncContext: smallContext,
-        tokenPayload: { sub: 'u1' },
+        tokenPayload: new JwtPayload({ sub: 'u1' }),
         syncRequest,
         syncRules: SYNC_RULES_MULTI,
         bucketStorage: storage,
@@ -971,7 +971,7 @@ bucket_definitions:
         yamlDefinitions += `    data: []\n`;
       }
 
-      const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).hydrate({
+      const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
         hydrationState: versionedHydrationState(5)
       });
 
@@ -995,7 +995,7 @@ bucket_definitions:
 
       const state = new BucketChecksumState({
         syncContext: smallContext,
-        tokenPayload: { sub: 'u1' },
+        tokenPayload: new JwtPayload({ sub: 'u1' }),
         syncRequest,
         syncRules: SYNC_RULES_MANY,
         bucketStorage: storage,
@@ -1020,7 +1020,7 @@ bucket_definitions:
 
       // Verify only top 10 are shown
       const errorMessage = errorMessages[0];
-      expect(errorMessage).toContain('... and 5 more');
+      expect(errorMessage).toContain('... and 5 more results from 5 definitions');
 
       // Count how many definitions are listed (should be exactly 10)
       const defMatches = errorMessage.match(/def\d+:/g);
