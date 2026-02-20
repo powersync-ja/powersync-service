@@ -1,5 +1,25 @@
 # @powersync/service-module-postgres-storage
 
+## 0.12.0
+
+### Minor Changes
+
+- 8a4c34e: Refactor `BucketStorageFactory` and `PersistedSyncRulesContent` to be abstract classes instead of interfaces.
+- 8bd83e8: Introduce storage versions.
+
+### Patch Changes
+
+- Updated dependencies [0998251]
+- Updated dependencies [1c45667]
+- Updated dependencies [8a4c34e]
+- Updated dependencies [8bd83e8]
+  - @powersync/service-core@1.20.0
+  - @powersync/service-types@0.15.0
+  - @powersync/service-sync-rules@0.32.0
+  - @powersync/lib-service-postgres@0.4.22
+  - @powersync/lib-services-framework@0.8.3
+  - @powersync/service-jpgwire@0.21.13
+
 ## 0.11.2
 
 ### Patch Changes
