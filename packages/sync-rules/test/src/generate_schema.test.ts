@@ -347,8 +347,8 @@ class AppSchema
         {
             ["name"] = ColumnType.Text, // text
             ["count"] = ColumnType.Integer, // int4
-            ["owner_id"] = ColumnType.Text // uuid
-        }
+            ["owner_id"] = ColumnType.Text, // uuid
+        },
     };
 
     public static Table Assets2 = new Table
@@ -359,8 +359,8 @@ class AppSchema
             ["name"] = ColumnType.Text, // text
             ["count"] = ColumnType.Integer, // int4
             ["other_id"] = ColumnType.Text, // uuid
-            ["foo"] = ColumnType.Text
-        }
+            ["foo"] = ColumnType.Text,
+        },
     };
 
     public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);

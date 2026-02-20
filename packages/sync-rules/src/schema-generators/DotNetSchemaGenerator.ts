@@ -28,32 +28,22 @@ ${tables.map((table) => this.generateTable(table.name, table.columns, options)).
 
   private generateTable(name: string, columns: ColumnDefinition[], options?: GenerateSchemaOptions): string {
     const includeComments = options?.includeTypeComments;
-    const generated = columns.map((c, i) => {
-      const last = i === columns.length - 1;
+    const generated = columns.map((c) => {
       const base = this.generateColumn(c);
-      let line: string;
-
-      if (includeComments) {
-        const comma = last ? '' : ',';
-        line = `            ${base}${comma}`;
-        if (c.originalType != null) {
-          line += ` // ${c.originalType}`;
-        }
-      } else {
-        line = `            ${base},`;
+      let line = `            ${base},`;
+      if (includeComments && c.originalType != null) {
+        line += ` // ${c.originalType}`;
       }
-
       return line;
     });
 
-    const columnsCloseBrace = includeComments ? '        }' : '        },';
     return `    public static Table ${this.toUpperCaseFirstLetter(name)} = new Table
     {
         Name = "${name}",
         Columns =
         {
 ${generated.join('\n')}
-${columnsCloseBrace}
+        },
     };`;
   }
 
