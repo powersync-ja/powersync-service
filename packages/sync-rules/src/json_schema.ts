@@ -7,6 +7,38 @@ const ajv = new Ajv({ allErrors: true, verbose: true });
 export const syncRulesSchema: ajvModule.Schema = {
   type: 'object',
   properties: {
+    initial_snapshot_filters: {
+      type: 'object',
+      description: 'Global filters applied during initial snapshot replication for specific tables',
+      examples: [
+        {
+          users: {
+            sql: "status = 'active'",
+            mongo: { status: 'active' }
+          },
+          orders: {
+            sql: 'created_at > DATE_SUB(NOW(), INTERVAL 90 DAY)'
+          }
+        }
+      ],
+      patternProperties: {
+        '.*': {
+          type: 'object',
+          description: 'Database-specific filter syntax for a table',
+          properties: {
+            sql: {
+              type: 'string',
+              description: 'SQL WHERE clause for MySQL, PostgreSQL, SQL Server'
+            },
+            mongo: {
+              description: 'MongoDB query filter (BSON/EJSON format) - can be any valid MongoDB query object'
+            }
+          },
+          additionalProperties: false,
+          minProperties: 1
+        }
+      }
+    },
     bucket_definitions: {
       type: 'object',
       description: 'List of bucket definitions',
