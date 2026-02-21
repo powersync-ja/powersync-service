@@ -309,26 +309,30 @@ let schema = Schema(
 
 class AppSchema
 {
-  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT },
-      { "count", ColumnType.INTEGER },
-      { "owner_id", ColumnType.TEXT }
-  });
+    public static Table Assets1 = new Table
+    {
+        Name = "assets1",
+        Columns =
+        {
+            ["name"] = ColumnType.Text,
+            ["count"] = ColumnType.Integer,
+            ["owner_id"] = ColumnType.Text,
+        },
+    };
 
-  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT },
-      { "count", ColumnType.INTEGER },
-      { "other_id", ColumnType.TEXT },
-      { "foo", ColumnType.TEXT }
-  });
+    public static Table Assets2 = new Table
+    {
+        Name = "assets2",
+        Columns =
+        {
+            ["name"] = ColumnType.Text,
+            ["count"] = ColumnType.Integer,
+            ["other_id"] = ColumnType.Text,
+            ["foo"] = ColumnType.Text,
+        },
+    };
 
-  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
-  {
-    {"assets1", Assets1},
-    {"assets2", Assets2}
-  });
+    public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
 }`);
 
     expect(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
@@ -336,26 +340,30 @@ class AppSchema
 
 class AppSchema
 {
-  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT }, // text
-      { "count", ColumnType.INTEGER }, // int4
-      { "owner_id", ColumnType.TEXT } // uuid
-  });
+    public static Table Assets1 = new Table
+    {
+        Name = "assets1",
+        Columns =
+        {
+            ["name"] = ColumnType.Text, // text
+            ["count"] = ColumnType.Integer, // int4
+            ["owner_id"] = ColumnType.Text, // uuid
+        },
+    };
 
-  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT }, // text
-      { "count", ColumnType.INTEGER }, // int4
-      { "other_id", ColumnType.TEXT }, // uuid
-      { "foo", ColumnType.TEXT }
-  });
+    public static Table Assets2 = new Table
+    {
+        Name = "assets2",
+        Columns =
+        {
+            ["name"] = ColumnType.Text, // text
+            ["count"] = ColumnType.Integer, // int4
+            ["other_id"] = ColumnType.Text, // uuid
+            ["foo"] = ColumnType.Text,
+        },
+    };
 
-  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
-  {
-    {"assets1", Assets1},
-    {"assets2", Assets2}
-  });
+    public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
 }`);
   });
 

@@ -16,12 +16,9 @@ export class DotNetSchemaGenerator extends SchemaGenerator {
 
 class AppSchema
 {
-  ${tables.map((table) => this.generateTable(table.name, table.columns, options)).join('\n\n  ')}
+${tables.map((table) => this.generateTable(table.name, table.columns, options)).join('\n\n')}
 
-  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
-  {
-    ${tables.map((table) => `{"${table.name}", ${this.toUpperCaseFirstLetter(table.name)}}`).join(',\n    ')}
-  });
+    public static Schema PowerSyncSchema = new Schema(${tables.map((table) => this.toUpperCaseFirstLetter(table.name)).join(', ')});
 }`;
   }
 
@@ -30,42 +27,40 @@ class AppSchema
   }
 
   private generateTable(name: string, columns: ColumnDefinition[], options?: GenerateSchemaOptions): string {
-    const generated = columns.map((c, i) => {
-      const last = i === columns.length - 1;
+    const includeComments = options?.includeTypeComments;
+    const generated = columns.map((c) => {
       const base = this.generateColumn(c);
-      let withFormatting: string;
-      if (last) {
-        withFormatting = `    ${base}`;
-      } else {
-        withFormatting = `    ${base},`;
+      let line = `            ${base},`;
+      if (includeComments && c.originalType != null) {
+        line += ` // ${c.originalType}`;
       }
-
-      if (options?.includeTypeComments && c.originalType != null) {
-        return `${withFormatting} // ${c.originalType}`;
-      } else {
-        return withFormatting;
-      }
+      return line;
     });
-    return `public static Table ${this.toUpperCaseFirstLetter(name)} = new Table(new Dictionary<string, ColumnType>
-  {
-  ${generated.join('\n  ')}
-  });`;
+
+    return `    public static Table ${this.toUpperCaseFirstLetter(name)} = new Table
+    {
+        Name = "${name}",
+        Columns =
+        {
+${generated.join('\n')}
+        },
+    };`;
   }
 
   private generateColumn(column: ColumnDefinition): string {
-    return `{ "${column.name}", ${cSharpColumnType(column)} }`;
+    return `["${column.name}"] = ${cSharpColumnType(column)}`;
   }
 }
 
 const cSharpColumnType = (def: ColumnDefinition): string => {
   const t = def.type;
   if (t.typeFlags & TYPE_TEXT) {
-    return 'ColumnType.TEXT';
+    return 'ColumnType.Text';
   } else if (t.typeFlags & TYPE_REAL) {
-    return 'ColumnType.REAL';
+    return 'ColumnType.Real';
   } else if (t.typeFlags & TYPE_INTEGER) {
-    return 'ColumnType.INTEGER';
+    return 'ColumnType.Integer';
   } else {
-    return 'ColumnType.TEXT';
+    return 'ColumnType.Text';
   }
 };
