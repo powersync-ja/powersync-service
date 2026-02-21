@@ -41,8 +41,29 @@ export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | nu
         return {
           getParseSyncRulesOptions() {
             return { defaultSchema: 'public' };
+          },
+          async getSourceConfig() {
+            return {
+              tag: 'test_tag',
+              id: 'test_id',
+              type: 'test_type'
+            };
+          },
+          async getConnectionSchema() {
+            return [];
+          },
+          async getConnectionStatus() {
+            return {
+              id: 'test_id',
+              uri: 'http://example.org/',
+              connected: true,
+              errors: []
+            };
+          },
+          async getDebugTablesInfo() {
+            return [];
           }
-        } as Partial<RouteAPI>;
+        } satisfies Partial<RouteAPI> as unknown as RouteAPI;
       },
       addStopHandler() {
         return () => {};

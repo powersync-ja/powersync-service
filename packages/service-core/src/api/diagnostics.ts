@@ -132,12 +132,20 @@ export async function getSyncRulesStatus(
     });
   }
   errors.push(
-    ...syncRuleErrors.map((e) => {
-      return {
-        level: e.type,
-        message: e.message,
+    ...syncRuleErrors.map(({ type, message, location }) => {
+      const error: ReplicationError = {
+        level: type,
+        message,
         ts: now
       };
+      if (location != null) {
+        error.location = {
+          start_offset: location.start,
+          end_offset: location.end
+        };
+      }
+
+      return error;
     })
   );
 
