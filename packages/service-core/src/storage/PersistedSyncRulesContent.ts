@@ -1,5 +1,6 @@
 import { HydratedSyncRules, SyncConfig, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationLock } from './ReplicationLock.js';
+import { StorageVersionConfig } from './StorageVersionConfig.js';
 
 export interface ParseSyncRulesOptions {
   defaultSchema: string;
@@ -26,6 +27,7 @@ export interface PersistedSyncRulesContent {
   parsed(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   lock(): Promise<ReplicationLock>;
+  getStorageConfig(): StorageVersionConfig;
 }
 
 export interface PersistedSyncRules {

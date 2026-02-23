@@ -171,4 +171,5 @@ export type TestReportStorageFactory = (options?: TestStorageOptions) => Promise
 export interface TestStorageConfig {
   factory: TestStorageFactory;
   tableIdStrings: boolean;
+  storageVersion?: number;
 }

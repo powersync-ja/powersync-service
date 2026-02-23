@@ -175,6 +175,9 @@ export const validate = routeDefinition({
       active: false,
       last_checkpoint_lsn: '',
       storageVersion: storage.LEGACY_STORAGE_VERSION,
+      getStorageConfig() {
+        return storage.STORAGE_VERSION_CONFIG[storage.LEGACY_STORAGE_VERSION]!;
+      },
 
       parsed() {
         return {

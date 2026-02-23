@@ -9,7 +9,7 @@ import {
   utils
 } from '@powersync/service-core';
 
-import { PowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
@@ -84,7 +84,7 @@ export class MongoCompactor {
 
   constructor(
     private storage: MongoSyncBucketStorage,
-    private db: PowerSyncMongo,
+    private db: VersionedPowerSyncMongo,
     options?: MongoCompactOptions
   ) {
     this.group_id = storage.group_id;

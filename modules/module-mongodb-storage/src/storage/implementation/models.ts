@@ -2,6 +2,7 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -31,6 +32,13 @@ export interface BucketDataKey {
 }
 
 export interface CurrentDataDocument {
+  _id: SourceKey;
+  data: bson.Binary;
+  buckets: CurrentBucket[];
+  lookups: bson.Binary[];
+}
+
+export interface CurrentDataDocumentV3 {
   _id: SourceKey;
   data: bson.Binary;
   buckets: CurrentBucket[];
@@ -226,10 +234,10 @@ export interface StorageConfig extends storage.StorageVersionConfig {
 
 const LONG_CHECKSUMS_STORAGE_VERSION = 2;
 
-export function getMongoStorageConfig(storageVersion: number): StorageConfig | undefined {
+export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
   if (baseConfig == null) {
-    return undefined;
+    throw new ServiceError(ErrorCode.PSYNC_S1005, `Unsupported storage version ${storageVersion}`);
   }
 
   return { ...baseConfig, longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION };

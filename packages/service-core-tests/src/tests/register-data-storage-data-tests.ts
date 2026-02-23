@@ -1,5 +1,6 @@
 import {
   BucketDataBatchOptions,
+  CURRENT_STORAGE_VERSION,
   getUuidReplicaIdentityBson,
   OplogEntry,
   reduceBucket,
@@ -32,7 +33,10 @@ const normalizeOplogData = (data: OplogEntry['data']) => {
  */
 export function registerDataStorageDataTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
+  const storageVersion = config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+
   const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
+
   test('removing row', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
@@ -41,7 +45,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -107,7 +112,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -177,7 +183,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -250,7 +257,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -312,7 +320,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -385,7 +394,8 @@ bucket_definitions:
   global:
     data:
       - SELECT client_id as id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -453,7 +463,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -535,7 +546,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -672,7 +684,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "test"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -831,7 +844,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "test"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -940,7 +954,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "test"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1039,7 +1054,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1149,7 +1165,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1237,7 +1254,8 @@ bucket_definitions:
     global2:
       data:
         - SELECT id, description FROM test WHERE bucket = 'global2'
-  `
+  `,
+        storageVersion
       });
       const bucketStorage = factory.getInstance(syncRules);
 
@@ -1415,7 +1433,8 @@ bucket_definitions:
       data:
         - SELECT id FROM test
         - SELECT id FROM test_ignore WHERE false
-  `
+  `,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1462,7 +1481,8 @@ bucket_definitions:
   global:
     data:
       - SELECT client_id as id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1502,7 +1522,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1537,7 +1558,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1576,7 +1598,7 @@ bucket_definitions:
     });
   });
 
-  test('deleting while streaming', async () => {
+  test.runIf(storageVersion >= 3)('deleting while streaming', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules({
       content: `
@@ -1584,7 +1606,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -1637,6 +1660,7 @@ bucket_definitions:
  * Exposed as a separate test so we can test with more storage parameters.
  */
 export function testChecksumBatching(config: storage.TestStorageConfig) {
+  const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
   test('checksums for multiple buckets', async () => {
     await using factory = await config.factory();
     const syncRules = await factory.updateSyncRules({
@@ -1646,7 +1670,8 @@ bucket_definitions:
     parameters: select request.user_id() as user_id
     data:
       - select id, description from test where user_id = bucket.user_id
-`
+`,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 

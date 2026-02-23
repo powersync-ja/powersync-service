@@ -1,4 +1,4 @@
-import { JwtPayload, storage } from '@powersync/service-core';
+import { CURRENT_STORAGE_VERSION, JwtPayload, storage } from '@powersync/service-core';
 import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { expect, test } from 'vitest';
@@ -17,6 +17,7 @@ import { bucketRequest } from './util.js';
  */
 export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
+  const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
   const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
   const MYBUCKET_1: ParameterLookupScope = { lookupName: 'mybucket', queryId: '1' };
 
@@ -29,7 +30,8 @@ bucket_definitions:
     parameters:
       - SELECT group_id FROM test WHERE id1 = token_parameters.user_id OR id2 = token_parameters.user_id
     data: []
-    `
+    `,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -81,7 +83,8 @@ bucket_definitions:
     parameters:
       - SELECT group_id FROM test WHERE id = token_parameters.user_id
     data: []
-    `
+    `,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -140,7 +143,8 @@ bucket_definitions:
         FROM todos
         WHERE list_id IN token_parameters.list_id
     data: []
-    `
+    `,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -214,7 +218,8 @@ bucket_definitions:
     parameters:
       - SELECT group_id FROM test WHERE n1 = token_parameters.n1 and f2 = token_parameters.f2 and f3 = token_parameters.f3
     data: []
-    `
+    `,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -265,7 +270,8 @@ bucket_definitions:
     parameters:
       - SELECT group_id FROM test WHERE n1 = token_parameters.n1
     data: []
-    `
+    `,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -320,7 +326,8 @@ bucket_definitions:
         - SELECT id as workspace_id FROM workspace WHERE
           workspace."userId" = token_parameters.user_id
       data: []
-    `
+    `,
+      storageVersion
     });
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
@@ -375,7 +382,8 @@ bucket_definitions:
         - SELECT id as workspace_id FROM workspace WHERE
           workspace.visibility = 'public'
       data: []
-    `
+    `,
+      storageVersion
     });
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
@@ -464,7 +472,8 @@ bucket_definitions:
         - SELECT id as workspace_id FROM workspace WHERE
             workspace.user_id = token_parameters.user_id
       data: []
-    `
+    `,
+      storageVersion
     });
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
@@ -559,7 +568,8 @@ bucket_definitions:
     parameters:
       - SELECT group_id FROM test WHERE id1 = token_parameters.user_id OR id2 = token_parameters.user_id
     data: []
-    `
+    `,
+      storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -596,7 +606,8 @@ bucket_definitions:
         - SELECT id as workspace_id FROM workspace WHERE
           workspace."userId" = token_parameters.user_id
       data: []
-    `
+    `,
+      storageVersion
     });
     const syncBucketStorage = bucketStorageFactory.getInstance(syncRules);
 

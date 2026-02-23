@@ -31,7 +31,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { PowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketDataKey,
@@ -44,6 +44,7 @@ import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
+import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
@@ -66,7 +67,7 @@ export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  private readonly db: PowerSyncMongo;
+  private readonly db: VersionedPowerSyncMongo;
   readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
@@ -75,13 +76,13 @@ export class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    private readonly sync_rules: storage.PersistedSyncRulesContent,
+    private readonly sync_rules: MongoPersistedSyncRulesContent,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
     super();
-    this.db = factory.db;
+    this.db = factory.db.versioned(sync_rules.getStorageConfig());
     this.checksums = new MongoChecksums(this.db, this.group_id, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig
@@ -630,7 +631,7 @@ export class MongoSyncBucketStorage
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
-    await this.db.current_data.deleteMany(
+    await this.db.common_current_data.deleteMany(
       {
         _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
       },

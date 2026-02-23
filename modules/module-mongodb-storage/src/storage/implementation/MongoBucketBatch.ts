@@ -25,7 +25,7 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
-import { PowerSyncMongo } from './db.js';
+import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
@@ -47,7 +47,7 @@ const replicationMutex = new utils.Mutex();
 export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
 
 export interface MongoBucketBatchOptions {
-  db: PowerSyncMongo;
+  db: VersionedPowerSyncMongo;
   syncRules: HydratedSyncRules;
   groupId: number;
   slotName: string;
@@ -72,7 +72,7 @@ export class MongoBucketBatch
   private logger: Logger;
 
   private readonly client: mongo.MongoClient;
-  public readonly db: PowerSyncMongo;
+  public readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
   private readonly sync_rules: HydratedSyncRules;
 
@@ -218,22 +218,23 @@ export class MongoBucketBatch
 
       sizes = new Map<string, number>();
 
-      const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db.current_data.aggregate(
-        [
-          {
-            $match: {
-              _id: { $in: sizeLookups }
+      const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> =
+        this.db.common_current_data.aggregate(
+          [
+            {
+              $match: {
+                _id: { $in: sizeLookups }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                size: { $bsonSize: '$$ROOT' }
+              }
             }
-          },
-          {
-            $project: {
-              _id: 1,
-              size: { $bsonSize: '$$ROOT' }
-            }
-          }
-        ],
-        { session }
-      );
+          ],
+          { session }
+        );
       for await (let doc of sizeCursor.stream()) {
         const key = cacheKey(doc._id.t, doc._id.k);
         sizes.set(key, doc.size);
@@ -261,7 +262,7 @@ export class MongoBucketBatch
       let current_data_lookup = new Map<string, CurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
       const projection = this.skipExistingRows ? { _id: 1 } : undefined;
-      const cursor = this.db.current_data.find(
+      const cursor = this.db.common_current_data.find(
         {
           _id: { $in: lookups }
         },
@@ -271,7 +272,7 @@ export class MongoBucketBatch
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
       }
 
-      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.group_id, transactionSize, {
+      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.db, this.group_id, transactionSize, {
         logger: this.logger
       });
 
@@ -295,7 +296,7 @@ export class MongoBucketBatch
         if (persistedBatch!.shouldFlushTransaction()) {
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
-          const { flushedAny } = await persistedBatch!.flush(this.db, this.session, options);
+          const { flushedAny } = await persistedBatch!.flush(this.session, options);
           didFlush ||= flushedAny;
           persistedBatch = null;
           // Computing our current progress is a little tricky here, since
@@ -307,7 +308,7 @@ export class MongoBucketBatch
 
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
-        const { flushedAny } = await persistedBatch.flush(this.db, this.session, options);
+        const { flushedAny } = await persistedBatch.flush(this.session, options);
         didFlush ||= flushedAny;
       }
     }
@@ -838,13 +839,15 @@ export class MongoBucketBatch
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
-      await this.cleanupCurrentData(updateResult.last_checkpoint!);
+      if (this.db.storageConfig.softDeleteCurrentData) {
+        await this.cleanupCurrentData(updateResult.last_checkpoint!);
+      }
     }
     return { checkpointBlocked };
   }
 
   private async cleanupCurrentData(lastCheckpoint: bigint) {
-    const result = await this.db.current_data.deleteMany({
+    const result = await this.db.v3_current_data.deleteMany({
       '_id.g': this.group_id,
       pending_delete: { $exists: true, $lte: lastCheckpoint }
     });
@@ -1016,7 +1019,7 @@ export class MongoBucketBatch
           pending_delete: { $exists: false }
         };
 
-        const cursor = this.db.current_data.find(current_data_filter, {
+        const cursor = this.db.common_current_data.find(current_data_filter, {
           projection: {
             _id: 1,
             buckets: 1,
@@ -1026,7 +1029,7 @@ export class MongoBucketBatch
           session: session
         });
         const batch = await cursor.toArray();
-        const persistedBatch = new PersistedBatch(this.group_id, 0, { logger: this.logger });
+        const persistedBatch = new PersistedBatch(this.db, this.group_id, 0, { logger: this.logger });
 
         for (let value of batch) {
           persistedBatch.saveBucketData({
@@ -1047,7 +1050,7 @@ export class MongoBucketBatch
           // Since this is not from streaming replication, we can do a hard delete
           persistedBatch.hardDeleteCurrentData(value._id);
         }
-        await persistedBatch.flush(this.db, session);
+        await persistedBatch.flush(session);
         lastBatchCount = batch.length;
 
         last_op = opSeq.last();
