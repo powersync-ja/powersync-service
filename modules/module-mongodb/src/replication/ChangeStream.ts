@@ -771,9 +771,12 @@ export class ChangeStream {
         if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
           waitForCheckpointLsn = null;
         }
-        const didCommit = await writer.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
 
-        if (didCommit) {
+        const { checkpointBlocked } = await writer.commit(lsn, {
+          oldestUncommittedChange: this.oldestUncommittedChange
+        });
+
+        if (!checkpointBlocked) {
           this.oldestUncommittedChange = null;
           this.isStartingReplication = false;
           changesSinceLastCheckpoint = 0;

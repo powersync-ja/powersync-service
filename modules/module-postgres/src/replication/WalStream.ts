@@ -568,12 +568,12 @@ export class WalStream {
               await this.resnapshot(writer, resnapshot);
               resnapshot = [];
             }
-            const didCommit = await writer.commit(msg.lsn!, {
+            const { checkpointBlocked } = await writer.commit(msg.lsn!, {
               createEmptyCheckpoints,
               oldestUncommittedChange: this.oldestUncommittedChange
             });
             await this.ack(msg.lsn!, replicationStream);
-            if (didCommit) {
+            if (!checkpointBlocked) {
               this.oldestUncommittedChange = null;
               this.isStartingReplication = false;
             }

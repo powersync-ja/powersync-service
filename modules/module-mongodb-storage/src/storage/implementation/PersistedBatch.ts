@@ -303,7 +303,8 @@ export class PersistedBatch {
       updateOne: {
         filter: { _id: id },
         update: {
-          $set: values
+          $set: values,
+          $unset: { pending_delete: 1 }
         },
         upsert: true
       }

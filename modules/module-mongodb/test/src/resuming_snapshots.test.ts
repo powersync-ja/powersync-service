@@ -1,3 +1,4 @@
+import { logger } from '@powersync/lib-services-framework';
 import { TestStorageFactory } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
@@ -6,22 +7,21 @@ import { describe, expect, test } from 'vitest';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { env } from './env.js';
 import { describeWithStorage } from './util.js';
-import { logger } from '@powersync/lib-services-framework';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, function (config) {
+  describeWithStorage({ timeout: 240_000 }, function ({ factory, storageVersion }) {
     test('resuming initial replication (1)', async () => {
       // Stop early - likely to not include deleted row in first replication attempt.
-      await testResumingReplication(config.factory, 2000);
+      await testResumingReplication(factory, storageVersion, 2000);
     });
     test('resuming initial replication (2)', async () => {
       // Stop late - likely to include deleted row in first replication attempt.
-      await testResumingReplication(config.factory, 8000);
+      await testResumingReplication(factory, storageVersion, 8000);
     });
   });
 });
 
-async function testResumingReplication(factory: TestStorageFactory, stopAfter: number) {
+async function testResumingReplication(factory: TestStorageFactory, storageVersion: number, stopAfter: number) {
   // This tests interrupting and then resuming initial replication.
   // We interrupt replication after test_data1 has fully replicated, and
   // test_data2 has partially replicated.
@@ -37,7 +37,8 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
 
   {
     await using context = await ChangeStreamTestContext.open(factory, {
-      streamOptions: { snapshotChunkLength: 1000, logger: logger.child({ prefix: '[context1] ' }) }
+      streamOptions: { snapshotChunkLength: 1000, logger: logger.child({ prefix: '[context1] ' }) },
+      storageVersion
     });
 
     await context.updateSyncRules(`bucket_definitions:
@@ -90,7 +91,8 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     // Bypass the usual "clear db on factory open" step.
     await using context2 = await ChangeStreamTestContext.open(factory, {
       doNotClear: true,
-      streamOptions: { snapshotChunkLength: 1000, logger: logger.child({ prefix: '[context2] ' }) }
+      streamOptions: { snapshotChunkLength: 1000, logger: logger.child({ prefix: '[context2] ' }) },
+      storageVersion
     });
 
     const { db } = context2;

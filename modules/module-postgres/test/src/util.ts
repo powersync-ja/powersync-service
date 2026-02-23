@@ -2,12 +2,19 @@ import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js'
 import * as types from '@module/types/types.js';
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, InternalOpId, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
+import {
+  BucketStorageFactory,
+  CURRENT_STORAGE_VERSION,
+  InternalOpId,
+  LEGACY_STORAGE_VERSION,
+  TestStorageConfig,
+  TestStorageFactory
+} from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
-import { env } from './env.js';
 import { describe, TestOptions } from 'vitest';
+import { env } from './env.js';
 
 export const TEST_URI = env.PG_TEST_URL;
 
@@ -20,14 +27,34 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
   url: env.PG_STORAGE_TEST_URL
 });
 
-export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageConfig) => void) {
-  describe.skipIf(!env.TEST_MONGO_STORAGE)(`mongodb storage`, options, function () {
-    fn(INITIALIZED_MONGO_STORAGE_FACTORY);
-  });
+const TEST_STORAGE_VERSIONS = [LEGACY_STORAGE_VERSION, CURRENT_STORAGE_VERSION];
 
-  describe.skipIf(!env.TEST_POSTGRES_STORAGE)(`postgres storage`, options, function () {
-    fn(INITIALIZED_POSTGRES_STORAGE_FACTORY);
-  });
+export interface StorageVersionTestContext {
+  factory: TestStorageFactory;
+  storageVersion: number;
+}
+
+export function describeWithStorage(options: TestOptions, fn: (context: StorageVersionTestContext) => void) {
+  const describeFactory = (storageName: string, config: TestStorageConfig) => {
+    describe(`${storageName} storage`, options, function () {
+      for (const storageVersion of TEST_STORAGE_VERSIONS) {
+        describe(`storage v${storageVersion}`, function () {
+          fn({
+            factory: config.factory,
+            storageVersion
+          });
+        });
+      }
+    });
+  };
+
+  if (env.TEST_MONGO_STORAGE) {
+    describeFactory('mongodb', INITIALIZED_MONGO_STORAGE_FACTORY);
+  }
+
+  if (env.TEST_POSTGRES_STORAGE) {
+    describeFactory('postgres', INITIALIZED_POSTGRES_STORAGE_FACTORY);
+  }
 }
 
 export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({

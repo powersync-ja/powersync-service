@@ -2,6 +2,7 @@ import { addChecksums, storage } from '@powersync/service-core';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
+import { bucketRequest, bucketRequestMap, bucketRequests } from './util.js';
 
 export function registerCompactTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;

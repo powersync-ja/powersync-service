@@ -11,6 +11,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageMarkRecordUnavailable,
+  CheckpointResult,
   deserializeReplicaId,
   InternalOpId,
   storage,
@@ -321,7 +322,7 @@ export class PostgresBucketBatch
     return { flushed_op: lastOp };
   }
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
     const createEmptyCheckpoints = options?.createEmptyCheckpoints ?? true;
 
     await this.flush();
@@ -478,11 +479,11 @@ export class PostgresBucketBatch
         );
         this.lastWaitingLogThrottled = Date.now();
       }
-      return true;
+      return { checkpointBlocked: true };
     }
 
     if (result.created_checkpoint) {
-      this.logger.info(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
+      this.logger.debug(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
 
       await this.db.sql`
         DELETE FROM current_data
@@ -502,10 +503,12 @@ export class PostgresBucketBatch
 
     this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
-    return true;
+
+    // Even if created_checkpoint is false, if can_checkpoint is true, we need to return not blocked.
+    return { checkpointBlocked: false };
   }
 
-  async keepalive(lsn: string): Promise<boolean> {
+  async keepalive(lsn: string): Promise<CheckpointResult> {
     return await this.commit(lsn, { createEmptyCheckpoints: true });
   }
 

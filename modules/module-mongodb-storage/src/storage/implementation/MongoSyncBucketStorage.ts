@@ -16,7 +16,6 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  maxLsn,
   mergeAsyncIterables,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
@@ -37,7 +36,7 @@ import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoPersistedSyncRules } from '../storage-index.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey } from './models.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, StorageConfig } from './models.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
@@ -45,7 +44,8 @@ import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
-  checksumOptions?: MongoChecksumOptions;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  storageConfig: StorageConfig;
 }
 
 /**
@@ -77,13 +77,16 @@ export class MongoSyncBucketStorage
     public readonly group_id: number,
     public readonly sync_rules: MongoPersistedSyncRulesContent,
     public readonly slot_name: string,
-    writeCheckpointMode?: storage.WriteCheckpointMode,
-    options?: MongoSyncBucketStorageOptions
+    writeCheckpointMode: storage.WriteCheckpointMode | undefined,
+    options: MongoSyncBucketStorageOptions
   ) {
     super();
     this.db = factory.db;
     this.mapping = this.sync_rules.mapping;
-    this.checksums = new MongoChecksums(this.db, this.group_id, this.mapping, options?.checksumOptions);
+    this.checksums = new MongoChecksums(this.db, this.group_id, {
+      ...options.checksumOptions,
+      storageConfig: options?.storageConfig
+    });
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,

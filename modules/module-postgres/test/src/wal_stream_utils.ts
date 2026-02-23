@@ -1,13 +1,16 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { CustomTypeRegistry } from '@module/types/registry.js';
 import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
   settledPromise,
+  STORAGE_VERSION_CONFIG,
   storage,
   SyncRulesBucketStorage,
   unsettledPromise
@@ -15,10 +18,12 @@ import {
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
+  private syncRulesId?: number;
   public storage?: SyncRulesBucketStorage;
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
 
@@ -30,7 +35,7 @@ export class WalStreamTestContext implements AsyncDisposable {
    */
   static async open(
     factory: (options: storage.TestStorageOptions) => Promise<BucketStorageFactory>,
-    options?: { doNotClear?: boolean; walStreamOptions?: Partial<WalStreamOptions> }
+    options?: { doNotClear?: boolean; storageVersion?: number; walStreamOptions?: Partial<WalStreamOptions> }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
     const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
@@ -39,13 +44,18 @@ export class WalStreamTestContext implements AsyncDisposable {
       await clearTestDb(connectionManager.pool);
     }
 
-    return new WalStreamTestContext(f, connectionManager, options?.walStreamOptions);
+    const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
+    const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
+
+    return new WalStreamTestContext(f, connectionManager, options?.walStreamOptions, storageVersion, versionedBuckets);
   }
 
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: PgManager,
-    private walStreamOptions?: Partial<WalStreamOptions>
+    private walStreamOptions?: Partial<WalStreamOptions>,
+    private storageVersion: number = LEGACY_STORAGE_VERSION,
+    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -84,7 +94,12 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules({
+      content: content,
+      validate: true,
+      storageVersion: this.storageVersion
+    });
+    this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -95,6 +110,7 @@ export class WalStreamTestContext implements AsyncDisposable {
       throw new Error(`Next sync rules not available`);
     }
 
+    this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -105,6 +121,7 @@ export class WalStreamTestContext implements AsyncDisposable {
       throw new Error(`Active sync rules not available`);
     }
 
+    this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -168,6 +185,16 @@ export class WalStreamTestContext implements AsyncDisposable {
     return checkpoint;
   }
 
+  private resolveBucketName(bucket: string) {
+    if (!this.versionedBuckets || /^\d+#/.test(bucket)) {
+      return bucket;
+    }
+    if (this.syncRulesId == null) {
+      throw new Error('Sync rules not configured - call updateSyncRules() first');
+    }
+    return `${this.syncRulesId}#${bucket}`;
+  }
+
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
     const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
@@ -198,6 +225,24 @@ export class WalStreamTestContext implements AsyncDisposable {
       map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
+  }
+
+  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+    const checkpoint = await this.getCheckpoint(options);
+    const versionedBuckets = buckets.map((bucket) => this.resolveBucketName(bucket));
+    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
+
+    const unversioned = new Map();
+    for (let i = 0; i < buckets.length; i++) {
+      unversioned.set(buckets[i], checksums.get(versionedBuckets[i])!);
+    }
+
+    return unversioned;
+  }
+
+  async getChecksum(bucket: string, options?: { timeout?: number }) {
+    const checksums = await this.getChecksums([bucket], options);
+    return checksums.get(bucket);
   }
 
   /**

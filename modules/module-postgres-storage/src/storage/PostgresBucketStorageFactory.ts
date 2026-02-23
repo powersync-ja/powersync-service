@@ -205,6 +205,7 @@ export class PostgresBucketStorageFactory
       // Apply unconditionally. Any errors will be reported via the diagnostics API.
     }
 
+    const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
     return this.db.transaction(async (db) => {
       await db.sql`
         UPDATE sync_rules
@@ -221,7 +222,7 @@ export class PostgresBucketStorageFactory
               nextval('sync_rules_id_sequence') AS id
           )
         INSERT INTO
-          sync_rules (id, content, state, slot_name)
+          sync_rules (id, content, state, slot_name, storage_version)
         VALUES
           (
             (
@@ -242,7 +243,8 @@ export class PostgresBucketStorageFactory
               ),
               '_',
               ${{ type: 'varchar', value: crypto.randomBytes(2).toString('hex') }}
-            )
+            ),
+            ${{ type: 'int4', value: storageVersion }}
           )
         RETURNING
           *

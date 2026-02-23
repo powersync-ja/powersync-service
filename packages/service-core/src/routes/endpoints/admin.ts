@@ -2,6 +2,7 @@ import { ErrorCode, errors, router, schema } from '@powersync/lib-services-frame
 import { DEFAULT_HYDRATION_STATE, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
+import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 import * as api from '../../api/api-index.js';
 import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
@@ -173,6 +174,7 @@ export const validate = routeDefinition({
       slot_name: '',
       active: false,
       last_checkpoint_lsn: '',
+      storageVersion: storage.LEGACY_STORAGE_VERSION,
 
       parsed() {
         return {

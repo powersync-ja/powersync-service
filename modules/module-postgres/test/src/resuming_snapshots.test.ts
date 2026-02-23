@@ -1,26 +1,29 @@
-import { TestStorageConfig } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
-import { describeWithStorage } from './util.js';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, function (factory) {
+  describeWithStorage({ timeout: 240_000 }, function ({ factory, storageVersion }) {
     test('resuming initial replication (1)', async () => {
       // Stop early - likely to not include deleted row in first replication attempt.
-      await testResumingReplication(factory, 2000);
+      await testResumingReplication(factory, storageVersion, 2000);
     });
     test('resuming initial replication (2)', async () => {
       // Stop late - likely to include deleted row in first replication attempt.
-      await testResumingReplication(factory, 8000);
+      await testResumingReplication(factory, storageVersion, 8000);
     });
   });
 });
 
-async function testResumingReplication(config: TestStorageConfig, stopAfter: number) {
+async function testResumingReplication(
+  factory: StorageVersionTestContext['factory'],
+  storageVersion: number,
+  stopAfter: number
+) {
   // This tests interrupting and then resuming initial replication.
   // We interrupt replication after test_data1 has fully replicated, and
   // test_data2 has partially replicated.
@@ -32,7 +35,8 @@ async function testResumingReplication(config: TestStorageConfig, stopAfter: num
   //    have been / have not been replicated at that point is not deterministic.
   //    We do allow for some variation in the test results to account for this.
 
-  await using context = await WalStreamTestContext.open(config.factory, {
+  await using context = await WalStreamTestContext.open(factory, {
+    storageVersion,
     walStreamOptions: { snapshotChunkLength: 1000 }
   });
 
@@ -82,8 +86,9 @@ async function testResumingReplication(config: TestStorageConfig, stopAfter: num
   }
 
   // Bypass the usual "clear db on factory open" step.
-  await using context2 = await WalStreamTestContext.open(config.factory, {
+  await using context2 = await WalStreamTestContext.open(factory, {
     doNotClear: true,
+    storageVersion,
     walStreamOptions: { snapshotChunkLength: 1000 }
   });
 

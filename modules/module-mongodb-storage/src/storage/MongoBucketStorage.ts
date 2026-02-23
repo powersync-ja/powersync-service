@@ -16,6 +16,11 @@ import { generateSlotName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 import { MongoBucketDataWriter } from './storage-index.js';
 import { MergedSyncRules } from './implementation/MergedSyncRules.js';
+import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+
+export interface MongoBucketStorageOptions {
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+}
 
 export class MongoBucketStorage
   extends BaseObserver<storage.BucketStorageFactoryListener>
@@ -35,7 +40,7 @@ export class MongoBucketStorage
     options: {
       slot_name_prefix: string;
     },
-    private internalOptions?: MongoSyncBucketStorageOptions
+    private internalOptions?: MongoBucketStorageOptions
   ) {
     super();
     this.client = db.client;
@@ -53,17 +58,15 @@ export class MongoBucketStorage
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storage = new MongoSyncBucketStorage(
-      this,
-      id,
-      syncRules as MongoPersistedSyncRulesContent,
-      slot_name,
-      undefined,
-      this.internalOptions
-    );
+    const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
+    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name, undefined, {
+      ...this.internalOptions,
+      storageConfig
+    });
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     }
+
     storage.registerListener({
       batchStarted: (batch) => {
         batch.registerListener({
@@ -317,8 +320,10 @@ export class MongoBucketStorage
         }
       });
 
+      const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
       const doc: SyncRuleDocument = {
         _id: id,
+        storage_version: storageVersion,
         content: options.content,
         last_checkpoint: activeSyncRules?.last_checkpoint ?? null,
         last_checkpoint_lsn: null,

@@ -33,12 +33,15 @@ export abstract class SyncConfig {
   /**
    * Hydrate the sync rule definitions with persisted state into runnable sync rules.
    *
-   * @param createParams.hydrationState Transforms bucket ids based on persisted state.
+   * Note: versionedBucketIds is not checked here: It is set at a higher level based
+   * on the storage version of the persisted sync rules, and used in hydrationState.
+   *
+   * @param params.hydrationState Transforms bucket ids based on persisted state.
    */
-  hydrate(createParams: CreateSourceParams): HydratedSyncRules {
+  hydrate(params: CreateSourceParams): HydratedSyncRules {
     return new HydratedSyncRules({
       definition: this,
-      createParams: createParams,
+      createParams: params,
       bucketDataSources: this.bucketDataSources,
       bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
       eventDescriptors: this.eventDescriptors,

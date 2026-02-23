@@ -1,18 +1,20 @@
-import { reduceBucket, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
+import { reduceBucket } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as crypto from 'node:crypto';
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
-import { describeWithStorage } from './util.js';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe('chunked snapshots', () => {
   describeWithStorage({ timeout: 120_000 }, defineBatchTests);
 });
 
-function defineBatchTests(config: TestStorageConfig) {
-  const { factory } = config;
+function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof WalStreamTestContext.open>[1]) => {
+    return WalStreamTestContext.open(factory, { ...options, storageVersion });
+  };
 
   // We need to test every supported type, since chunking could be quite sensitive to
   // how each specific type is handled.
@@ -91,7 +93,7 @@ function defineBatchTests(config: TestStorageConfig) {
     // 5. Logical replication picks up the UPDATE above, but it is missing the TOAST column.
     // 6. We end up with a row that has a missing TOAST column.
 
-    await using context = await WalStreamTestContext.open(factory, {
+    await using context = await openContext({
       // We need to use a smaller chunk size here, so that we can run a query in between chunks
       walStreamOptions: { snapshotChunkLength: 100 }
     });

@@ -10,7 +10,7 @@ import {
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 
-import { storage } from '@powersync/service-core';
+import { storage, StorageVersionConfig } from '@powersync/service-core';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
@@ -22,10 +22,14 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     public readonly sync_rules: SyncConfigWithErrors,
     public readonly checkpoint_lsn: string | null,
     slot_name: string | null,
-    public readonly mapping: BucketDefinitionMapping
+    public readonly mapping: BucketDefinitionMapping,
+    storageConfig: StorageVersionConfig
   ) {
     this.slot_name = slot_name ?? `powersync_${id}`;
-    if (!this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
+    if (
+      !this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
+      !storageConfig.versionedBuckets
+    ) {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
     } else if (this.mapping == null) {
       this.hydrationState = versionedHydrationState(this.id);

@@ -14,7 +14,7 @@ import { PowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
-import { BucketDataSource, SqlSyncRules } from '@powersync/service-sync-rules';
+import { BucketDataSource, SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
 
 interface CurrentBucketState {
   def: number;
@@ -498,16 +498,16 @@ export class MongoCompactor {
    * Subset of compact, only populating checksums where relevant.
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
-    const sqlSyncRules = this.storage.sync_rules.parsed({ defaultSchema: 'n/a' }).hydratedSyncRules().definition;
+    const syncConfig = this.storage.sync_rules.parsed({ defaultSchema: 'n/a' }).hydratedSyncRules().definition;
     let count = 0;
     while (!this.signal?.aborted) {
-      const buckets = await this.dirtyBucketBatch({ ...options, sqlSyncRules });
-      if (buckets.length == 0) {
+      const buckets = await this.dirtyBucketBatchForChecksums({ ...options, syncConfig: syncConfig });
+      if (buckets.length == 0 || this.signal?.aborted) {
         // All done
         break;
       }
+
       const start = Date.now();
-      logger.info(`Calculating checksums for batch of ${buckets.length} buckets`);
 
       // Filter batch by estimated bucket size, to reduce possibility of timeouts
       let checkBuckets: typeof buckets = [];
@@ -519,9 +519,12 @@ export class MongoCompactor {
           break;
         }
       }
+      logger.info(
+        `Calculating checksums for batch of ${buckets.length} buckets, estimated count of ${totalCountEstimate}`
+      );
       await this.updateChecksumsBatch(checkBuckets);
       logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
-      count += buckets.length;
+      count += checkBuckets.length;
     }
     return { buckets: count };
   }
@@ -575,6 +578,66 @@ export class MongoCompactor {
       def: bucket._id.g,
       bucket: bucket._id.b,
       estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0),
+      source: definitions.get(bucket._id.g)!
+    }));
+  }
+
+  /**
+   * Returns a batch of dirty buckets - buckets with most changes first.
+   *
+   * This cannot be used to iterate on its own - the client is expected to process these buckets and
+   * set estimate_since_compact.count: 0 when done, before fetching the next batch.
+   *
+   * Unlike dirtyBucketBatches, used for compacting, this is specifically designed to be resuamble after a restart,
+   * since it is used as the last step for initial replication.
+   *
+   * We currently don't get new data while doing populateChecksums, so we don't need to worry about buckets changing while processing.
+   */
+  private async dirtyBucketBatchForChecksums(options: {
+    minBucketChanges: number;
+    syncConfig: SyncConfig;
+  }): Promise<{ bucket: string; estimatedCount: number; def: number; source: BucketDataSource }[]> {
+    if (options.minBucketChanges <= 0) {
+      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+    }
+
+    const defs = options.syncConfig.bucketDataSources.map((source) =>
+      this.storage.sync_rules.mapping.bucketSourceId(source)
+    );
+
+    const mapping = this.storage.sync_rules.mapping;
+    let definitions = new Map<number, BucketDataSource>();
+    for (let source of options.syncConfig.bucketDataSources) {
+      const id = mapping.bucketSourceId(source);
+      definitions.set(id, source);
+    }
+
+    // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
+    const dirtyBuckets = await this.db.bucket_state
+      .find(
+        {
+          '_id.g': { $in: [...definitions.keys()] },
+          'estimate_since_compact.count': { $gte: options.minBucketChanges }
+        },
+        {
+          projection: {
+            _id: 1,
+            estimate_since_compact: 1,
+            compacted_state: 1
+          },
+          sort: {
+            'estimate_since_compact.count': -1
+          },
+          limit: 200,
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+        }
+      )
+      .toArray();
+
+    return dirtyBuckets.map((bucket) => ({
+      bucket: bucket._id.b,
+      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0),
+      def: bucket._id.g,
       source: definitions.get(bucket._id.g)!
     }));
   }

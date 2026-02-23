@@ -1,10 +1,5 @@
 import { BucketDataRequest, InternalOpId, JwtPayload, storage, utils } from '@powersync/service-core';
-import {
-  GetQuerierOptions,
-  RequestParameters,
-  SqlSyncRules,
-  versionedHydrationState
-} from '@powersync/service-sync-rules';
+import { GetQuerierOptions, RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { SOURCE } from '@powersync/service-sync-rules';

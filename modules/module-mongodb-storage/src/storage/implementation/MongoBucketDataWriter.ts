@@ -15,6 +15,7 @@ import {
 import {
   BatchedCustomWriteCheckpointOptions,
   BucketStorageMarkRecordUnavailable,
+  CheckpointResult,
   deserializeBson,
   InternalOpId,
   isCompleteRow,
@@ -156,22 +157,22 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     return lsn;
   }
 
-  async keepalive(lsn: string): Promise<boolean> {
-    let didAny = false;
+  async keepalive(lsn: string): Promise<CheckpointResult> {
+    let allBlocked = true;
     for (let batch of this.subWriters) {
-      const didBatchKeepalive = await batch.keepalive(lsn);
-      didAny ||= didBatchKeepalive;
+      const result = await batch.keepalive(lsn);
+      allBlocked &&= result.checkpointBlocked;
     }
-    return didAny;
+    return { checkpointBlocked: allBlocked };
   }
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
-    let didCommit = false;
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
+    let allBlocked = true;
     for (let batch of this.subWriters) {
-      const didWriterCommit = await batch.commit(lsn, options);
-      didCommit ||= didWriterCommit;
+      const result = await batch.commit(lsn, options);
+      allBlocked &&= result.checkpointBlocked;
     }
-    return didCommit;
+    return { checkpointBlocked: allBlocked };
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
@@ -1309,7 +1310,7 @@ export class MongoBucketBatch
 
   private lastWaitingLogThottled = 0;
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
     await this.writer.flush(options);
@@ -1432,6 +1433,9 @@ export class MongoBucketBatch
       updateResult.last_checkpoint_lsn === lsn &&
       updateResult.last_checkpoint != null;
 
+    // If updateResult == null, the checkpoint was not created due to no data, not due to being blocked.
+    const checkpointBlocked = !checkpointCreated && updateResult != null;
+
     if (updateResult == null || !checkpointCreated) {
       // Failed on snapshot_done or no_checkpoint_before.
       if (Date.now() - this.lastWaitingLogThottled > 5_000) {
@@ -1470,14 +1474,14 @@ export class MongoBucketBatch
         this.lastWaitingLogThottled = Date.now();
       }
     } else {
-      this.logger.info(`Created checkpoint at ${lsn} / ${updateResult.last_checkpoint}`);
+      this.logger.debug(`Created checkpoint at ${lsn} / ${updateResult.last_checkpoint}`);
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
       await this.cleanupCurrentData(updateResult.last_checkpoint!);
     }
-    return true;
+    return { checkpointBlocked };
   }
 
   private async cleanupCurrentData(lastCheckpoint: bigint) {
@@ -1546,7 +1550,7 @@ export class MongoBucketBatch
     }
   }
 
-  async keepalive(lsn: string): Promise<boolean> {
+  async keepalive(lsn: string): Promise<CheckpointResult> {
     return await this.commit(lsn, { createEmptyCheckpoints: true });
   }
 

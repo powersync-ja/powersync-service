@@ -20,8 +20,8 @@ describe('PostgresRouteAPIAdapter tests', () => {
       `);
 
       const schema = await api.getConnectionSchema();
-      // Filter out powersync schema, for cases where we use the same database for storage and replication testing.
-      const filtered = schema.filter((s) => s.name != 'powersync');
+      // Ignore any other potential schemas in the test database, for example the 'powersync' schema.
+      const filtered = schema.filter((s) => s.name == 'public');
       expect(filtered).toStrictEqual([
         {
           name: 'public',

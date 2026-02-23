@@ -125,6 +125,7 @@ export interface UpdateSyncRulesOptions {
   content: string;
   lock?: boolean;
   validate?: boolean;
+  storageVersion?: number;
 }
 
 export interface GetIntanceOptions {

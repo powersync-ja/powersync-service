@@ -5,10 +5,12 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
   settledPromise,
+  STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   TestStorageOptions,
   unsettledPromise
@@ -39,6 +41,7 @@ export class ChangeStreamTestContext {
     factory: (options: TestStorageOptions) => Promise<BucketStorageFactory>,
     options?: {
       doNotClear?: boolean;
+      storageVersion?: number;
       mongoOptions?: Partial<NormalizedMongoConnectionConfig>;
       streamOptions?: Partial<ChangeStreamOptions>;
     }
@@ -49,13 +52,19 @@ export class ChangeStreamTestContext {
     if (!options?.doNotClear) {
       await clearTestDb(connectionManager.db);
     }
-    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions);
+
+    const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
+    const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
+
+    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, versionedBuckets);
   }
 
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: MongoManager,
-    private streamOptions?: Partial<ChangeStreamOptions>
+    private streamOptions: Partial<ChangeStreamOptions> = {},
+    private storageVersion: number = LEGACY_STORAGE_VERSION,
+    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -92,7 +101,11 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules({
+      content: content,
+      validate: true,
+      storageVersion: this.storageVersion
+    });
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }

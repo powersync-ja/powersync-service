@@ -1,15 +1,12 @@
-import { storage } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
-import { describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
+import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 import { bucketRequest } from '@powersync/service-core-tests';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, function (config) {
-    defineBatchTests(config);
-  });
+  describeWithStorage({ timeout: 240_000 }, defineBatchTests);
 });
 
 const BASIC_SYNC_RULES = `bucket_definitions:
@@ -17,11 +14,13 @@ const BASIC_SYNC_RULES = `bucket_definitions:
     data:
       - SELECT id, description, other FROM "test_data"`;
 
-function defineBatchTests(config: storage.TestStorageConfig) {
-  const { factory } = config;
+function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof WalStreamTestContext.open>[1]) => {
+    return WalStreamTestContext.open(factory, { ...options, storageVersion });
+  };
 
   test('update large record', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // This test generates a large transaction in MongoDB, despite the replicated data
     // not being that large.
     // If we don't limit transaction size, we could run into this error:
@@ -42,7 +41,7 @@ function defineBatchTests(config: storage.TestStorageConfig) {
 
     const start = Date.now();
 
-    const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
+    const checksum = await context.getChecksums(['global[]'], { timeout: 100_000 });
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
     const syncRules = await context.factory.getActiveSyncRulesContent();
@@ -50,14 +49,13 @@ function defineBatchTests(config: storage.TestStorageConfig) {
       throw new Error('Active sync rules not available');
     }
     const request = bucketRequest(syncRules);
-    const checksum = await context.storage!.getChecksums(checkpoint, [request]);
     expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
     const perSecond = Math.round((operation_count / duration) * 1000);
     console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
   });
 
   test('initial replication performance', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Manual test to check initial replication performance and memory usage
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { pool } = context;
@@ -113,7 +111,7 @@ function defineBatchTests(config: storage.TestStorageConfig) {
   });
 
   test('large number of operations', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // This just tests performance of a large number of operations inside a transaction.
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { pool } = context;
@@ -156,10 +154,9 @@ function defineBatchTests(config: storage.TestStorageConfig) {
 
     const start = Date.now();
 
-    const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
+    const checksum = await context.getChecksums(['global[]']);
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-    const checksum = await context.storage!.getChecksums(checkpoint, [request]);
     expect(checksum.get(request.bucket)!.count).toEqual(operationCount);
     const perSecond = Math.round((operationCount / duration) * 1000);
     // This number depends on the test machine, so we keep the test significantly
@@ -173,10 +170,9 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     const truncateStart = Date.now();
     await pool.query(`TRUNCATE test_data`);
 
-    const checkpoint2 = await context.getCheckpoint({ timeout: 20_000 });
+    const checksum2 = await context.getChecksums(['global[]'], { timeout: 20_000 });
     const truncateDuration = Date.now() - truncateStart;
 
-    const checksum2 = await context.storage!.getChecksums(checkpoint2, [request]);
     const truncateCount = checksum2.get(request.bucket)!.count - checksum.get(request.bucket)!.count;
     expect(truncateCount).toEqual(numTransactions * perTransaction);
     const truncatePerSecond = Math.round((truncateCount / truncateDuration) * 1000);
@@ -198,7 +194,7 @@ function defineBatchTests(config: storage.TestStorageConfig) {
     // 4. Another document to make sure the internal batching overflows
     //    to a second batch.
 
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     await context.updateSyncRules(`bucket_definitions:
   global:
     data:

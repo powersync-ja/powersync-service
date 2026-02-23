@@ -8,6 +8,7 @@ import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../../../src/util/param-logging.js';
 import { mockServiceContext } from './mocks.js';
+import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 
 describe('Stream Route', () => {
   describe('compressed stream', () => {

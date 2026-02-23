@@ -645,9 +645,11 @@ export class CDCStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
       },
       onCommit: async (lsn: string, transactionCount: number) => {
-        await writer.commit(lsn);
+        const { checkpointBlocked } = await writer.commit(lsn);
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionCount);
-        this.isStartingReplication = false;
+        if (!checkpointBlocked) {
+          this.isStartingReplication = false;
+        }
       },
       onSchemaChange: async () => {
         // TODO: Handle schema changes

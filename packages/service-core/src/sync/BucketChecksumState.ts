@@ -1,8 +1,10 @@
 import {
   BucketDescription,
+  BucketParameterQuerier,
   BucketPriority,
   BucketSource,
   HydratedSyncRules,
+  QuerierError,
   RequestedStream,
   RequestParameters,
   ResolvedBucket,
@@ -19,7 +21,6 @@ import {
   ServiceAssertionError,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { BucketParameterQuerier, QuerierError } from '@powersync/service-sync-rules/src/BucketParameterQuerier.js';
 import { JwtPayload } from '../auth/JwtPayload.js';
 import { SyncContext } from './SyncContext.js';
 import { getIntersection, hasIntersection } from './util.js';

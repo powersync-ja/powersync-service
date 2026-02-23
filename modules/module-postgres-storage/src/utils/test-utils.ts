@@ -4,6 +4,7 @@ import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '..
 import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
 import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
 import { logger as defaultLogger, createLogger, transports } from '@powersync/lib-services-framework';
+import { truncateTables } from './db.js';
 
 export type PostgresTestStorageOptions = {
   url: string;
@@ -23,7 +24,7 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
 
   const TEST_CONNECTION_OPTIONS = normalizePostgresStorageConfig(BASE_CONFIG);
 
-  const migrate = async (direction: framework.migrations.Direction) => {
+  const runMigrations = async (options: { down: boolean; up: boolean }) => {
     await using migrationManager: PowerSyncMigrationManager = new framework.MigrationManager();
     await using migrationAgent = factoryOptions.migrationAgent
       ? factoryOptions.migrationAgent(BASE_CONFIG)
@@ -39,15 +40,17 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
       transports: [new transports.Console()]
     });
 
-    await migrationManager.migrate({
-      direction: framework.migrations.Direction.Down,
-      migrationContext: {
-        service_context: mockServiceContext
-      },
-      logger
-    });
+    if (options.down) {
+      await migrationManager.migrate({
+        direction: framework.migrations.Direction.Down,
+        migrationContext: {
+          service_context: mockServiceContext
+        },
+        logger
+      });
+    }
 
-    if (direction == framework.migrations.Direction.Up) {
+    if (options.up) {
       await migrationManager.migrate({
         direction: framework.migrations.Direction.Up,
         migrationContext: {
@@ -58,11 +61,28 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
     }
   };
 
+  const migrate = async (direction: framework.migrations.Direction) => {
+    await runMigrations({
+      down: true,
+      up: direction == framework.migrations.Direction.Up
+    });
+  };
+
+  const clearStorage = async () => {
+    await runMigrations({ down: false, up: true });
+
+    await using storageFactory = new PostgresBucketStorageFactory({
+      config: TEST_CONNECTION_OPTIONS,
+      slot_name_prefix: 'test_'
+    });
+    await truncateTables(storageFactory.db);
+  };
+
   return {
     reportFactory: async (options?: TestStorageOptions) => {
       try {
         if (!options?.doNotClear) {
-          await migrate(framework.migrations.Direction.Up);
+          await clearStorage();
         }
 
         return new PostgresReportStorage({
@@ -77,7 +97,7 @@ export function postgresTestSetup(factoryOptions: PostgresTestStorageOptions) {
     factory: async (options?: TestStorageOptions) => {
       try {
         if (!options?.doNotClear) {
-          await migrate(framework.migrations.Direction.Up);
+          await clearStorage();
         }
 
         return new PostgresBucketStorageFactory({

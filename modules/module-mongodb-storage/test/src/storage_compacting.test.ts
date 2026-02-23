@@ -1,4 +1,4 @@
-import { register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, bucketRequests, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { storage, SyncRulesBucketStorage } from '@powersync/service-core';

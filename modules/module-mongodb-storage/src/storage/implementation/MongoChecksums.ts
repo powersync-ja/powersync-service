@@ -13,8 +13,9 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
-import { PowerSyncMongo } from './db.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { PowerSyncMongo } from './db.js';
+import { StorageConfig } from './models.js';
 
 /**
  * Checksum calculation options, primarily for tests.
@@ -29,6 +30,8 @@ export interface MongoChecksumOptions {
    * Limit on the number of documents to calculate a checksum on at a time.
    */
   operationBatchLimit?: number;
+
+  storageConfig: StorageConfig;
 }
 
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;
@@ -45,13 +48,16 @@ const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
  */
 export class MongoChecksums {
   private _cache: ChecksumCache | undefined;
+  private readonly storageConfig: StorageConfig;
 
   constructor(
     private db: PowerSyncMongo,
     private group_id: number,
     private mapping: BucketDefinitionMapping,
-    private options?: MongoChecksumOptions
-  ) {}
+    private options: MongoChecksumOptions
+  ) {
+    this.storageConfig = options.storageConfig;
+  }
 
   /**
    * Lazy-instantiated cache.
@@ -228,6 +234,11 @@ export class MongoChecksums {
         });
       }
 
+      // Historically, checksum may be stored as 'int' or 'double'.
+      // More recently, this should be a 'long'.
+      // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
+      const checksumLong = this.storageConfig.longChecksums ? '$checksum' : { $toLong: '$checksum' };
+
       // Aggregate over a max of `batchLimit` operations at a time.
       // Let's say we have 3 buckets (A, B, C), each with 10 operations, and our batch limit is 12.
       // Then we'll do three batches:
@@ -251,10 +262,7 @@ export class MongoChecksums {
             {
               $group: {
                 _id: '$_id.b',
-                // Historically, checksum may be stored as 'int' or 'double'.
-                // More recently, this should be a 'long'.
-                // $toLong ensures that we always sum it as a long, avoiding inaccuracies in the calculations.
-                checksum_total: { $sum: { $toLong: '$checksum' } },
+                checksum_total: { $sum: checksumLong },
                 count: { $sum: 1 },
                 has_clear_op: {
                   $max: {

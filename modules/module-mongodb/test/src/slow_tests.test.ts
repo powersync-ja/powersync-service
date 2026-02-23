@@ -2,22 +2,24 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { settledPromise, storage, unsettledPromise } from '@powersync/service-core';
+import { settledPromise, unsettledPromise } from '@powersync/service-core';
 
+import { bucketRequest, PARSE_OPTIONS } from '@powersync/service-core-tests';
 import { ChangeStreamTestContext, setSnapshotHistorySeconds } from './change_stream_utils.js';
 import { env } from './env.js';
-import { describeWithStorage } from './util.js';
-import { bucketRequest, PARSE_OPTIONS } from '@powersync/service-core-tests';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
 describe.runIf(env.CI || env.SLOW_TESTS)('change stream slow tests', { timeout: 60_000 }, function () {
   describeWithStorage({}, defineSlowTests);
 });
 
-function defineSlowTests(config: storage.TestStorageConfig) {
-  const { factory } = config;
+function defineSlowTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
+    return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
+  };
 
   test('replicating snapshot with lots of data', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     // Test with low minSnapshotHistoryWindowInSeconds, to trigger:
     // > Read timestamp .. is older than the oldest available timestamp.
     // This happened when we had {snapshot: true} in the initial
@@ -56,7 +58,7 @@ bucket_definitions:
     // changestream), we may miss updates, which this test would
     // hopefully catch.
 
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
 bucket_definitions:

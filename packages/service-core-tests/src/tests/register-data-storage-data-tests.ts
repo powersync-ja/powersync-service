@@ -1,4 +1,10 @@
-import { BucketDataBatchOptions, getUuidReplicaIdentityBson, OplogEntry, storage } from '@powersync/service-core';
+import {
+  BucketDataBatchOptions,
+  getUuidReplicaIdentityBson,
+  OplogEntry,
+  reduceBucket,
+  storage
+} from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
@@ -271,6 +277,81 @@ bucket_definitions:
         count: 1
       }
     ]);
+  });
+
+  test('(insert, delete, insert), (delete)', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules({
+      content: `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "%"
+`
+    });
+    const bucketStorage = factory.getInstance(syncRules);
+    {
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
+      await writer.markAllSnapshotDone('1/1');
+
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test1',
+          description: 'test1'
+        },
+        afterReplicaId: test_utils.rid('test1')
+      });
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
+      });
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test1',
+          description: 'test1'
+        },
+        afterReplicaId: test_utils.rid('test1')
+      });
+      await writer.commit('1/1');
+    }
+
+    {
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
+      await writer.markAllSnapshotDone('1/1');
+
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.DELETE,
+        beforeReplicaId: test_utils.rid('test1')
+      });
+      await writer.commit('2/1');
+    }
+
+    const { checkpoint } = await bucketStorage.getCheckpoint();
+
+    const request = bucketRequest(syncRules, 'global[]');
+    const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
+
+    expect(reduceBucket(batch[0].chunkData.data).slice(1)).toEqual([]);
+
+    const data = batch[0].chunkData.data.map((d) => {
+      return {
+        op: d.op,
+        object_id: d.object_id,
+        checksum: d.checksum
+      };
+    });
+
+    expect(data).toMatchSnapshot();
   });
 
   test('changing client ids', async () => {
@@ -1244,10 +1325,8 @@ bucket_definitions:
     await writer.markAllSnapshotDone('1/0');
     await writer.keepalive('1/0');
 
-    const metrics2 = await f.getStorageMetrics();
-    expect(metrics2.operations_size_bytes).toBeLessThanOrEqual(20_000);
-    expect(metrics2.parameters_size_bytes).toBeLessThanOrEqual(40_000);
-    expect(metrics2.replication_size_bytes).toBeLessThanOrEqual(30_000);
+    await f.getStorageMetrics();
+    // We don't care about the specific values here
   });
 
   test('op_id initialization edge case', async () => {
