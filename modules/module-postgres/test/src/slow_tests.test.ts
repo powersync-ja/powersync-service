@@ -256,13 +256,12 @@ bucket_definitions:
       } else if (f instanceof postgres_storage.storage.PostgresBucketStorageFactory) {
         const { db } = f;
         // Check that all inserts have been deleted again
+        // FIXME: handle different storage versions
         const docs = await db.sql`
           SELECT
             *
           FROM
             current_data
-          WHERE
-            pending_delete IS NULL
         `
           .decoded(postgres_storage.models.V1CurrentData)
           .rows();
