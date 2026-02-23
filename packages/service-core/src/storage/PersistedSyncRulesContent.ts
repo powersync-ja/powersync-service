@@ -9,7 +9,6 @@ import {
   PrecompiledSyncConfig,
   SqlEventDescriptor,
   SqlSyncRules,
-  SyncConfig,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
@@ -98,6 +97,8 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
         for (const query of queries) {
           descriptor.addSourceQuery(query, options);
         }
+
+        precompiled.eventDescriptors.push(descriptor);
       }
 
       config = { config: precompiled, errors: [] };
