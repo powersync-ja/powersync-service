@@ -39,16 +39,16 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
       connection: TEST_CONNECTION_OPTIONS
     });
 
-    const start = Date.now();
-
-    const checksum = await context.getChecksums(['global[]'], { timeout: 100_000 });
-    const duration = Date.now() - start;
-    const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
     const syncRules = await context.factory.getActiveSyncRulesContent();
     if (!syncRules) {
       throw new Error('Active sync rules not available');
     }
-    const request = bucketRequest(syncRules);
+    const start = Date.now();
+
+    const request = bucketRequest(syncRules, 'global[]');
+    const checksum = await context.getChecksums([request], { timeout: 100_000 });
+    const duration = Date.now() - start;
+    const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
     expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
     const perSecond = Math.round((operation_count / duration) * 1000);
     console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
@@ -150,11 +150,11 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     if (!syncRules) {
       throw new Error('Active sync rules not available');
     }
-    const request = bucketRequest(syncRules);
+    const request = bucketRequest(syncRules, 'global[]');
 
     const start = Date.now();
 
-    const checksum = await context.getChecksums(['global[]']);
+    const checksum = await context.getChecksums([request]);
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
     expect(checksum.get(request.bucket)!.count).toEqual(operationCount);
@@ -170,7 +170,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     const truncateStart = Date.now();
     await pool.query(`TRUNCATE test_data`);
 
-    const checksum2 = await context.getChecksums(['global[]'], { timeout: 20_000 });
+    const checksum2 = await context.getChecksums([request], { timeout: 20_000 });
     const truncateDuration = Date.now() - truncateStart;
 
     const truncateCount = checksum2.get(request.bucket)!.count - checksum.get(request.bucket)!.count;

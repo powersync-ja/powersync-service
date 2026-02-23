@@ -2,6 +2,8 @@ import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
+  BucketChecksumRequest,
+  BucketRequest,
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
@@ -215,23 +217,10 @@ export class WalStreamTestContext implements AsyncDisposable {
     return data;
   }
 
-  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+  async getChecksums(buckets: BucketChecksumRequest[], options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
-    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket));
-    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
-
-    const unversioned = new Map();
-    for (let i = 0; i < buckets.length; i++) {
-      unversioned.set(buckets[i], checksums.get(versionedBuckets[i].bucket)!);
-    }
-
-    return unversioned;
-  }
-
-  async getChecksum(bucket: string, options?: { timeout?: number }) {
-    const checksums = await this.getChecksums([bucket], options);
-    return checksums.get(bucket);
+    const checksums = await this.storage!.getChecksums(checkpoint, buckets);
+    return checksums;
   }
 
   /**
