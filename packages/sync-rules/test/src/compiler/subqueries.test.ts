@@ -6,8 +6,7 @@ describe('subqueries', () => {
     test('from inner columns', () => {
       const plan = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:
@@ -25,8 +24,7 @@ streams:
     test('from outer alias', () => {
       const plan = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:

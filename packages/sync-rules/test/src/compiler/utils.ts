@@ -75,7 +75,6 @@ export function yamlToSyncPlan(
 ): [TranslationError[], SyncPlan] {
   const { config, errors } = SqlSyncRules.fromYaml(source, {
     throwOnError: false,
-    allowNewSyncCompiler: true,
     ...options
   });
 
