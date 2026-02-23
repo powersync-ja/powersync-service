@@ -1,11 +1,10 @@
 import { register } from '@powersync/service-core-tests';
 import { describe } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 import { env } from './env.js';
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
-import { SUPPORTED_STORAGE_VERSIONS } from '@powersync/service-core';
 
-for (let storageVersion of SUPPORTED_STORAGE_VERSIONS) {
+for (let storageVersion of TEST_STORAGE_VERSIONS) {
   describe(`Mongo Sync Bucket Storage - Parameters - v${storageVersion}`, () =>
     register.registerDataStorageParameterTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion }));
 
