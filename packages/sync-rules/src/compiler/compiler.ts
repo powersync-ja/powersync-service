@@ -10,6 +10,7 @@ import { NodeLocations } from './expression.js';
 import { SqlScope } from './scope.js';
 import { PreparedSubquery } from './sqlite.js';
 import { SourceSchema } from '../types.js';
+import { DangerousParameterDetector } from './detect_dangerous_parameters.js';
 
 export interface SyncStreamsCompilerOptions {
   /**
@@ -27,6 +28,10 @@ export interface SyncStreamsCompilerOptions {
    * streams across schema changes.
    */
   schema?: SourceSchema;
+}
+
+export interface ParseStreamOptions extends StreamOptions {
+  warnOnDangerousParameter: boolean;
 }
 
 /**
@@ -79,8 +84,12 @@ export class SyncStreamsCompiler {
    *
    * @param options Name, priority and `auto_subscribe` state for the stream.
    */
-  stream(options: StreamOptions): IndividualSyncStreamCompiler {
-    const builder = new QuerierGraphBuilder(this, options);
+  stream(options: ParseStreamOptions): IndividualSyncStreamCompiler {
+    const builder = new QuerierGraphBuilder(this, {
+      name: options.name,
+      priority: options.priority,
+      isSubscribedByDefault: options.isSubscribedByDefault
+    });
     const rootScope = new SqlScope({});
 
     return {
@@ -104,7 +113,15 @@ export class SyncStreamsCompiler {
           builder.process(query, errors);
         }
       },
-      finish: () => builder.finish()
+      finish: () => {
+        const buckets = builder.finish();
+        if (options.warnOnDangerousParameter) {
+          const detector = new DangerousParameterDetector();
+          for (const bucket of buckets) {
+            detector.processResolver(bucket);
+          }
+        }
+      }
     };
   }
 }

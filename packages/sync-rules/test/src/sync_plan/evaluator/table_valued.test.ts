@@ -7,11 +7,11 @@ describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
+      accept_potentially_dangerous_queries: true
       query: SELECT s.id AS id FROM stores s INNER JOIN json_each(s.tags) as tags WHERE tags.value = subscription.parameter('tag')
 `);
 
@@ -24,11 +24,11 @@ streams:
   syncTest('as parameter output', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
+      accept_potentially_dangerous_queries: true
       query: |
         SELECT users.* FROM users
           INNER JOIN conversations
@@ -98,8 +98,7 @@ streams:
   syncTest('filter on function output', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:

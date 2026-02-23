@@ -1,4 +1,5 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb/types';
+import type { MongoConnectionParams } from '@powersync/lib-service-mongodb/types';
 import * as service_types from '@powersync/service-types';
 import { LookupFunction } from 'node:net';
 import * as t from 'ts-codec';
@@ -52,6 +53,8 @@ export interface NormalizedMongoConnectionConfig {
   lookup?: LookupFunction;
 
   postImages: PostImagesOption;
+
+  connectionParams: MongoConnectionParams;
 }
 
 export const MongoConnectionConfig = service_types.configFile.DataSourceConfig.and(lib_mongo.BaseMongoConfig).and(

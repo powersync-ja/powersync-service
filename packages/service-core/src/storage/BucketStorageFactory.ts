@@ -1,9 +1,10 @@
-import { ObserverClient } from '@powersync/lib-services-framework';
+import { BaseObserver, logger } from '@powersync/lib-services-framework';
 import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 import { ReportStorage } from './ReportStorage.js';
+import { SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
 
 /**
  * Represents a configured storage provider.
@@ -13,23 +14,41 @@ import { ReportStorage } from './ReportStorage.js';
  *
  * Storage APIs for a specific copy of sync rules are provided by the `SyncRulesBucketStorage` instances.
  */
-export interface BucketStorageFactory extends ObserverClient<BucketStorageFactoryListener>, AsyncDisposable {
+export abstract class BucketStorageFactory
+  extends BaseObserver<BucketStorageFactoryListener>
+  implements AsyncDisposable
+{
   /**
    * Update sync rules from configuration, if changed.
    */
-  configureSyncRules(
+  async configureSyncRules(
     options: UpdateSyncRulesOptions
-  ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedSyncRulesContent; lock?: ReplicationLock }>;
+  ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedSyncRulesContent; lock?: ReplicationLock }> {
+    const next = await this.getNextSyncRulesContent();
+    const active = await this.getActiveSyncRulesContent();
+
+    if (next?.sync_rules_content == options.config.yaml) {
+      logger.info('Sync rules from configuration unchanged');
+      return { updated: false };
+    } else if (next == null && active?.sync_rules_content == options.config.yaml) {
+      logger.info('Sync rules from configuration unchanged');
+      return { updated: false };
+    } else {
+      logger.info('Sync rules updated from configuration');
+      const persisted_sync_rules = await this.updateSyncRules(options);
+      return { updated: true, persisted_sync_rules, lock: persisted_sync_rules.current_lock ?? undefined };
+    }
+  }
 
   /**
    * Get a storage instance to query sync data for specific sync rules.
    */
-  getInstance(syncRules: PersistedSyncRulesContent, options?: GetIntanceOptions): SyncRulesBucketStorage;
+  abstract getInstance(syncRules: PersistedSyncRulesContent, options?: GetIntanceOptions): SyncRulesBucketStorage;
 
   /**
    * Deploy new sync rules.
    */
-  updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedSyncRulesContent>;
+  abstract updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedSyncRulesContent>;
 
   /**
    * Indicate that a slot was removed, and we should re-sync by creating
@@ -41,57 +60,65 @@ export interface BucketStorageFactory extends ObserverClient<BucketStorageFactor
    *
    * Replication should be restarted after this.
    */
-  restartReplication(sync_rules_group_id: number): Promise<void>;
+  abstract restartReplication(sync_rules_group_id: number): Promise<void>;
 
   /**
    * Get the sync rules used for querying.
    */
-  getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
+  async getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
+    const content = await this.getActiveSyncRulesContent();
+    return content?.parsed(options) ?? null;
+  }
 
   /**
    * Get the sync rules used for querying.
    */
-  getActiveSyncRulesContent(): Promise<PersistedSyncRulesContent | null>;
+  abstract getActiveSyncRulesContent(): Promise<PersistedSyncRulesContent | null>;
 
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
    */
-  getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null>;
+  async getNextSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
+    const content = await this.getNextSyncRulesContent();
+    return content?.parsed(options) ?? null;
+  }
 
   /**
    * Get the sync rules that will be active next once done with initial replicatino.
    */
-  getNextSyncRulesContent(): Promise<PersistedSyncRulesContent | null>;
+  abstract getNextSyncRulesContent(): Promise<PersistedSyncRulesContent | null>;
 
   /**
    * Get all sync rules currently replicating. Typically this is the "active" and "next" sync rules.
    */
-  getReplicatingSyncRules(): Promise<PersistedSyncRulesContent[]>;
+  abstract getReplicatingSyncRules(): Promise<PersistedSyncRulesContent[]>;
 
   /**
    * Get all sync rules stopped but not terminated yet.
    */
-  getStoppedSyncRules(): Promise<PersistedSyncRulesContent[]>;
+  abstract getStoppedSyncRules(): Promise<PersistedSyncRulesContent[]>;
 
   /**
    * Get the active storage instance.
    */
-  getActiveStorage(): Promise<SyncRulesBucketStorage | null>;
+  abstract getActiveStorage(): Promise<SyncRulesBucketStorage | null>;
 
   /**
    * Get storage size of active sync rules.
    */
-  getStorageMetrics(): Promise<StorageMetrics>;
+  abstract getStorageMetrics(): Promise<StorageMetrics>;
 
   /**
    * Get the unique identifier for this instance of Powersync
    */
-  getPowerSyncInstanceId(): Promise<string>;
+  abstract getPowerSyncInstanceId(): Promise<string>;
 
   /**
    * Get a unique identifier for the system used for storage.
    */
-  getSystemIdentifier(): Promise<BucketStorageSystemIdentifier>;
+  abstract getSystemIdentifier(): Promise<BucketStorageSystemIdentifier>;
+
+  abstract [Symbol.asyncDispose](): PromiseLike<void>;
 }
 
 export interface BucketStorageFactoryListener {
@@ -119,10 +146,30 @@ export interface StorageMetrics {
 }
 
 export interface UpdateSyncRulesOptions {
-  content: string;
+  config: {
+    yaml: string;
+    // TODO: Add serialized sync plan if available
+  };
   lock?: boolean;
-  validate?: boolean;
   storageVersion?: number;
+}
+
+export function updateSyncRulesFromYaml(
+  content: string,
+  options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
+): UpdateSyncRulesOptions {
+  const { config } = SqlSyncRules.fromYaml(content, {
+    // No schema-based validation at this point
+    schema: undefined,
+    defaultSchema: 'not_applicable', // Not needed for validation
+    throwOnError: options?.validate ?? false
+  });
+
+  return updateSyncRulesFromConfig(config, options);
+}
+
+export function updateSyncRulesFromConfig(parsed: SyncConfig, options?: Omit<UpdateSyncRulesOptions, 'config'>) {
+  return { config: { yaml: parsed.content }, ...options };
 }
 
 export interface GetIntanceOptions {

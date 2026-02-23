@@ -1,7 +1,7 @@
 import { bucketRequest, bucketRequests, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
-import { storage, SyncRulesBucketStorage } from '@powersync/service-core';
+import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
   register.registerCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -41,14 +41,14 @@ describe('Mongo Sync Bucket Storage Compact', () => {
 
     const setup = async () => {
       await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
-      const syncRules = await factory.updateSyncRules({
-        content: `
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(`
 bucket_definitions:
   by_user:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `
-      });
+    `)
+      );
       const bucketStorage = factory.getInstance(syncRules);
       const { checkpoint } = await populate(bucketStorage);
 
@@ -92,14 +92,14 @@ bucket_definitions:
       const { factory } = await setup();
 
       // Not populate another version (bucket definition name changed)
-      const syncRules = await factory.updateSyncRules({
-        content: `
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(`
 bucket_definitions:
   by_user2:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `
-      });
+    `)
+      );
       const bucketStorage = factory.getInstance(syncRules);
 
       await populate(bucketStorage);

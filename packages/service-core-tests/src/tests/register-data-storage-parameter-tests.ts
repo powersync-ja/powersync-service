@@ -1,4 +1,4 @@
-import { CURRENT_STORAGE_VERSION, JwtPayload, storage } from '@powersync/service-core';
+import { CURRENT_STORAGE_VERSION, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { expect, test } from 'vitest';
@@ -23,16 +23,20 @@ export function registerDataStorageParameterTests(config: storage.TestStorageCon
 
   test('save and load parameters', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE id1 = token_parameters.user_id OR id2 = token_parameters.user_id
     data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -76,16 +80,20 @@ bucket_definitions:
 
   test('it should use the latest version', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE id = token_parameters.user_id
     data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -134,8 +142,9 @@ bucket_definitions:
 
   test('it should use the latest version after updates', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters:
@@ -144,8 +153,9 @@ bucket_definitions:
         WHERE list_id IN token_parameters.list_id
     data: []
     `,
-      storageVersion
-    });
+        { storageVersion }
+      )
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     const table = test_utils.makeTestTable('todos', ['id', 'list_id'], config);
@@ -211,16 +221,20 @@ bucket_definitions:
 
   test('save and load parameters with different number types', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE n1 = token_parameters.n1 and f2 = token_parameters.f2 and f3 = token_parameters.f3
     data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -263,16 +277,20 @@ bucket_definitions:
     // test this to ensure correct deserialization.
 
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE n1 = token_parameters.n1
     data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -318,8 +336,9 @@ bucket_definitions:
     const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', ['id'], config);
 
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
     by_workspace:
       parameters:
@@ -327,8 +346,11 @@ bucket_definitions:
           workspace."userId" = token_parameters.user_id
       data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -374,8 +396,9 @@ bucket_definitions:
     const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
 
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
     by_public_workspace:
       parameters:
@@ -383,8 +406,11 @@ bucket_definitions:
           workspace.visibility = 'public'
       data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -462,8 +488,9 @@ bucket_definitions:
     const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
 
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
     by_workspace:
       parameters:
@@ -473,8 +500,11 @@ bucket_definitions:
             workspace.user_id = token_parameters.user_id
       data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     const bucketStorage = factory.getInstance(syncRules);
 
@@ -561,16 +591,20 @@ bucket_definitions:
 
   test('truncate parameters', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
   mybucket:
     parameters:
       - SELECT group_id FROM test WHERE id1 = token_parameters.user_id OR id2 = token_parameters.user_id
     data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -598,8 +632,9 @@ bucket_definitions:
 
   test('invalidate cached parsed sync rules', async () => {
     await using bucketStorageFactory = await generateStorageFactory();
-    const syncRules = await bucketStorageFactory.updateSyncRules({
-      content: `
+    const syncRules = await bucketStorageFactory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
 bucket_definitions:
     by_workspace:
       parameters:
@@ -607,8 +642,11 @@ bucket_definitions:
           workspace."userId" = token_parameters.user_id
       data: []
     `,
-      storageVersion
-    });
+        {
+          storageVersion
+        }
+      )
+    );
     const syncBucketStorage = bucketStorageFactory.getInstance(syncRules);
 
     const parsedSchema1 = syncBucketStorage.getParsedSyncRules({

@@ -5,6 +5,7 @@ import {
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
   sync,
+  updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
@@ -54,14 +55,13 @@ export function registerSyncTests(
   });
 
   const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
-  const updateSyncRules = (
-    bucketStorageFactory: storage.BucketStorageFactory,
-    updateOptions: storage.UpdateSyncRulesOptions
-  ) => {
-    return bucketStorageFactory.updateSyncRules({
-      ...updateOptions,
-      storageVersion: updateOptions.storageVersion ?? options.storageVersion
-    });
+  const updateSyncRules = (bucketStorageFactory: storage.BucketStorageFactory, updateOptions: { content: string }) => {
+    return bucketStorageFactory.updateSyncRules(
+      updateSyncRulesFromYaml(updateOptions.content, {
+        validate: true,
+        storageVersion: options.storageVersion
+      })
+    );
   };
 
   test('sync global data', async () => {
