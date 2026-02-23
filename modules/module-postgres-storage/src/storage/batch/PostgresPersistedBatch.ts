@@ -70,7 +70,7 @@ export class PostgresPersistedBatch {
    *
    * Each key may only occur in one of these two maps.
    */
-  protected currentDataInserts: Map<string, models.CurrentData>;
+  protected currentDataInserts: Map<string, models.V3CurrentData>;
   protected currentDataDeletes: Map<string, { source_key_hex: string; source_table: string }>;
 
   constructor(options: PostgresPersistedBatchOptions) {
@@ -218,7 +218,7 @@ export class PostgresPersistedBatch {
     }
   }
 
-  upsertCurrentData(options: models.CurrentDataDecoded, serialized_source_key?: Buffer) {
+  upsertCurrentData(options: models.V3CurrentDataDecoded, serialized_source_key?: Buffer) {
     const { source_table, source_key, buckets } = options;
 
     const serializedReplicaId = serialized_source_key ?? storage.serializeReplicaId(source_key);

@@ -259,7 +259,7 @@ bucket_definitions:
           WHERE
             pending_delete IS NULL
         `
-          .decoded(postgres_storage.models.CurrentData)
+          .decoded(postgres_storage.models.V1CurrentData)
           .rows();
         const transformed = docs.map((doc) => {
           return bson.deserialize(doc.data) as SqliteRow;

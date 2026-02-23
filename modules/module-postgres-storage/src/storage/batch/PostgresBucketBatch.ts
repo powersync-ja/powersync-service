@@ -20,7 +20,7 @@ import {
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
-import { CurrentBucket, CurrentData, CurrentDataDecoded } from '../../types/models/CurrentData.js';
+import { CurrentBucket, V1CurrentData, V3CurrentData, V3CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
 import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
@@ -190,7 +190,7 @@ export class PostgresBucketBatch
     const BATCH_LIMIT = 2000;
     let lastBatchCount = BATCH_LIMIT;
     let processedCount = 0;
-    const codec = pick(models.CurrentData, ['buckets', 'lookups', 'source_key']);
+    const codec = pick(models.V1CurrentData, ['buckets', 'lookups', 'source_key']);
 
     while (lastBatchCount == BATCH_LIMIT) {
       lastBatchCount = 0;
@@ -736,9 +736,9 @@ export class PostgresBucketBatch
         };
       });
 
-      const current_data_lookup = new Map<string, CurrentDataDecoded>();
+      const current_data_lookup = new Map<string, V3CurrentDataDecoded>();
       const lookupSelectColumns = this.options.skip_existing_rows ? `c.source_table, c.source_key` : `c.*`;
-      for await (const currentDataRows of db.streamRows<CurrentData>({
+      for await (const currentDataRows of db.streamRows<V3CurrentData>({
         statement: /* sql */ `
           SELECT
             ${lookupSelectColumns}
@@ -769,11 +769,11 @@ export class PostgresBucketBatch
       })) {
         for (const row of currentDataRows) {
           const decoded = this.options.skip_existing_rows
-            ? pick(CurrentData, ['source_key', 'source_table']).decode(row)
-            : CurrentData.decode(row);
+            ? pick(V1CurrentData, ['source_key', 'source_table']).decode(row)
+            : V1CurrentData.decode(row);
           current_data_lookup.set(
             encodedCacheKey(decoded.source_table, decoded.source_key),
-            decoded as CurrentDataDecoded
+            decoded as V3CurrentDataDecoded
           );
         }
       }
@@ -837,7 +837,7 @@ export class PostgresBucketBatch
   protected async saveOperation(
     persistedBatch: PostgresPersistedBatch,
     operation: RecordOperation,
-    currentData?: CurrentDataDecoded | null
+    currentData?: V3CurrentDataDecoded | null
   ) {
     const record = operation.record;
     // We store bytea colums for source keys
@@ -1053,7 +1053,7 @@ export class PostgresBucketBatch
       }
     }
 
-    let result: CurrentDataDecoded | null = null;
+    let result: V3CurrentDataDecoded | null = null;
 
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
