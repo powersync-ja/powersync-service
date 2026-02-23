@@ -87,15 +87,27 @@ export class PostgresBucketStorageFactory
 
     const sizes = await this.db.sql`
       SELECT
-        pg_total_relation_size('current_data') AS current_size_bytes,
+        COALESCE(
+          pg_total_relation_size(to_regclass('current_data')),
+          0
+        ) AS v1_current_size_bytes,
+        COALESCE(
+          pg_total_relation_size(to_regclass('v3_current_data')),
+          0
+        ) AS v3_current_size_bytes,
         pg_total_relation_size('bucket_parameters') AS parameter_size_bytes,
         pg_total_relation_size('bucket_data') AS operations_size_bytes;
-    `.first<{ current_size_bytes: bigint; parameter_size_bytes: bigint; operations_size_bytes: bigint }>();
+    `.first<{
+      v1_current_size_bytes: bigint;
+      v3_current_size_bytes: bigint;
+      parameter_size_bytes: bigint;
+      operations_size_bytes: bigint;
+    }>();
 
     return {
       operations_size_bytes: Number(sizes!.operations_size_bytes),
       parameters_size_bytes: Number(sizes!.parameter_size_bytes),
-      replication_size_bytes: Number(sizes!.current_size_bytes)
+      replication_size_bytes: Number(sizes!.v1_current_size_bytes) + Number(sizes!.v3_current_size_bytes)
     };
   }
 
@@ -182,6 +194,14 @@ export class PostgresBucketStorageFactory
     }
 
     const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+    const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
+    if (storageConfig == null) {
+      throw new framework.ServiceError(
+        framework.ErrorCode.PSYNC_S1005,
+        `Unsupported storage version ${storageVersion}`
+      );
+    }
+    await this.initializeStorageVersion(storageConfig);
     return this.db.transaction(async (db) => {
       await db.sql`
         UPDATE sync_rules
@@ -232,6 +252,34 @@ export class PostgresBucketStorageFactory
 
       return new PostgresPersistedSyncRulesContent(this.db, newSyncRulesRow!);
     });
+  }
+
+  /**
+   * Lazy-initializes storage-version-specific structures, if needed.
+   */
+  private async initializeStorageVersion(storageConfig: storage.StorageVersionConfig) {
+    if (!storageConfig.softDeleteCurrentData) {
+      return;
+    }
+
+    await this.db.sql`
+      CREATE TABLE IF NOT EXISTS v3_current_data (
+        group_id integer NOT NULL,
+        source_table TEXT NOT NULL,
+        source_key bytea NOT NULL,
+        CONSTRAINT unique_v3_current_data_id PRIMARY KEY (group_id, source_table, source_key),
+        buckets jsonb NOT NULL,
+        data bytea NOT NULL,
+        lookups bytea[] NOT NULL,
+        pending_delete BIGINT NULL
+      )
+    `.execute();
+
+    await this.db.sql`
+      CREATE INDEX IF NOT EXISTS v3_current_data_pending_deletes ON v3_current_data (group_id, pending_delete)
+      WHERE
+        pending_delete IS NOT NULL
+    `.execute();
   }
 
   async restartReplication(sync_rules_group_id: number): Promise<void> {

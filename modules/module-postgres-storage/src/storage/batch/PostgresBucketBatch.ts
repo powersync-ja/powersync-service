@@ -22,12 +22,13 @@ import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
 import { CurrentBucket, CurrentData, CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
-import { NOTIFICATION_CHANNEL, sql } from '../../utils/db.js';
+import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PostgresPersistedBatch, postgresTableId } from './PostgresPersistedBatch.js';
 import { bigint } from '../../types/codecs.js';
+import { getCommonCurrentDataTable } from '../current-data-table.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;
@@ -46,6 +47,7 @@ export interface PostgresBucketBatchOptions {
   batch_limits: RequiredOperationBatchLimits;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  storageConfig: storage.StorageVersionConfig;
 }
 
 /**
@@ -96,6 +98,8 @@ export class PostgresBucketBatch
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private needsActivation = true;
   private clearedError = false;
+  private readonly storageConfig: storage.StorageVersionConfig;
+  private readonly currentDataTable: string;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -109,6 +113,8 @@ export class PostgresBucketBatch
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = null;
     this.persisted_op = null;
+    this.storageConfig = options.storageConfig;
+    this.currentDataTable = getCommonCurrentDataTable(this.storageConfig);
     if (options.keep_alive_op) {
       this.persisted_op = options.keep_alive_op;
     }
@@ -191,24 +197,42 @@ export class PostgresBucketBatch
       await this.withReplicationTransaction(async (db) => {
         const persistedBatch = new PostgresPersistedBatch({
           group_id: this.group_id,
+          storageConfig: this.storageConfig,
           ...this.options.batch_limits
         });
 
-        for await (const rows of db.streamRows<t.Encoded<typeof codec>>(sql`
-          SELECT
-            buckets,
-            lookups,
-            source_key
-          FROM
-            current_data
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
-            AND pending_delete IS NULL
-          LIMIT
-            ${{ type: 'int4', value: BATCH_LIMIT }}
-          FOR NO KEY UPDATE
-        `)) {
+        const pendingDeleteFilter = this.storageConfig.softDeleteCurrentData ? `AND pending_delete IS NULL` : ``;
+        for await (const rows of db.streamRows<t.Encoded<typeof codec>>({
+          statement: `
+            SELECT
+              buckets,
+              lookups,
+              source_key
+            FROM
+              ${this.currentDataTable}
+            WHERE
+              group_id = $1
+              AND source_table = $2
+              ${pendingDeleteFilter}
+            LIMIT
+              $3
+            FOR NO KEY UPDATE
+          `,
+          params: [
+            {
+              type: 'int4',
+              value: this.group_id
+            },
+            {
+              type: 'varchar',
+              value: sourceTable.id
+            },
+            {
+              type: 'int4',
+              value: BATCH_LIMIT
+            }
+          ]
+        })) {
           lastBatchCount += rows.length;
           processedCount += rows.length;
 
@@ -473,13 +497,15 @@ export class PostgresBucketBatch
     if (result.created_checkpoint) {
       this.logger.debug(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
 
-      await this.db.sql`
-        DELETE FROM current_data
-        WHERE
-          group_id = ${{ type: 'int4', value: this.group_id }}
-          AND pending_delete IS NOT NULL
-          AND pending_delete <= ${{ type: 'int8', value: result.last_checkpoint }}
-      `.execute();
+      if (this.storageConfig.softDeleteCurrentData) {
+        await this.db.sql`
+          DELETE FROM v3_current_data
+          WHERE
+            group_id = ${{ type: 'int4', value: this.group_id }}
+            AND pending_delete IS NOT NULL
+            AND pending_delete <= ${{ type: 'int8', value: result.last_checkpoint }}
+        `.execute();
+      }
     }
     await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, {
@@ -648,27 +674,39 @@ export class PostgresBucketBatch
         source_table: string;
         source_key: storage.ReplicaId;
         data_size: number;
-      }>(lib_postgres.sql`
-        WITH
-          filter_data AS (
-            SELECT
-              decode(FILTER ->> 'source_key', 'hex') AS source_key, -- Decoding from hex to bytea
-              (FILTER ->> 'source_table') AS source_table_id
-            FROM
-              jsonb_array_elements(${{ type: 'jsonb', value: sizeLookups }}::jsonb) AS FILTER
-          )
-        SELECT
-          octet_length(c.data) AS data_size,
-          c.source_table,
-          c.source_key
-        FROM
-          current_data c
-          JOIN filter_data f ON c.source_table = f.source_table_id
-          AND c.source_key = f.source_key
-        WHERE
-          c.group_id = ${{ type: 'int4', value: this.group_id }}
-        FOR NO KEY UPDATE
-      `)) {
+      }>({
+        statement: `
+          WITH
+            filter_data AS (
+              SELECT
+                decode(FILTER ->> 'source_key', 'hex') AS source_key, -- Decoding from hex to bytea
+                (FILTER ->> 'source_table') AS source_table_id
+              FROM
+                jsonb_array_elements($1::jsonb) AS FILTER
+            )
+          SELECT
+            octet_length(c.data) AS data_size,
+            c.source_table,
+            c.source_key
+          FROM
+            ${this.currentDataTable} c
+            JOIN filter_data f ON c.source_table = f.source_table_id
+            AND c.source_key = f.source_key
+          WHERE
+            c.group_id = $2
+          FOR NO KEY UPDATE
+        `,
+        params: [
+          {
+            type: 'jsonb',
+            value: sizeLookups
+          },
+          {
+            type: 'int4',
+            value: this.group_id
+          }
+        ]
+      })) {
         for (const row of rows) {
           const key = cacheKey(row.source_table, row.source_key);
           sizes.set(key, row.data_size);
@@ -699,12 +737,13 @@ export class PostgresBucketBatch
       });
 
       const current_data_lookup = new Map<string, CurrentDataDecoded>();
+      const lookupSelectColumns = this.options.skip_existing_rows ? `c.source_table, c.source_key` : `c.*`;
       for await (const currentDataRows of db.streamRows<CurrentData>({
         statement: /* sql */ `
           SELECT
-            ${this.options.skip_existing_rows ? `c.source_table, c.source_key` : 'c.*'}
+            ${lookupSelectColumns}
           FROM
-            current_data c
+            ${this.currentDataTable} c
             JOIN (
               SELECT
                 decode(FILTER ->> 'source_key', 'hex') AS source_key,
@@ -741,6 +780,7 @@ export class PostgresBucketBatch
 
       let persistedBatch: PostgresPersistedBatch | null = new PostgresPersistedBatch({
         group_id: this.group_id,
+        storageConfig: this.storageConfig,
         ...this.options.batch_limits
       });
 

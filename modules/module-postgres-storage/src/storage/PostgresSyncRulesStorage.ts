@@ -14,6 +14,7 @@ import {
   PopulateChecksumCacheResults,
   ReplicationCheckpoint,
   storage,
+  StorageVersionConfig,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -52,6 +53,7 @@ export class PostgresSyncRulesStorage
   public readonly sync_rules: storage.PersistedSyncRulesContent;
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
+  public readonly storageConfig: StorageVersionConfig;
 
   private sharedIterator = new BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
@@ -71,6 +73,7 @@ export class PostgresSyncRulesStorage
     this.sync_rules = options.sync_rules;
     this.slot_name = options.sync_rules.slot_name;
     this.factory = options.factory;
+    this.storageConfig = options.sync_rules.getStorageConfig();
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -359,7 +362,8 @@ export class PostgresSyncRulesStorage
       store_current_data: options.storeCurrentData,
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
-      markRecordUnavailable: options.markRecordUnavailable
+      markRecordUnavailable: options.markRecordUnavailable,
+      storageConfig: this.storageConfig
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 
@@ -661,11 +665,19 @@ export class PostgresSyncRulesStorage
         group_id = ${{ type: 'int4', value: this.group_id }}
     `.execute();
 
-    await this.db.sql`
-      DELETE FROM current_data
-      WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
-    `.execute();
+    if (this.storageConfig.softDeleteCurrentData) {
+      await this.db.sql`
+        DELETE FROM v3_current_data
+        WHERE
+          group_id = ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    } else {
+      await this.db.sql`
+        DELETE FROM current_data
+        WHERE
+          group_id = ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    }
 
     await this.db.sql`
       DELETE FROM source_tables

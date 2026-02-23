@@ -1016,6 +1016,7 @@ export class MongoBucketBatch
         const current_data_filter: mongo.Filter<CurrentDataDocument> = {
           _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: mongoTableId(sourceTable.id) }, ['k']),
           // Skip soft-deleted data
+          // Works for both v1 and v3 current_data schemas
           pending_delete: { $exists: false }
         };
 
