@@ -3,6 +3,7 @@ import { Logger, ReplicationAssertionError } from '@powersync/lib-services-frame
 import {
   BatchedCustomWriteCheckpointOptions,
   BucketStorageMarkRecordUnavailable,
+  CheckpointResult,
   maxLsn,
   storage
 } from '@powersync/service-core';
@@ -48,22 +49,22 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
     return lsn;
   }
 
-  async keepalive(lsn: string): Promise<boolean> {
-    let didAny = false;
+  async keepalive(lsn: string): Promise<CheckpointResult> {
+    let allBlocked = true;
     for (let batch of this.subWriters) {
-      const didBatchKeepalive = await batch.keepalive(lsn);
-      didAny ||= didBatchKeepalive;
+      const result = await batch.keepalive(lsn);
+      allBlocked &&= result.checkpointBlocked;
     }
-    return didAny;
+    return { checkpointBlocked: allBlocked };
   }
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
-    let didCommit = false;
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
+    let allBlocked = true;
     for (let batch of this.subWriters) {
-      const didWriterCommit = await batch.commit(lsn, options);
-      didCommit ||= didWriterCommit;
+      const result = await batch.commit(lsn, options);
+      allBlocked &&= result.checkpointBlocked;
     }
-    return didCommit;
+    return { checkpointBlocked: allBlocked };
   }
 
   async setResumeLsn(lsn: string): Promise<void> {

@@ -83,7 +83,7 @@ export class MongoSyncBucketStorage
     super();
     this.db = factory.db;
     this.mapping = this.sync_rules.mapping;
-    this.checksums = new MongoChecksums(this.db, this.group_id, {
+    this.checksums = new MongoChecksums(this.db, this.group_id, this.mapping, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig
     });

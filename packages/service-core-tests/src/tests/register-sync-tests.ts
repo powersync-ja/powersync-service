@@ -14,7 +14,6 @@ import { fileURLToPath } from 'url';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
-import { bucketRequest } from './util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

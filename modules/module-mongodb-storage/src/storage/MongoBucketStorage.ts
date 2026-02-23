@@ -59,10 +59,17 @@ export class MongoBucketStorage
       id = Number(id);
     }
     const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
-    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name, undefined, {
-      ...this.internalOptions,
-      storageConfig
-    });
+    const storage = new MongoSyncBucketStorage(
+      this,
+      id,
+      syncRules as MongoPersistedSyncRulesContent,
+      slot_name,
+      undefined,
+      {
+        ...this.internalOptions,
+        storageConfig
+      }
+    );
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     }

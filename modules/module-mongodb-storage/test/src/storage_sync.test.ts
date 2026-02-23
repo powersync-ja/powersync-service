@@ -24,54 +24,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       storageVersion
     });
     const bucketStorage = factory.getInstance(syncRules);
-    const globalBucket = bucketRequest(syncRules, 'global[]');
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      const sourceTable = TEST_TABLE;
-
-      const largeDescription = '0123456789'.repeat(2_000_00);
-
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test1',
-          description: 'test1'
-        },
-        afterReplicaId: test_utils.rid('test1')
-      });
-
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large1',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large1')
-      });
-
-      // Large enough to split the returned batch
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large2',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large2')
-      });
-
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test3',
-          description: 'test3'
-        },
-        afterReplicaId: test_utils.rid('test3')
-      });
-    });
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -119,9 +72,9 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       afterReplicaId: test_utils.rid('test3')
     });
 
-    const result = await writer.flush();
+    const flushResult = await writer.flush();
 
-    const checkpoint = result!.flushed_op;
+    const checkpoint = flushResult!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
 

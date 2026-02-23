@@ -2,7 +2,6 @@ import { storage } from '@powersync/service-core';
 import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { bucketRequest } from './util.js';
 
 /**
  * @example
