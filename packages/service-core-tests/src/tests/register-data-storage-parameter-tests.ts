@@ -614,8 +614,7 @@ bucket_definitions:
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
