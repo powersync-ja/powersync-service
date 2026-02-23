@@ -15,7 +15,11 @@ import * as pgwire from '@powersync/service-jpgwire';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 import { PgManager } from '@module/replication/PgManager.js';
-import { createCoreReplicationMetrics, initializeCoreReplicationMetrics } from '@powersync/service-core';
+import {
+  createCoreReplicationMetrics,
+  initializeCoreReplicationMetrics,
+  updateSyncRulesFromYaml
+} from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
@@ -82,7 +86,7 @@ bucket_definitions:
     data:
       - SELECT * FROM "test_data"
 `;
-    const syncRules = await f.updateSyncRules({ content: syncRuleContent, storageVersion });
+    const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
@@ -307,7 +311,8 @@ bucket_definitions:
     data:
       - SELECT id, description FROM "test_data"
 `;
-    const syncRules = await f.updateSyncRules({ content: syncRuleContent, storageVersion });
+
+    const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
 
     // 1. Setup some base data that will be replicated in initial replication
