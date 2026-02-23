@@ -26,15 +26,15 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     storageConfig: StorageVersionConfig
   ) {
     this.slot_name = slot_name ?? `powersync_${id}`;
-    if (
+    if (this.mapping != null) {
+      this.hydrationState = new MongoHydrationState(this.mapping);
+    } else if (
       !this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
       !storageConfig.versionedBuckets
     ) {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
-    } else if (this.mapping == null) {
-      this.hydrationState = versionedHydrationState(this.id);
     } else {
-      this.hydrationState = new MongoHydrationState(this.mapping);
+      this.hydrationState = versionedHydrationState(this.id);
     }
   }
 
