@@ -375,7 +375,7 @@ export class MongoBucketStorage
       .toArray()
       .catch(ignoreNotExisting);
 
-    const replication_aggregate = await this.db.current_data
+    const v1_replication_aggregate = await this.db.current_data
       .aggregate([
         {
           $collStats: {
@@ -386,10 +386,21 @@ export class MongoBucketStorage
       .toArray()
       .catch(ignoreNotExisting);
 
+    const v3_replication_aggregate = await this.db.v3_current_data
+      .aggregate([
+        {
+          $collStats: {
+            storageStats: {}
+          }
+        }
+      ])
+      .toArray()
+      .catch(ignoreNotExisting);
     return {
       operations_size_bytes: Number(operations_aggregate[0].storageStats.size),
       parameters_size_bytes: Number(parameters_aggregate[0].storageStats.size),
-      replication_size_bytes: Number(replication_aggregate[0].storageStats.size)
+      replication_size_bytes:
+        Number(v1_replication_aggregate[0].storageStats.size) + Number(v3_replication_aggregate[0].storageStats.size)
     };
   }
 
