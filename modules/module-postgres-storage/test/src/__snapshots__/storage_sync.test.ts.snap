@@ -104,7 +104,7 @@ exports[`sync - postgres > storage v1 > compacting data - invalidate checkpoint 
 ]
 `;
 
-exports[`sync - postgres > storage v1 > encodes sync rules id in buckes for streams 1`] = `
+exports[`sync - postgres > storage v1 > encodes sync rules id in buckets for streams 1`] = `
 [
   {
     "checkpoint": {
@@ -159,7 +159,7 @@ exports[`sync - postgres > storage v1 > encodes sync rules id in buckes for stre
 ]
 `;
 
-exports[`sync - postgres > storage v1 > encodes sync rules id in buckes for streams 2`] = `
+exports[`sync - postgres > storage v1 > encodes sync rules id in buckets for streams 2`] = `
 [
   {
     "checkpoint": {
@@ -1199,7 +1199,7 @@ exports[`sync - postgres > storage v2 > compacting data - invalidate checkpoint 
 ]
 `;
 
-exports[`sync - postgres > storage v2 > encodes sync rules id in buckes for streams 1`] = `
+exports[`sync - postgres > storage v2 > encodes sync rules id in buckets for streams 1`] = `
 [
   {
     "checkpoint": {
@@ -1254,13 +1254,13 @@ exports[`sync - postgres > storage v2 > encodes sync rules id in buckes for stre
 ]
 `;
 
-exports[`sync - postgres > storage v2 > encodes sync rules id in buckes for streams 2`] = `
+exports[`sync - postgres > storage v2 > encodes sync rules id in buckets for streams 2`] = `
 [
   {
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "2#test|0[]",
+          "bucket": "2#test2|0[]",
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
@@ -1276,7 +1276,7 @@ exports[`sync - postgres > storage v2 > encodes sync rules id in buckes for stre
         {
           "errors": [],
           "is_default": true,
-          "name": "test",
+          "name": "test2",
         },
       ],
       "write_checkpoint": undefined,
@@ -1285,7 +1285,7 @@ exports[`sync - postgres > storage v2 > encodes sync rules id in buckes for stre
   {
     "data": {
       "after": "0",
-      "bucket": "2#test|0[]",
+      "bucket": "2#test2|0[]",
       "data": [
         {
           "checksum": 920318466,
@@ -1294,7 +1294,7 @@ exports[`sync - postgres > storage v2 > encodes sync rules id in buckes for stre
           "object_type": "test",
           "op": "PUT",
           "op_id": "2",
-          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+          "subkey": "8a5f3fdd-3f59-5153-92ae-ac115c458441",
         },
       ],
       "has_more": false,
@@ -1914,7 +1914,7 @@ exports[`sync - postgres > storage v2 > sync updates to data query only 2`] = `
           "object_type": "lists",
           "op": "PUT",
           "op_id": "2",
-          "subkey": "5ad0aa14-3d5e-5428-ad5b-2c33927d991c",
+          "subkey": "b9f16d58-e6f5-55b5-9622-7bc360dba34f",
         },
       ],
       "has_more": false,
@@ -2121,7 +2121,7 @@ exports[`sync - postgres > storage v2 > sync updates to parameter query + data 2
           "object_type": "lists",
           "op": "PUT",
           "op_id": "1",
-          "subkey": "5ad0aa14-3d5e-5428-ad5b-2c33927d991c",
+          "subkey": "b9f16d58-e6f5-55b5-9622-7bc360dba34f",
         },
       ],
       "has_more": false,
