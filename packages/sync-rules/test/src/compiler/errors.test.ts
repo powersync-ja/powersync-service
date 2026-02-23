@@ -365,8 +365,7 @@ bucket_definitions:
     function checkDangerousQueryWarning(query: string, expectedError: boolean) {
       const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   foo:
@@ -375,12 +374,14 @@ streams:
 
       if (expectedError) {
         expect(errors).toHaveLength(1);
+        const [error] = errors;
+        expect(error.message).toContain('this is unsuitable for authorization');
+        expect(error.isWarning).toBeTruthy();
 
         // Should not report the dangerous queries warning with the tag applied.
         const [errorsWithOptIn] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   foo:

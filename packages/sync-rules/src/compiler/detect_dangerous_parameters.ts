@@ -30,7 +30,8 @@ export class DangerousParameterDetector {
 
       errors.report(
         'Clients can send any value for this unauthenticated parameter, so this is unsuitable for authorization. Consider further constraining this with an authenticated parameter.',
-        location
+        location,
+        { isWarning: true }
       );
     }
   }
