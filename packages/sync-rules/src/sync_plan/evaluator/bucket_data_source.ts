@@ -9,11 +9,12 @@ import {
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
 } from '../../types.js';
-import { filterJsonRow, idFromData, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
+import { filterJsonRow, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
 import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
+import { idFromData } from '../../cast.js';
 import {
   ScalarExpressionEvaluator,
   scalarStatementToSql,
@@ -23,7 +24,7 @@ import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
-  private readonly sourceTables = new Set<TablePattern>();
+  private readonly sourceTables: TablePattern[] = [];
   private readonly sources: PreparedStreamDataSource[] = [];
   private readonly defaultSchema: string;
 
@@ -37,7 +38,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
       const prepared = new PreparedStreamDataSource(data, context);
 
       this.sources.push(prepared);
-      this.sourceTables.add(prepared.tablePattern);
+      this.sourceTables.push(prepared.tablePattern);
     }
   }
 
@@ -53,7 +54,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     return evaluator.parameters.map((p) => ExpressionToSqlite.toSqlite(p.expr));
   }
 
-  getSourceTables(): Set<TablePattern> {
+  getSourceTables(): TablePattern[] {
     return this.sourceTables;
   }
 

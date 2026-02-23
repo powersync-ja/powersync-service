@@ -40,9 +40,7 @@ bucket_definitions:
     });
     const collection = db.collection('test_data');
 
-    await context.replicateSnapshot();
-
-    context.startStreaming();
+    await context.initializeReplication();
 
     const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
     const test_id = result.insertedId;
@@ -77,9 +75,7 @@ bucket_definitions:
     const result = await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
     const test_id = result.insertedId;
 
-    await context.replicateSnapshot();
-
-    context.startStreaming();
+    await context.initializeReplication();
 
     await setTimeout(30);
     await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
@@ -108,8 +104,7 @@ bucket_definitions:
     });
     const collection = db.collection('test_data');
 
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
 
     const session = client.startSession();
     let test_id: mongo.ObjectId | undefined;
@@ -155,9 +150,7 @@ bucket_definitions:
     });
     const collection = db.collection('test_data');
 
-    await context.replicateSnapshot();
-
-    context.startStreaming();
+    await context.initializeReplication();
 
     const session = client.startSession();
     let test_id: mongo.ObjectId | undefined;
@@ -202,9 +195,7 @@ bucket_definitions:
     });
     const collection = db.collection('test_data');
 
-    await context.replicateSnapshot();
-
-    context.startStreaming();
+    await context.initializeReplication();
 
     const session = client.startSession();
     let test_id: mongo.ObjectId | undefined;
@@ -242,9 +233,7 @@ bucket_definitions:
       `);
 
     await db.createCollection('test_DATA');
-    await context.replicateSnapshot();
-
-    context.startStreaming();
+    await context.initializeReplication();
 
     const collection = db.collection('test_DATA');
     const result = await collection.insertOne({ description: 'test1' });
@@ -266,8 +255,7 @@ bucket_definitions:
       `);
     await db.createCollection('test_data');
 
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
 
     const largeDescription = crypto.randomBytes(20_000).toString('hex');
 
@@ -299,8 +287,7 @@ bucket_definitions:
     data: []
 `;
     await context.updateSyncRules(syncRuleContent);
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
 
     const collection = db.collection('test_data');
     const result = await collection.insertOne({ description: 'test1' });
@@ -329,8 +316,7 @@ bucket_definitions:
       - SELECT _id as id, description FROM "test_data2"
 `;
     await context.updateSyncRules(syncRuleContent);
-    await context.replicateSnapshot();
-    context.startStreaming();
+    await context.initializeReplication();
 
     const collection = db.collection('test_data1');
     const result = await collection.insertOne({ description: 'test1' });
@@ -358,11 +344,10 @@ bucket_definitions:
     const result = await collection.insertOne({ description: 'test1' });
     const test_id = result.insertedId.toHexString();
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
     // Note: snapshot is only consistent some time into the streaming request.
     // At the point that we get the first acknowledged checkpoint, as is required
     // for getBucketData(), the data should be consistent.
-    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([test_utils.putOp('test_data', { id: test_id, description: 'test1' })]);
@@ -384,7 +369,7 @@ bucket_definitions:
 
     await db.createCollection('test_data');
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
 
     const collection = db.collection('test_data');
     const result = await collection.insertOne({ name: 't1' });
@@ -399,7 +384,6 @@ bucket_definitions:
     const largeDescription = crypto.randomBytes(12000000 / 2).toString('hex');
 
     await collection.updateOne({ _id: test_id }, { $set: { description: largeDescription } });
-    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data.length).toEqual(2);
@@ -428,9 +412,7 @@ bucket_definitions:
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
-    await context.replicateSnapshot();
-
-    context.startStreaming();
+    await context.initializeReplication();
 
     const collection = db.collection('test_donotsync');
     const result = await collection.insertOne({ description: 'test' });
@@ -451,7 +433,7 @@ bucket_definitions:
     data:
       - SELECT _id as id, description FROM "test_%"`);
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
 
     await db.createCollection('test_data', {
       // enabled: true here - everything should work
@@ -462,15 +444,24 @@ bucket_definitions:
     const test_id = result.insertedId;
     await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
 
-    context.startStreaming();
-
     const data = await context.getBucketData('global[]');
-    expect(data).toMatchObject([
-      // An extra op here, since this triggers a snapshot in addition to getting the event.
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
-    ]);
+    // Either case is valid here
+    if (data.length == 3) {
+      expect(
+        data.sort((a, b) => JSON.parse(a.data!).description.localeCompare(JSON.parse(b.data!).description) ?? 0)
+      ).toMatchObject([
+        // An extra op here, since this triggers a snapshot in addition to getting the event.
+        // Can be either test1, test2, test2 or test2, test1, test2
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+      ]);
+    } else {
+      expect(data).toMatchObject([
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+      ]);
+    }
   });
 
   test('postImages - new collection with postImages disabled', async () => {
@@ -484,7 +475,7 @@ bucket_definitions:
     data:
       - SELECT _id as id, description FROM "test_data%"`);
 
-    await context.replicateSnapshot();
+    await context.initializeReplication();
 
     await db.createCollection('test_data', {
       // enabled: false here, but autoConfigure will enable it.
@@ -495,8 +486,6 @@ bucket_definitions:
     const result = await collection.insertOne({ description: 'test1' });
     const test_id = result.insertedId;
     await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
-
-    context.startStreaming();
 
     await expect(() => context.getBucketData('global[]')).rejects.toMatchObject({
       message: expect.stringContaining('stream was configured to require a post-image for all update events')
@@ -519,8 +508,8 @@ bucket_definitions:
     const collection = db.collection('test_data');
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
 
-    await context.replicateSnapshot();
-    await context.markSnapshotConsistent();
+    // Initialize
+    await context.initializeReplication();
 
     // Simulate an error
     await context.storage!.reportError(new Error('simulated error'));
@@ -528,10 +517,9 @@ bucket_definitions:
     expect(syncRules).toBeTruthy();
     expect(syncRules?.last_fatal_error).toEqual('simulated error');
 
-    // startStreaming() should automatically clear the error.
-    context.startStreaming();
+    // The new checkpoint should clear the error
+    await context.getCheckpoint();
 
-    // getBucketData() creates a checkpoint that clears the error, so we don't do that
     // Just wait, and check that the error is cleared automatically.
     await vi.waitUntil(
       async () => {

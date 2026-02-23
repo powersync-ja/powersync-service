@@ -1,11 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { BucketDataSource, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
+import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketDataWriter.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { PowerSyncMongo } from './db.js';
 import {
@@ -14,9 +15,10 @@ import {
   BucketStateDocument,
   CurrentBucket,
   CurrentDataDocument,
+  RecordedLookup,
   SourceKey
 } from './models.js';
-import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -51,6 +53,7 @@ export class PersistedBatch {
   bucketParameters: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
+  mapping: BucketDefinitionMapping;
 
   /**
    * For debug logging only.
@@ -62,16 +65,13 @@ export class PersistedBatch {
    */
   currentSize = 0;
 
-  constructor(
-    private group_id: number,
-    writtenSize: number,
-    options?: { logger?: Logger }
-  ) {
+  constructor(writtenSize: number, options: { logger: Logger; mapping: BucketDefinitionMapping }) {
     this.currentSize = writtenSize;
-    this.logger = options?.logger ?? defaultLogger;
+    this.logger = options.logger;
+    this.mapping = options.mapping;
   }
 
-  private incrementBucket(bucket: string, op_id: InternalOpId, bytes: number) {
+  private incrementBucket(defId: number, bucket: string, op_id: InternalOpId, bytes: number) {
     let existingState = this.bucketStates.get(bucket);
     if (existingState) {
       existingState.lastOp = op_id;
@@ -81,7 +81,8 @@ export class PersistedBatch {
       this.bucketStates.set(bucket, {
         lastOp: op_id,
         incrementCount: 1,
-        incrementBytes: bytes
+        incrementBytes: bytes,
+        def: defId
       });
     }
   }
@@ -102,7 +103,14 @@ export class PersistedBatch {
     const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
 
     for (const k of options.evaluated) {
-      const key = currentBucketKey(k);
+      const source = k.source;
+      const sourceDefinitionId = this.mapping.bucketSourceId(source);
+      const key = currentBucketKey({
+        bucket: k.bucket,
+        table: k.table,
+        id: k.id,
+        def: sourceDefinitionId
+      });
 
       // INSERT
       const recordData = JSONBig.stringify(k.data);
@@ -127,7 +135,7 @@ export class PersistedBatch {
         insertOne: {
           document: {
             _id: {
-              g: this.group_id,
+              g: sourceDefinitionId,
               b: k.bucket,
               o: op_id
             },
@@ -141,11 +149,16 @@ export class PersistedBatch {
           }
         }
       });
-      this.incrementBucket(k.bucket, op_id, byteEstimate);
+      this.incrementBucket(sourceDefinitionId, k.bucket, op_id, byteEstimate);
     }
 
     for (let bd of remaining_buckets.values()) {
       // REMOVE
+      if (options.table.bucketDataSourceIds?.indexOf(bd.def) === -1) {
+        // This bucket definition is no longer used for this table.
+        // Don't generate REMOVE operations for it.
+        continue;
+      }
 
       const op_id = options.op_seq.next();
       this.debugLastOpId = op_id;
@@ -154,7 +167,7 @@ export class PersistedBatch {
         insertOne: {
           document: {
             _id: {
-              g: this.group_id,
+              g: bd.def,
               b: bd.bucket,
               o: op_id
             },
@@ -169,7 +182,7 @@ export class PersistedBatch {
         }
       });
       this.currentSize += 200;
-      this.incrementBucket(bd.bucket, op_id, 200);
+      this.incrementBucket(bd.def, bd.bucket, op_id, 200);
     }
   }
 
@@ -178,7 +191,7 @@ export class PersistedBatch {
     sourceKey: storage.ReplicaId;
     sourceTable: storage.SourceTable;
     evaluated: EvaluatedParameters[];
-    existing_lookups: bson.Binary[];
+    existing_lookups: RecordedLookup[];
   }) {
     // This is similar to saving bucket data.
     // A key difference is that we don't need to keep the history intact.
@@ -189,16 +202,19 @@ export class PersistedBatch {
     // We also don't need to keep history intact.
     const { sourceTable, sourceKey, evaluated } = data;
 
-    const remaining_lookups = new Map<string, bson.Binary>();
+    const remaining_lookups = new Map<string, RecordedLookup>();
     for (let l of data.existing_lookups) {
-      remaining_lookups.set(l.toString('base64'), l);
+      const key = l.d + '.' + l.l.toString('base64');
+      remaining_lookups.set(key, l);
     }
 
     // 1. Insert new entries
     for (let result of evaluated) {
+      const sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
       const binLookup = storage.serializeLookup(result.lookup);
       const hex = binLookup.toString('base64');
-      remaining_lookups.delete(hex);
+      const key = sourceDefinitionId + '.' + hex;
+      remaining_lookups.delete(key);
 
       const op_id = data.op_seq.next();
       this.debugLastOpId = op_id;
@@ -206,8 +222,9 @@ export class PersistedBatch {
         insertOne: {
           document: {
             _id: op_id,
+            def: sourceDefinitionId,
             key: {
-              g: this.group_id,
+              g: 0,
               t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
@@ -222,6 +239,14 @@ export class PersistedBatch {
 
     // 2. "REMOVE" entries for any lookup not touched.
     for (let lookup of remaining_lookups.values()) {
+      const sourceDefinitionId = lookup.d;
+
+      if (sourceTable.parameterLookupSourceIds?.indexOf(sourceDefinitionId) === -1) {
+        // This bucket definition is no longer used for this table.
+        // Don't generate REMOVE operations for it.
+        continue;
+      }
+
       const op_id = data.op_seq.next();
       this.debugLastOpId = op_id;
       this.bucketParameters.push({
@@ -229,11 +254,12 @@ export class PersistedBatch {
           document: {
             _id: op_id,
             key: {
-              g: this.group_id,
+              g: 0,
               t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
-            lookup: lookup,
+            def: sourceDefinitionId,
+            lookup: lookup.l,
             bucket_parameters: []
           }
         }
@@ -394,7 +420,7 @@ export class PersistedBatch {
         updateOne: {
           filter: {
             _id: {
-              g: this.group_id,
+              g: state.def,
               b: bucket
             }
           },
@@ -418,4 +444,5 @@ interface BucketStateUpdate {
   lastOp: InternalOpId;
   incrementCount: number;
   incrementBytes: number;
+  def: number;
 }

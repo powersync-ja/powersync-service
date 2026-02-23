@@ -14,7 +14,7 @@ import {
   storage,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import timers from 'timers/promises';
@@ -155,7 +155,8 @@ export class BinlogStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -168,8 +169,9 @@ export class BinlogStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    const map = [bucketRequest(syncRules, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

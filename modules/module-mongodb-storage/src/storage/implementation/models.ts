@@ -14,7 +14,7 @@ export type ReplicaId = bson.UUID | bson.Document | any;
 
 export interface SourceKey {
   /** group_id */
-  g: number;
+  g: 0;
   /** source table id */
   t: bson.ObjectId;
   /** source key */
@@ -30,11 +30,16 @@ export interface BucketDataKey {
   o: bigint;
 }
 
+export interface RecordedLookup {
+  d: number;
+  l: bson.Binary;
+}
+
 export interface CurrentDataDocument {
   _id: SourceKey;
   data: bson.Binary;
   buckets: CurrentBucket[];
-  lookups: bson.Binary[];
+  lookups: RecordedLookup[];
   /**
    * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
    *
@@ -44,6 +49,7 @@ export interface CurrentDataDocument {
 }
 
 export interface CurrentBucket {
+  def: number;
   bucket: string;
   table: string;
   id: string;
@@ -51,6 +57,7 @@ export interface CurrentBucket {
 
 export interface BucketParameterDocument {
   _id: bigint;
+  def: number;
   key: SourceKey;
   lookup: bson.Binary;
   bucket_parameters: Record<string, SqliteJsonValue>[];
@@ -72,7 +79,8 @@ export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
 
 export interface SourceTableDocument {
   _id: bson.ObjectId;
-  group_id: number;
+  bucket_data_source_ids: number[];
+  parameter_lookup_source_ids: number[];
   connection_id: number;
   relation_id: number | string | undefined;
   schema_name: string;
@@ -211,6 +219,10 @@ export interface SyncRuleDocument {
     expires_at: Date;
   } | null;
 
+  rule_mapping: {
+    definitions: Record<string, number>;
+    parameter_lookups: Record<string, number>;
+  };
   storage_version?: number;
 }
 

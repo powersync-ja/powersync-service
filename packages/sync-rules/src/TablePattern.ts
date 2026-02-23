@@ -38,6 +38,13 @@ export class ImplicitSchemaTablePattern implements Equatable {
     }
   }
 
+  /**
+   * Unique lookup key for this pattern. For in-memory use only - no gaurantee of stability across restarts.
+   */
+  get key(): string {
+    return JSON.stringify([this.connectionTag, this.schema, this.tablePattern]);
+  }
+
   get isWildcard() {
     return this.tablePattern.endsWith('%');
   }

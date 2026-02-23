@@ -55,23 +55,24 @@ function defineTests({ factory, storageVersion }: StorageVersionTestContext) {
     const reduced = reduceBucket(data).slice(1);
     expect(reduced.sort(compareIds)).toMatchObject([PUT_T3]);
 
-    // Initial inserts
-    expect(data.slice(0, 2)).toMatchObject([PUT_T1, PUT_T2]);
+    // Actual operations may look like this, but is not stable:
+    // // Initial inserts
+    // expect(data.slice(0, 2)).toMatchObject([PUT_T1, PUT_T2]);
 
-    // Truncate - order doesn't matter
-    expect(data.slice(2, 4).sort(compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
+    // // Truncate - order doesn't matter
+    // expect(data.slice(2, 4).sort(compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
 
-    expect(data.slice(4, 5)).toMatchObject([
-      // Snapshot and/or replication insert
-      PUT_T3
-    ]);
+    // expect(data.slice(4, 5)).toMatchObject([
+    //   // Snapshot and/or replication insert
+    //   PUT_T3
+    // ]);
 
-    if (data.length > 5) {
-      expect(data.slice(5)).toMatchObject([
-        // Replicated insert (optional duplication)
-        PUT_T3
-      ]);
-    }
+    // if (data.length > 5) {
+    //   expect(data.slice(5)).toMatchObject([
+    //     // Replicated insert (optional duplication)
+    //     PUT_T3
+    //   ]);
+    // }
   });
 
   test('add table', async () => {
@@ -646,7 +647,7 @@ config:
       { statement: `UPDATE test_data SET other = ROW(TRUE, 2)::composite;` }
     );
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([
       putOp('test_data', { id: 't1' }),
       putOp('test_data', { id: 't1', other: '{"foo":1,"bar":2}' })

@@ -1,12 +1,19 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  HydratedSyncRules,
+  ScopedParameterLookup,
+  SqliteJsonRow,
+  TablePattern
+} from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
-import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
-import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
+import { BucketDataWriter, BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketDataWriter.js';
+import { BucketStorageFactory, CreateWriterOptions } from './BucketStorageFactory.js';
+import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
+import { bson } from '../index.js';
 
 /**
  * Storage for a specific copy of sync rules.
@@ -20,19 +27,21 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
 
   /**
-   * Resolve a table, keeping track of it internally.
+   * Create a new writer.
+   *
+   * The writer is stateful. It is not safe to use the same writer concurrently from multiple places,
+   * but different writers can be used concurrently.
+   *
+   * The writer must be flushed and disposed when done.
    */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
+  createWriter(options: CreateWriterOptions): Promise<BucketDataWriter>;
+
+  getHydratedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
 
   /**
-   * Use this to get access to update storage data.
+   * For tests only.
    */
-  startBatch(
-    options: StartBatchOptions,
-    callback: (batch: BucketStorageBatch) => Promise<void>
-  ): Promise<FlushedResult | null>;
-
-  getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
+  getParsedSyncRules(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   /**
    * Terminate the sync rules.
@@ -103,7 +112,7 @@ export interface SyncRulesBucketStorage
    */
   getBucketDataBatch(
     checkpoint: util.InternalOpId,
-    dataBuckets: Map<string, util.InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk>;
 
@@ -115,7 +124,7 @@ export interface SyncRulesBucketStorage
    * This may be slow, depending on the size of the buckets.
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
-  getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
+  getChecksums(checkpoint: util.InternalOpId, buckets: BucketChecksumRequest[]): Promise<util.ChecksumMap>;
 
   /**
    * Clear checksum cache. Primarily intended for tests.
@@ -127,54 +136,58 @@ export interface SyncRulesBucketStorageListener {
   batchStarted: (batch: BucketStorageBatch) => void;
 }
 
+export interface BucketDataRequest {
+  bucket: string;
+  start: util.InternalOpId;
+  source: BucketDataSource;
+}
+export interface BucketChecksumRequest {
+  bucket: string;
+  source: BucketDataSource;
+}
+
 export interface SyncRuleStatus {
   checkpoint_lsn: string | null;
   active: boolean;
   snapshot_done: boolean;
   snapshot_lsn: string | null;
 }
-export interface ResolveTableOptions {
-  group_id: number;
+export interface ResolveTablesOptions {
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
+  pattern: TablePattern;
+  /**
+   * For tests only - custom id generator for stable ids.
+   */
+  idGenerator?: () => string | bson.ObjectId;
+}
 
+export interface ResolveTableToDropsOptions {
+  connection_id: number;
+  connection_tag: string;
+  entity_descriptor: SourceEntityDescriptor;
+}
+
+export interface ResolveTableOptions {
+  connection_id: number;
+  connection_tag: string;
+  entity_descriptor: SourceEntityDescriptor;
   sync_rules: HydratedSyncRules;
+  /**
+   * For tests only - custom id generator for stable ids.
+   */
+  idGenerator?: () => string | bson.ObjectId;
+}
+
+export interface ResolveTablesResult {
+  tables: SourceTable[];
+  dropTables: SourceTable[];
 }
 
 export interface ResolveTableResult {
   table: SourceTable;
   dropTables: SourceTable[];
-}
-
-export interface StartBatchOptions extends ParseSyncRulesOptions {
-  zeroLSN: string;
-  /**
-   * Whether or not to store a copy of the current data.
-   *
-   * This is needed if we need to apply partial updates, for example
-   * when we get TOAST values from Postgres.
-   *
-   * This is not needed when we get the full document from the source
-   * database, for example from MongoDB.
-   */
-  storeCurrentData: boolean;
-
-  /**
-   * Set to true for initial replication.
-   *
-   * This will avoid creating new operations for rows previously replicated.
-   */
-  skipExistingRows?: boolean;
-
-  /**
-   * Callback called if we streamed an update to a record that we don't have yet.
-   *
-   * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
-   */
-  markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
-
-  logger?: Logger;
 }
 
 export interface CompactOptions {
@@ -337,5 +350,3 @@ export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
   updatedParameterLookups: new Set<string>(),
   invalidateParameterBuckets: true
 };
-
-export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;

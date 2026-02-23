@@ -1,15 +1,17 @@
 import {
+  BucketDataScope,
+  BucketDataSource,
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
   HydratedSyncRules,
   HydrationState,
+  ParameterIndexLookupCreator,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 
-import { storage } from '@powersync/service-core';
-
-import { StorageConfig } from './models.js';
+import { storage, StorageVersionConfig } from '@powersync/service-core';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly slot_name: string;
@@ -20,23 +22,43 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     public readonly sync_rules: SyncConfigWithErrors,
     public readonly checkpoint_lsn: string | null,
     slot_name: string | null,
-    public readonly storageConfig: StorageConfig
+    public readonly mapping: BucketDefinitionMapping,
+    storageConfig: StorageVersionConfig
   ) {
     this.slot_name = slot_name ?? `powersync_${id}`;
-
-    if (
-      storageConfig.versionedBuckets ||
-      this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
+    if (this.mapping != null) {
+      this.hydrationState = new MongoHydrationState(this.mapping);
+    } else if (
+      !this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
+      !storageConfig.versionedBuckets
     ) {
-      // For new sync config versions (using the new storage version), we always enable versioned bucket names.
-      // For older versions, this depends on the compatibility option.
-      this.hydrationState = versionedHydrationState(this.id);
-    } else {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
+    } else {
+      this.hydrationState = versionedHydrationState(this.id);
     }
   }
 
   hydratedSyncRules(): HydratedSyncRules {
     return this.sync_rules.config.hydrate({ hydrationState: this.hydrationState });
+  }
+}
+
+class MongoHydrationState implements HydrationState {
+  constructor(private mapping: BucketDefinitionMapping) {}
+
+  getBucketSourceScope(source: BucketDataSource): BucketDataScope {
+    const defId = this.mapping.bucketSourceId(source);
+    return {
+      bucketPrefix: defId.toString(16),
+      source: source
+    };
+  }
+  getParameterIndexLookupScope(source: ParameterIndexLookupCreator) {
+    const defId = this.mapping.parameterLookupId(source);
+    return {
+      lookupName: defId.toString(16),
+      queryId: '',
+      source
+    };
   }
 }

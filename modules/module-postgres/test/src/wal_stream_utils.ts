@@ -1,7 +1,9 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
-import { CustomTypeRegistry } from '@module/types/registry.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
+  BucketChecksumRequest,
+  BucketRequest,
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
@@ -9,15 +11,14 @@ import {
   LEGACY_STORAGE_VERSION,
   OplogEntry,
   settledPromise,
-  STORAGE_VERSION_CONFIG,
   storage,
+  STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   unsettledPromise
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
-import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
@@ -184,21 +185,10 @@ export class WalStreamTestContext implements AsyncDisposable {
     return checkpoint;
   }
 
-  private resolveBucketName(bucket: string) {
-    if (!this.versionedBuckets || /^\d+#/.test(bucket)) {
-      return bucket;
-    }
-    if (this.syncRulesId == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
-    }
-    return `${this.syncRulesId}#${bucket}`;
-  }
-
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(
-      Object.entries(buckets).map(([bucket, opId]) => [this.resolveBucketName(bucket), opId])
-    );
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -210,9 +200,9 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const resolvedBucket = this.resolveBucketName(bucket);
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[resolvedBucket, start]]);
+    let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -222,27 +212,15 @@ export class WalStreamTestContext implements AsyncDisposable {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(resolvedBucket, BigInt(batches[0]!.chunkData.next_after));
+      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
   }
 
-  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+  async getChecksums(buckets: BucketChecksumRequest[], options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const versionedBuckets = buckets.map((bucket) => this.resolveBucketName(bucket));
-    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
-
-    const unversioned = new Map();
-    for (let i = 0; i < buckets.length; i++) {
-      unversioned.set(buckets[i], checksums.get(versionedBuckets[i])!);
-    }
-
-    return unversioned;
-  }
-
-  async getChecksum(bucket: string, options?: { timeout?: number }) {
-    const checksums = await this.getChecksums([bucket], options);
-    return checksums.get(bucket);
+    const checksums = await this.storage!.getChecksums(checkpoint, buckets);
+    return checksums;
   }
 
   /**
@@ -253,9 +231,9 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const resolvedBucket = this.resolveBucketName(bucket);
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = new Map<string, InternalOpId>([[resolvedBucket, start]]);
+    const map = [bucketRequest(syncRules, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

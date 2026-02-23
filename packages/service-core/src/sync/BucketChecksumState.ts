@@ -7,7 +7,8 @@ import {
   QuerierError,
   RequestedStream,
   RequestParameters,
-  ResolvedBucket
+  ResolvedBucket,
+  SOURCE
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -137,20 +138,23 @@ export class BucketChecksumState {
       }
 
       // Re-check updated buckets only
-      let checksumLookups: string[] = [];
+      let checksumLookups: storage.BucketChecksumRequest[] = [];
 
       let newChecksums = new Map<string, util.BucketChecksum>();
-      for (let bucket of bucketDescriptionMap.keys()) {
-        if (!updatedBuckets.has(bucket)) {
-          const existing = this.lastChecksums.get(bucket);
+      for (let desc of bucketDescriptionMap.values()) {
+        if (!updatedBuckets.has(desc.bucket)) {
+          const existing = this.lastChecksums.get(desc.bucket);
           if (existing == null) {
             // If this happens, it means updatedBuckets did not correctly include all new buckets
-            throw new ServiceAssertionError(`Existing checksum not found for bucket ${bucket}`);
+            throw new ServiceAssertionError(`Existing checksum not found for bucket ${desc}`);
           }
           // Bucket is not specifically updated, and we have a previous checksum
-          newChecksums.set(bucket, existing);
+          newChecksums.set(desc.bucket, existing);
         } else {
-          checksumLookups.push(bucket);
+          checksumLookups.push({
+            bucket: desc.bucket,
+            source: desc[SOURCE]
+          });
         }
       }
 
@@ -163,7 +167,7 @@ export class BucketChecksumState {
       checksumMap = newChecksums;
     } else {
       // Re-check all buckets
-      const bucketList = [...bucketDescriptionMap.keys()];
+      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b[SOURCE] }));
       checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
     }
 
@@ -207,8 +211,10 @@ export class BucketChecksumState {
         ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
+        const description = bucketDescriptionMap.get(b);
         return {
-          priority: bucketDescriptionMap.get(b)!.priority,
+          priority: description!.priority,
+          [SOURCE]: description![SOURCE],
           bucket: b
         };
       });
@@ -242,7 +248,7 @@ export class BucketChecksumState {
         message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
         this.logger.info(message, { checkpoint: base.checkpoint, user_id: userIdForLogs, buckets: allBuckets.length });
       };
-      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
+      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority, [SOURCE]: b[SOURCE] }));
 
       const subscriptions: util.StreamDescription[] = [];
       const streamNameToIndex = new Map<string, number>();
@@ -319,17 +325,21 @@ export class BucketChecksumState {
         deferredLog();
       },
 
-      getFilteredBucketPositions: (buckets?: BucketDescription[]): Map<string, util.InternalOpId> => {
+      getFilteredBucketPositions: (buckets?: BucketDescription[]): storage.BucketDataRequest[] => {
         if (!hasAdvanced) {
           throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
         }
         buckets ??= bucketsToFetch;
-        const filtered = new Map<string, util.InternalOpId>();
+        const filtered: storage.BucketDataRequest[] = [];
 
         for (let bucket of buckets) {
           const state = this.bucketDataPositions.get(bucket.bucket);
           if (state) {
-            filtered.set(bucket.bucket, state.start_op_id);
+            filtered.push({
+              bucket: bucket.bucket,
+              start: state.start_op_id,
+              source: bucket[SOURCE]
+            });
           }
         }
         return filtered;
@@ -622,7 +632,7 @@ export interface CheckpointLine {
    *
    * @param bucketsToFetch List of buckets to fetch - either this.bucketsToFetch, or a subset of it. Defaults to this.bucketsToFetch.
    */
-  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): Map<string, util.InternalOpId>;
+  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): storage.BucketDataRequest[];
 
   /**
    * Update the position of bucket data the client has, after it was sent to the client.
@@ -673,7 +683,9 @@ function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
     if (Object.hasOwn(byBucketId, bucket.bucket)) {
       byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
     } else {
-      byBucketId[bucket.bucket] = structuredClone(bucket);
+      let clone = structuredClone(bucket);
+      clone[SOURCE] = bucket[SOURCE]; // structuredClone does not clone symbol-keyed properties
+      byBucketId[bucket.bucket] = clone;
     }
   }
 

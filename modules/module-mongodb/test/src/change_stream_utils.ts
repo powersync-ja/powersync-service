@@ -1,5 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
+  BucketChecksumRequest,
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
@@ -8,25 +9,26 @@ import {
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
+  settledPromise,
   STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   TestStorageOptions,
-  utils
+  unsettledPromise
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
 import { ChangeStream, ChangeStreamOptions } from '@module/replication/ChangeStream.js';
 import { MongoManager } from '@module/replication/MongoManager.js';
 import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 import { NormalizedMongoConnectionConfig } from '@module/types/types.js';
 
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<PromiseSettledResult<void>>;
-  private syncRulesId?: number;
+  private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -71,13 +73,13 @@ export class ChangeStreamTestContext {
   /**
    * Abort snapshot and/or replication, without actively closing connections.
    */
-  abort() {
-    this.abortController.abort();
+  abort(cause?: Error) {
+    this.abortController.abort(cause);
   }
 
   async dispose() {
-    this.abort();
-    await this.streamPromise?.catch((e) => e);
+    this.abort(new Error('Disposing test context'));
+    await this.settledReplicationPromise;
     await this.factory[Symbol.asyncDispose]();
     await this.connectionManager.end();
   }
@@ -104,7 +106,6 @@ export class ChangeStreamTestContext {
       validate: true,
       storageVersion: this.storageVersion
     });
-    this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -115,7 +116,6 @@ export class ChangeStreamTestContext {
       throw new Error(`Next sync rules not available`);
     }
 
-    this.syncRulesId = syncRules.id;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -128,10 +128,12 @@ export class ChangeStreamTestContext {
       return this._walStream;
     }
     const options: ChangeStreamOptions = {
-      storage: this.storage,
+      factory: this.factory,
+      streams: [{ storage: this.storage }],
       metrics: METRICS_HELPER.metricsEngine,
       connections: this.connectionManager,
       abort_signal: this.abortController.signal,
+      logger: this.streamOptions?.logger,
       // Specifically reduce this from the default for tests on MongoDB <= 6.0, otherwise it can take
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
@@ -141,8 +143,31 @@ export class ChangeStreamTestContext {
     return this._walStream!;
   }
 
+  /**
+   * Replicate a snapshot, start streaming, and wait for a consistent checkpoint.
+   */
+  async initializeReplication() {
+    await this.replicateSnapshot();
+    // Make sure we're up to date
+    await this.getCheckpoint();
+  }
+
+  /**
+   * Replicate the initial snapshot, and start streaming.
+   */
   async replicateSnapshot() {
-    await this.streamer.initReplication();
+    // Use a settledPromise to avoid unhandled rejections
+    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
+    try {
+      await Promise.race([unsettledPromise(this.settledReplicationPromise), this.streamer.waitForInitialSnapshot()]);
+    } catch (e) {
+      if (e instanceof ReplicationAbortedError && e.cause != null) {
+        // Edge case for tests: replicate() can throw an error, but we'd receive the ReplicationAbortedError from
+        // waitForInitialSnapshot() first. In that case, prioritize the cause.
+        throw e.cause;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -153,28 +178,14 @@ export class ChangeStreamTestContext {
    */
   async markSnapshotConsistent() {
     const checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
-
-    await this.storage!.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.keepalive(checkpoint);
-    });
-  }
-
-  startStreaming() {
-    this.streamPromise = this.streamer
-      .streamChanges()
-      .then(() => ({ status: 'fulfilled', value: undefined }) satisfies PromiseFulfilledResult<void>)
-      .catch((reason) => ({ status: 'rejected', reason }) satisfies PromiseRejectedResult);
-    return this.streamPromise;
+    await using writer = await this.storage!.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.keepalive(checkpoint);
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
-      this.streamPromise?.then((e) => {
-        if (e.status == 'rejected') {
-          throw e.reason;
-        }
-      })
+      unsettledPromise(this.settledReplicationPromise!)
     ]);
     if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead
@@ -184,21 +195,10 @@ export class ChangeStreamTestContext {
     return checkpoint;
   }
 
-  private resolveBucketName(bucket: string) {
-    if (!this.versionedBuckets || /^\d+#/.test(bucket)) {
-      return bucket;
-    }
-    if (this.syncRulesId == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
-    }
-    return `${this.syncRulesId}#${bucket}`;
-  }
-
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(
-      Object.entries(buckets).map(([bucket, opId]) => [this.resolveBucketName(bucket), opId])
-    );
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -207,9 +207,9 @@ export class ChangeStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const resolvedBucket = this.resolveBucketName(bucket);
+    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[resolvedBucket, start]]);
+    let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -219,26 +219,15 @@ export class ChangeStreamTestContext {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(resolvedBucket, BigInt(batches[0]!.chunkData.next_after));
+      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
   }
 
-  async getChecksums(buckets: string[], options?: { timeout?: number }): Promise<utils.ChecksumMap> {
+  async getChecksum(request: BucketChecksumRequest, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const versionedBuckets = buckets.map((bucket) => this.resolveBucketName(bucket));
-    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
-
-    const unversioned: utils.ChecksumMap = new Map();
-    for (let i = 0; i < buckets.length; i++) {
-      unversioned.set(buckets[i], checksums.get(versionedBuckets[i])!);
-    }
-    return unversioned;
-  }
-
-  async getChecksum(bucket: string, options?: { timeout?: number }) {
-    const checksums = await this.getChecksums([bucket], options);
-    return checksums.get(bucket);
+    const map = await this.storage!.getChecksums(checkpoint, [request]);
+    return map.get(request.bucket);
   }
 }
 

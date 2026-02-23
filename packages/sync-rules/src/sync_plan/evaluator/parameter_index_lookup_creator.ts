@@ -23,7 +23,10 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     private readonly source: plan.StreamParameterIndexLookupCreator,
     { engine, defaultSchema }: StreamEvaluationContext
   ) {
-    this.defaultLookupScope = source.defaultLookupScope;
+    this.defaultLookupScope = {
+      ...source.defaultLookupScope,
+      source: this
+    };
     const translationHelper = new TableProcessorToSqlHelper(source);
     const expressions = source.outputs.map((o) => translationHelper.mapper.transform(o));
 
@@ -42,10 +45,8 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
-  getSourceTables(): Set<TablePattern> {
-    const set = new Set<TablePattern>();
-    set.add(this.sourceTable);
-    return set;
+  getSourceTables(): TablePattern[] {
+    return [this.sourceTable];
   }
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {

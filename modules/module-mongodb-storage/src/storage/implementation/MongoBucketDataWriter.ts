@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+import { RowProcessor, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -13,21 +13,34 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  BatchedCustomWriteCheckpointOptions,
   BucketStorageMarkRecordUnavailable,
   CheckpointResult,
   deserializeBson,
   InternalOpId,
   isCompleteRow,
+  maxLsn,
+  ResolveTableToDropsOptions,
   SaveOperationTag,
+  SourceTable,
   storage,
   SyncRuleState,
   utils
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
+import {
+  CurrentBucket,
+  CurrentDataDocument,
+  RecordedLookup,
+  SourceKey,
+  SourceTableDocument,
+  SyncRuleDocument
+} from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
+import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
@@ -46,15 +59,14 @@ const replicationMutex = new utils.Mutex();
 
 export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
 
-export interface MongoBucketBatchOptions {
+export interface MongoWriterOptions {
   db: PowerSyncMongo;
-  syncRules: HydratedSyncRules;
-  groupId: number;
   slotName: string;
-  lastCheckpointLsn: string | null;
-  keepaliveOp: InternalOpId | null;
-  resumeFromLsn: string | null;
   storeCurrentData: boolean;
+
+  rowProcessor: RowProcessor;
+  mapping: BucketDefinitionMapping;
+
   /**
    * Set to true for initial replication.
    */
@@ -65,86 +77,428 @@ export interface MongoBucketBatchOptions {
   logger?: Logger;
 }
 
-export class MongoBucketBatch
-  extends BaseObserver<storage.BucketBatchStorageListener>
-  implements storage.BucketStorageBatch
-{
-  private logger: Logger;
+interface MongoBucketBatchOptions {
+  db: PowerSyncMongo;
+  syncRules: MongoPersistedSyncRules;
+  lastCheckpointLsn: string | null;
+  keepaliveOp: InternalOpId | null;
+  resumeFromLsn: string | null;
+  logger: Logger;
+  writer: MongoBucketDataWriter;
+}
+
+export interface ForSyncRulesOptions {
+  syncRules: MongoPersistedSyncRules;
+
+  lastCheckpointLsn: string | null;
+  resumeFromLsn: string | null;
+  keepaliveOp: InternalOpId | null;
+}
+
+export class MongoBucketDataWriter implements storage.BucketDataWriter {
+  private batch: OperationBatch | null = null;
+  public readonly rowProcessor: RowProcessor;
+  write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
 
   private readonly client: mongo.MongoClient;
   public readonly db: PowerSyncMongo;
   public readonly session: mongo.ClientSession;
-  private readonly sync_rules: HydratedSyncRules;
-
-  private readonly group_id: number;
-
+  private readonly logger: Logger;
   private readonly slot_name: string;
   private readonly storeCurrentData: boolean;
   private readonly skipExistingRows: boolean;
 
-  private batch: OperationBatch | null = null;
-  private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
+  private readonly mapping: BucketDefinitionMapping;
+
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
-  private clearedError = false;
+  public subWriters: MongoBucketBatch[] = [];
 
-  /**
-   * Last LSN received associated with a checkpoint.
-   *
-   * This could be either:
-   * 1. A commit LSN.
-   * 2. A keepalive message LSN.
-   */
-  private last_checkpoint_lsn: string | null = null;
-
-  private persisted_op: InternalOpId | null = null;
-
-  /**
-   * Last written op, if any. This may not reflect a consistent checkpoint.
-   */
-  public last_flushed_op: InternalOpId | null = null;
-
-  /**
-   * lastCheckpointLsn is the last consistent commit.
-   *
-   * While that is generally a "safe" point to resume from, there are cases where we may want to resume from a different point:
-   * 1. After an initial snapshot, we don't have a consistent commit yet, but need to resume from the snapshot LSN.
-   * 2. If "no_checkpoint_before_lsn" is set far in advance, it may take a while to reach that point. We
-   *    may want to resume at incremental points before that.
-   *
-   * This is set when creating the batch, but may not be updated afterwards.
-   */
-  public resumeFromLsn: string | null = null;
-
-  private needsActivation = true;
-
-  constructor(options: MongoBucketBatchOptions) {
-    super();
-    this.logger = options.logger ?? defaultLogger;
-    this.client = options.db.client;
+  constructor(options: MongoWriterOptions) {
     this.db = options.db;
-    this.group_id = options.groupId;
-    this.last_checkpoint_lsn = options.lastCheckpointLsn;
-    this.resumeFromLsn = options.resumeFromLsn;
+    this.client = this.db.client;
     this.session = this.client.startSession();
     this.slot_name = options.slotName;
-    this.sync_rules = options.syncRules;
+    this.mapping = options.mapping;
+    this.rowProcessor = options.rowProcessor;
     this.storeCurrentData = options.storeCurrentData;
     this.skipExistingRows = options.skipExistingRows;
+    this.logger = options.logger ?? defaultLogger;
     this.markRecordUnavailable = options.markRecordUnavailable;
-    this.batch = new OperationBatch();
-
-    this.persisted_op = options.keepaliveOp ?? null;
   }
 
-  addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
-    this.write_checkpoint_batch.push({
-      ...checkpoint,
-      sync_rules_id: this.group_id
+  forSyncRules(options: ForSyncRulesOptions): MongoBucketBatch {
+    const batch = new MongoBucketBatch({
+      db: this.db,
+      syncRules: options.syncRules,
+      lastCheckpointLsn: options.lastCheckpointLsn,
+      keepaliveOp: options.keepaliveOp,
+      resumeFromLsn: options.resumeFromLsn,
+      logger: this.logger,
+      writer: this
+    });
+    this.subWriters.push(batch);
+    return batch;
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.session.endSession();
+    for (let batch of this.subWriters) {
+      await batch[Symbol.asyncDispose]();
+    }
+  }
+
+  get resumeFromLsn(): string | null {
+    // FIXME: check the logic here when there are multiple batches
+    let lsn: string | null = null;
+    for (let sub of this.subWriters) {
+      // TODO: should this be min instead?
+      lsn = maxLsn(lsn, sub.resumeFromLsn);
+    }
+    return lsn;
+  }
+
+  async keepalive(lsn: string): Promise<CheckpointResult> {
+    let allBlocked = true;
+    for (let batch of this.subWriters) {
+      const result = await batch.keepalive(lsn);
+      allBlocked &&= result.checkpointBlocked;
+    }
+    return { checkpointBlocked: allBlocked };
+  }
+
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
+    let allBlocked = true;
+    for (let batch of this.subWriters) {
+      const result = await batch.commit(lsn, options);
+      allBlocked &&= result.checkpointBlocked;
+    }
+    return { checkpointBlocked: allBlocked };
+  }
+
+  async setResumeLsn(lsn: string): Promise<void> {
+    for (let batch of this.subWriters) {
+      await batch.setResumeLsn(lsn);
+    }
+  }
+
+  private findMatchingSubWriters(tables: SourceTableDocument[]) {
+    return this.subWriters.filter((subWriter) => {
+      return tables.some((table) => subWriter.hasTable(table));
     });
   }
 
-  get lastCheckpointLsn() {
-    return this.last_checkpoint_lsn;
+  async markTableSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn?: string) {
+    const session = this.session;
+    const ids = tables.map((table) => mongoTableId(table.id));
+
+    await this.withTransaction(async () => {
+      await this.db.source_tables.updateMany(
+        { _id: { $in: ids } },
+        {
+          $set: {
+            snapshot_done: true
+          },
+          $unset: {
+            snapshot_status: 1
+          }
+        },
+        { session }
+      );
+
+      const updatedTables = await this.db.source_tables.find({ _id: { $in: ids } }, { session }).toArray();
+
+      if (no_checkpoint_before_lsn != null) {
+        const affectedSubWriters = this.findMatchingSubWriters(updatedTables);
+
+        await this.db.sync_rules.updateOne(
+          {
+            _id: { $in: affectedSubWriters.map((w) => w.group_id) }
+          },
+          {
+            $set: {
+              last_keepalive_ts: new Date()
+            },
+            $max: {
+              no_checkpoint_before: no_checkpoint_before_lsn
+            }
+          },
+          { session: this.session }
+        );
+      }
+    });
+    return tables.map((table) => {
+      const copy = table.clone();
+      copy.snapshotComplete = true;
+      return copy;
+    });
+  }
+
+  async markTableSnapshotRequired(table: SourceTable): Promise<void> {
+    const doc = await this.db.source_tables.findOne({ _id: mongoTableId(table.id) });
+    if (doc == null) {
+      return;
+    }
+
+    const subWriters = this.findMatchingSubWriters([doc]);
+
+    await this.db.sync_rules.updateOne(
+      {
+        _id: { $in: subWriters.map((w) => w.group_id) }
+      },
+      {
+        $set: {
+          snapshot_done: false
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: { $in: this.subWriters.map((w) => w.group_id) },
+        snapshot_done: { $ne: true }
+      },
+      {
+        $set: {
+          snapshot_done: true,
+          last_keepalive_ts: new Date()
+        },
+        $max: {
+          no_checkpoint_before: no_checkpoint_before_lsn
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async getTable(ref: SourceTable): Promise<storage.SourceTable | null> {
+    const doc = await this.db.source_tables.findOne({ _id: mongoTableId(ref.id) });
+    if (doc == null) {
+      return null;
+    }
+    const sourceTable = new storage.SourceTable({
+      id: doc._id,
+      objectId: doc.relation_id,
+      schema: doc.schema_name,
+      connectionTag: ref.connectionTag,
+      name: doc.table_name,
+      replicaIdColumns: ref.replicaIdColumns,
+      snapshotComplete: doc.snapshot_done ?? true,
+      bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
+      parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? [],
+      pattern: ref.pattern
+    });
+    sourceTable.snapshotStatus =
+      doc.snapshot_status == null
+        ? undefined
+        : {
+            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+            replicatedCount: doc.snapshot_status.replicated_count
+          };
+
+    sourceTable.syncData = doc.bucket_data_source_ids.length > 0;
+    sourceTable.syncParameters = doc.parameter_lookup_source_ids.length > 0;
+    // FIXME: implement sourceTable.syncEvent
+    return sourceTable;
+  }
+
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<SourceTable[]> {
+    const sources = this.rowProcessor.getMatchingSources(options.pattern);
+    const bucketDataSourceIds = sources.bucketDataSources.map((source) => this.mapping.bucketSourceId(source));
+    const parameterLookupSourceIds = sources.parameterIndexLookupCreators.map((source) =>
+      this.mapping.parameterLookupId(source)
+    );
+
+    const { connection_id, connection_tag, entity_descriptor } = options;
+
+    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      type_oid: column.typeId
+    }));
+    let result: SourceTable[] = [];
+
+    let currentTableIds: bson.ObjectId[] = [];
+    await this.db.client.withSession(async (session) => {
+      const col = this.db.source_tables;
+      let filter: mongo.Filter<SourceTableDocument> = {
+        connection_id: connection_id,
+        schema_name: schema,
+        table_name: name,
+        replica_id_columns2: normalizedReplicaIdColumns
+      };
+      if (objectId != null) {
+        filter.relation_id = objectId;
+      }
+      let docs = await col.find(filter, { session }).toArray();
+      let matchingDocs: SourceTableDocument[] = [];
+
+      let coveredBucketDataSourceIds = new Set<number>();
+      let coveredParameterLookupSourceIds = new Set<number>();
+
+      // Use _all_ docs that match the basic table definition, not only ones that match data sources.
+      currentTableIds = docs.map((doc) => doc._id);
+      for (let doc of docs) {
+        const matchingBucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => bucketDataSourceIds.includes(id));
+        const matchingParameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) =>
+          parameterLookupSourceIds.includes(id)
+        );
+        if (matchingBucketDataSourceIds.length == 0 && matchingParameterLookupSourceIds.length == 0) {
+          // Not relevant
+          continue;
+        }
+        matchingDocs.push(doc);
+        for (let id of matchingBucketDataSourceIds) {
+          coveredBucketDataSourceIds.add(id);
+        }
+        for (let id of matchingParameterLookupSourceIds) {
+          coveredParameterLookupSourceIds.add(id);
+        }
+      }
+
+      const pendingBucketDataSourceIds = bucketDataSourceIds.filter((id) => !coveredBucketDataSourceIds.has(id));
+      const pendingParameterLookupSourceIds = parameterLookupSourceIds.filter(
+        (id) => !coveredParameterLookupSourceIds.has(id)
+      );
+      if (pendingBucketDataSourceIds.length > 0 || pendingParameterLookupSourceIds.length > 0) {
+        const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
+        const doc: SourceTableDocument = {
+          _id: id,
+          connection_id: connection_id,
+          relation_id: objectId,
+          schema_name: schema,
+          table_name: name,
+          replica_id_columns: null,
+          replica_id_columns2: normalizedReplicaIdColumns,
+          snapshot_done: false,
+          snapshot_status: undefined,
+          bucket_data_source_ids: pendingBucketDataSourceIds,
+          parameter_lookup_source_ids: pendingParameterLookupSourceIds
+        };
+        currentTableIds.push(doc._id);
+
+        await col.insertOne(doc, { session });
+        matchingDocs.push(doc);
+      }
+
+      const sourceTables = matchingDocs.map((doc) => {
+        const sourceTable = new storage.SourceTable({
+          id: doc._id,
+          connectionTag: connection_tag,
+          objectId: objectId,
+          schema: schema,
+          name: name,
+          replicaIdColumns: replicaIdColumns,
+          snapshotComplete: doc.snapshot_done ?? true,
+          bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
+          parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? [],
+          pattern: options.pattern
+        });
+        sourceTable.snapshotStatus =
+          doc.snapshot_status == null
+            ? undefined
+            : {
+                lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+                totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+                replicatedCount: doc.snapshot_status.replicated_count
+              };
+
+        sourceTable.syncData = doc.bucket_data_source_ids.length > 0;
+        sourceTable.syncParameters = doc.parameter_lookup_source_ids.length > 0;
+        // FIXME: implement sourceTable.syncEvent
+        return sourceTable;
+      });
+
+      // Detect tables that are either renamed, or have different replica_id_columns
+
+      result = sourceTables;
+    });
+    return result;
+  }
+
+  async resolveTablesToDrop(options: ResolveTableToDropsOptions): Promise<SourceTable[]> {
+    const { connection_id, connection_tag, entity_descriptor } = options;
+    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      type_oid: column.typeId
+    }));
+    const col = this.db.source_tables;
+    let filter: mongo.Filter<SourceTableDocument> = {
+      connection_id: connection_id,
+      schema_name: schema,
+      table_name: name,
+      replica_id_columns2: normalizedReplicaIdColumns
+    };
+    if (objectId != null) {
+      filter.relation_id = objectId;
+    }
+
+    let filters: mongo.Filter<SourceTableDocument>[] = [];
+    // Case 1: name matches, but replica_id_columns2 differs
+    filters.push({
+      connection_id: connection_id,
+      schema_name: schema,
+      table_name: name,
+      replica_id_columns2: { $ne: normalizedReplicaIdColumns }
+    });
+    if (objectId != null) {
+      // Case 2: relation_id differs
+      filters.push({
+        connection_id: connection_id,
+        schema_name: schema,
+        table_name: name,
+        relation_id: { $ne: objectId }
+      });
+      // Case 3: relation_id matches, but name differs
+      filters.push({
+        $nor: [
+          {
+            connection_id: connection_id,
+            schema_name: schema,
+            table_name: name
+          }
+        ],
+        relation_id: objectId
+      });
+    }
+
+    const truncate = await col
+      .find({
+        $or: filters,
+        connection_id: connection_id
+      })
+      .toArray();
+    const dropTables = truncate.map(
+      (doc) =>
+        new storage.SourceTable({
+          id: doc._id,
+          connectionTag: connection_tag,
+          objectId: doc.relation_id,
+          schema: doc.schema_name,
+          name: doc.table_name,
+          replicaIdColumns:
+            doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
+          snapshotComplete: doc.snapshot_done ?? true,
+          bucketDataSourceIds: doc.bucket_data_source_ids ?? [],
+          parameterLookupSourceIds: doc.parameter_lookup_source_ids ?? []
+        })
+    );
+    return dropTables;
+  }
+  /**
+   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   */
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void {
+    for (let writer of this.subWriters) {
+      writer.addCustomWriteCheckpoint(checkpoint);
+    }
   }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
@@ -186,8 +540,10 @@ export class MongoBucketBatch
       throw new ReplicationAssertionError('Unexpected last_op == null');
     }
 
-    this.persisted_op = last_op;
-    this.last_flushed_op = last_op;
+    for (let batch of this.subWriters) {
+      batch.persisted_op = last_op;
+      batch.last_flushed_op = last_op;
+    }
     return { flushed_op: last_op };
   }
 
@@ -198,6 +554,7 @@ export class MongoBucketBatch
     options?: storage.BucketBatchCommitOptions
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
+
     if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
@@ -213,7 +570,7 @@ export class MongoBucketBatch
       // the order of processing, which then becomes really tricky to manage.
       // This now takes 2+ queries, but doesn't have any issues with order of operations.
       const sizeLookups: SourceKey[] = batch.batch.map((r) => {
-        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
+        return { g: 0, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
       });
 
       sizes = new Map<string, number>();
@@ -256,7 +613,7 @@ export class MongoBucketBatch
         continue;
       }
       const lookups: SourceKey[] = b.map((r) => {
-        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
+        return { g: 0, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
       });
       let current_data_lookup = new Map<string, CurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
@@ -271,8 +628,9 @@ export class MongoBucketBatch
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
       }
 
-      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.group_id, transactionSize, {
-        logger: this.logger
+      let persistedBatch: PersistedBatch | null = new PersistedBatch(transactionSize, {
+        logger: this.logger,
+        mapping: this.mapping
       });
 
       for (let op of b) {
@@ -313,7 +671,9 @@ export class MongoBucketBatch
     }
 
     if (didFlush) {
-      await this.clearError();
+      for (let batch of this.subWriters) {
+        await batch.clearError();
+      }
     }
 
     return resumeBatch?.hasData() ? resumeBatch : null;
@@ -333,10 +693,10 @@ export class MongoBucketBatch
 
     let existing_buckets: CurrentBucket[] = [];
     let new_buckets: CurrentBucket[] = [];
-    let existing_lookups: bson.Binary[] = [];
-    let new_lookups: bson.Binary[] = [];
+    let existing_lookups: RecordedLookup[] = [];
+    let new_lookups: RecordedLookup[] = [];
 
-    const before_key: SourceKey = { g: this.group_id, t: mongoTableId(record.sourceTable.id), k: beforeId };
+    const before_key: SourceKey = { g: 0, t: mongoTableId(record.sourceTable.id), k: beforeId };
 
     if (this.skipExistingRows) {
       if (record.tag == SaveOperationTag.INSERT) {
@@ -468,7 +828,7 @@ export class MongoBucketBatch
     if (afterId && after && utils.isCompleteRow(this.storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
-        const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
+        const { results: evaluated, errors: syncErrors } = this.rowProcessor.evaluateRowWithErrors({
           record: after,
           sourceTable
         });
@@ -498,7 +858,9 @@ export class MongoBucketBatch
           before_buckets: existing_buckets
         });
         new_buckets = evaluated.map((e) => {
+          const sourceDefinitionId = this.mapping.bucketSourceId(e.source);
           return {
+            def: sourceDefinitionId,
             bucket: e.bucket,
             table: e.table,
             id: e.id
@@ -508,7 +870,7 @@ export class MongoBucketBatch
 
       if (sourceTable.syncParameters) {
         // Parameters
-        const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
+        const { results: paramEvaluated, errors: paramErrors } = this.rowProcessor.evaluateParameterRowWithErrors(
           sourceTable,
           after
         );
@@ -537,7 +899,9 @@ export class MongoBucketBatch
           existing_lookups
         });
         new_lookups = paramEvaluated.map((p) => {
-          return storage.serializeLookup(p.lookup);
+          const l = storage.serializeLookup(p.lookup);
+          const d = this.mapping.parameterLookupId(p.lookup.source);
+          return { l, d };
         });
       }
     }
@@ -547,7 +911,7 @@ export class MongoBucketBatch
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key: SourceKey = { g: this.group_id, t: mongoTableId(sourceTable.id), k: afterId };
+      const after_key: SourceKey = { g: 0, t: mongoTableId(sourceTable.id), k: afterId };
       batch.upsertCurrentData(after_key, {
         data: afterData,
         buckets: new_buckets,
@@ -571,7 +935,7 @@ export class MongoBucketBatch
     return result;
   }
 
-  private async withTransaction(cb: () => Promise<void>) {
+  async withTransaction(cb: () => Promise<void>) {
     await replicationMutex.exclusiveLock(async () => {
       await this.session.withTransaction(
         async () => {
@@ -592,7 +956,7 @@ export class MongoBucketBatch
     });
   }
 
-  private async withReplicationTransaction(
+  async withReplicationTransaction(
     description: string,
     callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>
   ): Promise<void> {
@@ -647,22 +1011,299 @@ export class MongoBucketBatch
         }
       );
 
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.group_id
-        },
-        {
-          $set: {
-            last_keepalive_ts: new Date()
-          }
-        },
-        { session }
-      );
+      // FIXME: Do we need this?
+      // await this.db.sync_rules.updateOne(
+      //   {
+      //     _id: this.group_id
+      //   },
+      //   {
+      //     $set: {
+      //       last_keepalive_ts: new Date()
+      //     }
+      //   },
+      //   { session }
+      // );
       // We don't notify checkpoint here - we don't make any checkpoint updates directly
     });
   }
 
+  async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    const { after, before, sourceTable, tag } = record;
+    for (const event of this.getTableEvents(sourceTable)) {
+      for (let batch of this.subWriters) {
+        batch.iterateListeners((cb) =>
+          cb.replicationEvent?.({
+            batch: batch,
+            table: sourceTable,
+            data: {
+              op: tag,
+              after: after && utils.isCompleteRow(this.storeCurrentData, after) ? after : undefined,
+              before: before && utils.isCompleteRow(this.storeCurrentData, before) ? before : undefined
+            },
+            event
+          })
+        );
+      }
+    }
+
+    /**
+     * Return if the table is just an event table
+     */
+    if (!sourceTable.syncData && !sourceTable.syncParameters) {
+      return null;
+    }
+
+    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
+
+    this.batch ??= new OperationBatch();
+    this.batch.push(new RecordOperation(record));
+
+    if (this.batch.shouldFlush()) {
+      const r = await this.flush();
+      // HACK: Give other streams a  chance to also flush
+      await timers.setTimeout(5);
+      return r;
+    }
+    return null;
+  }
+
+  /**
+   * Drop is equivalent to TRUNCATE, plus removing our record of the table.
+   */
+  async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    await this.truncate(sourceTables);
+    const result = await this.flush();
+
+    await this.withTransaction(async () => {
+      for (let table of sourceTables) {
+        await this.db.source_tables.deleteOne({ _id: mongoTableId(table.id) });
+      }
+    });
+    return result;
+  }
+
+  async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    await this.flush();
+
+    let last_op: InternalOpId | null = null;
+    for (let table of sourceTables) {
+      last_op = await this.truncateSingle(table);
+    }
+
+    if (last_op) {
+      for (let batch of this.subWriters) {
+        batch.persisted_op = last_op;
+      }
+      return {
+        flushed_op: last_op
+      };
+    } else {
+      return null;
+    }
+  }
+
+  async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
+    let last_op: InternalOpId | null = null;
+
+    // To avoid too large transactions, we limit the amount of data we delete per transaction.
+    // Since we don't use the record data here, we don't have explicit size limits per batch.
+    const BATCH_LIMIT = 2000;
+
+    let lastBatchCount = BATCH_LIMIT;
+    while (lastBatchCount == BATCH_LIMIT) {
+      await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
+        const current_data_filter: mongo.Filter<CurrentDataDocument> = {
+          _id: idPrefixFilter<SourceKey>({ g: 0, t: mongoTableId(sourceTable.id) }, ['k']),
+          // Skip soft-deleted data
+          pending_delete: { $exists: false }
+        };
+
+        const cursor = this.db.current_data.find(current_data_filter, {
+          projection: {
+            _id: 1,
+            buckets: 1,
+            lookups: 1
+          },
+          limit: BATCH_LIMIT,
+          session: session
+        });
+        const batch = await cursor.toArray();
+        const persistedBatch = new PersistedBatch(0, { logger: this.logger, mapping: this.mapping });
+
+        for (let value of batch) {
+          persistedBatch.saveBucketData({
+            op_seq: opSeq,
+            before_buckets: value.buckets,
+            evaluated: [],
+            table: sourceTable,
+            sourceKey: value._id.k
+          });
+          persistedBatch.saveParameterData({
+            op_seq: opSeq,
+            existing_lookups: value.lookups,
+            evaluated: [],
+            sourceTable: sourceTable,
+            sourceKey: value._id.k
+          });
+
+          // Since this is not from streaming replication, we can do a hard delete
+          persistedBatch.hardDeleteCurrentData(value._id);
+        }
+        await persistedBatch.flush(this.db, session);
+        lastBatchCount = batch.length;
+
+        last_op = opSeq.last();
+      });
+    }
+
+    return last_op!;
+  }
+
+  async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    const copy = table.clone();
+    const snapshotStatus = {
+      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
+      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
+      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
+    };
+    copy.snapshotStatus = snapshotStatus;
+
+    await this.withTransaction(async () => {
+      await this.db.source_tables.updateOne(
+        { _id: mongoTableId(table.id) },
+        {
+          $set: {
+            snapshot_status: {
+              last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
+              total_estimated_count: snapshotStatus.totalEstimatedCount,
+              replicated_count: snapshotStatus.replicatedCount
+            }
+          }
+        },
+        { session: this.session }
+      );
+    });
+
+    return copy;
+  }
+
+  /**
+   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
+   */
+  protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
+    return this.rowProcessor.eventDescriptors.filter((evt) =>
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+    );
+  }
+}
+
+export class MongoBucketBatch
+  extends BaseObserver<storage.BucketBatchStorageListener>
+  implements storage.BucketStorageBatch
+{
+  private logger: Logger;
+
+  public readonly db: PowerSyncMongo;
+  public readonly session: mongo.ClientSession;
+
+  public readonly group_id: number;
+
+  private clearedError = false;
+
+  /**
+   * Last LSN received associated with a checkpoint.
+   *
+   * This could be either:
+   * 1. A commit LSN.
+   * 2. A keepalive message LSN.
+   */
+  private last_checkpoint_lsn: string | null = null;
+
+  persisted_op: InternalOpId | null = null;
+
+  /**
+   * Last written op, if any. This may not reflect a consistent checkpoint.
+   */
+  public last_flushed_op: InternalOpId | null = null;
+
+  /**
+   * lastCheckpointLsn is the last consistent commit.
+   *
+   * While that is generally a "safe" point to resume from, there are cases where we may want to resume from a different point:
+   * 1. After an initial snapshot, we don't have a consistent commit yet, but need to resume from the snapshot LSN.
+   * 2. If "no_checkpoint_before_lsn" is set far in advance, it may take a while to reach that point. We
+   *    may want to resume at incremental points before that.
+   *
+   * This is set when creating the batch, but may not be updated afterwards.
+   */
+  public readonly resumeFromLsn: string | null = null;
+
+  private needsActivation = true;
+
+  private readonly writer: MongoBucketDataWriter;
+
+  public readonly mapping: BucketDefinitionMapping;
+
+  constructor(options: MongoBucketBatchOptions) {
+    super();
+    this.logger = options.logger ?? defaultLogger;
+    this.db = options.db;
+    this.group_id = options.syncRules.id;
+    this.last_checkpoint_lsn = options.lastCheckpointLsn;
+    this.resumeFromLsn = options.resumeFromLsn;
+    this.writer = options.writer;
+    this.session = this.writer.session;
+    this.mapping = options.syncRules.mapping;
+
+    this.persisted_op = options.keepaliveOp ?? null;
+  }
+
+  async updateTableProgress(
+    table: storage.SourceTable,
+    progress: Partial<storage.TableSnapshotStatus>
+  ): Promise<storage.SourceTable> {
+    return await this.writer.updateTableProgress(table, progress);
+  }
+
+  hasTable(sourceTable: SourceTableDocument): boolean {
+    return (
+      sourceTable.bucket_data_source_ids.some((id) => this.mapping.hasBucketSourceId(id)) ||
+      sourceTable.parameter_lookup_source_ids.some((id) => this.mapping.hasParameterLookupId(id))
+    );
+  }
+
+  save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
+    return this.writer.save(record);
+  }
+  truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    return this.writer.truncate(sourceTables);
+  }
+  drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
+    return this.writer.truncate(sourceTables);
+  }
+  flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
+    return this.writer.flush(options);
+  }
+
+  addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
+    this.writer.write_checkpoint_batch.push({
+      ...checkpoint,
+      sync_rules_id: this.group_id
+    });
+  }
+
+  get lastCheckpointLsn() {
+    return this.last_checkpoint_lsn;
+  }
+
   async [Symbol.asyncDispose]() {
+    await this.dispose();
+  }
+
+  async dispose(): Promise<void> {
     await this.session.endSession();
     super.clearListeners();
   }
@@ -672,7 +1313,7 @@ export class MongoBucketBatch
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
-    await this.flush(options);
+    await this.writer.flush(options);
 
     const now = new Date();
 
@@ -929,165 +1570,6 @@ export class MongoBucketBatch
     );
   }
 
-  async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
-    const { after, before, sourceTable, tag } = record;
-    for (const event of this.getTableEvents(sourceTable)) {
-      this.iterateListeners((cb) =>
-        cb.replicationEvent?.({
-          batch: this,
-          table: sourceTable,
-          data: {
-            op: tag,
-            after: after && utils.isCompleteRow(this.storeCurrentData, after) ? after : undefined,
-            before: before && utils.isCompleteRow(this.storeCurrentData, before) ? before : undefined
-          },
-          event
-        })
-      );
-    }
-
-    /**
-     * Return if the table is just an event table
-     */
-    if (!sourceTable.syncData && !sourceTable.syncParameters) {
-      return null;
-    }
-
-    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
-
-    this.batch ??= new OperationBatch();
-    this.batch.push(new RecordOperation(record));
-
-    if (this.batch.shouldFlush()) {
-      const r = await this.flush();
-      // HACK: Give other streams a  chance to also flush
-      await timers.setTimeout(5);
-      return r;
-    }
-    return null;
-  }
-
-  /**
-   * Drop is equivalent to TRUNCATE, plus removing our record of the table.
-   */
-  async drop(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
-    await this.truncate(sourceTables);
-    const result = await this.flush();
-
-    await this.withTransaction(async () => {
-      for (let table of sourceTables) {
-        await this.db.source_tables.deleteOne({ _id: mongoTableId(table.id) });
-      }
-    });
-    return result;
-  }
-
-  async truncate(sourceTables: storage.SourceTable[]): Promise<storage.FlushedResult | null> {
-    await this.flush();
-
-    let last_op: InternalOpId | null = null;
-    for (let table of sourceTables) {
-      last_op = await this.truncateSingle(table);
-    }
-
-    if (last_op) {
-      this.persisted_op = last_op;
-      return {
-        flushed_op: last_op
-      };
-    } else {
-      return null;
-    }
-  }
-
-  async truncateSingle(sourceTable: storage.SourceTable): Promise<InternalOpId> {
-    let last_op: InternalOpId | null = null;
-
-    // To avoid too large transactions, we limit the amount of data we delete per transaction.
-    // Since we don't use the record data here, we don't have explicit size limits per batch.
-    const BATCH_LIMIT = 2000;
-
-    let lastBatchCount = BATCH_LIMIT;
-    while (lastBatchCount == BATCH_LIMIT) {
-      await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
-        const current_data_filter: mongo.Filter<CurrentDataDocument> = {
-          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: mongoTableId(sourceTable.id) }, ['k']),
-          // Skip soft-deleted data
-          pending_delete: { $exists: false }
-        };
-
-        const cursor = this.db.current_data.find(current_data_filter, {
-          projection: {
-            _id: 1,
-            buckets: 1,
-            lookups: 1
-          },
-          limit: BATCH_LIMIT,
-          session: session
-        });
-        const batch = await cursor.toArray();
-        const persistedBatch = new PersistedBatch(this.group_id, 0, { logger: this.logger });
-
-        for (let value of batch) {
-          persistedBatch.saveBucketData({
-            op_seq: opSeq,
-            before_buckets: value.buckets,
-            evaluated: [],
-            table: sourceTable,
-            sourceKey: value._id.k
-          });
-          persistedBatch.saveParameterData({
-            op_seq: opSeq,
-            existing_lookups: value.lookups,
-            evaluated: [],
-            sourceTable: sourceTable,
-            sourceKey: value._id.k
-          });
-
-          // Since this is not from streaming replication, we can do a hard delete
-          persistedBatch.hardDeleteCurrentData(value._id);
-        }
-        await persistedBatch.flush(this.db, session);
-        lastBatchCount = batch.length;
-
-        last_op = opSeq.last();
-      });
-    }
-
-    return last_op!;
-  }
-
-  async updateTableProgress(
-    table: storage.SourceTable,
-    progress: Partial<storage.TableSnapshotStatus>
-  ): Promise<storage.SourceTable> {
-    const copy = table.clone();
-    const snapshotStatus = {
-      totalEstimatedCount: progress.totalEstimatedCount ?? copy.snapshotStatus?.totalEstimatedCount ?? 0,
-      replicatedCount: progress.replicatedCount ?? copy.snapshotStatus?.replicatedCount ?? 0,
-      lastKey: progress.lastKey ?? copy.snapshotStatus?.lastKey ?? null
-    };
-    copy.snapshotStatus = snapshotStatus;
-
-    await this.withTransaction(async () => {
-      await this.db.source_tables.updateOne(
-        { _id: mongoTableId(table.id) },
-        {
-          $set: {
-            snapshot_status: {
-              last_key: snapshotStatus.lastKey == null ? null : new bson.Binary(snapshotStatus.lastKey),
-              total_estimated_count: snapshotStatus.totalEstimatedCount,
-              replicated_count: snapshotStatus.replicatedCount
-            }
-          }
-        },
-        { session: this.session }
-      );
-    });
-
-    return copy;
-  }
-
   async markAllSnapshotDone(no_checkpoint_before_lsn: string) {
     await this.db.sync_rules.updateOne(
       {
@@ -1107,62 +1589,14 @@ export class MongoBucketBatch
   }
 
   async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          snapshot_done: false
-        }
-      },
-      { session: this.session }
-    );
+    await this.writer.markTableSnapshotRequired(table);
   }
 
   async markTableSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn?: string) {
-    const session = this.session;
-    const ids = tables.map((table) => mongoTableId(table.id));
-
-    await this.withTransaction(async () => {
-      await this.db.source_tables.updateMany(
-        { _id: { $in: ids } },
-        {
-          $set: {
-            snapshot_done: true
-          },
-          $unset: {
-            snapshot_status: 1
-          }
-        },
-        { session }
-      );
-
-      if (no_checkpoint_before_lsn != null) {
-        await this.db.sync_rules.updateOne(
-          {
-            _id: this.group_id
-          },
-          {
-            $set: {
-              last_keepalive_ts: new Date()
-            },
-            $max: {
-              no_checkpoint_before: no_checkpoint_before_lsn
-            }
-          },
-          { session: this.session }
-        );
-      }
-    });
-    return tables.map((table) => {
-      const copy = table.clone();
-      copy.snapshotComplete = true;
-      return copy;
-    });
+    return this.writer.markTableSnapshotDone(tables, no_checkpoint_before_lsn);
   }
 
-  protected async clearError(): Promise<void> {
+  async clearError(): Promise<void> {
     // No need to clear an error more than once per batch, since an error would always result in restarting the batch.
     if (this.clearedError) {
       return;
@@ -1180,15 +1614,6 @@ export class MongoBucketBatch
       }
     );
     this.clearedError = true;
-  }
-
-  /**
-   * Gets relevant {@link SqlEventDescriptor}s for the given {@link SourceTable}
-   */
-  protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
-    return this.sync_rules.eventDescriptors.filter((evt) =>
-      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
-    );
   }
 }
 

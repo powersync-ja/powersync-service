@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { PowerSyncMongo } from './db.js';
+import { mongo } from '@powersync/lib-service-mongodb';
 
 /**
  * Manages a lock on a sync rules document, so that only one process
@@ -13,7 +14,8 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
 
   static async createLock(
     db: PowerSyncMongo,
-    sync_rules: storage.PersistedSyncRulesContent
+    sync_rules: storage.PersistedSyncRulesContent,
+    session?: mongo.ClientSession
   ): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');
     const doc = await db.sync_rules.findOneAndUpdate(
@@ -28,12 +30,14 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       },
       {
         projection: { lock: 1 },
-        returnDocument: 'before'
+        returnDocument: 'before',
+        session
       }
     );
 
     if (doc == null) {
       // Query the existing lock to get the expiration time (best effort - it may have been released in the meantime).
+      // We don't use the session here - we want to see the latest state.
       const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 } });
       if (heldLock?.lock?.expires_at) {
         throw new ServiceError(

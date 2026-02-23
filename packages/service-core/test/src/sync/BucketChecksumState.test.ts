@@ -1,5 +1,6 @@
 import {
   BucketChecksum,
+  BucketChecksumRequest,
   BucketChecksumState,
   BucketChecksumStateOptions,
   BucketChecksumStateStorage,
@@ -14,13 +15,15 @@ import {
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
-  RequestJwtPayload,
+  DEFAULT_HYDRATION_STATE,
   ScopedParameterLookup,
   SqliteJsonRow,
   SqlSyncRules,
+  TablePattern,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 import { beforeEach, describe, expect, test } from 'vitest';
+import { removeSource, removeSourceSymbol } from '../utils.js';
 
 describe('BucketChecksumState', () => {
   // Single global[] bucket.
@@ -32,7 +35,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(1) });
+  ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -45,7 +48,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(2) });
+  ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -56,7 +59,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(3) });
+  ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -70,7 +73,7 @@ bucket_definitions:
   test('global bucket with update', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
-    storage.updateTestChecksum({ bucket: '1#global[]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
       syncContext,
@@ -88,34 +91,34 @@ bucket_definitions:
     line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
-        buckets: [{ bucket: '1#global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
+        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
         write_checkpoint: undefined,
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
-        bucket: '1#global[]',
+        bucket: 'global[]',
         priority: 3
       }
     ]);
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions()).toEqual(new Map([['1#global[]', 0n]]));
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 0n }]);
 
     // This similuates the bucket data being sent
     line.advance();
-    line.updateBucketPosition({ bucket: '1#global[]', nextAfter: 1n, hasMore: false });
+    line.updateBucketPosition({ bucket: 'global[]', nextAfter: 1n, hasMore: false });
 
     // Update bucket storage state
-    storage.updateTestChecksum({ bucket: '1#global[]', checksum: 2, count: 2 });
+    storage.updateTestChecksum({ bucket: 'global[]', checksum: 2, count: 2 });
 
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n),
       writeCheckpoint: null,
       update: {
-        updatedDataBuckets: new Set(['1#global[]']),
+        updatedDataBuckets: new Set(['global[]']),
         invalidateDataBuckets: false,
         updatedParameterLookups: new Set(),
         invalidateParameterBuckets: false
@@ -125,14 +128,12 @@ bucket_definitions:
     expect(line2.checkpointLine).toEqual({
       checkpoint_diff: {
         removed_buckets: [],
-        updated_buckets: [
-          { bucket: '1#global[]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
-        ],
+        updated_buckets: [{ bucket: 'global[]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '2',
         write_checkpoint: undefined
       }
     });
-    expect(line2.getFilteredBucketPositions()).toEqual(new Map([['1#global[]', 1n]]));
+    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 1n }]);
   });
 
   test('global bucket with initial state', async () => {
@@ -141,13 +142,13 @@ bucket_definitions:
     /// (getFilteredBucketStates)
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
-    storage.updateTestChecksum({ bucket: '1#global[]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
       syncContext,
       tokenPayload,
       // Client sets the initial state here
-      syncRequest: { buckets: [{ name: '1#global[]', after: '1' }] },
+      syncRequest: { buckets: [{ name: 'global[]', after: '1' }] },
       syncRules: SYNC_RULES_GLOBAL,
       bucketStorage: storage
     });
@@ -160,27 +161,27 @@ bucket_definitions:
     line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
-        buckets: [{ bucket: '1#global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
+        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
         write_checkpoint: undefined,
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
-        bucket: '1#global[]',
+        bucket: 'global[]',
         priority: 3
       }
     ]);
     // This is the main difference between this and the previous test
-    expect(line.getFilteredBucketPositions()).toEqual(new Map([['1#global[]', 1n]]));
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 1n }]);
   });
 
   test('multiple static buckets', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 1, count: 1 });
-    storage.updateTestChecksum({ bucket: '2#global[2]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
       syncContext,
@@ -198,35 +199,35 @@ bucket_definitions:
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
-          { bucket: '2#global[1]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] },
-          { bucket: '2#global[2]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
+          { bucket: 'global[1]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '1',
         write_checkpoint: undefined,
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
-        bucket: '2#global[1]',
+        bucket: 'global[1]',
         priority: 3
       },
       {
-        bucket: '2#global[2]',
+        bucket: 'global[2]',
         priority: 3
       }
     ]);
     line.advance();
 
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 2, count: 2 });
-    storage.updateTestChecksum({ bucket: '2#global[2]', checksum: 2, count: 2 });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 2, count: 2 });
+    storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n),
       writeCheckpoint: null,
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
-        updatedDataBuckets: new Set(['2#global[1]', '2#global[2]']),
+        updatedDataBuckets: new Set(['global[1]', 'global[2]']),
         invalidateDataBuckets: false
       }
     }))!;
@@ -234,8 +235,8 @@ bucket_definitions:
       checkpoint_diff: {
         removed_buckets: [],
         updated_buckets: [
-          { bucket: '2#global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] },
-          { bucket: '2#global[2]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
+          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '2',
         write_checkpoint: undefined
@@ -258,7 +259,7 @@ bucket_definitions:
       bucketStorage: storage
     });
 
-    storage.updateTestChecksum({ bucket: '1#global[]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[]', checksum: 1, count: 1 });
 
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n),
@@ -268,19 +269,19 @@ bucket_definitions:
     line.advance();
     expect(line.checkpointLine).toEqual({
       checkpoint: {
-        buckets: [{ bucket: '1#global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
+        buckets: [{ bucket: 'global[]', checksum: 1, count: 1, priority: 3, subscriptions: [{ default: 0 }] }],
         last_op_id: '1',
         write_checkpoint: undefined,
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
-        bucket: '1#global[]',
+        bucket: 'global[]',
         priority: 3
       }
     ]);
-    expect(line.getFilteredBucketPositions()).toEqual(new Map([['1#global[]', 0n]]));
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 0n }]);
   });
 
   test('invalidating individual bucket', async () => {
@@ -288,8 +289,8 @@ bucket_definitions:
 
     const storage = new MockBucketChecksumStateStorage();
     // Set initial state
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 1, count: 1 });
-    storage.updateTestChecksum({ bucket: '2#global[2]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
       syncContext,
@@ -308,11 +309,11 @@ bucket_definitions:
       update: CHECKPOINT_INVALIDATE_ALL
     });
     line!.advance();
-    line!.updateBucketPosition({ bucket: '2#global[1]', nextAfter: 1n, hasMore: false });
-    line!.updateBucketPosition({ bucket: '2#global[2]', nextAfter: 1n, hasMore: false });
+    line!.updateBucketPosition({ bucket: 'global[1]', nextAfter: 1n, hasMore: false });
+    line!.updateBucketPosition({ bucket: 'global[2]', nextAfter: 1n, hasMore: false });
 
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 2, count: 2 });
-    storage.updateTestChecksum({ bucket: '2#global[2]', checksum: 2, count: 2 });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 2, count: 2 });
+    storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n),
@@ -322,7 +323,7 @@ bucket_definitions:
         // Invalidate the state for global[1] - will only re-check the single bucket.
         // This is essentially inconsistent state, but is the simplest way to test that
         // the filter is working.
-        updatedDataBuckets: new Set(['2#global[1]']),
+        updatedDataBuckets: new Set(['global[1]']),
         invalidateDataBuckets: false
       }
     }))!;
@@ -331,13 +332,13 @@ bucket_definitions:
         removed_buckets: [],
         updated_buckets: [
           // This does not include global[2], since it was not invalidated.
-          { bucket: '2#global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
+          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '2',
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([{ bucket: '2#global[1]', priority: 3 }]);
+    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([{ bucket: 'global[1]', priority: 3 }]);
   });
 
   test('invalidating all buckets', async () => {
@@ -356,8 +357,8 @@ bucket_definitions:
     // storage.filter = state.checkpointFilter;
 
     // Set initial state
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 1, count: 1 });
-    storage.updateTestChecksum({ bucket: '2#global[2]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'global[2]', checksum: 1, count: 1 });
 
     const line = await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n),
@@ -367,8 +368,8 @@ bucket_definitions:
 
     line!.advance();
 
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 2, count: 2 });
-    storage.updateTestChecksum({ bucket: '2#global[2]', checksum: 2, count: 2 });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 2, count: 2 });
+    storage.updateTestChecksum({ bucket: 'global[2]', checksum: 2, count: 2 });
 
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n),
@@ -380,24 +381,24 @@ bucket_definitions:
       checkpoint_diff: {
         removed_buckets: [],
         updated_buckets: [
-          { bucket: '2#global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] },
-          { bucket: '2#global[2]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
+          { bucket: 'global[1]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 2, count: 2, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '2',
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([
-      { bucket: '2#global[1]', priority: 3 },
-      { bucket: '2#global[2]', priority: 3 }
+    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+      { bucket: 'global[1]', priority: 3 },
+      { bucket: 'global[2]', priority: 3 }
     ]);
   });
 
   test('interrupt and resume static buckets checkpoint', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 3, count: 3 });
-    storage.updateTestChecksum({ bucket: '2#global[2]', checksum: 3, count: 3 });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 3, count: 3 });
+    storage.updateTestChecksum({ bucket: 'global[2]', checksum: 3, count: 3 });
 
     const state = new BucketChecksumState({
       syncContext,
@@ -416,39 +417,43 @@ bucket_definitions:
     expect(line.checkpointLine).toEqual({
       checkpoint: {
         buckets: [
-          { bucket: '2#global[1]', checksum: 3, count: 3, priority: 3, subscriptions: [{ default: 0 }] },
-          { bucket: '2#global[2]', checksum: 3, count: 3, priority: 3, subscriptions: [{ default: 0 }] }
+          { bucket: 'global[1]', checksum: 3, count: 3, priority: 3, subscriptions: [{ default: 0 }] },
+          { bucket: 'global[2]', checksum: 3, count: 3, priority: 3, subscriptions: [{ default: 0 }] }
         ],
         last_op_id: '3',
         write_checkpoint: undefined,
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
-        bucket: '2#global[1]',
+        bucket: 'global[1]',
         priority: 3
       },
       {
-        bucket: '2#global[2]',
+        bucket: 'global[2]',
         priority: 3
       }
     ]);
 
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions()).toEqual(
-      new Map([
-        ['2#global[1]', 0n],
-        ['2#global[2]', 0n]
-      ])
-    );
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([
+      {
+        bucket: 'global[1]',
+        start: 0n
+      },
+      {
+        bucket: 'global[2]',
+        start: 0n
+      }
+    ]);
 
     // No data changes here.
     // We simulate partial data sent, before a checkpoint is interrupted.
     line.advance();
-    line.updateBucketPosition({ bucket: '2#global[1]', nextAfter: 3n, hasMore: false });
-    line.updateBucketPosition({ bucket: '2#global[2]', nextAfter: 1n, hasMore: true });
-    storage.updateTestChecksum({ bucket: '2#global[1]', checksum: 4, count: 4 });
+    line.updateBucketPosition({ bucket: 'global[1]', nextAfter: 3n, hasMore: false });
+    line.updateBucketPosition({ bucket: 'global[2]', nextAfter: 1n, hasMore: true });
+    storage.updateTestChecksum({ bucket: 'global[1]', checksum: 4, count: 4 });
 
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(4n),
@@ -456,7 +461,7 @@ bucket_definitions:
       update: {
         ...CHECKPOINT_INVALIDATE_ALL,
         invalidateDataBuckets: false,
-        updatedDataBuckets: new Set(['2#global[1]'])
+        updatedDataBuckets: new Set(['global[1]'])
       }
     }))!;
     line2.advance();
@@ -465,7 +470,7 @@ bucket_definitions:
         removed_buckets: [],
         updated_buckets: [
           {
-            bucket: '2#global[1]',
+            bucket: 'global[1]',
             checksum: 4,
             count: 4,
             priority: 3,
@@ -477,31 +482,35 @@ bucket_definitions:
       }
     });
     // This should contain both buckets, even though only one changed.
-    expect(line2.bucketsToFetch).toEqual([
+    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
-        bucket: '2#global[1]',
+        bucket: 'global[1]',
         priority: 3
       },
       {
-        bucket: '2#global[2]',
+        bucket: 'global[2]',
         priority: 3
       }
     ]);
 
-    expect(line2.getFilteredBucketPositions()).toEqual(
-      new Map([
-        ['2#global[1]', 3n],
-        ['2#global[2]', 1n]
-      ])
-    );
+    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([
+      {
+        bucket: 'global[1]',
+        start: 3n
+      },
+      {
+        bucket: 'global[2]',
+        start: 1n
+      }
+    ]);
   });
 
   test('dynamic buckets with updates', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
-    storage.updateTestChecksum({ bucket: '3#by_project[1]', checksum: 1, count: 1 });
-    storage.updateTestChecksum({ bucket: '3#by_project[2]', checksum: 1, count: 1 });
-    storage.updateTestChecksum({ bucket: '3#by_project[3]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'by_project[1]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'by_project[2]', checksum: 1, count: 1 });
+    storage.updateTestChecksum({ bucket: 'by_project[3]', checksum: 1, count: 1 });
 
     const state = new BucketChecksumState({
       syncContext,
@@ -511,9 +520,14 @@ bucket_definitions:
       bucketStorage: storage
     });
 
+    const source = SYNC_RULES_DYNAMIC.getMatchingSources(new TablePattern('public', 'projects'))
+      .parameterIndexLookupCreators[0];
+
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
+        ]);
         return [{ id: 1 }, { id: 2 }];
       }),
       writeCheckpoint: null,
@@ -523,14 +537,14 @@ bucket_definitions:
       checkpoint: {
         buckets: [
           {
-            bucket: '3#by_project[1]',
+            bucket: 'by_project[1]',
             checksum: 1,
             count: 1,
             priority: 3,
             subscriptions: [{ default: 0 }]
           },
           {
-            bucket: '3#by_project[2]',
+            bucket: 'by_project[2]',
             checksum: 1,
             count: 1,
             priority: 3,
@@ -548,33 +562,39 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
       {
-        bucket: '3#by_project[1]',
+        bucket: 'by_project[1]',
         priority: 3
       },
       {
-        bucket: '3#by_project[2]',
+        bucket: 'by_project[2]',
         priority: 3
       }
     ]);
     line.advance();
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions()).toEqual(
-      new Map([
-        ['3#by_project[1]', 0n],
-        ['3#by_project[2]', 0n]
-      ])
-    );
+    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([
+      {
+        bucket: 'by_project[1]',
+        start: 0n
+      },
+      {
+        bucket: 'by_project[2]',
+        start: 0n
+      }
+    ]);
 
     line.advance();
-    line.updateBucketPosition({ bucket: '3#by_project[1]', nextAfter: 1n, hasMore: false });
-    line.updateBucketPosition({ bucket: '3#by_project[2]', nextAfter: 1n, hasMore: false });
+    line.updateBucketPosition({ bucket: 'by_project[1]', nextAfter: 1n, hasMore: false });
+    line.updateBucketPosition({ bucket: 'by_project[2]', nextAfter: 1n, hasMore: false });
 
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([
+          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
+        ]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
       writeCheckpoint: null,
@@ -591,7 +611,7 @@ bucket_definitions:
         removed_buckets: [],
         updated_buckets: [
           {
-            bucket: '3#by_project[3]',
+            bucket: 'by_project[3]',
             checksum: 1,
             count: 1,
             priority: 3,
@@ -602,7 +622,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.getFilteredBucketPositions()).toEqual(new Map([['3#by_project[3]', 0n]]));
+    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'by_project[3]', start: 0n }]);
   });
 
   describe('streams', () => {
@@ -844,14 +864,14 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     this.filter?.({ invalidate: true });
   }
 
-  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksums(checkpoint: InternalOpId, requests: BucketChecksumRequest[]): Promise<ChecksumMap> {
     return new Map<string, BucketChecksum>(
-      buckets.map((bucket) => {
-        const checksum = this.state.get(bucket);
+      requests.map((request) => {
+        const checksum = this.state.get(request.bucket);
         return [
-          bucket,
+          request.bucket,
           {
-            bucket: bucket,
+            bucket: request.bucket,
             checksum: checksum?.checksum ?? 0,
             count: checksum?.count ?? 0
           }

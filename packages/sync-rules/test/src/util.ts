@@ -5,13 +5,13 @@ import {
   BucketParameterQuerier,
   ColumnDefinition,
   CompatibilityContext,
-  CreateSourceParams,
   DEFAULT_TAG,
   GetQuerierOptions,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
   ScopedParameterLookup,
+  SOURCE,
   SourceSchema,
   SourceTableInterface,
   StaticSchema,
@@ -93,8 +93,8 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
   uniqueName: 'mybucket',
   bucketParameters: [],
   // These are not used in the tests.
-  getSourceTables: function (): Set<TablePattern> {
-    return new Set();
+  getSourceTables: function (): TablePattern[] {
+    return [];
   },
   evaluateRow(options) {
     throw new Error('Function not implemented.');
@@ -109,6 +109,26 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
     throw new Error('Function not implemented.');
   }
 };
+
+/**
+ * Removes the source property from an object.
+ *
+ * This is for tests where we don't care about this value, and it adds a lot of noise in the output.
+ */
+export function removeSource<T extends { source?: any }>(obj: T): Omit<T, 'source'> {
+  const { source, ...rest } = obj;
+  return rest;
+}
+
+/**
+ * Removes the [SOURCE] symbol property from an object.
+ *
+ * This is for tests where we don't care about this value, and it adds a lot of noise in the output.
+ */
+export function removeSourceSymbol<T extends { [SOURCE]: any }>(obj: T): Omit<T, typeof SOURCE> {
+  const { [SOURCE]: source, ...rest } = obj;
+  return rest;
+}
 
 export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {
   expect(querier.hasDynamicBuckets).toBe(true);

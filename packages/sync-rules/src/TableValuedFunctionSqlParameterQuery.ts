@@ -23,7 +23,7 @@ import {
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
-import { buildBucketName, isJsonValue, serializeBucketParameters } from './utils.js';
+import { buildBucketInfo, isJsonValue, serializeBucketParameters } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
@@ -224,7 +224,7 @@ export class TableValuedFunctionSqlParameterQuery {
   }
 
   getSourceTables() {
-    return new Set<TablePattern>();
+    return [];
   }
 
   tableSyncsParameters(_table: SourceTableInterface): boolean {
@@ -308,7 +308,7 @@ export class TableValuedFunctionSqlParameterQuery {
     const serializedBucketParameters = serializeBucketParameters(this.bucketParameters, result);
 
     return {
-      bucket: buildBucketName(bucketScope, serializedBucketParameters),
+      ...buildBucketInfo(bucketScope, serializedBucketParameters),
       priority: this.priority
     };
   }

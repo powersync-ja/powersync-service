@@ -5,9 +5,10 @@ import {
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
   HydrationState,
-  SqlSyncRules,
-  versionedHydrationState
+  SqlSyncRules
 } from '@powersync/service-sync-rules';
+
+import { versionedHydrationState } from '@powersync/service-sync-rules';
 import { models } from '../../types/types.js';
 
 export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncRulesContent {
@@ -71,10 +72,9 @@ export class PostgresPersistedSyncRulesContent implements storage.PersistedSyncR
       slot_name: this.slot_name,
       sync_rules: syncRules,
       hydratedSyncRules() {
-        return this.sync_rules.config.hydrate({
-          hydrationState
-        });
-      }
+        return this.sync_rules.config.hydrate({ hydrationState });
+      },
+      hydrationState
     };
   }
 

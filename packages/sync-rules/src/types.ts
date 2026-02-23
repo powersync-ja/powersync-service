@@ -7,6 +7,7 @@ import { RequestFunctionCall } from './request_functions.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
+import { BucketDataSource } from './BucketSource.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { jsonValueToSqlite, toSyncRulesParameters } from './utils.js';
 
@@ -58,6 +59,11 @@ export interface EvaluatedRow {
 
   /** Must be JSON-serializable. */
   data: SqliteJsonRow;
+
+  /**
+   * Source for the evaluated row.
+   */
+  source: BucketDataSource;
 }
 
 /**

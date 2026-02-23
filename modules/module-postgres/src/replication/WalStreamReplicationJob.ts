@@ -21,6 +21,10 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
     this.connectionFactory = options.connectionFactory;
   }
 
+  public get storage() {
+    return this.options.storage;
+  }
+
   /**
    * Postgres on RDS writes performs a WAL checkpoint every 5 minutes by default, which creates a new 64MB file.
    *

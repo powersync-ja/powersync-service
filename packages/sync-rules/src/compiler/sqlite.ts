@@ -8,17 +8,17 @@ import {
   PGNode,
   SelectFromStatement
 } from 'pgsql-ast-parser';
-import { CAST_TYPES } from '../sql_functions.js';
-import { ColumnInRow, ConnectionParameter, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
+import { CAST_TYPES } from '../cast.js';
 import {
   BetweenExpression,
   LiteralExpression,
   SqlExpression,
-  supportedFunctions,
-  BinaryOperator as SupportedBinaryOperator
+  BinaryOperator as SupportedBinaryOperator,
+  supportedFunctions
 } from '../sync_plan/expression.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
+import { ColumnInRow, ConnectionParameter, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
 import { BaseSourceResultSet, PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
 import { SqlScope } from './scope.js';
 import { SourceSchema } from '../types.js';
