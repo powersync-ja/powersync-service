@@ -6,6 +6,18 @@ import * as urijs from 'uri-js';
 
 export const MYSQL_CONNECTION_TYPE = 'mysql' as const;
 
+/**
+ * Connection parameters that can be parsed from the MySQL URI query string.
+ *
+ * All values are in milliseconds (for timeouts) or counts (for limits).
+ * MySQL uses camelCase naming convention.
+ */
+export interface MySQLConnectionParams {
+  connectTimeout?: number;
+  connectionLimit?: number;
+  queueLimit?: number;
+}
+
 export interface NormalizedMySQLConnectionConfig {
   id: string;
   tag: string;
@@ -25,6 +37,8 @@ export interface NormalizedMySQLConnectionConfig {
   lookup?: LookupFunction;
 
   binlog_queue_memory_limit: number;
+
+  connectionParams: MySQLConnectionParams;
 }
 
 export const MySQLConnectionConfig = service_types.configFile.DataSourceConfig.and(
@@ -105,6 +119,10 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
 
   const lookup = makeHostnameLookupFunction(hostname, { reject_ip_ranges: options.reject_ip_ranges ?? [] });
 
+  // Parse connection parameters from URL query string
+  const uriQuery = uri.query ? new URLSearchParams(uri.query) : undefined;
+  const connectionParams = parseMySQLConnectionParams(uriQuery);
+
   return {
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
@@ -121,6 +139,55 @@ export function normalizeConnectionConfig(options: MySQLConnectionConfig): Norma
     // Binlog processing queue memory limit before throttling is applied.
     binlog_queue_memory_limit: options.binlog_queue_memory_limit ?? 50,
 
-    lookup
+    lookup,
+
+    connectionParams
   };
+}
+
+/**
+ * Parse a single numeric connection parameter from a URI query string value.
+ *
+ * Returns undefined if the value is missing, not a valid number, NaN, negative, zero, or Infinity.
+ */
+export function parseMySQLConnectionParam(value: string | null | undefined): number | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return undefined;
+}
+
+/**
+ * Parse connection parameters from a MySQL URI's query string.
+ *
+ * MySQL uses camelCase naming convention.
+ * Invalid values (NaN, negative, non-numeric) are silently ignored.
+ */
+export function parseMySQLConnectionParams(searchParams: URLSearchParams | undefined): MySQLConnectionParams {
+  const params: MySQLConnectionParams = {};
+
+  if (searchParams == null) {
+    return params;
+  }
+
+  const connectTimeout = parseMySQLConnectionParam(searchParams.get('connectTimeout'));
+  if (connectTimeout != null) {
+    params.connectTimeout = connectTimeout;
+  }
+
+  const connectionLimit = parseMySQLConnectionParam(searchParams.get('connectionLimit'));
+  if (connectionLimit != null) {
+    params.connectionLimit = connectionLimit;
+  }
+
+  const queueLimit = parseMySQLConnectionParam(searchParams.get('queueLimit'));
+  if (queueLimit != null) {
+    params.queueLimit = queueLimit;
+  }
+
+  return params;
 }
