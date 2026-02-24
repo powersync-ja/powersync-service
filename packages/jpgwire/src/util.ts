@@ -36,6 +36,13 @@ export interface NormalizedConnectionConfig {
 
   client_certificate: string | undefined;
   client_private_key: string | undefined;
+
+  /**
+   * Connection timeout in milliseconds.
+   *
+   * If set, overrides the default connect timeout for the TCP socket.
+   */
+  connect_timeout_ms: number | undefined;
 }
 
 type Mutable<T> = {
@@ -141,6 +148,7 @@ function patchConnection(connection: pgwire.PgConnection, config: PgWireConnecti
   const connectOptions = (connection as any)._socketOptions as ConnectOptions;
   connectOptions.tlsOptions = makeTlsOptions(config);
   connectOptions.lookup = config.lookup;
+  connectOptions.connect_timeout_ms = config.connect_timeout_ms;
 
   // Hack for safety: We always want to be responsible for decoding values ourselves, and NEVER
   // use the PgType.decode implementation from pgwire. We can use our own implementation by using

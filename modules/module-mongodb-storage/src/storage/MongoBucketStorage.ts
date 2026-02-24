@@ -1,8 +1,6 @@
-import { SqlSyncRules } from '@powersync/service-sync-rules';
-
 import { GetIntanceOptions, storage } from '@powersync/service-core';
 
-import { BaseObserver, ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
@@ -11,7 +9,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { PowerSyncMongo } from './implementation/db.js';
 import { SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './implementation/MongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 
@@ -19,10 +17,7 @@ export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
 }
 
-export class MongoBucketStorage
-  extends BaseObserver<storage.BucketStorageFactoryListener>
-  implements storage.BucketStorageFactory
-{
+export class MongoBucketStorage extends storage.BucketStorageFactory {
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
   // TODO: This is still Postgres specific and needs to be reworked
@@ -91,33 +86,13 @@ export class MongoBucketStorage
     };
   }
 
-  async configureSyncRules(options: storage.UpdateSyncRulesOptions) {
-    const next = await this.getNextSyncRulesContent();
-    const active = await this.getActiveSyncRulesContent();
-
-    if (next?.sync_rules_content == options.content) {
-      logger.info('Sync rules from configuration unchanged');
-      return { updated: false };
-    } else if (next == null && active?.sync_rules_content == options.content) {
-      logger.info('Sync rules from configuration unchanged');
-      return { updated: false };
-    } else {
-      logger.info('Sync rules updated from configuration');
-      const persisted_sync_rules = await this.updateSyncRules(options);
-      return { updated: true, persisted_sync_rules, lock: persisted_sync_rules.current_lock ?? undefined };
-    }
-  }
-
   async restartReplication(sync_rules_group_id: number) {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
     if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" sync rules
-      await this.updateSyncRules({
-        content: next.sync_rules_content,
-        validate: false
-      });
+      await this.updateSyncRules(next.asUpdateOptions());
       // Pro-actively stop replicating
       await this.db.sync_rules.updateOne(
         {
@@ -133,10 +108,7 @@ export class MongoBucketStorage
       await this.db.notifyCheckpoint();
     } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
-      await this.updateSyncRules({
-        content: active.sync_rules_content,
-        validate: false
-      });
+      await this.updateSyncRules(active.asUpdateOptions());
 
       // In this case we keep the old one as active for clients, so that that existing clients
       // can still get the latest data while we replicate the new ones.
@@ -173,19 +145,6 @@ export class MongoBucketStorage
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
-    if (options.validate) {
-      // Parse and validate before applying any changes
-      SqlSyncRules.fromYaml(options.content, {
-        // No schema-based validation at this point
-        schema: undefined,
-        defaultSchema: 'not_applicable', // Not needed for validation
-        throwOnError: true
-      });
-    } else {
-      // We do not validate sync rules at this point.
-      // That is done when using the sync rules, so that the diagnostics API can report the errors.
-    }
-
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 
     await this.session.withTransaction(async () => {
@@ -219,7 +178,7 @@ export class MongoBucketStorage
       const doc: SyncRuleDocument = {
         _id: id,
         storage_version: storageVersion,
-        content: options.content,
+        content: options.config.yaml,
         last_checkpoint: null,
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,
@@ -258,11 +217,6 @@ export class MongoBucketStorage
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getActiveSyncRules(options: storage.ParseSyncRulesOptions): Promise<storage.PersistedSyncRules | null> {
-    const content = await this.getActiveSyncRulesContent();
-    return content?.parsed(options) ?? null;
-  }
-
   async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
     const doc = await this.db.sync_rules.findOne(
       {
@@ -275,11 +229,6 @@ export class MongoBucketStorage
     }
 
     return new MongoPersistedSyncRulesContent(this.db, doc);
-  }
-
-  async getNextSyncRules(options: storage.ParseSyncRulesOptions): Promise<storage.PersistedSyncRules | null> {
-    const content = await this.getNextSyncRulesContent();
-    return content?.parsed(options) ?? null;
   }
 
   async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {

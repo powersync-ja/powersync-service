@@ -1,15 +1,14 @@
 import {
   createCoreAPIMetrics,
   JwtPayload,
-  LEGACY_STORAGE_VERSION,
   storage,
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
   sync,
+  updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketSourceType, RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
@@ -49,14 +48,13 @@ export function registerSyncTests(factory: storage.TestStorageFactory, options: 
     maxDataFetchConcurrency: 2
   });
 
-  const updateSyncRules = (
-    bucketStorageFactory: storage.BucketStorageFactory,
-    updateOptions: storage.UpdateSyncRulesOptions
-  ) => {
-    return bucketStorageFactory.updateSyncRules({
-      ...updateOptions,
-      storageVersion: updateOptions.storageVersion ?? options.storageVersion
-    });
+  const updateSyncRules = (bucketStorageFactory: storage.BucketStorageFactory, updateOptions: { content: string }) => {
+    return bucketStorageFactory.updateSyncRules(
+      updateSyncRulesFromYaml(updateOptions.content, {
+        validate: true,
+        storageVersion: options.storageVersion
+      })
+    );
   };
 
   test('sync global data', async () => {

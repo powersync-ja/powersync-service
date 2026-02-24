@@ -14,14 +14,6 @@ export interface SyncRulesOptions {
   defaultSchema: string;
 
   throwOnError?: boolean;
-
-  /**
-   * Whether to allow the option of using the new sync compiler.
-   *
-   * This is currently disabled outside of tests because the format of sync plans is still unstable and we can't support
-   * deployments based on it yet. Once we have a stable sync plan, this option can be removed.
-   */
-  allowNewSyncCompiler?: boolean;
 }
 
 export interface RequestedStream {
@@ -83,7 +75,6 @@ export class SqlSyncRules extends SyncConfig {
     const parser = new SyncConfigFromYaml(
       {
         throwOnError: options.throwOnError ?? true,
-        allowNewSyncCompiler: options.allowNewSyncCompiler ?? false,
         schema: options.schema,
         defaultSchema: options.defaultSchema
       },
