@@ -8,6 +8,7 @@
 '@powersync/service-module-mssql': minor
 '@powersync/service-module-mysql': minor
 '@powersync/service-sync-rules': minor
+'@powersync/service-errors': patch
 ---
 
-[Internal] Refactor sync rule representation to split out the parsed definitions from the hydrated state.
+Introduce storage versions.

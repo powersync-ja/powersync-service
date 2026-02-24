@@ -1,26 +1,30 @@
-import { storage } from '@powersync/service-core';
-import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { bucketRequest, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
-describe('sync - mongodb', () => {
-  register.registerSyncTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+function registerSyncStorageTests(storageFactory: storage.TestStorageFactory, storageVersion: number) {
+  register.registerSyncTests(storageFactory, { storageVersion });
 
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await storageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
     bucket_definitions:
       global:
         data:
           - SELECT id, description FROM "%"
-    `
+    `,
+        { storageVersion }
+      )
     );
-    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY();
-    const bucketStorage = factory.getInstance(sync_rules);
+    const bucketStorage = factory.getInstance(syncRules);
+    const globalBucket = bucketRequest(syncRules, 'global[]');
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       const sourceTable = TEST_TABLE;
@@ -74,7 +78,7 @@ describe('sync - mongodb', () => {
     const options: storage.BucketDataBatchOptions = {};
 
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, new Map([[globalBucket, 0n]]), options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -89,7 +93,7 @@ describe('sync - mongodb', () => {
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([['global[]', BigInt(batch1[0].chunkData.next_after)]]),
+        new Map([[globalBucket, BigInt(batch1[0].chunkData.next_after)]]),
         options
       )
     );
@@ -105,7 +109,7 @@ describe('sync - mongodb', () => {
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([['global[]', BigInt(batch2[0].chunkData.next_after)]]),
+        new Map([[globalBucket, BigInt(batch2[0].chunkData.next_after)]]),
         options
       )
     );
@@ -120,9 +124,18 @@ describe('sync - mongodb', () => {
 
     // Test that the checksum type is correct.
     // Specifically, test that it never persisted as double.
-    const checksumTypes = await factory.db.bucket_data
+    const mongoFactory = factory as any;
+    const checksumTypes = await mongoFactory.db.bucket_data
       .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
       .toArray();
     expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
   });
+}
+
+describe('sync - mongodb', () => {
+  for (const storageVersion of TEST_STORAGE_VERSIONS) {
+    describe(`storage v${storageVersion}`, () => {
+      registerSyncStorageTests(INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion);
+    });
+  }
 });

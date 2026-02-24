@@ -51,13 +51,14 @@ export class LSN {
    *  @param stringLSN
    */
   static fromString(stringLSN: string): LSN {
-    if (!/^[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{4}$/.test(stringLSN)) {
+    if (!/^[0-9a-fA-F]{8}:[0-9a-fA-F]{8}:[0-9a-fA-F]{4}$/.test(stringLSN)) {
       throw new ReplicationAssertionError(
-        `Invalid LSN string. Expected format is uppercase hexadecimal:[00000000:00000000:0000]. Got: ${stringLSN}`
+        `Invalid LSN string. Expected format is hexadecimal:[00000000:00000000:0000]. Got: ${stringLSN}`
       );
     }
 
-    return new LSN(stringLSN);
+    // SQL Server can return lowercase hex digits for LSN strings on some versions.
+    return new LSN(stringLSN.toUpperCase());
   }
 
   compare(other: LSN): -1 | 0 | 1 {

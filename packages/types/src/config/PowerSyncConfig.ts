@@ -220,6 +220,34 @@ export const strictJwks = t
 
 export type StrictJwk = t.Decoded<typeof jwk>;
 
+export const LoggingConfig = t
+  .object({
+    level: t
+      .literal('silly')
+      .or(t.literal('debug'))
+      .or(t.literal('verbose'))
+      .or(t.literal('http'))
+      .or(t.literal('info'))
+      .or(t.literal('warn'))
+      .or(t.literal('error'))
+      .meta({
+        description: 'Log level for the service logs.'
+      })
+      .optional(),
+    format: t
+      .literal('json')
+      .or(t.literal('text'))
+      .meta({
+        description: 'Log output format.'
+      })
+      .optional()
+  })
+  .meta({
+    description: 'Service logging configuration.'
+  });
+
+export type LoggingConfig = t.Decoded<typeof LoggingConfig>;
+
 export const BaseStorageConfig = t
   .object({
     type: t.string.meta({
@@ -471,6 +499,15 @@ export const powerSyncConfig = t
           })
           .meta({ description: 'Mechanisms for exposing health check data.' })
           .optional()
+      })
+      .optional(),
+
+    system: t
+      .object({
+        logging: LoggingConfig.optional()
+      })
+      .meta({
+        description: 'System-level configuration options.'
       })
       .optional(),
 

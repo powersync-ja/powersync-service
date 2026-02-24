@@ -61,7 +61,6 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
 
   const generateContext: ContextProvider = async (request, options) => {
     return {
-      user_id: undefined,
       service_context: service_context,
       logger: options.logger
     };

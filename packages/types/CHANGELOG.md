@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.14.0
+
+### Minor Changes
+
+- a02cc58: Add config options to set logging level and log entry format
+
 ## 0.13.3
 
 ### Patch Changes

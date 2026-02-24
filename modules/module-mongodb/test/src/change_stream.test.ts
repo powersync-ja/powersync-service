@@ -3,12 +3,11 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
-import { describeWithStorage } from './util.js';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -21,9 +20,12 @@ describe('change stream', () => {
   describeWithStorage({ timeout: 20_000 }, defineChangeStreamTests);
 });
 
-function defineChangeStreamTests(factory: storage.TestStorageFactory) {
+function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
+    return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
+  };
   test('replicating basic values', async () => {
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.READ_ONLY }
     });
     const { db } = context;
@@ -59,7 +61,7 @@ bucket_definitions:
   });
 
   test('replicating wildcard', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -91,7 +93,7 @@ bucket_definitions:
   });
 
   test('updateLookup - no fullDocument available', async () => {
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.OFF }
     });
     const { db, client } = context;
@@ -137,7 +139,7 @@ bucket_definitions:
   test('postImages - autoConfigure', async () => {
     // Similar to the above test, but with postImages enabled.
     // This resolves the consistency issue.
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
     });
     const { db, client } = context;
@@ -185,7 +187,7 @@ bucket_definitions:
   test('postImages - on', async () => {
     // Similar to postImages - autoConfigure, but does not auto-configure.
     // changeStreamPreAndPostImages must be manually configured.
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.READ_ONLY }
     });
     const { db, client } = context;
@@ -230,7 +232,7 @@ bucket_definitions:
   });
 
   test('replicating case sensitive table', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
       bucket_definitions:
@@ -254,7 +256,7 @@ bucket_definitions:
   });
 
   test('replicating large values', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
       bucket_definitions:
@@ -285,7 +287,7 @@ bucket_definitions:
   });
 
   test('replicating dropCollection', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     const syncRuleContent = `
 bucket_definitions:
@@ -307,6 +309,8 @@ bucket_definitions:
     await collection.drop();
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced).toEqual([]);
 
     expect(data).toMatchObject([
       test_utils.putOp('test_data', { id: test_id, description: 'test1' }),
@@ -315,7 +319,7 @@ bucket_definitions:
   });
 
   test('replicating renameCollection', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     const syncRuleContent = `
 bucket_definitions:
@@ -335,6 +339,8 @@ bucket_definitions:
     await collection.rename('test_data2');
 
     const data = await context.getBucketData('global[]');
+    const reduced = test_utils.reduceBucket(data).slice(1);
+    expect(reduced).toMatchObject([test_utils.putOp('test_data2', { id: test_id, description: 'test1' })]);
 
     expect(data).toMatchObject([
       test_utils.putOp('test_data1', { id: test_id, description: 'test1' }),
@@ -344,7 +350,7 @@ bucket_definitions:
   });
 
   test('initial sync', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -369,7 +375,7 @@ bucket_definitions:
     // MongoServerError: PlanExecutor error during aggregation :: caused by :: BSONObj size: 33554925 (0x20001ED) is invalid.
     // Size must be between 0 and 16793600(16MB)
 
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     await context.updateSyncRules(`bucket_definitions:
       global:
         data:
@@ -418,7 +424,7 @@ bucket_definitions:
   });
 
   test('collection not in sync rules', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -435,7 +441,7 @@ bucket_definitions:
   });
 
   test('postImages - new collection with postImages enabled', async () => {
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
     });
     const { db } = context;
@@ -468,7 +474,7 @@ bucket_definitions:
   });
 
   test('postImages - new collection with postImages disabled', async () => {
-    await using context = await ChangeStreamTestContext.open(factory, {
+    await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
     });
     const { db } = context;
@@ -498,7 +504,7 @@ bucket_definitions:
   });
 
   test('recover from error', async () => {
-    await using context = await ChangeStreamTestContext.open(factory);
+    await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
 bucket_definitions:

@@ -15,6 +15,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  mergeAsyncIterables,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ProtocolOpId,
@@ -31,7 +32,14 @@ import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
+import {
+  BucketDataDocument,
+  BucketDataKey,
+  BucketStateDocument,
+  SourceKey,
+  SourceTableDocument,
+  StorageConfig
+} from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
@@ -39,7 +47,8 @@ import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
-  checksumOptions?: MongoChecksumOptions;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  storageConfig: StorageConfig;
 }
 
 /**
@@ -68,12 +77,15 @@ export class MongoSyncBucketStorage
     public readonly group_id: number,
     private readonly sync_rules: storage.PersistedSyncRulesContent,
     public readonly slot_name: string,
-    writeCheckpointMode?: storage.WriteCheckpointMode,
-    options?: MongoSyncBucketStorageOptions
+    writeCheckpointMode: storage.WriteCheckpointMode | undefined,
+    options: MongoSyncBucketStorageOptions
   ) {
     super();
     this.db = factory.db;
-    this.checksums = new MongoChecksums(this.db, this.group_id, options?.checksumOptions);
+    this.checksums = new MongoChecksums(this.db, this.group_id, {
+      ...options.checksumOptions,
+      storageConfig: options?.storageConfig
+    });
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
@@ -694,53 +706,39 @@ export class MongoSyncBucketStorage
    * Instance-wide watch on the latest available checkpoint (op_id + lsn).
    */
   private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ReplicationCheckpoint> {
-    const stream = this.checkpointChangesStream(signal);
-
     if (signal.aborted) {
       return;
     }
 
+    // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS) before we get another checkpoint,
+    // to avoid stale checkpoint snapshots. This is what checkpointTimeoutStream() is for.
+    // Essentially, even if there are no actual checkpoint changes, we want a new snapshotTime every minute or so,
+    // to ensure that any new clients connecting will get a valid snapshotTime.
+    const stream = mergeAsyncIterables(
+      [this.checkpointChangesStream(signal), this.checkpointTimeoutStream(signal)],
+      signal
+    );
+
     // We only watch changes to the active sync rules.
     // If it changes to inactive, we abort and restart with the new sync rules.
-    try {
-      while (true) {
-        // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS)
-        // before we get another checkpoint, to avoid stale checkpoint snapshots.
-        const timeout = timers
-          .setTimeout(CHECKPOINT_TIMEOUT_MS, { done: false }, { signal })
-          .catch(() => ({ done: true }));
-        try {
-          const result = await Promise.race([stream.next(), timeout]);
-          if (result.done) {
-            break;
-          }
-        } catch (e) {
-          if (e.name == 'AbortError') {
-            break;
-          }
-          throw e;
-        }
-
-        if (signal.aborted) {
-          // Would likely have been caught by the signal on the timeout or the upstream stream, but we check here anyway
-          break;
-        }
-
-        const op = await this.getCheckpointInternal();
-        if (op == null) {
-          // Sync rules have changed - abort and restart.
-          // We do a soft close of the stream here - no error
-          break;
-        }
-
-        // Previously, we only yielded when the checkpoint or lsn changed.
-        // However, we always want to use the latest snapshotTime, so we skip that filtering here.
-        // That filtering could be added in the per-user streams if needed, but in general the capped collection
-        // should already only contain useful changes in most cases.
-        yield op;
+    for await (const _ of stream) {
+      if (signal.aborted) {
+        // Would likely have been caught by the signal on the timeout or the upstream stream, but we check here anyway
+        break;
       }
-    } finally {
-      await stream.return(null);
+
+      const op = await this.getCheckpointInternal();
+      if (op == null) {
+        // Sync rules have changed - abort and restart.
+        // We do a soft close of the stream here - no error
+        break;
+      }
+
+      // Previously, we only yielded when the checkpoint or lsn changed.
+      // However, we always want to use the latest snapshotTime, so we skip that filtering here.
+      // That filtering could be added in the per-user streams if needed, but in general the capped collection
+      // should already only contain useful changes in most cases.
+      yield op;
     }
   }
 
@@ -897,6 +895,24 @@ export class MongoSyncBucketStorage
       throw e;
     } finally {
       await cursor.close();
+    }
+  }
+
+  private async *checkpointTimeoutStream(signal: AbortSignal): AsyncGenerator<void> {
+    while (!signal.aborted) {
+      try {
+        await timers.setTimeout(CHECKPOINT_TIMEOUT_MS, undefined, { signal });
+      } catch (e) {
+        if (e.name == 'AbortError') {
+          // This is how we typically abort this stream, when all listeners are done
+          return;
+        }
+        throw e;
+      }
+
+      if (!signal.aborted) {
+        yield;
+      }
     }
   }
 

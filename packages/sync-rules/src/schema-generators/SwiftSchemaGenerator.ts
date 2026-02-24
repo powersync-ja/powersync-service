@@ -1,5 +1,5 @@
 import { ColumnDefinition } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
+import { SyncConfig } from '../SyncConfig.js';
 import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
@@ -9,7 +9,7 @@ export class SwiftSchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'text/x-swift';
   readonly fileName = 'schema.swift';
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: SyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
     return `import PowerSync

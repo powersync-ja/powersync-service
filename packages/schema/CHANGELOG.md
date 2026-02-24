@@ -1,5 +1,16 @@
 # @powersync/service-schema
 
+## 1.19.2
+
+### Patch Changes
+
+- e1b4afe: - Export JSON schema as a package export.
+  - Add MSSQL connection types to schema.
+
+## 1.19.1
+
+## 1.19.0
+
 ## 1.18.2
 
 ## 1.18.1

@@ -1,7 +1,7 @@
-import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, bucketRequests, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
-import { storage, SyncRulesBucketStorage } from '@powersync/service-core';
+import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
   register.registerCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -38,22 +38,22 @@ describe('Mongo Sync Bucket Storage Compact', () => {
 
     const setup = async () => {
       await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY();
-      const syncRules = await factory.updateSyncRules({
-        content: `
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(`
 bucket_definitions:
   by_user:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `
-      });
+    `)
+      );
       const bucketStorage = factory.getInstance(syncRules);
       const { checkpoint } = await populate(bucketStorage);
 
-      return { bucketStorage, checkpoint, factory };
+      return { bucketStorage, checkpoint, factory, syncRules };
     };
 
     test('full compact', async () => {
-      const { bucketStorage, checkpoint, factory } = await setup();
+      const { bucketStorage, checkpoint, factory, syncRules } = await setup();
 
       // Simulate bucket_state from old version not being available
       await factory.db.bucket_state.deleteMany({});
@@ -63,18 +63,22 @@ bucket_definitions:
         moveBatchLimit: 10,
         moveBatchQueryLimit: 10,
         minBucketChanges: 1,
+        minChangeRatio: 0,
         maxOpId: checkpoint,
         signal: null as any
       });
 
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['by_user["u1"]', 'by_user["u2"]']);
-      expect(checksumAfter.get('by_user["u1"]')).toEqual({
-        bucket: 'by_user["u1"]',
+      const checksumAfter = await bucketStorage.getChecksums(
+        checkpoint,
+        bucketRequests(syncRules, ['by_user["u1"]', 'by_user["u2"]'])
+      );
+      expect(checksumAfter.get(bucketRequest(syncRules, 'by_user["u1"]'))).toEqual({
+        bucket: bucketRequest(syncRules, 'by_user["u1"]'),
         checksum: -659469718,
         count: 1
       });
-      expect(checksumAfter.get('by_user["u2"]')).toEqual({
-        bucket: 'by_user["u2"]',
+      expect(checksumAfter.get(bucketRequest(syncRules, 'by_user["u2"]'))).toEqual({
+        bucket: bucketRequest(syncRules, 'by_user["u2"]'),
         checksum: 430217650,
         count: 1
       });
@@ -85,14 +89,14 @@ bucket_definitions:
       const { factory } = await setup();
 
       // Not populate another version (bucket definition name changed)
-      const syncRules = await factory.updateSyncRules({
-        content: `
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(`
 bucket_definitions:
   by_user2:
     parameters: select request.user_id() as user_id
     data: [select * from test where owner_id = bucket.user_id]
-    `
-      });
+    `)
+      );
       const bucketStorage = factory.getInstance(syncRules);
 
       await populate(bucketStorage);
@@ -118,14 +122,17 @@ bucket_definitions:
       });
       expect(result2.buckets).toEqual(0);
 
-      const checksumAfter = await bucketStorage.getChecksums(checkpoint, ['by_user2["u1"]', 'by_user2["u2"]']);
-      expect(checksumAfter.get('by_user2["u1"]')).toEqual({
-        bucket: 'by_user2["u1"]',
+      const checksumAfter = await bucketStorage.getChecksums(
+        checkpoint,
+        bucketRequests(syncRules, ['by_user2["u1"]', 'by_user2["u2"]'])
+      );
+      expect(checksumAfter.get(bucketRequest(syncRules, 'by_user2["u1"]'))).toEqual({
+        bucket: bucketRequest(syncRules, 'by_user2["u1"]'),
         checksum: -659469718,
         count: 1
       });
-      expect(checksumAfter.get('by_user2["u2"]')).toEqual({
-        bucket: 'by_user2["u2"]',
+      expect(checksumAfter.get(bucketRequest(syncRules, 'by_user2["u2"]'))).toEqual({
+        bucket: bucketRequest(syncRules, 'by_user2["u2"]'),
         checksum: 430217650,
         count: 1
       });

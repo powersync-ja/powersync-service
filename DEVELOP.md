@@ -83,6 +83,14 @@ The default `PG_TEST_URL` points to a `powersync_test` database. Ensure this is 
 CREATE DATABASE powersync_test;
 ```
 
+# Formatting
+
+[prettier](https://prettier.io/) is used to automatically format most source files. To ensure all contributions have consistent formatting, use one or more of these options:
+
+1. Configure your editor to use prettier on save.
+2. Use `pnpm format:dirty` to format changes before committing.
+3. Use `pnpm configure-hooks` to install pre-commit hooks, that validate the formatting when committing.
+
 # Releases
 
 This repository uses Changesets. Add changesets to changed packages before merging PRs.

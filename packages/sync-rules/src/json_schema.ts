@@ -57,7 +57,6 @@ export const syncRulesSchema: ajvModule.Schema = {
       patternProperties: {
         '.*': {
           type: 'object',
-          required: ['query'],
           examples: [{ query: ['select * from mytable'] }],
           properties: {
             accept_potentially_dangerous_queries: {
@@ -75,6 +74,20 @@ export const syncRulesSchema: ajvModule.Schema = {
             query: {
               description: 'The SQL query defining content to sync in this stream.',
               type: 'string'
+            },
+            queries: {
+              description: 'SQL queries defining content to sync in this stream.',
+              type: 'array',
+              items: { type: 'string' }
+            },
+            with: {
+              type: 'object',
+              description: 'Common table expressions defining subqueries available in queries.',
+              patternProperties: {
+                '.*': {
+                  type: 'string'
+                }
+              }
             }
           }
         }
@@ -122,6 +135,9 @@ export const syncRulesSchema: ajvModule.Schema = {
         timestamp_max_precision: {
           type: 'string',
           enum: Object.values(TimeValuePrecision.byName).map((e) => e.name)
+        },
+        sync_config_compiler: {
+          type: 'boolean'
         },
         ...Object.fromEntries(
           Object.entries(CompatibilityOption.byName).map((e) => {

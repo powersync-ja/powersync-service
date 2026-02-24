@@ -1,5 +1,5 @@
+import { SyncConfig } from '../SyncConfig.js';
 import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
 import { SourceSchema } from '../types.js';
 import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
 
@@ -9,7 +9,7 @@ export class DartSchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'text/x-dart';
   readonly fileName = 'schema.dart';
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: SyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
     return `Schema([

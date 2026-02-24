@@ -1,19 +1,21 @@
 import {
   createCoreAPIMetrics,
+  JwtPayload,
   storage,
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
   sync,
+  updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketSourceType, RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
+import { bucketRequest } from './util.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -37,7 +39,7 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  * });
  * ```
  */
-export function registerSyncTests(factory: storage.TestStorageFactory) {
+export function registerSyncTests(factory: storage.TestStorageFactory, options: { storageVersion?: number } = {}) {
   createCoreAPIMetrics(METRICS_HELPER.metricsEngine);
   const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
   const syncContext = new sync.SyncContext({
@@ -46,10 +48,19 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     maxDataFetchConcurrency: 2
   });
 
+  const updateSyncRules = (bucketStorageFactory: storage.BucketStorageFactory, updateOptions: { content: string }) => {
+    return bucketStorageFactory.updateSyncRules(
+      updateSyncRulesFromYaml(updateOptions.content, {
+        validate: true,
+        storageVersion: options.storageVersion
+      })
+    );
+  };
+
   test('sync global data', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -89,7 +100,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -100,7 +111,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   test('sync buckets in order', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0:
@@ -150,7 +161,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -161,7 +172,7 @@ bucket_definitions:
   test('sync interrupts low-priority buckets on new checkpoints', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0:
@@ -213,7 +224,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -270,7 +281,7 @@ bucket_definitions:
   test('sync interruptions with unrelated data', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0:
@@ -323,7 +334,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any,
+      token: new JwtPayload({ sub: 'user_one', exp: Date.now() / 1000 + 100000 }),
       isEncodingAsBson: false
     });
 
@@ -408,7 +419,7 @@ bucket_definitions:
     // then interrupt checkpoint with new data for all buckets
     // -> data for all buckets should be sent in the new checkpoint
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0a:
@@ -464,7 +475,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -552,7 +563,7 @@ bucket_definitions:
   test('sends checkpoint complete line for empty checkpoint', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
     const bucketStorage = f.getInstance(syncRules);
@@ -580,7 +591,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 100000 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 100000 }),
       isEncodingAsBson: false
     });
 
@@ -615,7 +626,7 @@ bucket_definitions:
   test('sync legacy non-raw data', async () => {
     const f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -646,7 +657,7 @@ bucket_definitions:
         raw_data: false
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -659,7 +670,7 @@ bucket_definitions:
   test('expired token', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -675,7 +686,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: 0 } as any,
+      token: new JwtPayload({ sub: '', exp: 0 }),
       isEncodingAsBson: false
     });
 
@@ -686,7 +697,7 @@ bucket_definitions:
   test('sync updates to global data', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -706,7 +717,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -752,7 +763,7 @@ bucket_definitions:
   test('sync updates to parameter query only', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
@@ -780,7 +791,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -811,14 +822,14 @@ bucket_definitions:
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['by_user["user1"]']);
+    ).toEqual([bucketRequest(syncRules, 'by_user["user1"]')]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
   test('sync updates to data query only', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
@@ -856,7 +867,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -866,7 +877,7 @@ bucket_definitions:
 
     const checkpoint1 = await getCheckpointLines(iter);
     expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([
-      'by_user["user1"]'
+      bucketRequest(syncRules, 'by_user["user1"]')
     ]);
     expect(checkpoint1).toMatchSnapshot();
 
@@ -888,14 +899,14 @@ bucket_definitions:
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['by_user["user1"]']);
+    ).toEqual([bucketRequest(syncRules, 'by_user["user1"]')]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
   test('sync updates to parameter query + data', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
@@ -923,7 +934,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -962,14 +973,14 @@ bucket_definitions:
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['by_user["user1"]']);
+    ).toEqual([bucketRequest(syncRules, 'by_user["user1"]')]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
   test('expiring token', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -991,7 +1002,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: exp } as any,
+      token: new JwtPayload({ sub: '', exp: exp }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -1014,7 +1025,7 @@ bucket_definitions:
 
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -1054,7 +1065,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -1100,7 +1111,8 @@ bucket_definitions:
     });
 
     await bucketStorage.compact({
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
@@ -1156,7 +1168,7 @@ bucket_definitions:
   test('write checkpoint', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -1182,7 +1194,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: 'test', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     };
     const stream1 = sync.streamResponse(params);
@@ -1227,7 +1239,7 @@ config:
 `;
 
     for (let i = 0; i < 2; i++) {
-      const syncRules = await f.updateSyncRules({
+      const syncRules = await updateSyncRules(f, {
         content: rules
       });
       const bucketStorage = f.getInstance(syncRules);
@@ -1255,7 +1267,7 @@ config:
           raw_data: true
         },
         tracker,
-        token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+        token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
         isEncodingAsBson: false
       });
 

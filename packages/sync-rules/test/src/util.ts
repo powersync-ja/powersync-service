@@ -1,5 +1,6 @@
 import { expect } from 'vitest';
 import {
+  BaseJwtPayload,
   BucketDataSource,
   BucketParameterQuerier,
   ColumnDefinition,
@@ -59,26 +60,21 @@ export const BASIC_SCHEMA = new StaticSchema([
 ]);
 
 /**
- * For backwards-compatiblity in tests only.
+ * Shortcut to create RequestParameters from a JWT payload and optional request parameters.
  */
-export function normalizeTokenParameters(
-  token_parameters: Record<string, any>,
-  user_parameters?: Record<string, any>
+export function requestParameters(
+  jwtPayload: Record<string, any>,
+  clientParameters?: Record<string, any>
 ): RequestParameters {
-  const tokenPayload = {
-    sub: token_parameters.user_id ?? '',
-    parameters: { ...token_parameters }
-  } satisfies RequestJwtPayload;
-  delete tokenPayload.parameters.user_id;
-  return new RequestParameters(tokenPayload, user_parameters ?? {});
+  return new RequestParameters(new BaseJwtPayload(jwtPayload), clientParameters ?? {});
 }
 
 export function normalizeQuerierOptions(
-  token_parameters: Record<string, any>,
-  user_parameters?: Record<string, any>,
+  jwtPayload: Record<string, any>,
+  clientParameters?: Record<string, any>,
   streams?: Record<string, RequestedStream[]>
 ): GetQuerierOptions {
-  const globalParameters = normalizeTokenParameters(token_parameters, user_parameters);
+  const globalParameters = requestParameters(jwtPayload, clientParameters);
   return {
     globalParameters,
     hasDefaultStreams: true,

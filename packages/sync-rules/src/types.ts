@@ -8,7 +8,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { toSyncRulesParameters } from './utils.js';
+import { jsonValueToSqlite, toSyncRulesParameters } from './utils.js';
 
 export interface QueryParseOptions extends SyncRulesOptions {
   accept_potentially_dangerous_queries?: boolean;
@@ -116,12 +116,37 @@ export type EvaluationResult = EvaluatedRow | EvaluationError;
 export type UnscopedEvaluationResult = UnscopedEvaluatedRow | EvaluationError;
 
 export interface RequestJwtPayload {
-  /**
-   * user_id
-   */
-  sub: string;
+  userIdJson: SqliteJsonValue;
+  parsedPayload: Record<string, any>;
+  /** Legacy token_parameters */
+  parameters?: Record<string, any> | undefined;
+}
 
-  [key: string]: any;
+export class BaseJwtPayload implements RequestJwtPayload {
+  /**
+   * Raw payload from JSON.parse.
+   *
+   * May contain arbitrary nested values.
+   */
+  public readonly parsedPayload: Record<string, any>;
+
+  /**
+   * sub, converted to a SQLite-compatible value (number | string | bigint | null).
+   *
+   * This is the value used for sync rules and in logs.
+   */
+  public readonly userIdJson: SqliteJsonValue;
+
+  constructor(parsedPayload: Record<string, any>) {
+    this.parsedPayload = parsedPayload;
+
+    this.userIdJson = jsonValueToSqlite(true, parsedPayload.sub);
+  }
+
+  get parameters(): Record<string, any> | undefined {
+    // Verified to be either undefined or an object when parsing the token.
+    return this.parsedPayload.parameters;
+  }
 }
 
 export interface ParameterValueSet {
@@ -146,7 +171,7 @@ export interface ParameterValueSet {
   parsedTokenPayload: SqliteJsonRow;
   legacyTokenParameters: SqliteJsonRow;
 
-  userId: string;
+  userId: SqliteJsonValue;
 }
 
 export class RequestParameters implements ParameterValueSet {
@@ -167,7 +192,7 @@ export class RequestParameters implements ParameterValueSet {
    */
   rawTokenPayload: string;
 
-  userId: string;
+  userId: SqliteJsonValue;
 
   constructor(tokenPayload: RequestJwtPayload, clientParameters: Record<string, any>);
   constructor(params: RequestParameters);
@@ -191,18 +216,18 @@ export class RequestParameters implements ParameterValueSet {
     const tokenParameters = {
       ...legacyParameters,
       // sub takes presedence over any embedded parameters
-      user_id: tokenPayload.sub
+      user_id: tokenPayload.userIdJson
     };
 
     // Client and token parameters don't contain DateTime values or other custom types, so we don't need to consider
     // compatibility.
-    this.parsedTokenPayload = tokenPayload;
+    this.parsedTokenPayload = tokenPayload.parsedPayload;
     this.legacyTokenParameters = toSyncRulesParameters(
       tokenParameters,
       CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
     );
-    this.userId = tokenPayload.sub;
-    this.rawTokenPayload = JSONBig.stringify(tokenPayload);
+    this.userId = tokenPayload.userIdJson;
+    this.rawTokenPayload = JSONBig.stringify(tokenPayload.parsedPayload);
 
     this.rawUserParameters = JSONBig.stringify(clientParameters);
     this.userParameters = toSyncRulesParameters(clientParameters!, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
@@ -236,6 +261,15 @@ export class RequestParameters implements ParameterValueSet {
  * Uint8Array is not supported.
  */
 export type SqliteJsonValue = number | string | bigint | null;
+
+/**
+ * A value that can be used as a bucket parameter.
+ *
+ * We don't support binary bucket parameters, so this needs to be a {@link SqliteJsonValue}. Further, bucket parameters
+ * are always instantiated through the `=` operator, and `NULL` values in SQLite don't compare via `=`. So, `null`
+ * values also aren't allowed as parameters.
+ */
+export type SqliteParameterValue = NonNullable<SqliteJsonValue>;
 
 /**
  * A value supported by the SQLite type system.

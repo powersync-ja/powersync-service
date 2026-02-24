@@ -1,5 +1,33 @@
 # @powersync/lib-services-framework
 
+## 0.8.2
+
+### Patch Changes
+
+- Updated dependencies [a04252d]
+  - @powersync/service-sync-rules@0.31.1
+
+## 0.8.1
+
+### Patch Changes
+
+- Updated dependencies [0e99ce0]
+- Updated dependencies [479997b]
+  - @powersync/service-sync-rules@0.31.0
+
+## 0.8.0
+
+### Minor Changes
+
+- a02cc58: Add config options to set logging level and log entry format
+
+### Patch Changes
+
+- Updated dependencies [05b9661]
+- Updated dependencies [eaa04cc]
+- Updated dependencies [e578245]
+  - @powersync/service-sync-rules@0.30.0
+
 ## 0.7.14
 
 ### Patch Changes
