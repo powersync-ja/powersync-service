@@ -252,7 +252,12 @@ function runNewCompilerParser(fixture: FixtureCase): Outcome {
         errors.push({ message: 'Could not parse CTE SQL.', isWarning: false });
       }
     } else {
-      const stream = compiler.stream({ name: 'stream', isSubscribedByDefault: false, priority: 3 });
+      const stream = compiler.stream({
+        name: 'stream',
+        isSubscribedByDefault: false,
+        priority: 3,
+        warnOnDangerousParameter: false
+      });
       stream.addQuery(fixture.sql, listener);
       stream.finish();
     }
