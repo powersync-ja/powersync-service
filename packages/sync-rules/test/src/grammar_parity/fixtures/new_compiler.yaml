@@ -1,0 +1,120 @@
+query:
+  accepted:
+    - sql: SELECT * FROM users
+    - sql: SELECT u.* FROM users AS u JOIN orgs AS o ON u.org_id = o.id WHERE o.owner_id = auth.user_id()
+    - sql: SELECT id FROM users
+    - sql: SELECT u.id FROM users AS u
+    - sql: SELECT u.id, u.org_id FROM users AS u
+    - sql: SELECT CAST(u.id AS text) AS id_text FROM users AS u
+    - sql: SELECT CASE WHEN u.id IS NULL THEN 'x' ELSE 'y' END AS state FROM users AS u
+    - sql: SELECT u.* FROM users AS u INNER JOIN orgs AS o ON u.org_id = o.id
+    - sql: SELECT u.* FROM users AS u JOIN orgs AS o ON u.org_id = o.id
+    - sql: SELECT u.* FROM users AS u JOIN orgs AS o ON u.org_id = o.id WHERE o.owner_id = auth.parameter('owner_id')
+    - sql: SELECT * FROM users WHERE id IS NOT NULL
+    - sql: SELECT * FROM users WHERE id = id
+    - sql: SELECT * FROM users WHERE id IN (SELECT id FROM users)
+    - sql: SELECT * FROM users WHERE id IN (SELECT id FROM users WHERE id IS NOT NULL)
+    - sql: SELECT * FROM users WHERE id BETWEEN 1 AND 10
+    - sql: SELECT * FROM users WHERE id NOT BETWEEN 1 AND 10
+    - sql: SELECT * FROM users WHERE auth.user_id() IS NOT NULL
+    - sql: SELECT * FROM users WHERE auth.parameter('tenant') IS NOT NULL
+    - sql: SELECT * FROM users WHERE subscription.parameter('plan') IS NOT NULL
+    - sql: SELECT * FROM users WHERE connection.parameter('id') IS NOT NULL
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = u.id)
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = auth.parameter('id'))
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = connection.parameter('id'))
+    - sql: SELECT u.id FROM users AS u WHERE (u.id = subscription.parameter('id'))
+    - sql: SELECT u.id FROM users AS u WHERE u.id IN (SELECT id FROM users AS x)
+    - sql: SELECT * FROM users WHERE id && (SELECT id FROM users WHERE id IS NOT NULL)
+    - sql: SELECT * FROM comments WHERE status = 'active'
+    - sql: SELECT * FROM comments WHERE deleted_at IS NULL
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id()
+    - sql: SELECT * FROM comments WHERE region = connection.parameter('region')
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() AND org_id = auth.parameter('org_id')
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() AND status = 'active'
+    - sql: SELECT * FROM comments WHERE list_id = subscription.parameter('list_id') AND list_id IN (SELECT id FROM lists WHERE owner_id = auth.user_id())
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() OR shared_with = auth.user_id()
+    - sql: SELECT * FROM comments WHERE status = 'active' AND (owner_id = auth.user_id() OR shared_with = auth.user_id())
+    - sql: SELECT * FROM comments WHERE deleted_at IS NOT NULL
+    - sql: SELECT * FROM comments WHERE category IN '["draft", "hidden"]'
+    - sql: SELECT * FROM comments WHERE status != 'archived'
+    # FIXME: This one should work
+    # - sql: SELECT * FROM comments WHERE category NOT IN '["draft", "hidden"]'
+
+  rejected_syntax:
+    # double quotes denote identifiers, not string literals
+    - sql: SELECT * FROM users WHERE id = auth.parameter("id")
+
+    # parser: FULL JOIN is not supported
+    - sql: SELECT u.* FROM users u FULL JOIN orgs o ON u.org_id = o.id
+      err: JOIN
+
+    # parser: USING is not supported
+    - sql: SELECT u.* FROM users u INNER JOIN orgs USING (org_id)
+      err: USING
+
+    # parser: ORDER BY is not supported
+    - sql: SELECT * FROM users ORDER BY id
+      err: ORDER BY
+
+    # parser: SQL parameters are not allowed. Use parameter functions instead: https://docs.powersync.com/usage/sync-streams#accessing-parameters
+    - sql: SELECT * FROM users WHERE id = $1
+      err: parameters are not allowed
+
+    # parser: Expected a SELECT statement
+    - sql: DELETE FROM users
+      err: SELECT
+
+    # where-clause-support.md example (NOT IN with fixed value list)
+    # parser: This expression is not supported by PowerSync
+    - sql: SELECT * FROM comments WHERE category NOT IN ('draft', 'hidden')
+      err: not supported by PowerSync
+
+    # where-clause-support.md example (NOT IN with parameter source)
+    # parser: This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator.
+    - sql: SELECT * FROM comments WHERE id NOT IN subscription.parameter('excluded_ids')
+      err: can't also reference data from this row
+
+  rejected_semantic:
+    # parser: This expression already references 'users', so it can't also reference data from this row unless the two are compared with an equals operator. | This filter is unrelated to the request or the table being synced, and not supported.
+    - sql: SELECT * FROM users WHERE id NOT IN (SELECT id FROM users WHERE id IS NOT NULL)
+      err: can't also reference data from this row
+
+    # parser: Sync streams can only select from actual tables | Must have a result column selecting from a table
+    - sql: SELECT j.value AS value FROM json_each(auth.parameters()) AS j
+      err: select from actual tables
+
+    # parser: Sync streams can only select from a single table, and this one already selects from 'users'.
+    - sql: SELECT u.id, o.id FROM users AS u JOIN orgs AS o ON u.org_id = o.id
+      err: select from a single table
+
+    # parser: This attempts to sync a connection parameter. Only values from the source database can be synced.
+    - sql: SELECT u.*, auth.parameter('x') FROM users AS u
+      err: connection parameter
+
+    # where-clause-support.md example (NOT IN with subquery)
+    # parser: This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator. | This expression already references row data, so it can't also reference connection parameters unless the two are compared with an equals operator.
+    - sql: SELECT * FROM comments WHERE issue_id NOT IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+      err: can't also reference data from this row
+
+with:
+  accepted:
+    - sql: SELECT id FROM orgs WHERE owner_id = auth.user_id()
+    - sql: SELECT id FROM orgs
+    - sql: SELECT id FROM orgs WHERE id IS NOT NULL
+    - sql: SELECT CAST(id AS text) AS id_text FROM orgs
+    - sql: SELECT CASE WHEN id IS NULL THEN 'x' ELSE 'y' END AS state FROM orgs
+    - sql: SELECT o.id FROM orgs AS o
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = auth.user_id()
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = auth.parameter('owner_id')
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = connection.parameter('owner_id')
+    - sql: SELECT o.id FROM orgs AS o WHERE o.owner_id = subscription.parameter('owner_id')
+    - sql: SELECT o.id FROM orgs AS o WHERE o.id IN (SELECT id FROM orgs AS x)
+    - sql: SELECT o.id FROM orgs AS o WHERE o.id NOT IN (SELECT id FROM orgs AS x)
+    - sql: SELECT o.id FROM orgs AS o WHERE o.id BETWEEN 1 AND 10
+
+  rejected_syntax:
+    # CTE output columns cannot include wildcard
+    # parser: * columns are not allowed in subqueries or common table expressions
+    - sql: SELECT * FROM orgs
+      err: '*'

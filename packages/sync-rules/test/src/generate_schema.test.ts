@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_TAG,
-  DartFlutterFlowSchemaGenerator,
   DartSchemaGenerator,
   DotNetSchemaGenerator,
   JsLegacySchemaGenerator,
@@ -82,12 +81,6 @@ bucket_definitions:
   ])
 ]);
 `);
-  });
-
-  test('flutterflow', () => {
-    expect(new DartFlutterFlowSchemaGenerator().generate(rules, schema)).toEqual(
-      '{"tables":[{"name":"assets1","view_name":null,"local_only":false,"insert_only":false,"columns":[{"name":"name","type":"text"},{"name":"count","type":"integer"},{"name":"owner_id","type":"text"}],"indexes":[]},{"name":"assets2","view_name":null,"local_only":false,"insert_only":false,"columns":[{"name":"name","type":"text"},{"name":"count","type":"integer"},{"name":"other_id","type":"text"},{"name":"foo","type":"text"}],"indexes":[]},{"name":"attachments_queue","view_name":null,"local_only":true,"insert_only":false,"columns":[{"name":"filename","type":"text"},{"name":"local_uri","type":"text"},{"name":"timestamp","type":"integer"},{"name":"size","type":"integer"},{"name":"media_type","type":"text"},{"name":"state","type":"integer"}],"indexes":[]}]}'
-    );
   });
 
   test('js legacy', () => {
