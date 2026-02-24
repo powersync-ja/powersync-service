@@ -1,0 +1,22 @@
+import { describe, test } from 'vitest';
+import {
+  assertGrammarExpectation,
+  assertParserExpectation,
+  loadFixtureFile,
+  runGrammarChecker,
+  runParser
+} from './parity_helpers.js';
+
+const fixtures = loadFixtureFile('fixtures/sync_streams_alpha.yaml', 'sync_streams_alpha');
+
+describe('grammar parity fixtures: sync_streams_alpha', () => {
+  test.each(fixtures)('parser contract: $slot/$kind/$label', (fixture) => {
+    const outcome = runParser(fixture);
+    assertParserExpectation(fixture, outcome);
+  });
+
+  test.each(fixtures)('grammar contract: $slot/$kind/$label', (fixture) => {
+    const outcome = runGrammarChecker(fixture);
+    assertGrammarExpectation(fixture, outcome);
+  });
+});
