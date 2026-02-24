@@ -8,19 +8,19 @@ import { env } from './env.js';
 import { describeWithStorage } from './util.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, function (factory) {
+  describeWithStorage({ timeout: 240_000 }, function ({ factory, storageVersion }) {
     test('resuming initial replication (1)', async () => {
       // Stop early - likely to not include deleted row in first replication attempt.
-      await testResumingReplication(factory, 2000);
+      await testResumingReplication(factory, storageVersion, 2000);
     });
     test('resuming initial replication (2)', async () => {
       // Stop late - likely to include deleted row in first replication attempt.
-      await testResumingReplication(factory, 8000);
+      await testResumingReplication(factory, storageVersion, 8000);
     });
   });
 });
 
-async function testResumingReplication(factory: TestStorageFactory, stopAfter: number) {
+async function testResumingReplication(factory: TestStorageFactory, storageVersion: number, stopAfter: number) {
   // This tests interrupting and then resuming initial replication.
   // We interrupt replication after test_data1 has fully replicated, and
   // test_data2 has partially replicated.
@@ -35,7 +35,10 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   let startRowCount: number;
 
   {
-    await using context = await ChangeStreamTestContext.open(factory, { streamOptions: { snapshotChunkLength: 1000 } });
+    await using context = await ChangeStreamTestContext.open(factory, {
+      storageVersion,
+      streamOptions: { snapshotChunkLength: 1000 }
+    });
 
     await context.updateSyncRules(`bucket_definitions:
   global:
@@ -87,6 +90,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
     // Bypass the usual "clear db on factory open" step.
     await using context2 = await ChangeStreamTestContext.open(factory, {
       doNotClear: true,
+      storageVersion,
       streamOptions: { snapshotChunkLength: 1000 }
     });
 

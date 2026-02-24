@@ -20,7 +20,9 @@ describe('PostgresRouteAPIAdapter tests', () => {
       `);
 
       const schema = await api.getConnectionSchema();
-      expect(schema).toStrictEqual([
+      // Ignore any other potential schemas in the test database, for example the 'powersync' schema.
+      const filtered = schema.filter((s) => s.name == 'public');
+      expect(filtered).toStrictEqual([
         {
           name: 'public',
           tables: [

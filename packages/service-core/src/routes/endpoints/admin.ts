@@ -1,7 +1,8 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
+import { SourceSchema, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
+import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 import * as api from '../../api/api-index.js';
 import * as storage from '../../storage/storage-index.js';
 import { authApi } from '../auth.js';
@@ -130,12 +131,13 @@ export const reprocess = routeDefinition({
       });
     }
 
-    const new_rules = await activeBucketStorage.updateSyncRules({
-      content: active.sync_rules.config.content,
-      // These sync rules already passed validation. But if the rules are not valid anymore due
-      // to a service change, we do want to report the error here.
-      validate: true
-    });
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      storage.updateSyncRulesFromYaml(active.sync_rules.config.content, {
+        // These sync rules already passed validation. But if the rules are not valid anymore due
+        // to a service change, we do want to report the error here.
+        validate: true
+      })
+    );
 
     const baseConfig = await apiHandler.getSourceConfig();
 
@@ -152,6 +154,35 @@ export const reprocess = routeDefinition({
   }
 });
 
+class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesContent {
+  constructor(
+    private readonly apiHandler: api.RouteAPI,
+    private readonly schema: SourceSchema,
+    data: storage.PersistedSyncRulesContentData
+  ) {
+    super(data);
+  }
+
+  current_lock: storage.ReplicationLock | null = null;
+
+  async lock(): Promise<storage.ReplicationLock> {
+    throw new Error('Lock not implemented');
+  }
+
+  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+    return {
+      ...this,
+      sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, {
+        ...this.apiHandler.getParseSyncRulesOptions(),
+        schema: this.schema
+      }),
+      hydratedSyncRules() {
+        return this.sync_rules.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      }
+    };
+  }
+}
+
 export const validate = routeDefinition({
   path: '/api/admin/v1/validate',
   method: router.HTTPMethod.POST,
@@ -167,30 +198,15 @@ export const validate = routeDefinition({
     const schemaData = await api.getConnectionsSchema(apiHandler);
     const schema = new StaticSchema(schemaData.connections);
 
-    const sync_rules: storage.PersistedSyncRulesContent = {
+    const sync_rules = new FakeSyncRulesContentForValidation(apiHandler, schema, {
       // Dummy values
       id: 0,
       slot_name: '',
       active: false,
       last_checkpoint_lsn: '',
-
-      parsed() {
-        return {
-          ...this,
-          sync_rules: SqlSyncRules.fromYaml(content, {
-            ...apiHandler.getParseSyncRulesOptions(),
-            schema
-          }),
-          hydratedSyncRules() {
-            return this.sync_rules.config.hydrate();
-          }
-        };
-      },
-      sync_rules_content: content,
-      async lock() {
-        throw new Error('Lock not implemented');
-      }
-    };
+      storageVersion: storage.LEGACY_STORAGE_VERSION,
+      sync_rules_content: content
+    });
 
     const connectionStatus = await apiHandler.getConnectionStatus();
     if (!connectionStatus) {

@@ -10,6 +10,29 @@ on:
       - '**'
 
 jobs:
+  format-check:
+    name: Linting
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Validate tsconfig references
+        run: pnpm validate:tsconfig-references
+
+      - name: Check formatting
+        run: pnpm format:check
+
   test-service-container-build:
     name: Build and Test PowerSync Service
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
@@ -75,9 +98,6 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install
-
-      - name: Validate tsconfig references
-        run: pnpm validate:tsconfig-references
 
       - name: Build
         shell: bash
