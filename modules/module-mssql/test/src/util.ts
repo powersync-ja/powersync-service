@@ -39,7 +39,7 @@ export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig({
   uri: TEST_URI,
   additionalConfig: {
     pollingBatchSize: 10,
-    pollingIntervalMs: 1000,
+    pollingIntervalMs: 100,
     trustServerCertificate: true
   }
 });

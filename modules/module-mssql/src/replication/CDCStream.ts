@@ -762,7 +762,7 @@ export class CDCStream {
 
     // New pending schema changes were detected - warn about those as well.
     this.logger.warn(
-      `Schema drift detected for table ${table.toQualifiedName()}. To ensure consistency, disable and re-enable CDC for this table. Pending schema changes: ${captureInstance.pendingSchemaChanges.join(', \n')}`
+      `Schema drift detected for table ${table.toQualifiedName()}. To ensure consistency, disable and re-enable CDC for this table.\n Pending schema changes:\n ${captureInstance.pendingSchemaChanges.join(', \n')}`
     );
     table.captureInstance = captureInstance;
   }

@@ -8,29 +8,6 @@ export const DEFAULT_POLLING_BATCH_SIZE = 10;
 export const DEFAULT_POLLING_INTERVAL_MS = 1000;
 export const MSSQL_CONNECTION_TYPE = 'mssql' as const;
 
-export const AzureActiveDirectoryPasswordAuthentication = t.object({
-  type: t.literal('azure-active-directory-password'),
-  options: t.object({
-    /**
-     * A user need to provide `userName` associate to their account.
-     */
-    userName: t.string,
-    /**
-     * A user need to provide `password` associate to their account.
-     */
-    password: t.string,
-    /**
-     * A client id to use.
-     */
-    clientId: t.string,
-    /**
-     * Azure tenant ID
-     */
-    tenantId: t.string
-  })
-});
-export type AzureActiveDirectoryPasswordAuthentication = t.Decoded<typeof AzureActiveDirectoryPasswordAuthentication>;
-
 export const AzureActiveDirectoryServicePrincipalSecret = t.object({
   type: t.literal('azure-active-directory-service-principal-secret'),
   options: t.object({
@@ -65,9 +42,7 @@ export const DefaultAuthentication = t.object({
 });
 export type DefaultAuthentication = t.Decoded<typeof DefaultAuthentication>;
 
-export const Authentication = DefaultAuthentication.or(AzureActiveDirectoryPasswordAuthentication).or(
-  AzureActiveDirectoryServicePrincipalSecret
-);
+export const Authentication = DefaultAuthentication.or(AzureActiveDirectoryServicePrincipalSecret);
 export type Authentication = t.Decoded<typeof Authentication>;
 
 export const AdditionalConfig = t.object({
