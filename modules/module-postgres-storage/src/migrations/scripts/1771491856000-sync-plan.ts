@@ -6,12 +6,10 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
     service_context: { configuration }
   } = context;
   await using client = openMigrationDB(configuration.storage);
-  await client.transaction(async (db) => {
-    await db.sql`
-      ALTER TABLE sync_rules
-      ADD COLUMN sync_plan JSON;
-    `.execute();
-  });
+  await client.sql`
+    ALTER TABLE sync_rules
+    ADD COLUMN sync_plan JSON;
+  `.execute();
 };
 
 export const down: migrations.PowerSyncMigrationFunction = async (context) => {
