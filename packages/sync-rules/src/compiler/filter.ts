@@ -1,4 +1,4 @@
-import { assignChanged, astMapper, BinaryOperator, Expr, NodeLocation } from 'pgsql-ast-parser';
+import { NodeLocation } from 'pgsql-ast-parser';
 import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
 import { SourceResultSet } from './table.js';
 import { expandNodeLocations } from '../errors.js';
@@ -133,7 +133,7 @@ export class EqualsClause {
   ) {}
 
   get location(): NodeLocation | undefined {
-    return expandNodeLocations([this.left.expression.location, this.right.expression.location]);
+    return expandNodeLocations([this.left.expression.location.location, this.right.expression.location.location]);
   }
 }
 

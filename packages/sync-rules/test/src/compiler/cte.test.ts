@@ -6,8 +6,7 @@ describe('common table expressions', () => {
   test('as data source', () => {
     const plan = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -25,8 +24,7 @@ streams:
   test('as parameter query', () => {
     const plan = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -42,8 +40,7 @@ streams:
 
     const withDirectReference = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -61,8 +58,7 @@ streams:
     test('shorthand syntax for CTE with multiple columns', () => {
       const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
