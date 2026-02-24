@@ -1,13 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import {
-  CompatibilityOption,
-  DEFAULT_HYDRATION_STATE,
-  HydrationState,
-  SqlSyncRules,
-  versionedHydrationState
-} from '@powersync/service-sync-rules';
 import { models } from '../../types/types.js';
 
 export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRulesContent {
