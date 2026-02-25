@@ -63,6 +63,7 @@ const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
 const DEFAULT_MIN_CHANGE_RATIO = 0.1;
+const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
 
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
@@ -538,31 +539,60 @@ export class MongoCompactor {
     let lastId = { g: this.group_id, b: new mongo.MinKey() as any };
     const maxId = { g: this.group_id, b: new mongo.MaxKey() as any };
     while (true) {
-      const batch = await this.db.bucket_state
-        .find(
-          {
-            _id: { $gt: lastId, $lt: maxId },
-            'estimate_since_compact.count': { $gte: options.minBucketChanges }
-          },
-          {
-            projection: {
-              _id: 1,
-              estimate_since_compact: 1,
-              compacted_state: 1
+      // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, we use an aggregation pipeline
+      // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria, rather than limiting
+      // on the output number.
+      const [result] = await this.db.bucket_state
+        .aggregate<{
+          buckets: Pick<BucketStateDocument, '_id' | 'estimate_since_compact' | 'compacted_state'>[];
+          cursor: Pick<BucketStateDocument, '_id'>[];
+        }>(
+          [
+            {
+              $match: {
+                _id: { $gt: lastId, $lt: maxId }
+              }
             },
-            sort: {
-              _id: 1
+            {
+              $sort: { _id: 1 }
             },
-            limit: 2000,
-            maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
-          }
+            {
+              // Scan a fixed number of docs each query so sparse matches don't block progress.
+              $limit: DIRTY_BUCKET_SCAN_BATCH_SIZE
+            },
+            {
+              $facet: {
+                // This is the results for the batch
+                buckets: [
+                  {
+                    $match: {
+                      'estimate_since_compact.count': { $gte: options.minBucketChanges }
+                    }
+                  },
+                  {
+                    $project: {
+                      _id: 1,
+                      estimate_since_compact: 1,
+                      compacted_state: 1
+                    }
+                  }
+                ],
+                // This is used for the next query.
+                cursor: [{ $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }]
+              }
+            }
+          ],
+          { maxTimeMS: MONGO_OPERATION_TIMEOUT_MS }
         )
         .toArray();
-      if (batch.length == 0) {
+
+      const cursor = result?.cursor?.[0];
+      if (cursor == null) {
         break;
       }
-      lastId = batch[batch.length - 1]._id;
-      const mapped = batch.map((b) => {
+      lastId = cursor._id;
+
+      const mapped = (result?.buckets ?? []).map((b) => {
         const updatedCount = b.estimate_since_compact?.count ?? 0;
         const totalCount = (b.compacted_state?.count ?? 0) + updatedCount;
         const updatedBytes = b.estimate_since_compact?.bytes ?? 0;
