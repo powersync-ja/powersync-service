@@ -20,15 +20,16 @@ import {
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
-import { CurrentBucket, V1CurrentData, V3CurrentData, V3CurrentDataDecoded } from '../../types/models/CurrentData.js';
+import { CurrentBucket, V3CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
 import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
-import { PostgresPersistedBatch, postgresTableId } from './PostgresPersistedBatch.js';
+import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
 import { bigint } from '../../types/codecs.js';
-import { getCommonCurrentDataTable } from '../current-data-table.js';
+import { PostgresCurrentDataStore } from '../current-data-store.js';
+import { postgresTableId } from '../table-id.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;
@@ -99,7 +100,7 @@ export class PostgresBucketBatch
   private needsActivation = true;
   private clearedError = false;
   private readonly storageConfig: storage.StorageVersionConfig;
-  private readonly currentDataTable: string;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -114,7 +115,7 @@ export class PostgresBucketBatch
     this.batch = null;
     this.persisted_op = null;
     this.storageConfig = options.storageConfig;
-    this.currentDataTable = getCommonCurrentDataTable(this.storageConfig);
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
     if (options.keep_alive_op) {
       this.persisted_op = options.keep_alive_op;
     }
@@ -190,8 +191,6 @@ export class PostgresBucketBatch
     const BATCH_LIMIT = 2000;
     let lastBatchCount = BATCH_LIMIT;
     let processedCount = 0;
-    const codec = pick(models.V1CurrentData, ['buckets', 'lookups', 'source_key']);
-
     while (lastBatchCount == BATCH_LIMIT) {
       lastBatchCount = 0;
       await this.withReplicationTransaction(async (db) => {
@@ -201,42 +200,15 @@ export class PostgresBucketBatch
           ...this.options.batch_limits
         });
 
-        const pendingDeleteFilter = this.storageConfig.softDeleteCurrentData ? `AND pending_delete IS NULL` : ``;
-        for await (const rows of db.streamRows<t.Encoded<typeof codec>>({
-          statement: `
-            SELECT
-              buckets,
-              lookups,
-              source_key
-            FROM
-              ${this.currentDataTable}
-            WHERE
-              group_id = $1
-              AND source_table = $2
-              ${pendingDeleteFilter}
-            LIMIT
-              $3
-            FOR NO KEY UPDATE
-          `,
-          params: [
-            {
-              type: 'int4',
-              value: this.group_id
-            },
-            {
-              type: 'varchar',
-              value: sourceTable.id
-            },
-            {
-              type: 'int4',
-              value: BATCH_LIMIT
-            }
-          ]
+        for await (const rows of this.currentDataStore.streamTruncateRows(db, {
+          groupId: this.group_id,
+          sourceTableId: postgresTableId(sourceTable.id),
+          limit: BATCH_LIMIT
         })) {
           lastBatchCount += rows.length;
           processedCount += rows.length;
 
-          const decodedRows = rows.map((row) => codec.decode(row));
+          const decodedRows = rows.map((row) => this.currentDataStore.decodeTruncateRow(row));
           for (const value of decodedRows) {
             const source_key = deserializeReplicaId(value.source_key);
             persistedBatch.saveBucketData({
@@ -497,14 +469,11 @@ export class PostgresBucketBatch
     if (result.created_checkpoint) {
       this.logger.debug(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
 
-      if (this.storageConfig.softDeleteCurrentData) {
-        await this.db.sql`
-          DELETE FROM v3_current_data
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND pending_delete IS NOT NULL
-            AND pending_delete <= ${{ type: 'int8', value: result.last_checkpoint }}
-        `.execute();
+      if (result.last_checkpoint != null) {
+        await this.currentDataStore.cleanupPendingDeletes(this.db, {
+          groupId: this.group_id,
+          lastCheckpoint: result.last_checkpoint
+        });
       }
     }
     await this.autoActivate(lsn);
@@ -670,42 +639,9 @@ export class PostgresBucketBatch
 
       sizes = new Map<string, number>();
 
-      for await (const rows of db.streamRows<{
-        source_table: string;
-        source_key: storage.ReplicaId;
-        data_size: number;
-      }>({
-        statement: `
-          WITH
-            filter_data AS (
-              SELECT
-                decode(FILTER ->> 'source_key', 'hex') AS source_key, -- Decoding from hex to bytea
-                (FILTER ->> 'source_table') AS source_table_id
-              FROM
-                jsonb_array_elements($1::jsonb) AS FILTER
-            )
-          SELECT
-            octet_length(c.data) AS data_size,
-            c.source_table,
-            c.source_key
-          FROM
-            ${this.currentDataTable} c
-            JOIN filter_data f ON c.source_table = f.source_table_id
-            AND c.source_key = f.source_key
-          WHERE
-            c.group_id = $2
-          FOR NO KEY UPDATE
-        `,
-        params: [
-          {
-            type: 'jsonb',
-            value: sizeLookups
-          },
-          {
-            type: 'int4',
-            value: this.group_id
-          }
-        ]
+      for await (const rows of this.currentDataStore.streamSizeRows(db, {
+        groupId: this.group_id,
+        lookups: sizeLookups
       })) {
         for (const row of rows) {
           const key = cacheKey(row.source_table, row.source_key);
@@ -731,46 +667,19 @@ export class PostgresBucketBatch
 
       const lookups = b.map((r) => {
         return {
-          source_table: r.record.sourceTable.id,
+          source_table: postgresTableId(r.record.sourceTable.id),
           source_key: storage.serializeReplicaId(r.beforeId).toString('hex')
         };
       });
 
       const current_data_lookup = new Map<string, V3CurrentDataDecoded>();
-      const lookupSelectColumns = this.options.skip_existing_rows ? `c.source_table, c.source_key` : `c.*`;
-      for await (const currentDataRows of db.streamRows<V3CurrentData>({
-        statement: /* sql */ `
-          SELECT
-            ${lookupSelectColumns}
-          FROM
-            ${this.currentDataTable} c
-            JOIN (
-              SELECT
-                decode(FILTER ->> 'source_key', 'hex') AS source_key,
-                FILTER ->> 'source_table' AS source_table_id
-              FROM
-                jsonb_array_elements($1::jsonb) AS FILTER
-            ) f ON c.source_table = f.source_table_id
-            AND c.source_key = f.source_key
-          WHERE
-            c.group_id = $2
-          FOR NO KEY UPDATE;
-        `,
-        params: [
-          {
-            type: 'jsonb',
-            value: lookups
-          },
-          {
-            type: 'int4',
-            value: this.group_id
-          }
-        ]
+      for await (const currentDataRows of this.currentDataStore.streamLookupRows(db, {
+        groupId: this.group_id,
+        lookups,
+        skipExistingRows: this.options.skip_existing_rows
       })) {
         for (const row of currentDataRows) {
-          const decoded = this.options.skip_existing_rows
-            ? pick(V1CurrentData, ['source_key', 'source_table']).decode(row)
-            : V1CurrentData.decode(row);
+          const decoded = this.currentDataStore.decodeLookupRow(row, this.options.skip_existing_rows);
           current_data_lookup.set(
             encodedCacheKey(decoded.source_table, decoded.source_key),
             decoded as V3CurrentDataDecoded
