@@ -40,6 +40,16 @@ export abstract class ConfigCollector {
      */
     const decoded = this.decode(serialized);
     this.validate(decoded);
+
+    /**
+     * For internal convenience, we duplicate sync_rules and sync_config. Making them interchangeable.
+     * Note, we only do this after validation (which only allows one option to be present)
+     */
+    if (decoded.sync_config) {
+      decoded.sync_rules = decoded.sync_config;
+    } else if (decoded.sync_rules) {
+      decoded.sync_config = decoded.sync_rules;
+    }
     return decoded;
   }
 
@@ -51,6 +61,12 @@ export abstract class ConfigCollector {
     const valid = configSchemaValidator.validate(config);
     if (!valid.valid) {
       throw new Error(`Failed to validate PowerSync config: ${valid.errors.join(', ')}`);
+    }
+
+    if (config.sync_config && config.sync_rules) {
+      throw new Error(
+        'Both `sync_config` and `sync_rules` are present in the service configuration. Please consolidate into one sync_config.'
+      );
     }
   }
 

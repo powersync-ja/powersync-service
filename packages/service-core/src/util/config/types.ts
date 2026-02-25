@@ -1,6 +1,5 @@
 import { configFile } from '@powersync/service-types';
 import { CompoundKeyCollector } from '../../auth/CompoundKeyCollector.js';
-import { KeySpec } from '../../auth/KeySpec.js';
 import { KeyStore } from '../../auth/KeyStore.js';
 
 export enum ServiceRunner {
@@ -12,7 +11,7 @@ export enum ServiceRunner {
 export type RunnerConfig = {
   config_path?: string;
   config_base64?: string;
-  sync_rules_base64?: string;
+  sync_config_base64?: string;
 };
 
 export type MigrationContext = {

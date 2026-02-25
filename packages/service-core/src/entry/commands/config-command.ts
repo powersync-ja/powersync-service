@@ -19,8 +19,8 @@ export function wrapConfigCommand(command: Command) {
     )
     .option(
       `-sync64, --sync-base64 [base64]`,
-      'Base64 encoded YAML Sync Rules. Defaults to process.env.POWERSYNC_SYNC_RULES_B64',
-      util.env.POWERSYNC_SYNC_RULES_B64
+      'Base64 encoded YAML Sync Config. Defaults to process.env.POWERSYNC_SYNC_CONFIG_B64 or process.env.POWERSYNC_SYNC_RULES_B64 for backwards compatility.',
+      util.env.POWERSYNC_SYNC_CONFIG_B64 || util.env.POWERSYNC_SYNC_RULES_B64
     );
 }
 
@@ -31,6 +31,6 @@ export function extractRunnerOptions(options: any): util.RunnerConfig {
   return {
     config_path: options.configPath,
     config_base64: options.configBase64,
-    sync_rules_base64: options.syncBase64
+    sync_config_base64: options.syncBase64
   };
 }

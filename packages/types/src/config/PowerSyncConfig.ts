@@ -274,6 +274,28 @@ export type BaseStorageConfig = t.Encoded<typeof BaseStorageConfig>;
 export const GenericStorageConfig = BaseStorageConfig.and(t.record(t.any));
 export type GenericStorageConfig = t.Encoded<typeof GenericStorageConfig>;
 
+export const SyncConfig = t
+  .object({
+    path: t.string
+      .meta({
+        description: 'Path to the sync config YAML file.'
+      })
+      .optional(),
+    content: t.string
+      .meta({
+        description: 'Inline sync config content as a string.'
+      })
+      .optional(),
+    exit_on_error: t.boolean
+      .meta({
+        description: 'Whether to exit the process if there is an error parsing sync config.'
+      })
+      .optional()
+  })
+  .meta({
+    description: 'Configuration for synchronization rules that define data access patterns.'
+  });
+
 export const powerSyncConfig = t
   .object({
     replication: t
@@ -408,28 +430,12 @@ export const powerSyncConfig = t
       })
       .optional(),
 
-    sync_rules: t
-      .object({
-        path: t.string
-          .meta({
-            description: 'Path to the sync rules YAML file.'
-          })
-          .optional(),
-        content: t.string
-          .meta({
-            description: 'Inline sync rules content as a string.'
-          })
-          .optional(),
-        exit_on_error: t.boolean
-          .meta({
-            description: 'Whether to exit the process if there is an error parsing sync rules.'
-          })
-          .optional()
-      })
-      .meta({
-        description: 'Configuration for synchronization rules that define data access patterns.'
-      })
-      .optional(),
+    sync_config: SyncConfig.optional(),
+    /**
+     * @deprecated Use sync_config instead.
+     * This is preserved for backwards compatibility but should not be used in new configurations.
+     */
+    sync_rules: SyncConfig.meta({ description: 'Deprecated. Use sync_config instead.' }).optional(),
 
     metadata: t
       .record(t.string)
