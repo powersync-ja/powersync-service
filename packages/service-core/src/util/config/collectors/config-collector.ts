@@ -52,6 +52,12 @@ export abstract class ConfigCollector {
     if (!valid.valid) {
       throw new Error(`Failed to validate PowerSync config: ${valid.errors.join(', ')}`);
     }
+
+    if (config.sync_config && config.sync_rules) {
+      throw new Error(
+        'Both `sync_config` and `sync_rules` are present in the service configuration. Please consolidate into one sync_config.'
+      );
+    }
   }
 
   decode(encoded: configFile.SerializedPowerSyncConfig): configFile.PowerSyncConfig {

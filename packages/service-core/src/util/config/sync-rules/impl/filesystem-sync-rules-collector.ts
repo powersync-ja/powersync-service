@@ -1,7 +1,7 @@
+import { configFile } from '@powersync/service-types';
 import * as path from 'path';
 import { RunnerConfig, SyncRulesConfig } from '../../types.js';
 import { SyncRulesCollector } from '../sync-collector.js';
-import { configFile } from '@powersync/service-types';
 
 export class FileSystemSyncRulesCollector extends SyncRulesCollector {
   get name(): string {
@@ -9,7 +9,7 @@ export class FileSystemSyncRulesCollector extends SyncRulesCollector {
   }
 
   async collect(baseConfig: configFile.PowerSyncConfig, runnerConfig: RunnerConfig): Promise<SyncRulesConfig | null> {
-    const sync_path = baseConfig.sync_rules?.path;
+    const sync_path = baseConfig.sync_config?.path ?? baseConfig.sync_rules?.path;
     if (!sync_path) {
       return null;
     }
@@ -20,7 +20,7 @@ export class FileSystemSyncRulesCollector extends SyncRulesCollector {
     // Only persist the path here, and load on demand using `loadSyncRules()`.
     return {
       present: true,
-      exit_on_error: baseConfig.sync_rules?.exit_on_error ?? true,
+      exit_on_error: baseConfig.sync_config?.exit_on_error ?? baseConfig.sync_rules?.exit_on_error ?? true,
       path: config_path ? path.resolve(path.dirname(config_path), sync_path) : sync_path
     };
   }
