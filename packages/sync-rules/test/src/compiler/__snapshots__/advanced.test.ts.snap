@@ -66,7 +66,7 @@ exports[`new sync stream features > in array 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -243,7 +243,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -387,7 +387,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -589,7 +589,7 @@ exports[`new sync stream features > joins feedback > response 5 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -718,7 +718,7 @@ exports[`new sync stream features > joins feedback > response 8 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -895,7 +895,7 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1120,7 +1120,7 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1249,7 +1249,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1476,7 +1476,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1716,7 +1716,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1790,7 +1790,7 @@ exports[`new sync stream features > not in array 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -1929,7 +1929,7 @@ exports[`new sync stream features > order-independent parameters 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2022,7 +2022,7 @@ exports[`new sync stream features > table-valued functions > partition on data 1
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2165,7 +2165,7 @@ exports[`new sync stream features > table-valued functions > partition on parame
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -2243,6 +2243,6 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;

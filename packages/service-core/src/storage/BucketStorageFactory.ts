@@ -4,7 +4,13 @@ import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 import { ReportStorage } from './ReportStorage.js';
-import { SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
+import {
+  PrecompiledSyncConfig,
+  SerializedCompatibilityContext,
+  serializeSyncPlan,
+  SqlSyncRules,
+  SyncConfig
+} from '@powersync/service-sync-rules';
 
 /**
  * Represents a configured storage provider.
@@ -148,10 +154,30 @@ export interface StorageMetrics {
 export interface UpdateSyncRulesOptions {
   config: {
     yaml: string;
-    // TODO: Add serialized sync plan if available
+    /**
+     * The serialized sync plan for the sync configuration, or `null` for configurations not using the sync stream
+     * compiler.
+     */
+    plan: SerializedSyncPlan | null;
   };
   lock?: boolean;
   storageVersion?: number;
+}
+
+export interface SerializedSyncPlan {
+  /**
+   * The serialized plan, from {@link serializeSyncPlan}.
+   */
+  plan: unknown;
+  compatibility: SerializedCompatibilityContext;
+  /**
+   * Event descriptors are not currently represented in the sync plan because they don't use the sync streams compiler
+   * yet.
+   *
+   * We might revisit that in the future, but for now we store SQL text of their definitions here to be able to restore
+   * them.
+   */
+  eventDescriptors: Record<string, string[]>;
 }
 
 export function updateSyncRulesFromYaml(
@@ -168,8 +194,25 @@ export function updateSyncRulesFromYaml(
   return updateSyncRulesFromConfig(config, options);
 }
 
-export function updateSyncRulesFromConfig(parsed: SyncConfig, options?: Omit<UpdateSyncRulesOptions, 'config'>) {
-  return { config: { yaml: parsed.content }, ...options };
+export function updateSyncRulesFromConfig(
+  parsed: SyncConfig,
+  options?: Omit<UpdateSyncRulesOptions, 'config'>
+): UpdateSyncRulesOptions {
+  let plan: SerializedSyncPlan | null = null;
+  if (parsed instanceof PrecompiledSyncConfig) {
+    const eventDescriptors: Record<string, string[]> = {};
+    for (const event of parsed.eventDescriptors) {
+      eventDescriptors[event.name] = event.sourceQueries.map((q) => q.sql);
+    }
+
+    plan = {
+      compatibility: parsed.compatibility.serialize(),
+      plan: serializeSyncPlan(parsed.plan),
+      eventDescriptors
+    };
+  }
+
+  return { config: { yaml: parsed.content, plan }, ...options };
 }
 
 export interface GetIntanceOptions {

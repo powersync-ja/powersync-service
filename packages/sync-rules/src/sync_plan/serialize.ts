@@ -19,6 +19,7 @@ import {
   StreamQuerier,
   SyncPlan,
   TableProcessor,
+  TableProcessorData,
   TableProcessorTableValuedFunction,
   TableProcessorTableValuedFunctionOutput
 } from './plan.js';
@@ -30,7 +31,7 @@ import {
  * queriers to bucket creators. To represent this efficiently, we assign numbers to referenced elements while
  * serializing instead of duplicating definitions.
  */
-export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
+export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanV1 {
   const dataSourceIndex = new Map<StreamDataSource, number>();
   const bucketIndex = new Map<StreamBucketDataSource, number>();
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
@@ -47,6 +48,12 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       return value;
     }
   });
+
+  function serializeTableProcessorDataExpr(
+    expr: SqlExpression<TableProcessorData>
+  ): SqlExpression<SerializedTableProcessorData> {
+    return visitExpr(replaceFunctionReferenceWithIndex, expr, null);
+  }
 
   function serializeTablePattern(pattern: ImplicitSchemaTablePattern): SerializedTablePattern {
     return {
@@ -65,7 +72,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 
   function translateParameters(source: TableProcessor): SerializedPartitionKey[] {
     return source.parameters.map((key) => {
-      return { expr: visitExpr(replaceFunctionReferenceWithIndex, key.expr, null) };
+      return { expr: serializeTableProcessorDataExpr(key.expr) };
     });
   }
 
@@ -77,10 +84,16 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
         outputTableName: source.outputTableName,
-        filters: source.filters,
         tableValuedFunctions: serializeTableValued(source),
+        filters: source.filters.map(serializeTableProcessorDataExpr),
         partitionBy: translateParameters(source),
-        columns: source.columns
+        columns: source.columns.map((c): SerializedColumnSource => {
+          if (c == 'star') {
+            return 'star';
+          } else {
+            return { expr: serializeTableProcessorDataExpr(c.expr), alias: c.alias };
+          }
+        })
       } satisfies SerializedDataSource;
     });
   }
@@ -92,8 +105,8 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       return {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
-        filters: source.filters,
         tableValuedFunctions: serializeTableValued(source),
+        filters: source.filters.map(serializeTableProcessorDataExpr),
         partitionBy: translateParameters(source),
         output: source.outputs.map((out) => visitExpr(replaceFunctionReferenceWithIndex, out, null)),
         lookupScope: source.defaultLookupScope
@@ -154,7 +167,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   }
 
   return {
-    version: 'unstable', // TODO: Mature to 1 before storing in bucket storage
+    version: 1,
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
       bucketIndex.set(bkt, index);
@@ -173,8 +186,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 }
 
 export function deserializeSyncPlan(serialized: unknown): SyncPlan {
-  // TODO: Mature to version 1
-  if ((serialized as SerializedSyncPlanUnstable).version != 'unstable') {
+  if ((serialized as SerializedSyncPlanV1).version != 1) {
     throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
@@ -199,13 +211,19 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     }
   });
 
+  function deserializeTableProcessorDataExpr(
+    expr: SqlExpression<SerializedTableProcessorData>
+  ): SqlExpression<TableProcessorData> {
+    return visitExpr(replaceFunctionIndexWithReference, expr, null);
+  }
+
   function deserializeParameters(source: SerializedPartitionKey[]): PartitionKey[] {
     return source.map((serializedKey) => {
-      return { expr: visitExpr(replaceFunctionIndexWithReference, serializedKey.expr, null) };
+      return { expr: deserializeTableProcessorDataExpr(serializedKey.expr) };
     });
   }
 
-  const plan = serialized as SerializedSyncPlanUnstable;
+  const plan = serialized as SerializedSyncPlanV1;
   const dataSources = plan.dataSources.map((source): StreamDataSource => {
     const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
 
@@ -214,9 +232,15 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
       sourceTable: deserializeTablePattern(source.table),
       tableValuedFunctions: functions,
       outputTableName: source.outputTableName,
-      filters: source.filters,
+      filters: source.filters.map(deserializeTableProcessorDataExpr),
       parameters: deserializeParameters(source.partitionBy),
-      columns: source.columns
+      columns: source.columns.map((c): ColumnSource => {
+        if (c == 'star') {
+          return 'star';
+        } else {
+          return { expr: deserializeTableProcessorDataExpr(c.expr), alias: c.alias };
+        }
+      })
     };
   });
   const buckets = plan.buckets.map((bkt): StreamBucketDataSource => {
@@ -233,7 +257,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
       hashCode: source.hash,
       sourceTable: deserializeTablePattern(source.table),
       tableValuedFunctions: functions,
-      filters: source.filters,
+      filters: source.filters.map(deserializeTableProcessorDataExpr),
       parameters: deserializeParameters(source.partitionBy),
       outputs: source.output.map((out) => visitExpr(replaceFunctionIndexWithReference, out, null)),
       defaultLookupScope: source.lookupScope
@@ -308,8 +332,8 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   };
 }
 
-interface SerializedSyncPlanUnstable {
-  version: 'unstable';
+interface SerializedSyncPlanV1 {
+  version: number;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];
@@ -333,16 +357,20 @@ interface SerializedTableProcessorTableValuedFunctionOutput {
   outputName: string;
 }
 
+type SerializedTableProcessorData = ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput;
+
 interface SerializedPartitionKey {
-  expr: SqlExpression<ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput>;
+  expr: SqlExpression<SerializedTableProcessorData>;
 }
+
+type SerializedColumnSource = 'star' | { expr: SqlExpression<SerializedTableProcessorData>; alias: string };
 
 interface SerializedDataSource {
   table: SerializedTablePattern;
   outputTableName?: string;
   hash: number;
-  columns: ColumnSource[];
-  filters: SqlExpression<ColumnSqlParameterValue>[];
+  columns: SerializedColumnSource[];
+  filters: SqlExpression<SerializedTableProcessorData>[];
   tableValuedFunctions: TableProcessorTableValuedFunction[];
   partitionBy: SerializedPartitionKey[];
 }
@@ -351,8 +379,8 @@ interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
   lookupScope: ParameterLookupScope;
-  output: SqlExpression<ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput>[];
-  filters: SqlExpression<ColumnSqlParameterValue>[];
+  output: SqlExpression<SerializedTableProcessorData>[];
+  filters: SqlExpression<SerializedTableProcessorData>[];
   tableValuedFunctions: TableProcessorTableValuedFunction[];
   partitionBy: SerializedPartitionKey[];
 }
