@@ -1,6 +1,6 @@
+import { configFile } from '@powersync/service-types';
 import { SyncRulesConfig } from '../../types.js';
 import { SyncRulesCollector } from '../sync-collector.js';
-import { configFile } from '@powersync/service-types';
 
 export class InlineSyncRulesCollector extends SyncRulesCollector {
   get name(): string {
@@ -8,15 +8,15 @@ export class InlineSyncRulesCollector extends SyncRulesCollector {
   }
 
   async collect(baseConfig: configFile.PowerSyncConfig): Promise<SyncRulesConfig | null> {
-    const content = baseConfig.sync_rules?.content;
+    const content = baseConfig?.sync_config?.content;
     if (!content) {
       return null;
     }
 
     return {
       present: true,
-      exit_on_error: true,
-      ...baseConfig.sync_rules
+      exit_on_error: baseConfig.sync_config?.exit_on_error ?? true,
+      ...baseConfig.sync_config
     };
   }
 }
