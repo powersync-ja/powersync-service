@@ -17,7 +17,7 @@ export const env = utils.collectEnvironmentVariables({
    */
   POWERSYNC_SYNC_RULES_B64: utils.type.string.optional(),
   /**
-   * Base64 encoded contents of sync rules YAML
+   * Base64 encoded contents of sync config YAML
    */
   POWERSYNC_SYNC_CONFIG_B64: utils.type.string.optional(),
   /**
