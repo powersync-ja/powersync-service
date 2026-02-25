@@ -40,6 +40,16 @@ export abstract class ConfigCollector {
      */
     const decoded = this.decode(serialized);
     this.validate(decoded);
+
+    /**
+     * For internal convenience, we duplicate sync_rules and sync_config. Making them interchangeable.
+     * Note, we only do this after validation (which only allows one option to be present)
+     */
+    if (decoded.sync_config) {
+      decoded.sync_rules = decoded.sync_config;
+    } else if (decoded.sync_rules) {
+      decoded.sync_config = decoded.sync_rules;
+    }
     return decoded;
   }
 
