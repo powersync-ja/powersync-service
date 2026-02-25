@@ -85,21 +85,21 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
     if (this.compiled_plan != null) {
       const plan = deserializeSyncPlan(this.compiled_plan.plan);
       const compatibility = CompatibilityContext.deserialize(this.compiled_plan.compatibility);
-
-      const precompiled = new PrecompiledSyncConfig(plan, {
-        defaultSchema: options.defaultSchema,
-        engine: javaScriptExpressionEngine(compatibility),
-        sourceText: this.sync_rules_content
-      });
-
+      const eventDefinitions: SqlEventDescriptor[] = [];
       for (const [name, queries] of Object.entries(this.compiled_plan.eventDescriptors)) {
         const descriptor = new SqlEventDescriptor(name, compatibility);
         for (const query of queries) {
           descriptor.addSourceQuery(query, options);
         }
 
-        precompiled.eventDescriptors.push(descriptor);
+        eventDefinitions.push(descriptor);
       }
+
+      const precompiled = new PrecompiledSyncConfig(plan, compatibility, eventDefinitions, {
+        defaultSchema: options.defaultSchema,
+        engine: javaScriptExpressionEngine(compatibility),
+        sourceText: this.sync_rules_content
+      });
 
       config = { config: precompiled, errors: [] };
     } else {

@@ -219,16 +219,12 @@ export class SyncConfigFromYaml {
       streamCompiler.finish();
     }
 
-    const config = new PrecompiledSyncConfig(compiler.output.toSyncPlan(), {
+    // We pass an empty array for eventDefinitions here because those will get parsed in #parseEventDefinitions.
+    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), compatibility, [], {
       defaultSchema: this.options.defaultSchema,
       engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
     });
-    // We still need to store compatibility options with the precompiled sync config because they don't just affect how
-    // we compile sync streams. They also affect how the replicators encode custom types or what JSON compatibility
-    // options we need.
-    config.compatibility = compatibility;
-    return config;
   }
 
   #legacyParseBucketDefinitionsAndStreams(
