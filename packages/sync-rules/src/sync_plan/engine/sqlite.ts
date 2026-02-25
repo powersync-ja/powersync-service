@@ -36,7 +36,7 @@ export function nodeSqliteExpressionEngine(
   registerPowerSyncFunction('st_x');
   registerPowerSyncFunction('st_y');
 
-  db.function('json_contains', { useBigIntArguments: true, deterministic: true }, (a, b) =>
+  db.function('ps_json_contains', { useBigIntArguments: true, deterministic: true }, (a, b) =>
     evaluateOperator('IN', a, b)
   );
 

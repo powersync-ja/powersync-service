@@ -458,7 +458,7 @@ export class PostgresToSqlite {
     if (translateRightResult.isScalar) {
       return this.negate(original, {
         type: 'function',
-        function: 'json_contains',
+        function: 'ps_json_contains',
         parameters: [translatedLeft, translateRightResult.expr]
       });
     } else {

@@ -41,8 +41,8 @@ export function javaScriptExpressionEngine(compatibility: CompatibilityContext):
   const compiler = new ExpressionToJavaScriptFunction({
     named: {
       ...regularFunctions.named,
-      json_contains: {
-        debugName: 'json_contains',
+      ps_json_contains: {
+        debugName: 'ps_json_contains',
         call: function (...args: SqliteValue[]): SqliteValue {
           return evaluateOperator('IN', args[0], args[1]);
         },

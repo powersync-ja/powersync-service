@@ -1798,7 +1798,7 @@ exports[`new sync stream features > not in json array 1`] = `
 {
   "buckets": [
     {
-      "hash": 62230080,
+      "hash": 464039641,
       "sources": [
         0,
       ],
@@ -1813,7 +1813,7 @@ exports[`new sync stream features > not in json array 1`] = `
       "filters": [
         {
           "operand": {
-            "function": "json_contains",
+            "function": "ps_json_contains",
             "parameters": [
               {
                 "source": {
@@ -1832,7 +1832,7 @@ exports[`new sync stream features > not in json array 1`] = `
           "type": "unary",
         },
       ],
-      "hash": 324203250,
+      "hash": 354655507,
       "outputTableName": "notes",
       "partitionBy": [],
       "table": {
