@@ -78,7 +78,6 @@ export interface TableProcessor {
 export interface TableProcessorTableValuedFunction {
   functionName: string;
   functionInputs: SqlExpression<ColumnSqlParameterValue>[];
-  filters: SqlExpression<ColumnSqlParameterValue>[];
 }
 
 export interface TableProcessorTableValuedFunctionOutput {

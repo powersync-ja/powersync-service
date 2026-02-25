@@ -98,8 +98,7 @@ export class CompilerModelToSyncPlan {
       return this.translateStatefulObject(fn, () => {
         return {
           functionName: fn.functionName,
-          functionInputs: fn.inputs.map((e) => this.translateExpression(e.expression, context.syntacticSource)),
-          filters: fn.filters.map((e) => this.translateExpression(e.expression, fn.syntacticSource))
+          functionInputs: fn.inputs.map((e) => this.translateExpression(e.expression, context.syntacticSource))
         } satisfies plan.TableProcessorTableValuedFunction;
       });
     });

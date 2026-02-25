@@ -187,6 +187,12 @@ where uas.user_id = auth.user_id()
     ).toMatchSnapshot();
   });
 
+  test('in json array', () => {
+    expect(
+      compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state IN '["public", "archived"]'`)
+    ).toMatchSnapshot();
+  });
+
   test('not in json array', () => {
     expect(
       compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state NOT IN '["public", "archived"]'`)

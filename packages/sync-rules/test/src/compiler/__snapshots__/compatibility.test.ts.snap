@@ -2635,7 +2635,6 @@ exports[`old streams test > overlap 1`] = `
       },
       "tableValuedFunctions": [
         {
-          "filters": [],
           "functionInputs": [
             {
               "source": {
