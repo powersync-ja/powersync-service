@@ -36,6 +36,7 @@ import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
+import { PostgresCurrentDataStore } from './current-data-store.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -59,6 +60,7 @@ export class PostgresSyncRulesStorage
 
   protected db: lib_postgres.DatabaseClient;
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
@@ -74,6 +76,7 @@ export class PostgresSyncRulesStorage
     this.slot_name = options.sync_rules.slot_name;
     this.factory = options.factory;
     this.storageConfig = options.sync_rules.getStorageConfig();
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -665,19 +668,7 @@ export class PostgresSyncRulesStorage
         group_id = ${{ type: 'int4', value: this.group_id }}
     `.execute();
 
-    if (this.storageConfig.softDeleteCurrentData) {
-      await this.db.sql`
-        DELETE FROM v3_current_data
-        WHERE
-          group_id = ${{ type: 'int4', value: this.group_id }}
-      `.execute();
-    } else {
-      await this.db.sql`
-        DELETE FROM current_data
-        WHERE
-          group_id = ${{ type: 'int4', value: this.group_id }}
-      `.execute();
-    }
+    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.group_id });
 
     await this.db.sql`
       DELETE FROM source_tables

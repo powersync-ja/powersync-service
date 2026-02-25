@@ -301,6 +301,22 @@ export class PostgresCurrentDataStore {
     `.execute();
   }
 
+  async deleteGroupRows(db: Queryable, options: { groupId: number }) {
+    if (this.softDeleteEnabled) {
+      await db.sql`
+        DELETE FROM v3_current_data
+        WHERE
+          group_id = ${{ type: 'int4', value: options.groupId }}
+      `.execute();
+    } else {
+      await db.sql`
+        DELETE FROM current_data
+        WHERE
+          group_id = ${{ type: 'int4', value: options.groupId }}
+      `.execute();
+    }
+  }
+
   private wherePendingDelete(options: { onlyLiveRows: boolean }) {
     if (this.softDeleteEnabled && options.onlyLiveRows) {
       return `AND pending_delete IS NULL`;
