@@ -2,10 +2,10 @@
   "name": "powersync-service",
   "version": "0.0.0",
   "preview": true,
-  "description": "PowerSync source available monorepo",
+  "description": "PowerSync Service source available monorepo",
   "license": "FSL-1.1-ALv2",
   "keywords": [],
-  "author": "JourneyApps Platform",
+  "author": "PowerSync",
   "scripts": {
     "check-updates": "ncu -u --deep",
     "validate:tsconfig-references": "node scripts/validate-tsconfig-references.mts",
