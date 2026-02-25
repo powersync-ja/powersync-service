@@ -8,16 +8,15 @@ export class InlineSyncRulesCollector extends SyncRulesCollector {
   }
 
   async collect(baseConfig: configFile.PowerSyncConfig): Promise<SyncRulesConfig | null> {
-    const content = baseConfig?.sync_config?.content ?? baseConfig.sync_rules?.content;
+    const content = baseConfig?.sync_config?.content;
     if (!content) {
       return null;
     }
 
     return {
       present: true,
-      exit_on_error: baseConfig.sync_config?.exit_on_error ?? baseConfig.sync_rules?.exit_on_error ?? true,
-      ...baseConfig.sync_config,
-      ...baseConfig.sync_rules
+      exit_on_error: baseConfig.sync_config?.exit_on_error ?? true,
+      ...baseConfig.sync_config
     };
   }
 }
