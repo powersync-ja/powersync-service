@@ -375,18 +375,21 @@ export class PostgresToSqlite {
     let translatedRight: SqlExpression<ExpressionInput>;
     let additionalFilters: SqlExpression<ExpressionInput>[] = [];
 
-    const expand = (expr: Expr): SqlExpression<ExpressionInput> => {
+    const expand = (
+      expr: Expr,
+      acceptScalarArray: boolean
+    ): { expr: SqlExpression<ExpressionInput>; isScalar: boolean } => {
       if (expr.type === 'select') {
         const resolved = this.options.joinSubqueryExpression(expr);
         if (resolved == null) {
           // An error would have been logged.
           const bogusValue: SqlExpression<ExpressionInput> = { type: 'lit_null' };
           this.options.locations.sourceForNode.set(bogusValue, this.sourceLocation(expr));
-          return bogusValue;
+          return { expr: bogusValue, isScalar: false };
         }
 
         additionalFilters.push(...resolved.filters);
-        return resolved.output;
+        return { expr: resolved.output, isScalar: false };
       } else {
         if (expr.type == 'ref' && expr.table == null) {
           // This might be a reference to a common table expression, e.g. in  WHERE x IN $cte.
@@ -397,31 +400,42 @@ export class PostgresToSqlite {
             if (columns.length != 1) {
               const bogus = this.invalidExpression(expr, 'Common-table expression must return a single column');
               this.options.locations.sourceForNode.set(bogus, this.sourceLocation(expr));
-              return bogus;
+              return { expr: bogus, isScalar: false };
             }
 
-            return expand({
-              type: 'select',
-              columns: [
-                { expr: { type: 'ref', name: columns[0], table: { name: expr.name }, _location: expr._location } }
-              ],
-              from: [{ type: 'table', name: { name: expr.name } }]
-            });
+            return expand(
+              {
+                type: 'select',
+                columns: [
+                  { expr: { type: 'ref', name: columns[0], table: { name: expr.name }, _location: expr._location } }
+                ],
+                from: [{ type: 'table', name: { name: expr.name } }]
+              },
+              false
+            );
           }
         }
 
-        // Translate `x IN a` to `x IN (SELECT value FROM json_each(a))`.
-        const name = this.options.generateTableAlias();
-        return expand({
-          type: 'select',
-          columns: [{ expr: { type: 'ref', name: 'value', table: { name }, _location: expr._location } }],
-          from: [{ type: 'call', function: { name: 'json_each' }, args: [expr], alias: { name } }]
-        });
+        // This is a scalar expression. Is this acceptable?
+        if (acceptScalarArray) {
+          return { expr: this.translateNodeWithLocation(expr), isScalar: true };
+        } else {
+          // No, then translate `x IN a` to `x IN (SELECT value FROM json_each(a))`.
+          const name = this.options.generateTableAlias();
+          return expand(
+            {
+              type: 'select',
+              columns: [{ expr: { type: 'ref', name: 'value', table: { name }, _location: expr._location } }],
+              from: [{ type: 'call', function: { name: 'json_each' }, args: [expr], alias: { name } }]
+            },
+            false
+          );
+        }
       }
     };
 
     if (type === 'overlap') {
-      translatedLeft = expand(original.left);
+      translatedLeft = expand(original.left, false).expr;
     } else {
       // For IN expressions, the left side is always a scalar.
       translatedLeft = this.translateNodeWithLocation(original.left);
@@ -435,7 +449,21 @@ export class PostgresToSqlite {
       }
     }
 
-    translatedRight = expand(original.right);
+    // Generally, we try to transform `x IN y` operators to `SELECT ... FROM x, y WHERE x = y.value`. This doesn't work
+    // for `NOT IN` operators though. We don't support the general case of `NOT IN` operators, but we want to be able to
+    // support `NOT IN` for scalar expression on the right-hand side. We use the scalar `json_contains` function
+    // available when evaluating sync plans for that. This is also how the `IN` operator is implemented with the old
+    // system before sync plans, we use it as a fallback for NOT IN here.
+    const translateRightResult = expand(original.right, type == 'in' && negated);
+    if (translateRightResult.isScalar) {
+      return this.negate(original, {
+        type: 'function',
+        function: 'json_contains',
+        parameters: [translatedLeft, translateRightResult.expr]
+      });
+    } else {
+      translatedRight = translateRightResult.expr;
+    }
 
     let replacement: SqlExpression<ExpressionInput> = {
       type: 'binary',

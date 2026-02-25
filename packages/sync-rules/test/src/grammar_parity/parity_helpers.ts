@@ -120,7 +120,7 @@ export function assertParserExpectation(fixture: FixtureCase, outcome: Outcome):
     const needle = fixture.err.toLowerCase();
     expect(
       outcome.messages.some((message) => message.toLowerCase().includes(needle)),
-      `Expected a parser error containing '${fixture.err}' for ${fixtureRef(fixture)}`
+      `Expected a parser error containing '${fixture.err}' for ${fixtureRef(fixture)}. Got ${outcome.messages}.`
     ).toBe(true);
   }
 }

@@ -1794,6 +1794,77 @@ exports[`new sync stream features > not in array 1`] = `
 }
 `;
 
+exports[`new sync stream features > not in json array 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 62230080,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "operand": {
+            "function": "json_contains",
+            "parameters": [
+              {
+                "source": {
+                  "column": "state",
+                },
+                "type": "data",
+              },
+              {
+                "type": "lit_string",
+                "value": "["public", "archived"]",
+              },
+            ],
+            "type": "function",
+          },
+          "operator": "not",
+          "type": "unary",
+        },
+      ],
+      "hash": 324203250,
+      "outputTableName": "notes",
+      "partitionBy": [],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "notes",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
 exports[`new sync stream features > order-independent parameters 1`] = `
 {
   "buckets": [
