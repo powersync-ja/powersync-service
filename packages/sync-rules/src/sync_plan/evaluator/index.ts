@@ -4,6 +4,8 @@ import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_cr
 import { StreamBucketSource, StreamInput } from './bucket_source.js';
 import { ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 import { SyncConfig } from '../../SyncConfig.js';
+import { CompatibilityContext } from '../../compatibility.js';
+import { SqlEventDescriptor } from '../../index.js';
 
 export interface StreamEvaluationContext {
   defaultSchema: string;
@@ -20,9 +22,13 @@ export interface StreamEvaluationContext {
 export class PrecompiledSyncConfig extends SyncConfig {
   constructor(
     readonly plan: plan.SyncPlan,
+    compatibility: CompatibilityContext,
+    eventDefinitions: SqlEventDescriptor[],
     context: StreamEvaluationContext
   ) {
     super(context.sourceText);
+    this.compatibility = compatibility;
+    this.eventDescriptors = eventDefinitions;
 
     const preparedBuckets = new Map<plan.StreamBucketDataSource, PreparedStreamBucketDataSource>();
     const preparedLookups = new Map<plan.StreamParameterIndexLookupCreator, PreparedParameterIndexLookupCreator>();
