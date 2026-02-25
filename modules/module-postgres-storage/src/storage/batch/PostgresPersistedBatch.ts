@@ -215,6 +215,7 @@ export class PostgresPersistedBatch {
         source_key_hex: hexReplicaId,
         source_table: source_table
       });
+      this.currentSize += serializedReplicaId.byteLength + 100;
     }
   }
 
@@ -261,6 +262,7 @@ export class PostgresPersistedBatch {
       this.currentSize >= this.maxTransactionBatchSize ||
       this.bucketDataInserts.length >= this.maxTransactionDocCount ||
       this.currentDataInserts.size >= this.maxTransactionDocCount ||
+      this.currentDataDeletes.size >= this.maxTransactionDocCount ||
       this.parameterDataInserts.length >= this.maxTransactionDocCount
     );
   }
