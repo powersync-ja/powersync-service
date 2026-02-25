@@ -14,6 +14,7 @@ export class MongoPersistedSyncRulesContent extends storage.PersistedSyncRulesCo
     super({
       id: doc._id,
       sync_rules_content: doc.content,
+      compiled_plan: doc.serialized_plan ?? null,
       last_checkpoint_lsn: doc.last_checkpoint_lsn,
       // Handle legacy values
       slot_name: doc.slot_name ?? `powersync_${doc._id}`,

@@ -13,6 +13,7 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
     super({
       id: Number(row.id),
       sync_rules_content: row.content,
+      compiled_plan: row.sync_plan,
       last_checkpoint_lsn: row.last_checkpoint_lsn,
       slot_name: row.slot_name,
       last_fatal_error: row.last_fatal_error,

@@ -178,7 +178,14 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
               nextval('sync_rules_id_sequence') AS id
           )
         INSERT INTO
-          sync_rules (id, content, state, slot_name, storage_version)
+          sync_rules (
+            id,
+            content,
+            sync_plan,
+            state,
+            slot_name,
+            storage_version
+          )
         VALUES
           (
             (
@@ -188,6 +195,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
                 next_id
             ),
             ${{ type: 'varchar', value: options.config.yaml }},
+            ${{ type: 'json', value: options.config.plan }},
             ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
             CONCAT(
               ${{ type: 'varchar', value: this.slot_name_prefix }},

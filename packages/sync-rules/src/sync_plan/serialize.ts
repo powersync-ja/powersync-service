@@ -30,7 +30,7 @@ import {
  * queriers to bucket creators. To represent this efficiently, we assign numbers to referenced elements while
  * serializing instead of duplicating definitions.
  */
-export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
+export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanV1 {
   const dataSourceIndex = new Map<StreamDataSource, number>();
   const bucketIndex = new Map<StreamBucketDataSource, number>();
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
@@ -154,7 +154,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   }
 
   return {
-    version: 'unstable', // TODO: Mature to 1 before storing in bucket storage
+    version: 1,
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
       bucketIndex.set(bkt, index);
@@ -173,8 +173,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 }
 
 export function deserializeSyncPlan(serialized: unknown): SyncPlan {
-  // TODO: Mature to version 1
-  if ((serialized as SerializedSyncPlanUnstable).version != 'unstable') {
+  if ((serialized as SerializedSyncPlanV1).version != 1) {
     throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
@@ -205,7 +204,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
     });
   }
 
-  const plan = serialized as SerializedSyncPlanUnstable;
+  const plan = serialized as SerializedSyncPlanV1;
   const dataSources = plan.dataSources.map((source): StreamDataSource => {
     const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
 
@@ -308,8 +307,8 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   };
 }
 
-interface SerializedSyncPlanUnstable {
-  version: 'unstable';
+interface SerializedSyncPlanV1 {
+  version: number;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];

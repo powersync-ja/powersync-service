@@ -189,6 +189,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         _id: id,
         storage_version: storageVersion,
         content: options.config.yaml,
+        serialized_plan: options.config.plan,
         last_checkpoint: null,
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,

@@ -669,4 +669,51 @@ bucket_definitions:
     expect(parsedSchema3).not.equals(parsedSchema2);
     expect(parsedSchema3.getSourceTables()[0].schema).equals('databasename');
   });
+
+  test('sync streams smoke test', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    query: |
+      SELECT data.* FROM test AS data, test AS param
+      WHERE data.foo = param.bar AND param.baz = auth.user_id()
+    `)
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          baz: 'baz',
+          bar: 'bar'
+        },
+        afterReplicaId: test_utils.rid('t1')
+      });
+
+      await batch.commit('1/1');
+    });
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = await checkpoint.getParameterSets([
+      ScopedParameterLookup.direct(
+        {
+          lookupName: 'lookup',
+          queryId: '0'
+        },
+        ['baz']
+      )
+    ]);
+    expect(parameters).toEqual([
+      {
+        '0': 'bar'
+      }
+    ]);
+  });
 }
