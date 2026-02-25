@@ -19,7 +19,7 @@ export function wrapConfigCommand(command: Command) {
     )
     .option(
       `-sync64, --sync-base64 [base64]`,
-      'Base64 encoded YAML Sync Rules. Defaults to process.env.POWERSYNC_SYNC_CONFIG_B64 or process.env.POWERSYNC_SYNC_RULES_B64 for backwards compatility.',
+      'Base64 encoded YAML Sync Config. Defaults to process.env.POWERSYNC_SYNC_CONFIG_B64 or process.env.POWERSYNC_SYNC_RULES_B64 for backwards compatility.',
       util.env.POWERSYNC_SYNC_CONFIG_B64 || util.env.POWERSYNC_SYNC_RULES_B64
     );
 }
