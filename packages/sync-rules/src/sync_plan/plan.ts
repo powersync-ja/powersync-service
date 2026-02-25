@@ -47,9 +47,9 @@ export interface TableProcessor {
   /**
    * All of these expressions exclusively depend on the {@link sourceTable}.
    *
-   * All of the filters must evaluate to a "true-ish" value for the row to be processed.
+   * All of the filters must evaluate to a truthy (according to SQL definitions) value for the row to be processed.
    */
-  filters: SqlExpression<ColumnSqlParameterValue>[];
+  filters: SqlExpression<TableProcessorData>[];
   /**
    * How to partition rows.
    *
@@ -75,10 +75,11 @@ export interface TableProcessor {
  *   - Two table-valued partition keys evaluating two multiple rows leads to a quadratic amount of buckets being
  *     generated.
  */
-export type TableProcessorTableValuedFunction = Omit<
-  EvaluateTableValuedFunction<ColumnSqlParameterValue>,
-  'type' | 'outputs'
->;
+export interface TableProcessorTableValuedFunction {
+  functionName: string;
+  functionInputs: SqlExpression<ColumnSqlParameterValue>[];
+  filters: SqlExpression<ColumnSqlParameterValue>[];
+}
 
 export interface TableProcessorTableValuedFunctionOutput {
   /**
@@ -92,12 +93,20 @@ export interface TableProcessorTableValuedFunctionOutput {
 }
 
 /**
+ * External data that can be used in expressions for {@link TableProcessor}s.
+ *
+ * This allows references to the row in the table being processed, and references to outputs of joined
+ * {@link TableProcessor#tableValuedFunctions}.
+ */
+export type TableProcessorData = ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput;
+
+/**
  * A scalar partition key evaluates to a single value in the source or parameter row. For instance, a stream definition
  * like `SELECT * FROM users WHERE id = auth.user_id()` would generate a scalar key to partition users by the `id`
  * column.
  */
 export interface PartitionKey {
-  expr: SqlExpression<ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput>;
+  expr: SqlExpression<TableProcessorData>;
 }
 
 /**
@@ -121,7 +130,7 @@ export interface StreamDataSource extends TableProcessor {
   columns: ColumnSource[];
 }
 
-export type ColumnSource = 'star' | { expr: SqlExpression<ColumnSqlParameterValue>; alias: string };
+export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; alias: string };
 
 /**
  * A mapping describing how {@link StreamDataSource}s are combined into buckets.
@@ -162,7 +171,7 @@ export interface StreamParameterIndexLookupCreator extends TableProcessor {
    * streams because the output of parameters might be passed through additional stages or transformed by the querier
    * before becoming a parameter value.
    */
-  outputs: SqlExpression<ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput>[];
+  outputs: SqlExpression<TableProcessorData>[];
 }
 
 export interface StreamOptions {
