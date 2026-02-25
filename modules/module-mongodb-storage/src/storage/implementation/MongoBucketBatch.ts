@@ -728,37 +728,35 @@ export class MongoBucketBatch
       ]
     };
 
-    let filter: mongo.Filter<SyncRuleDocument> = { _id: this.group_id };
-    if (!createEmptyCheckpoints) {
-      // Only create checkpoint if we have new data
-      filter = {
-        _id: this.group_id,
-        $expr: {
-          $or: [{ $ne: ['$keepalive_op', new_keepalive_op] }, { $ne: ['$last_checkpoint', new_last_checkpoint] }]
-        }
-      };
-    }
-
     // For this query, we need to handle multiple cases, depending on the state:
     // 1. Normal commit - advance last_checkpoint to this.persisted_op.
     // 2. Commit delayed by no_checkpoint_before due to snapshot. In this case we only advance keepalive_op.
     // 3. Commit with no new data - here may may set last_checkpoint = keepalive_op, if a delayed commit is relevant.
     // We want to do as much as possible in a single atomic database operation, which makes this somewhat complex.
-    let updateResult = await this.db.sync_rules.findOneAndUpdate(
-      filter,
+    let preUpdateDocument = await this.db.sync_rules.findOneAndUpdate(
+      { _id: this.group_id },
       [
         {
           $set: {
-            _can_checkpoint: can_checkpoint
+            _can_checkpoint: can_checkpoint,
+            _not_empty: createEmptyCheckpoints
+              ? true
+              : {
+                  $or: [
+                    { $literal: createEmptyCheckpoints },
+                    { $ne: ['$keepalive_op', new_keepalive_op] },
+                    { $ne: ['$last_checkpoint', new_last_checkpoint] }
+                  ]
+                }
           }
         },
         {
           $set: {
             last_checkpoint_lsn: {
-              $cond: ['$_can_checkpoint', { $literal: lsn }, '$last_checkpoint_lsn']
+              $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: lsn }, '$last_checkpoint_lsn']
             },
             last_checkpoint_ts: {
-              $cond: ['$_can_checkpoint', { $literal: now }, '$last_checkpoint_ts']
+              $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: now }, '$last_checkpoint_ts']
             },
             last_keepalive_ts: { $literal: now },
             last_fatal_error: { $literal: null },
@@ -767,17 +765,18 @@ export class MongoBucketBatch
             last_checkpoint: new_last_checkpoint,
             // Unset snapshot_lsn on checkpoint
             snapshot_lsn: {
-              $cond: ['$_can_checkpoint', { $literal: null }, '$snapshot_lsn']
+              $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: null }, '$snapshot_lsn']
             }
           }
         },
         {
-          $unset: '_can_checkpoint'
+          $unset: ['_can_checkpoint', '_not_empty']
         }
       ],
       {
         session: this.session,
-        returnDocument: 'after',
+        // We return the before document, so that we can check the previous state to determine if a checkpoint was actually created or if we were blocked by snapshot/no_checkpoint_before.
+        returnDocument: 'before',
         projection: {
           snapshot_done: 1,
           last_checkpoint_lsn: 1,
@@ -787,63 +786,63 @@ export class MongoBucketBatch
         }
       }
     );
-    const checkpointCreated =
-      updateResult != null &&
-      updateResult.snapshot_done === true &&
-      updateResult.last_checkpoint_lsn === lsn &&
-      updateResult.last_checkpoint != null;
 
-    // If updateResult == null, the checkpoint was not created due to no data, not due to being blocked.
-    const checkpointBlocked = !checkpointCreated && updateResult != null;
+    if (preUpdateDocument == null) {
+      throw new ReplicationAssertionError(
+        'Failed to update checkpoint - no matching sync_rules document for _id: ' + this.group_id
+      );
+    }
 
-    if (updateResult == null || !checkpointCreated) {
+    // This re-implements the same logic as in the pipeline, to determine what was actually updated.
+    // Unfortunately we cannot return these from the pipeline directly, so we need to re-implement the logic.
+    const canCheckpoint =
+      preUpdateDocument.snapshot_done === true &&
+      (preUpdateDocument.last_checkpoint_lsn == null || preUpdateDocument.last_checkpoint_lsn <= lsn) &&
+      (preUpdateDocument.no_checkpoint_before == null || preUpdateDocument.no_checkpoint_before <= lsn);
+
+    const keepaliveOp = preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op);
+    const maxKeepalive = [keepaliveOp ?? 0n, this.persisted_op ?? 0n, 0n].reduce((a, b) => (a > b ? a : b));
+    const newKeepaliveOp = canCheckpoint ? null : maxKeepalive.toString();
+    const newLastCheckpoint = canCheckpoint
+      ? [preUpdateDocument.last_checkpoint ?? 0n, this.persisted_op ?? 0n, keepaliveOp ?? 0n, 0n].reduce((a, b) =>
+          a > b ? a : b
+        )
+      : preUpdateDocument.last_checkpoint;
+    const notEmpty =
+      createEmptyCheckpoints ||
+      preUpdateDocument.keepalive_op !== newKeepaliveOp ||
+      preUpdateDocument.last_checkpoint !== newLastCheckpoint;
+    const checkpointCreated = canCheckpoint && notEmpty;
+
+    const checkpointBlocked = !canCheckpoint;
+
+    if (checkpointBlocked) {
       // Failed on snapshot_done or no_checkpoint_before.
       if (Date.now() - this.lastWaitingLogThottled > 5_000) {
-        // This is for debug info only.
-        if (updateResult == null) {
-          const existing = await this.db.sync_rules.findOne(
-            { _id: this.group_id },
-            {
-              session: this.session,
-              projection: {
-                snapshot_done: 1,
-                last_checkpoint_lsn: 1,
-                no_checkpoint_before: 1,
-                keepalive_op: 1,
-                last_checkpoint: 1
-              }
-            }
-          );
-          if (existing == null) {
-            throw new ReplicationAssertionError('Failed to load sync_rules document during checkpoint update');
-          }
-          // No-op update - reuse existing document for downstream logic.
-          // This can happen when last_checkpoint and keepalive_op would remain unchanged.
-          updateResult = existing;
-        }
-
         this.logger.info(
-          `Waiting before creating checkpoint, currently at ${lsn} / ${updateResult.keepalive_op}. Current state: ${JSON.stringify(
+          `Waiting before creating checkpoint, currently at ${lsn} / ${preUpdateDocument.keepalive_op}. Current state: ${JSON.stringify(
             {
-              snapshot_done: updateResult.snapshot_done,
-              last_checkpoint_lsn: updateResult.last_checkpoint_lsn,
-              no_checkpoint_before: updateResult.no_checkpoint_before
+              snapshot_done: preUpdateDocument.snapshot_done,
+              last_checkpoint_lsn: preUpdateDocument.last_checkpoint_lsn,
+              no_checkpoint_before: preUpdateDocument.no_checkpoint_before
             }
           )}`
         );
         this.lastWaitingLogThottled = Date.now();
       }
     } else {
-      this.logger.debug(`Created checkpoint at ${lsn} / ${updateResult.last_checkpoint}`);
+      if (checkpointCreated) {
+        this.logger.debug(`Created checkpoint at ${lsn} / ${newLastCheckpoint}`);
+      }
       await this.autoActivate(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
-      if (this.db.storageConfig.softDeleteCurrentData) {
-        await this.cleanupCurrentData(updateResult.last_checkpoint!);
+      if (this.db.storageConfig.softDeleteCurrentData && newLastCheckpoint != null) {
+        await this.cleanupCurrentData(newLastCheckpoint);
       }
     }
-    return { checkpointBlocked };
+    return { checkpointBlocked, checkpointCreated };
   }
 
   private async cleanupCurrentData(lastCheckpoint: bigint) {

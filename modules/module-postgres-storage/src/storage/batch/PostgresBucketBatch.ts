@@ -491,7 +491,7 @@ export class PostgresBucketBatch
         );
         this.lastWaitingLogThrottled = Date.now();
       }
-      return { checkpointBlocked: true };
+      return { checkpointBlocked: true, checkpointCreated: false };
     }
 
     if (result.created_checkpoint) {
@@ -519,7 +519,7 @@ export class PostgresBucketBatch
     this.last_checkpoint_lsn = lsn;
 
     // Even if created_checkpoint is false, if can_checkpoint is true, we need to return not blocked.
-    return { checkpointBlocked: false };
+    return { checkpointBlocked: false, checkpointCreated: result.created_checkpoint };
   }
 
   async keepalive(lsn: string): Promise<CheckpointResult> {

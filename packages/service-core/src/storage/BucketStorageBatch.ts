@@ -170,6 +170,14 @@ export interface CheckpointResult {
    * 3. Replication was restarted with a lower LSN, and has not caught up yet.
    */
   checkpointBlocked: boolean;
+
+  /**
+   * True if a checkpoint was actually created by this operation. This can be false even if checkpointBlocked is false,
+   * if the checkpoint was empty.
+   *
+   * This is primarily used for testing.
+   */
+  checkpointCreated: boolean;
 }
 
 export interface BucketBatchStorageListener {
