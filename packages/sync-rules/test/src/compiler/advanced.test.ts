@@ -199,6 +199,20 @@ where uas.user_id = auth.user_id()
     ).toMatchSnapshot();
   });
 
+  test('in array and additional filter in subquery', () => {
+    expect(
+      compileSingleStreamAndSerialize(`
+SELECT * FROM notes
+  WHERE owner_id IN (
+    SELECT users.id
+    FROM users
+    WHERE users.state IN '["public", "archived"]'
+      AND users.org = auth.parameter('org')
+  )
+`)
+    ).toMatchSnapshot();
+  });
+
   describe('table-valued functions', () => {
     test('static filter', () => {
       expect(
