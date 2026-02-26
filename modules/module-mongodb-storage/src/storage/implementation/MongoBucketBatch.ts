@@ -76,6 +76,10 @@ export class MongoBucketBatch
   private readonly group_id: number;
 
   private readonly slot_name: string;
+  /**
+   * @deprecated This is now determined per-table via SourceTable.storeCurrentData.
+   * Kept for backward compatibility.
+   */
   private readonly storeCurrentData: boolean;
   private readonly skipExistingRows: boolean;
 
@@ -202,8 +206,11 @@ export class MongoBucketBatch
     options?: storage.BucketBatchCommitOptions
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
-    if (this.storeCurrentData && !this.skipExistingRows) {
-      // We skip this step if we don't store current_data, since the sizes will
+    // Check if any table in this batch needs to store current_data
+    const anyTableStoresCurrentData = batch.batch.some((r) => r.record.sourceTable.storeCurrentData);
+
+    if (anyTableStoresCurrentData && !this.skipExistingRows) {
+      // We skip this step if no tables store current_data, since the sizes will
       // always be small in that case.
 
       // With skipExistingRows, we don't load the full documents into memory,
@@ -216,9 +223,11 @@ export class MongoBucketBatch
       // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
       // the order of processing, which then becomes really tricky to manage.
       // This now takes 2+ queries, but doesn't have any issues with order of operations.
-      const sizeLookups: SourceKey[] = batch.batch.map((r) => {
-        return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
-      });
+      const sizeLookups: SourceKey[] = batch.batch
+        .filter((r) => r.record.sourceTable.storeCurrentData)
+        .map((r) => {
+          return { g: this.group_id, t: r.record.sourceTable.id, k: r.beforeId };
+        });
 
       sizes = new Map<string, number>();
 
@@ -362,7 +371,7 @@ export class MongoBucketBatch
         // Not an error if we re-apply a transaction
         existing_buckets = [];
         existing_lookups = [];
-        if (!isCompleteRow(this.storeCurrentData, after!)) {
+        if (!isCompleteRow(sourceTable.storeCurrentData, after!)) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row
@@ -378,7 +387,7 @@ export class MongoBucketBatch
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
-        if (this.storeCurrentData) {
+        if (sourceTable.storeCurrentData) {
           const data = deserializeBson((result.data as mongo.Binary).buffer) as SqliteRow;
           after = storage.mergeToast<SqliteValue>(after!, data);
         }
@@ -390,7 +399,7 @@ export class MongoBucketBatch
         existing_buckets = [];
         existing_lookups = [];
         // Log to help with debugging if there was a consistency issue
-        if (this.storeCurrentData && this.markRecordUnavailable == null) {
+        if (sourceTable.storeCurrentData && this.markRecordUnavailable == null) {
           this.logger.warn(
             `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
           );
@@ -402,7 +411,7 @@ export class MongoBucketBatch
     }
 
     let afterData: bson.Binary | undefined;
-    if (afterId != null && !this.storeCurrentData) {
+    if (afterId != null && !sourceTable.storeCurrentData) {
       afterData = new bson.Binary(bson.serialize({}));
     } else if (afterId != null) {
       try {
@@ -469,7 +478,7 @@ export class MongoBucketBatch
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && utils.isCompleteRow(this.storeCurrentData, after)) {
+    if (afterId && after && utils.isCompleteRow(sourceTable.storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
@@ -900,8 +909,8 @@ export class MongoBucketBatch
           table: sourceTable,
           data: {
             op: tag,
-            after: after && utils.isCompleteRow(this.storeCurrentData, after) ? after : undefined,
-            before: before && utils.isCompleteRow(this.storeCurrentData, before) ? before : undefined
+            after: after && utils.isCompleteRow(sourceTable.storeCurrentData, after) ? after : undefined,
+            before: before && utils.isCompleteRow(sourceTable.storeCurrentData, before) ? before : undefined
           },
           event
         })
