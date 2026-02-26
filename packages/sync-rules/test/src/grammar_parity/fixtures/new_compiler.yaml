@@ -73,7 +73,7 @@ query:
     # where-clause-support.md example (NOT IN with parameter source)
     # parser: This expression already references 'comments', so it can't also reference data from this row unless the two are compared with an equals operator.
     - sql: SELECT * FROM comments WHERE id NOT IN subscription.parameter('excluded_ids')
-      err: can't also reference data from this row
+      err: can't also reference connection parameters
 
   rejected_semantic:
     # parser: This expression already references 'users', so it can't also reference data from this row unless the two are compared with an equals operator. | This filter is unrelated to the request or the table being synced, and not supported.

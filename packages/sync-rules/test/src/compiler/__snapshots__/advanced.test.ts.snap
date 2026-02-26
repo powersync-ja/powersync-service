@@ -70,6 +70,241 @@ exports[`new sync stream features > in array 1`] = `
 }
 `;
 
+exports[`new sync stream features > in array and additional filter in subquery 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 322018032,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 526524156,
+      "outputTableName": "notes",
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "owner_id",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "notes",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [
+        {
+          "left": {
+            "source": {
+              "column": "state",
+            },
+            "type": "data",
+          },
+          "operator": "=",
+          "right": {
+            "source": {
+              "function": 0,
+              "outputName": "value",
+            },
+            "type": "data",
+          },
+          "type": "binary",
+        },
+      ],
+      "hash": 372404644,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
+      "output": [
+        {
+          "source": {
+            "column": "id",
+          },
+          "type": "data",
+        },
+      ],
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "org",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "users",
+      },
+      "tableValuedFunctions": [
+        {
+          "functionInputs": [
+            {
+              "type": "lit_string",
+              "value": "["public", "archived"]",
+            },
+          ],
+          "functionName": "json_each",
+        },
+      ],
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "function": "->>",
+                      "parameters": [
+                        {
+                          "source": {
+                            "request": "auth",
+                          },
+                          "type": "data",
+                        },
+                        {
+                          "type": "lit_string",
+                          "value": "org",
+                        },
+                      ],
+                      "type": "function",
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
+exports[`new sync stream features > in json array 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 28125559,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "left": {
+            "source": {
+              "column": "state",
+            },
+            "type": "data",
+          },
+          "operator": "=",
+          "right": {
+            "source": {
+              "function": 0,
+              "outputName": "value",
+            },
+            "type": "data",
+          },
+          "type": "binary",
+        },
+      ],
+      "hash": 475318095,
+      "outputTableName": "notes",
+      "partitionBy": [],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "notes",
+      },
+      "tableValuedFunctions": [
+        {
+          "functionInputs": [
+            {
+              "type": "lit_string",
+              "value": "["public", "archived"]",
+            },
+          ],
+          "functionName": "json_each",
+        },
+      ],
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
 exports[`new sync stream features > joins feedback > response 1 1`] = `
 {
   "buckets": [
@@ -1324,7 +1559,6 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
       },
       "tableValuedFunctions": [
         {
-          "filters": [],
           "functionInputs": [
             {
               "source": {
@@ -1794,6 +2028,77 @@ exports[`new sync stream features > not in array 1`] = `
 }
 `;
 
+exports[`new sync stream features > not in json array 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 464039641,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [
+        {
+          "operand": {
+            "function": "ps_json_contains",
+            "parameters": [
+              {
+                "source": {
+                  "column": "state",
+                },
+                "type": "data",
+              },
+              {
+                "type": "lit_string",
+                "value": "["public", "archived"]",
+              },
+            ],
+            "type": "function",
+          },
+          "operator": "not",
+          "type": "unary",
+        },
+      ],
+      "hash": 354655507,
+      "outputTableName": "notes",
+      "partitionBy": [],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "notes",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
 exports[`new sync stream features > order-independent parameters 1`] = `
 {
   "buckets": [
@@ -1970,7 +2275,6 @@ exports[`new sync stream features > table-valued functions > partition on data 1
       },
       "tableValuedFunctions": [
         {
-          "filters": [],
           "functionInputs": [
             {
               "source": {
@@ -2097,7 +2401,6 @@ exports[`new sync stream features > table-valued functions > partition on parame
       },
       "tableValuedFunctions": [
         {
-          "filters": [],
           "functionInputs": [
             {
               "source": {
@@ -2173,7 +2476,7 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
 {
   "buckets": [
     {
-      "hash": 262234293,
+      "hash": 144538386,
       "sources": [
         0,
       ],
@@ -2185,8 +2488,24 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
       "columns": [
         "star",
       ],
-      "filters": [],
-      "hash": 184774135,
+      "filters": [
+        {
+          "left": {
+            "type": "lit_string",
+            "value": "important",
+          },
+          "operator": "=",
+          "right": {
+            "source": {
+              "function": 0,
+              "outputName": "value",
+            },
+            "type": "data",
+          },
+          "type": "binary",
+        },
+      ],
+      "hash": 297403199,
       "outputTableName": "posts",
       "partitionBy": [],
       "table": {
@@ -2196,22 +2515,6 @@ exports[`new sync stream features > table-valued functions > static filter 1`] =
       },
       "tableValuedFunctions": [
         {
-          "filters": [
-            {
-              "left": {
-                "type": "lit_string",
-                "value": "important",
-              },
-              "operator": "=",
-              "right": {
-                "source": {
-                  "column": "value",
-                },
-                "type": "data",
-              },
-              "type": "binary",
-            },
-          ],
           "functionInputs": [
             {
               "source": {
