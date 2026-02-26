@@ -1,5 +1,19 @@
 # @powersync/service-sync-rules
 
+## 0.32.0
+
+### Minor Changes
+
+- 8bd83e8: Introduce storage versions.
+- 5edd95f: Remnoved Flutterflow schema generator.
+
+### Patch Changes
+
+- 1c45667: New compiler: Fix some crashes compiling `NOT IN`, `NOT LIKE` and `NOT BETWEEN` operators.
+- 8785a3f: Warn for dangerous queries in `config.edition: 3`.
+- d7ff4ad: Add `config.edition` version `3` to adopt the new Sync Streams compiler.
+- 79a9729: Updated Dotnet schema generator to support new syntax.
+
 ## 0.31.1
 
 ### Patch Changes

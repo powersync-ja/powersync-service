@@ -1,5 +1,17 @@
 # @powersync/lib-service-postgres
 
+## 0.4.22
+
+### Patch Changes
+
+- 15aea77: Support connection parameters via database URL query string. PostgreSQL supports `connect_timeout`. MongoDB supports `connectTimeoutMS`, `socketTimeoutMS`, `serverSelectionTimeoutMS`, `maxPoolSize`, `maxIdleTimeMS`. MySQL supports `connectTimeout`, `connectionLimit`, `queueLimit`.
+- Updated dependencies [15aea77]
+- Updated dependencies [0998251]
+- Updated dependencies [c683322]
+  - @powersync/service-jpgwire@0.21.13
+  - @powersync/service-types@0.15.0
+  - @powersync/lib-services-framework@0.8.3
+
 ## 0.4.21
 
 ### Patch Changes
