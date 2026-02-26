@@ -45,19 +45,15 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Flush and commit any saved ops. This creates a new checkpoint by default.
    *
    * Only call this after a transaction.
-   *
-   * Returns true if either (1) a new checkpoint was created, or (2) there are no changes to commit.
    */
-  commit(lsn: string, options?: BucketBatchCommitOptions): Promise<boolean>;
+  commit(lsn: string, options?: BucketBatchCommitOptions): Promise<CheckpointResult>;
 
   /**
    * Advance the checkpoint LSN position, without any associated op.
    *
    * This must only be called when not inside a transaction.
-   *
-   * @returns true if the checkpoint was advanced, false if this was a no-op
    */
-  keepalive(lsn: string): Promise<boolean>;
+  keepalive(lsn: string): Promise<CheckpointResult>;
 
   /**
    * Set the LSN that replication should resume from.
@@ -83,9 +79,9 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    */
   resumeFromLsn: string | null;
 
-  noCheckpointBeforeLsn: string;
-
-  markSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn: string): Promise<SourceTable[]>;
+  markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
+  markTableSnapshotRequired(table: SourceTable): Promise<void>;
+  markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
@@ -164,6 +160,24 @@ export interface SaveDelete {
   beforeReplicaId: ReplicaId;
   after?: undefined;
   afterReplicaId?: undefined;
+}
+
+export interface CheckpointResult {
+  /**
+   * True if any of these are true:
+   * 1. A snapshot is in progress.
+   * 2. The last checkpoint is older than "no_checkpoint_before" (if provided).
+   * 3. Replication was restarted with a lower LSN, and has not caught up yet.
+   */
+  checkpointBlocked: boolean;
+
+  /**
+   * True if a checkpoint was actually created by this operation. This can be false even if checkpointBlocked is false,
+   * if the checkpoint was empty.
+   *
+   * This is primarily used for testing.
+   */
+  checkpointCreated: boolean;
 }
 
 export interface BucketBatchStorageListener {

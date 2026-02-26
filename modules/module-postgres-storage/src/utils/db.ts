@@ -21,6 +21,7 @@ export const dropTables = async (client: lib_postgres.DatabaseClient) => {
     await db.sql`DROP TABLE IF EXISTS instance`.execute();
     await db.sql`DROP TABLE IF EXISTS bucket_data`.execute();
     await db.sql`DROP TABLE IF EXISTS current_data`.execute();
+    await db.sql`DROP TABLE IF EXISTS v3_current_data`.execute();
     await db.sql`DROP TABLE IF EXISTS source_tables`.execute();
     await db.sql`DROP TABLE IF EXISTS write_checkpoints`.execute();
     await db.sql`DROP TABLE IF EXISTS custom_write_checkpoints`.execute();
@@ -49,6 +50,15 @@ export const truncateTables = async (db: lib_postgres.DatabaseClient) => {
         custom_write_checkpoints,
         connection_report_events RESTART IDENTITY CASCADE
     `
+    },
+    {
+      // TRUNCATE if v3_current_data exists
+      statement: `DO $$
+        BEGIN
+          IF to_regclass('v3_current_data') IS NOT NULL THEN
+            EXECUTE 'TRUNCATE TABLE v3_current_data RESTART IDENTITY CASCADE';
+          END IF;
+        END $$;`
     },
     {
       statement: `ALTER SEQUENCE IF EXISTS op_id_sequence RESTART

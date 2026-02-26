@@ -91,14 +91,29 @@ export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
   }
 }
 
-export function replicaIdToSubkey(table: bson.ObjectId, id: storage.ReplicaId): string {
+export function replicaIdToSubkey(table: storage.SourceTableId, id: storage.ReplicaId): string {
   if (storage.isUUID(id)) {
     // Special case for UUID for backwards-compatiblity
-    return `${table.toHexString()}/${id.toHexString()}`;
+    return `${tableIdString(table)}/${id.toHexString()}`;
   } else {
     // Hashed UUID from the table and id
     const repr = bson.serialize({ table, id });
     return uuid.v5(repr, utils.ID_NAMESPACE);
+  }
+}
+
+export function mongoTableId(table: storage.SourceTableId): bson.ObjectId {
+  if (typeof table == 'string') {
+    throw new ServiceAssertionError(`Got string table id, expected ObjectId`);
+  }
+  return table;
+}
+
+function tableIdString(table: storage.SourceTableId) {
+  if (typeof table == 'string') {
+    return table;
+  } else {
+    return table.toHexString();
   }
 }
 

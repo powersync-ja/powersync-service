@@ -3,9 +3,11 @@ import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 
-const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
+export function registerParameterCompactTests(config: storage.TestStorageConfig) {
+  const generateStorageFactory = config.factory;
 
-export function registerParameterCompactTests(generateStorageFactory: storage.TestStorageFactory) {
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
+
   test('compacting parameters', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
@@ -19,6 +21,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -102,6 +105,7 @@ bucket_definitions:
       const bucketStorage = factory.getInstance(syncRules);
 
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('1/1');
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,

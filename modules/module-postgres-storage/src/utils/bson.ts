@@ -6,7 +6,7 @@ import * as uuid from 'uuid';
  * JSONB columns do not directly support storing binary data which could be required in future.
  */
 
-export function replicaIdToSubkey(tableId: string, id: storage.ReplicaId): string {
+export function replicaIdToSubkey(tableId: storage.SourceTableId, id: storage.ReplicaId): string {
   // Hashed UUID from the table and id
   if (storage.isUUID(id)) {
     // Special case for UUID for backwards-compatiblity

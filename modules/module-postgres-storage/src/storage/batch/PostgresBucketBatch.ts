@@ -11,6 +11,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageMarkRecordUnavailable,
+  CheckpointResult,
   deserializeReplicaId,
   InternalOpId,
   storage,
@@ -19,13 +20,16 @@ import {
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
-import { CurrentBucket, CurrentData, CurrentDataDecoded } from '../../types/models/CurrentData.js';
+import { CurrentBucket, V3CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
-import { NOTIFICATION_CHANNEL, sql } from '../../utils/db.js';
+import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
+import { bigint } from '../../types/codecs.js';
+import { PostgresCurrentDataStore } from '../current-data-store.js';
+import { postgresTableId } from '../table-id.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;
@@ -34,7 +38,6 @@ export interface PostgresBucketBatchOptions {
   group_id: number;
   slot_name: string;
   last_checkpoint_lsn: string | null;
-  no_checkpoint_before_lsn: string;
   store_current_data: boolean;
   keep_alive_op?: InternalOpId | null;
   resumeFromLsn: string | null;
@@ -45,6 +48,7 @@ export interface PostgresBucketBatchOptions {
   batch_limits: RequiredOperationBatchLimits;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  storageConfig: storage.StorageVersionConfig;
 }
 
 /**
@@ -53,6 +57,18 @@ export interface PostgresBucketBatchOptions {
  */
 const StatefulCheckpoint = models.ActiveCheckpoint.and(t.object({ state: t.Enum(storage.SyncRuleState) }));
 type StatefulCheckpointDecoded = t.Decoded<typeof StatefulCheckpoint>;
+
+const CheckpointWithStatus = StatefulCheckpoint.and(
+  t.object({
+    snapshot_done: t.boolean,
+    no_checkpoint_before: t.string.or(t.Null),
+    can_checkpoint: t.boolean,
+    keepalive_op: bigint.or(t.Null),
+    new_last_checkpoint: bigint.or(t.Null),
+    created_checkpoint: t.boolean
+  })
+);
+type CheckpointWithStatusDecoded = t.Decoded<typeof CheckpointWithStatus>;
 
 /**
  * 15MB. Currently matches MongoDB.
@@ -73,7 +89,6 @@ export class PostgresBucketBatch
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
   protected last_checkpoint_lsn: string | null;
-  protected no_checkpoint_before_lsn: string;
 
   protected persisted_op: InternalOpId | null;
 
@@ -84,6 +99,8 @@ export class PostgresBucketBatch
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private needsActivation = true;
   private clearedError = false;
+  private readonly storageConfig: storage.StorageVersionConfig;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -91,13 +108,14 @@ export class PostgresBucketBatch
     this.db = options.db;
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
-    this.no_checkpoint_before_lsn = options.no_checkpoint_before_lsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = null;
     this.persisted_op = null;
+    this.storageConfig = options.storageConfig;
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
     if (options.keep_alive_op) {
       this.persisted_op = options.keep_alive_op;
     }
@@ -105,10 +123,6 @@ export class PostgresBucketBatch
 
   get lastCheckpointLsn() {
     return this.last_checkpoint_lsn;
-  }
-
-  get noCheckpointBeforeLsn() {
-    return this.no_checkpoint_before_lsn;
   }
 
   async [Symbol.asyncDispose]() {
@@ -177,33 +191,24 @@ export class PostgresBucketBatch
     const BATCH_LIMIT = 2000;
     let lastBatchCount = BATCH_LIMIT;
     let processedCount = 0;
-    const codec = pick(models.CurrentData, ['buckets', 'lookups', 'source_key']);
-
     while (lastBatchCount == BATCH_LIMIT) {
       lastBatchCount = 0;
       await this.withReplicationTransaction(async (db) => {
         const persistedBatch = new PostgresPersistedBatch({
           group_id: this.group_id,
+          storageConfig: this.storageConfig,
           ...this.options.batch_limits
         });
 
-        for await (const rows of db.streamRows<t.Encoded<typeof codec>>(sql`
-          SELECT
-            buckets,
-            lookups,
-            source_key
-          FROM
-            current_data
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
-          LIMIT
-            ${{ type: 'int4', value: BATCH_LIMIT }}
-        `)) {
+        for await (const rows of this.currentDataStore.streamTruncateRows(db, {
+          groupId: this.group_id,
+          sourceTableId: postgresTableId(sourceTable.id),
+          limit: BATCH_LIMIT
+        })) {
           lastBatchCount += rows.length;
           processedCount += rows.length;
 
-          const decodedRows = rows.map((row) => codec.decode(row));
+          const decodedRows = rows.map((row) => this.currentDataStore.decodeTruncateRow(row));
           for (const value of decodedRows) {
             const source_key = deserializeReplicaId(value.source_key);
             persistedBatch.saveBucketData({
@@ -221,7 +226,9 @@ export class PostgresBucketBatch
             persistedBatch.deleteCurrentData({
               // This is serialized since we got it from a DB query
               serialized_source_key: value.source_key,
-              source_table_id: sourceTable.id
+              source_table_id: postgresTableId(sourceTable.id),
+              // No need for soft delete, since this is not streaming replication
+              soft: false
             });
           }
         }
@@ -299,140 +306,193 @@ export class PostgresBucketBatch
     return { flushed_op: lastOp };
   }
 
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<boolean> {
-    const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
+  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
+    const createEmptyCheckpoints = options?.createEmptyCheckpoints ?? true;
 
     await this.flush();
 
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // When re-applying transactions, don't create a new checkpoint until
-      // we are past the last transaction.
-      this.logger.info(`Re-applied transaction ${lsn} - skipping checkpoint`);
-      // Cannot create a checkpoint yet - return false
-      return false;
+    const now = new Date().toISOString();
+
+    const persisted_op = this.persisted_op ?? null;
+
+    const result = await this.db.sql`
+      WITH
+        selected AS (
+          SELECT
+            id,
+            state,
+            last_checkpoint,
+            last_checkpoint_lsn,
+            snapshot_done,
+            no_checkpoint_before,
+            keepalive_op,
+            (
+              snapshot_done = TRUE
+              AND (
+                last_checkpoint_lsn IS NULL
+                OR last_checkpoint_lsn <= ${{ type: 'varchar', value: lsn }}
+              )
+              AND (
+                no_checkpoint_before IS NULL
+                OR no_checkpoint_before <= ${{ type: 'varchar', value: lsn }}
+              )
+            ) AS can_checkpoint
+          FROM
+            sync_rules
+          WHERE
+            id = ${{ type: 'int4', value: this.group_id }}
+          FOR UPDATE
+        ),
+        computed AS (
+          SELECT
+            selected.*,
+            CASE
+              WHEN selected.can_checkpoint THEN GREATEST(
+                selected.last_checkpoint,
+                ${{ type: 'int8', value: persisted_op }},
+                selected.keepalive_op,
+                0
+              )
+              ELSE selected.last_checkpoint
+            END AS new_last_checkpoint,
+            CASE
+              WHEN selected.can_checkpoint THEN NULL
+              ELSE GREATEST(
+                selected.keepalive_op,
+                ${{ type: 'int8', value: persisted_op }},
+                0
+              )
+            END AS new_keepalive_op
+          FROM
+            selected
+        ),
+        updated AS (
+          UPDATE sync_rules AS sr
+          SET
+            last_checkpoint_lsn = CASE
+              WHEN computed.can_checkpoint THEN ${{ type: 'varchar', value: lsn }}
+              ELSE sr.last_checkpoint_lsn
+            END,
+            last_checkpoint_ts = CASE
+              WHEN computed.can_checkpoint THEN ${{ type: 1184, value: now }}
+              ELSE sr.last_checkpoint_ts
+            END,
+            last_keepalive_ts = ${{ type: 1184, value: now }},
+            last_fatal_error = CASE
+              WHEN computed.can_checkpoint THEN NULL
+              ELSE sr.last_fatal_error
+            END,
+            keepalive_op = computed.new_keepalive_op,
+            last_checkpoint = computed.new_last_checkpoint,
+            snapshot_lsn = CASE
+              WHEN computed.can_checkpoint THEN NULL
+              ELSE sr.snapshot_lsn
+            END
+          FROM
+            computed
+          WHERE
+            sr.id = computed.id
+            AND (
+              sr.keepalive_op IS DISTINCT FROM computed.new_keepalive_op
+              OR sr.last_checkpoint IS DISTINCT FROM computed.new_last_checkpoint
+              OR ${{ type: 'bool', value: createEmptyCheckpoints }}
+            )
+          RETURNING
+            sr.id,
+            sr.state,
+            sr.last_checkpoint,
+            sr.last_checkpoint_lsn,
+            sr.snapshot_done,
+            sr.no_checkpoint_before,
+            computed.can_checkpoint,
+            computed.keepalive_op,
+            computed.new_last_checkpoint
+        )
+      SELECT
+        id,
+        state,
+        last_checkpoint,
+        last_checkpoint_lsn,
+        snapshot_done,
+        no_checkpoint_before,
+        can_checkpoint,
+        keepalive_op,
+        new_last_checkpoint,
+        TRUE AS created_checkpoint
+      FROM
+        updated
+      UNION ALL
+      SELECT
+        id,
+        state,
+        new_last_checkpoint AS last_checkpoint,
+        last_checkpoint_lsn,
+        snapshot_done,
+        no_checkpoint_before,
+        can_checkpoint,
+        keepalive_op,
+        new_last_checkpoint,
+        FALSE AS created_checkpoint
+      FROM
+        computed
+      WHERE
+        NOT EXISTS (
+          SELECT
+            1
+          FROM
+            updated
+        )
+    `
+      .decoded(CheckpointWithStatus)
+      .first();
+
+    if (result == null) {
+      throw new ReplicationAssertionError('Failed to update sync_rules during checkpoint');
     }
 
-    if (lsn < this.no_checkpoint_before_lsn) {
+    if (!result.can_checkpoint) {
       if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
         this.logger.info(
-          `Waiting until ${this.no_checkpoint_before_lsn} before creating checkpoint, currently at ${lsn}. Persisted op: ${this.persisted_op}`
+          `Waiting before creating checkpoint, currently at ${lsn}. Last op: ${result.keepalive_op}. Current state: ${JSON.stringify(
+            {
+              snapshot_done: result.snapshot_done,
+              last_checkpoint_lsn: result.last_checkpoint_lsn,
+              no_checkpoint_before: result.no_checkpoint_before
+            }
+          )}`
         );
         this.lastWaitingLogThrottled = Date.now();
       }
-
-      // Edge case: During initial replication, we have a no_checkpoint_before_lsn set,
-      // and don't actually commit the snapshot.
-      // The first commit can happen from an implicit keepalive message.
-      // That needs the persisted_op to get an accurate checkpoint, so
-      // we persist that in keepalive_op.
-
-      await this.db.sql`
-        UPDATE sync_rules
-        SET
-          keepalive_op = ${{ type: 'int8', value: this.persisted_op }}
-        WHERE
-          id = ${{ type: 'int4', value: this.group_id }}
-      `.execute();
-
-      // Cannot create a checkpoint yet - return false
-      return false;
+      return { checkpointBlocked: true, checkpointCreated: false };
     }
 
-    // Don't create a checkpoint if there were no changes
-    if (!createEmptyCheckpoints && this.persisted_op == null) {
-      // Nothing to commit - return true
-      await this.autoActivate(lsn);
-      return true;
+    if (result.created_checkpoint) {
+      this.logger.debug(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
+
+      if (result.last_checkpoint != null) {
+        await this.currentDataStore.cleanupPendingDeletes(this.db, {
+          groupId: this.group_id,
+          lastCheckpoint: result.last_checkpoint
+        });
+      }
     }
-
-    const now = new Date().toISOString();
-    const update: Partial<models.SyncRules> = {
-      last_checkpoint_lsn: lsn,
-      last_checkpoint_ts: now,
-      last_keepalive_ts: now,
-      snapshot_done: true,
-      last_fatal_error: null,
-      keepalive_op: null
-    };
-
-    if (this.persisted_op != null) {
-      update.last_checkpoint = this.persisted_op.toString();
-    }
-
-    const doc = await this.db.sql`
-      UPDATE sync_rules
-      SET
-        keepalive_op = ${{ type: 'int8', value: update.keepalive_op }},
-        last_fatal_error = ${{ type: 'varchar', value: update.last_fatal_error }},
-        snapshot_done = ${{ type: 'bool', value: update.snapshot_done }},
-        snapshot_lsn = NULL,
-        last_keepalive_ts = ${{ type: 1184, value: update.last_keepalive_ts }},
-        last_checkpoint = COALESCE(
-          ${{ type: 'int8', value: update.last_checkpoint }},
-          last_checkpoint
-        ),
-        last_checkpoint_ts = ${{ type: 1184, value: update.last_checkpoint_ts }},
-        last_checkpoint_lsn = ${{ type: 'varchar', value: update.last_checkpoint_lsn }}
-      WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
-      RETURNING
-        id,
-        state,
-        last_checkpoint,
-        last_checkpoint_lsn
-    `
-      .decoded(StatefulCheckpoint)
-      .first();
-
     await this.autoActivate(lsn);
-    await notifySyncRulesUpdate(this.db, doc!);
+    await notifySyncRulesUpdate(this.db, {
+      id: result.id,
+      state: result.state,
+      last_checkpoint: result.last_checkpoint,
+      last_checkpoint_lsn: result.last_checkpoint_lsn
+    });
 
     this.persisted_op = null;
     this.last_checkpoint_lsn = lsn;
-    return true;
+
+    // Even if created_checkpoint is false, if can_checkpoint is true, we need to return not blocked.
+    return { checkpointBlocked: false, checkpointCreated: result.created_checkpoint };
   }
 
-  async keepalive(lsn: string): Promise<boolean> {
-    if (this.last_checkpoint_lsn != null && lsn < this.last_checkpoint_lsn) {
-      // No-op
-      return false;
-    }
-
-    if (lsn < this.no_checkpoint_before_lsn) {
-      return false;
-    }
-
-    if (this.persisted_op != null) {
-      // The commit may have been skipped due to "no_checkpoint_before_lsn".
-      // Apply it now if relevant
-      this.logger.info(`Commit due to keepalive at ${lsn} / ${this.persisted_op}`);
-      return await this.commit(lsn);
-    }
-
-    const updated = await this.db.sql`
-      UPDATE sync_rules
-      SET
-        snapshot_done = ${{ type: 'bool', value: true }},
-        snapshot_lsn = NULL,
-        last_checkpoint_lsn = ${{ type: 'varchar', value: lsn }},
-        last_fatal_error = ${{ type: 'varchar', value: null }},
-        last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
-      WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
-      RETURNING
-        id,
-        state,
-        last_checkpoint,
-        last_checkpoint_lsn
-    `
-      .decoded(StatefulCheckpoint)
-      .first();
-
-    await this.autoActivate(lsn);
-    await notifySyncRulesUpdate(this.db, updated!);
-
-    this.last_checkpoint_lsn = lsn;
-    return true;
+  async keepalive(lsn: string): Promise<CheckpointResult> {
+    return await this.commit(lsn, { createEmptyCheckpoints: true });
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
@@ -445,9 +505,40 @@ export class PostgresBucketBatch
     `.execute();
   }
 
-  async markSnapshotDone(
+  async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    await this.db.transaction(async (db) => {
+      await db.sql`
+        UPDATE sync_rules
+        SET
+          snapshot_done = TRUE,
+          last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
+          no_checkpoint_before = CASE
+            WHEN no_checkpoint_before IS NULL
+            OR no_checkpoint_before < ${{ type: 'varchar', value: no_checkpoint_before_lsn }} THEN ${{
+          type: 'varchar',
+          value: no_checkpoint_before_lsn
+        }}
+            ELSE no_checkpoint_before
+          END
+        WHERE
+          id = ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    });
+  }
+
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    await this.db.sql`
+      UPDATE sync_rules
+      SET
+        snapshot_done = FALSE
+      WHERE
+        id = ${{ type: 'int4', value: this.group_id }}
+    `.execute();
+  }
+
+  async markTableSnapshotDone(
     tables: storage.SourceTable[],
-    no_checkpoint_before_lsn: string
+    no_checkpoint_before_lsn?: string
   ): Promise<storage.SourceTable[]> {
     const ids = tables.map((table) => table.id.toString());
 
@@ -455,7 +546,7 @@ export class PostgresBucketBatch
       await db.sql`
         UPDATE source_tables
         SET
-          snapshot_done = ${{ type: 'bool', value: true }},
+          snapshot_done = TRUE,
           snapshot_total_estimated_count = NULL,
           snapshot_replicated_count = NULL,
           snapshot_last_key = NULL
@@ -468,31 +559,27 @@ export class PostgresBucketBatch
           );
       `.execute();
 
-      if (no_checkpoint_before_lsn > this.no_checkpoint_before_lsn) {
-        this.no_checkpoint_before_lsn = no_checkpoint_before_lsn;
-
+      if (no_checkpoint_before_lsn != null) {
         await db.sql`
           UPDATE sync_rules
           SET
-            no_checkpoint_before = ${{ type: 'varchar', value: no_checkpoint_before_lsn }},
-            last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }}
+            last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
+            no_checkpoint_before = CASE
+              WHEN no_checkpoint_before IS NULL
+              OR no_checkpoint_before < ${{ type: 'varchar', value: no_checkpoint_before_lsn }} THEN ${{
+            type: 'varchar',
+            value: no_checkpoint_before_lsn
+          }}
+              ELSE no_checkpoint_before
+            END
           WHERE
             id = ${{ type: 'int4', value: this.group_id }}
         `.execute();
       }
     });
     return tables.map((table) => {
-      const copy = new storage.SourceTable({
-        id: table.id,
-        connectionTag: table.connectionTag,
-        objectId: table.objectId,
-        schema: table.schema,
-        name: table.name,
-        replicaIdColumns: table.replicaIdColumns,
-        snapshotComplete: table.snapshotComplete
-      });
-      copy.syncData = table.syncData;
-      copy.syncParameters = table.syncParameters;
+      const copy = table.clone();
+      copy.snapshotComplete = true;
       return copy;
     });
   }
@@ -542,7 +629,7 @@ export class PostgresBucketBatch
       // exceeding memory limits.
       const sizeLookups = batch.batch.map((r) => {
         return {
-          source_table: r.record.sourceTable.id.toString(),
+          source_table: postgresTableId(r.record.sourceTable.id),
           /**
            * Encode to hex in order to pass a jsonb
            */
@@ -552,30 +639,10 @@ export class PostgresBucketBatch
 
       sizes = new Map<string, number>();
 
-      for await (const rows of db.streamRows<{
-        source_table: string;
-        source_key: storage.ReplicaId;
-        data_size: number;
-      }>(lib_postgres.sql`
-        WITH
-          filter_data AS (
-            SELECT
-              decode(FILTER ->> 'source_key', 'hex') AS source_key, -- Decoding from hex to bytea
-              (FILTER ->> 'source_table') AS source_table_id
-            FROM
-              jsonb_array_elements(${{ type: 'jsonb', value: sizeLookups }}::jsonb) AS FILTER
-          )
-        SELECT
-          octet_length(c.data) AS data_size,
-          c.source_table,
-          c.source_key
-        FROM
-          current_data c
-          JOIN filter_data f ON c.source_table = f.source_table_id
-          AND c.source_key = f.source_key
-        WHERE
-          c.group_id = ${{ type: 'int4', value: this.group_id }}
-      `)) {
+      for await (const rows of this.currentDataStore.streamSizeRows(db, {
+        groupId: this.group_id,
+        lookups: sizeLookups
+      })) {
         for (const row of rows) {
           const key = cacheKey(row.source_table, row.source_key);
           sizes.set(key, row.data_size);
@@ -600,53 +667,29 @@ export class PostgresBucketBatch
 
       const lookups = b.map((r) => {
         return {
-          source_table: r.record.sourceTable.id,
+          source_table: postgresTableId(r.record.sourceTable.id),
           source_key: storage.serializeReplicaId(r.beforeId).toString('hex')
         };
       });
 
-      const current_data_lookup = new Map<string, CurrentDataDecoded>();
-      for await (const currentDataRows of db.streamRows<CurrentData>({
-        statement: /* sql */ `
-          SELECT
-            ${this.options.skip_existing_rows ? `c.source_table, c.source_key` : 'c.*'}
-          FROM
-            current_data c
-            JOIN (
-              SELECT
-                decode(FILTER ->> 'source_key', 'hex') AS source_key,
-                FILTER ->> 'source_table' AS source_table_id
-              FROM
-                jsonb_array_elements($1::jsonb) AS FILTER
-            ) f ON c.source_table = f.source_table_id
-            AND c.source_key = f.source_key
-          WHERE
-            c.group_id = $2;
-        `,
-        params: [
-          {
-            type: 'jsonb',
-            value: lookups
-          },
-          {
-            type: 'int4',
-            value: this.group_id
-          }
-        ]
+      const current_data_lookup = new Map<string, V3CurrentDataDecoded>();
+      for await (const currentDataRows of this.currentDataStore.streamLookupRows(db, {
+        groupId: this.group_id,
+        lookups,
+        skipExistingRows: this.options.skip_existing_rows
       })) {
         for (const row of currentDataRows) {
-          const decoded = this.options.skip_existing_rows
-            ? pick(CurrentData, ['source_key', 'source_table']).decode(row)
-            : CurrentData.decode(row);
+          const decoded = this.currentDataStore.decodeLookupRow(row, this.options.skip_existing_rows);
           current_data_lookup.set(
             encodedCacheKey(decoded.source_table, decoded.source_key),
-            decoded as CurrentDataDecoded
+            decoded as V3CurrentDataDecoded
           );
         }
       }
 
       let persistedBatch: PostgresPersistedBatch | null = new PostgresPersistedBatch({
         group_id: this.group_id,
+        storageConfig: this.storageConfig,
         ...this.options.batch_limits
       });
 
@@ -703,7 +746,7 @@ export class PostgresBucketBatch
   protected async saveOperation(
     persistedBatch: PostgresPersistedBatch,
     operation: RecordOperation,
-    currentData?: CurrentDataDecoded | null
+    currentData?: V3CurrentDataDecoded | null
   ) {
     const record = operation.record;
     // We store bytea colums for source keys
@@ -919,7 +962,7 @@ export class PostgresBucketBatch
       }
     }
 
-    let result: CurrentDataDecoded | null = null;
+    let result: V3CurrentDataDecoded | null = null;
 
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
@@ -928,9 +971,10 @@ export class PostgresBucketBatch
         source_key: afterId,
         group_id: this.group_id,
         data: afterData!,
-        source_table: sourceTable.id,
+        source_table: postgresTableId(sourceTable.id),
         buckets: newBuckets,
-        lookups: newLookups
+        lookups: newLookups,
+        pending_delete: null
       };
       persistedBatch.upsertCurrentData(result);
     }
@@ -938,8 +982,9 @@ export class PostgresBucketBatch
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
       // Either a delete (afterId == null), or replaced the old replication id
       persistedBatch.deleteCurrentData({
-        source_table_id: record.sourceTable.id,
-        source_key: beforeId!
+        source_table_id: postgresTableId(sourceTable.id),
+        source_key: beforeId!,
+        soft: true
       });
     }
 
@@ -961,16 +1006,18 @@ export class PostgresBucketBatch
     await this.db.transaction(async (db) => {
       const syncRulesRow = await db.sql`
         SELECT
-          state
+          state,
+          snapshot_done
         FROM
           sync_rules
         WHERE
           id = ${{ type: 'int4', value: this.group_id }}
+        FOR NO KEY UPDATE;
       `
-        .decoded(pick(models.SyncRules, ['state']))
+        .decoded(pick(models.SyncRules, ['state', 'snapshot_done']))
         .first();
 
-      if (syncRulesRow && syncRulesRow.state == storage.SyncRuleState.PROCESSING) {
+      if (syncRulesRow && syncRulesRow.state == storage.SyncRuleState.PROCESSING && syncRulesRow.snapshot_done) {
         await db.sql`
           UPDATE sync_rules
           SET
@@ -978,25 +1025,27 @@ export class PostgresBucketBatch
           WHERE
             id = ${{ type: 'int4', value: this.group_id }}
         `.execute();
-        didActivate = true;
-      }
 
-      await db.sql`
-        UPDATE sync_rules
-        SET
-          state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
-        WHERE
-          (
-            state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
-            OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
-          )
-          AND id != ${{ type: 'int4', value: this.group_id }}
-      `.execute();
+        await db.sql`
+          UPDATE sync_rules
+          SET
+            state = ${{ type: 'varchar', value: storage.SyncRuleState.STOP }}
+          WHERE
+            (
+              state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
+              OR state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
+            )
+            AND id != ${{ type: 'int4', value: this.group_id }}
+        `.execute();
+        didActivate = true;
+        this.needsActivation = false;
+      } else if (syncRulesRow?.state != storage.SyncRuleState.PROCESSING) {
+        this.needsActivation = false;
+      }
     });
     if (didActivate) {
       this.logger.info(`Activated new sync rules at ${lsn}`);
     }
-    this.needsActivation = false;
   }
 
   /**
@@ -1013,9 +1062,28 @@ export class PostgresBucketBatch
     callback: (tx: lib_postgres.WrappedConnection) => Promise<T>
   ): Promise<T> {
     try {
-      return await this.db.transaction(async (db) => {
-        return await callback(db);
-      });
+      // Try for up to a minute
+      const lastTry = Date.now() + 60_000;
+      while (true) {
+        try {
+          return await this.db.transaction(async (db) => {
+            // The isolation level is required to protect against concurrent updates to the same data.
+            // In theory the "select ... for update" locks may be able to protect against this, but we
+            // still have failing tests if we use that as the only isolation mechanism.
+            await db.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ;');
+            return await callback(db);
+          });
+        } catch (err) {
+          const code = err.cause?.code;
+          if ((code == '40001' || code == '40P01') && Date.now() < lastTry) {
+            // Serialization (lock) failure, retry
+            this.logger.warn(`Serialization failure during replication transaction, retrying: ${err.message}`);
+            await timers.setTimeout(100 + Math.random() * 200);
+            continue;
+          }
+          throw err;
+        }
+      }
     } finally {
       await this.db.sql`
         UPDATE sync_rules

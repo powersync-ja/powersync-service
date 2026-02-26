@@ -1,17 +1,19 @@
 import { register } from '@powersync/service-core-tests';
 import { describe } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 import { env } from './env.js';
 import { mongoTestStorageFactoryGenerator } from '@module/utils/test-utils.js';
 
-describe('Mongo Sync Bucket Storage - Parameters', () =>
-  register.registerDataStorageParameterTests(INITIALIZED_MONGO_STORAGE_FACTORY));
+for (let storageVersion of TEST_STORAGE_VERSIONS) {
+  describe(`Mongo Sync Bucket Storage - Parameters - v${storageVersion}`, () =>
+    register.registerDataStorageParameterTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion }));
 
-describe('Mongo Sync Bucket Storage - Data', () =>
-  register.registerDataStorageDataTests(INITIALIZED_MONGO_STORAGE_FACTORY));
+  describe(`Mongo Sync Bucket Storage - Data - v${storageVersion}`, () =>
+    register.registerDataStorageDataTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion }));
 
-describe('Mongo Sync Bucket Storage - Checkpoints', () =>
-  register.registerDataStorageCheckpointTests(INITIALIZED_MONGO_STORAGE_FACTORY));
+  describe(`Mongo Sync Bucket Storage - Checkpoints - v${storageVersion}`, () =>
+    register.registerDataStorageCheckpointTests({ ...INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion }));
+}
 
 describe('Sync Bucket Validation', register.registerBucketValidationTests);
 

@@ -28,7 +28,7 @@ describe('Migrations', () => {
   register.registerMigrationTests(MIGRATION_AGENT_FACTORY);
 
   it('Should have tables declared', async () => {
-    const { db } = await POSTGRES_STORAGE_FACTORY();
+    const { db } = await POSTGRES_STORAGE_FACTORY.factory();
 
     const tables = await db.sql`
       SELECT

@@ -1,20 +1,20 @@
-import type { LookupFunction } from 'node:net';
+import { WalStream } from '@module/replication/WalStream.js';
+import { PostgresTypeResolver } from '@module/types/resolver.js';
 import * as dns from 'node:dns';
+import type { LookupFunction } from 'node:net';
 
 import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyRowContext,
   CompatibilityContext,
-  SqliteInputRow,
-  DateTimeValue,
-  TimeValue,
   CompatibilityEdition,
+  DateTimeValue,
+  SqliteInputRow,
+  TimeValue,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { describe, expect, Mock, test, vi } from 'vitest';
 import { clearTestDb, connectPgPool, connectPgWire, TEST_CONNECTION_OPTIONS, TEST_URI } from './util.js';
-import { WalStream } from '@module/replication/WalStream.js';
-import { PostgresTypeResolver } from '@module/types/resolver.js';
 
 describe('connection options', () => {
   test('uses custom lookup', async () => {

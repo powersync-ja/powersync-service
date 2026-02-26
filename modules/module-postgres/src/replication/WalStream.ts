@@ -20,23 +20,19 @@ import {
 } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import {
-  applyRowContext,
   applyValueContext,
   CompatibilityContext,
-  DatabaseInputRow,
+  HydratedSyncRules,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
-  SqliteValue,
-  SqlSyncRules,
-  HydratedSyncRules,
   TablePattern,
   ToastableSqliteRow,
-  toSyncRulesRow,
   toSyncRulesValue
 } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
+import { PostgresTypeResolver } from '../types/resolver.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
@@ -48,7 +44,6 @@ import {
   SimpleSnapshotQuery,
   SnapshotQuery
 } from './SnapshotQuery.js';
-import { PostgresTypeResolver } from '../types/resolver.js';
 
 export interface WalStreamOptions {
   logger?: Logger;
@@ -148,6 +143,8 @@ export class WalStream {
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
   private isStartingReplication = true;
+
+  private initialSnapshotPromise: Promise<void> | null = null;
 
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -443,6 +440,13 @@ WHERE  oid = $1::regclass`,
         // This makes sure we don't skip any changes applied before starting this snapshot,
         // in the case of snapshot retries.
         // We could alternatively commit at the replication slot LSN.
+
+        // Get the current LSN for the snapshot.
+        // We could also use the LSN from the last table snapshot.
+        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+        const noCommitBefore = rs.rows[0].decodeWithoutCustomTypes(0);
+
+        await batch.markAllSnapshotDone(noCommitBefore);
         await batch.commit(ZERO_LSN);
       }
     );
@@ -497,7 +501,6 @@ WHERE  oid = $1::regclass`,
     // replication afterwards.
     await db.query('BEGIN');
     try {
-      let tableLsnNotBefore: string;
       await this.snapshotTable(batch, db, table, limited);
 
       // Get the current LSN.
@@ -514,10 +517,10 @@ WHERE  oid = $1::regclass`,
       // 2. Wait until logical replication has caught up with all the change between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
       const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
-      tableLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
+      const tableLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await db.query('COMMIT');
-      const [resultTable] = await batch.markSnapshotDone([table], tableLsnNotBefore);
+      const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
@@ -815,9 +818,13 @@ WHERE  oid = $1::regclass`,
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-      const initReplicationConnection = await this.connections.replicationConnection();
-      await this.initReplication(initReplicationConnection);
-      await initReplicationConnection.end();
+      this.initialSnapshotPromise = (async () => {
+        const initReplicationConnection = await this.connections.replicationConnection();
+        await this.initReplication(initReplicationConnection);
+        await initReplicationConnection.end();
+      })();
+
+      await this.initialSnapshotPromise;
 
       // At this point, the above connection has often timed out, so we start a new one
       const streamReplicationConnection = await this.connections.replicationConnection();
@@ -827,6 +834,18 @@ WHERE  oid = $1::regclass`,
       await this.storage.reportError(e);
       throw e;
     }
+  }
+
+  /**
+   * After calling replicate(), call this to wait for the initial snapshot to complete.
+   *
+   * For tests only.
+   */
+  async waitForInitialSnapshot() {
+    if (this.initialSnapshotPromise == null) {
+      throw new ReplicationAssertionError(`Initial snapshot not started yet`);
+    }
+    return this.initialSnapshotPromise;
   }
 
   async initReplication(replicationConnection: pgwire.PgConnection) {
@@ -970,12 +989,12 @@ WHERE  oid = $1::regclass`,
                   await this.resnapshot(batch, resnapshot);
                   resnapshot = [];
                 }
-                const didCommit = await batch.commit(msg.lsn!, {
+                const { checkpointBlocked } = await batch.commit(msg.lsn!, {
                   createEmptyCheckpoints,
                   oldestUncommittedChange: this.oldestUncommittedChange
                 });
                 await this.ack(msg.lsn!, replicationStream);
-                if (didCommit) {
+                if (!checkpointBlocked) {
                   this.oldestUncommittedChange = null;
                   this.isStartingReplication = false;
                 }
@@ -1017,8 +1036,8 @@ WHERE  oid = $1::regclass`,
               // Big caveat: This _must not_ be used to skip individual messages, since this LSN
               // may be in the middle of the next transaction.
               // It must only be used to associate checkpoints with LSNs.
-              const didCommit = await batch.keepalive(chunkLastLsn);
-              if (didCommit) {
+              const { checkpointBlocked } = await batch.keepalive(chunkLastLsn);
+              if (!checkpointBlocked) {
                 this.oldestUncommittedChange = null;
               }
 

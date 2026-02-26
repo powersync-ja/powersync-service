@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { env } from './env.js';
 import { createTestTableWithBasicId, describeWithStorage, waitForPendingCDCChanges } from './util.js';
-import { TestStorageFactory } from '@powersync/service-core';
+import { TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
@@ -10,19 +10,19 @@ import { CDCStreamTestContext } from './CDCStreamTestContext.js';
 import { getLatestLSN } from '@module/utils/mssql.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, function (factory) {
+  describeWithStorage({ timeout: 240_000 }, function (config) {
     test('resuming initial replication (1)', async () => {
       // Stop early - likely to not include deleted row in first replication attempt.
-      await testResumingReplication(factory, 2000);
+      await testResumingReplication(config, 2000);
     });
     test('resuming initial replication (2)', async () => {
       // Stop late - likely to include deleted row in first replication attempt.
-      await testResumingReplication(factory, 8000);
+      await testResumingReplication(config, 8000);
     });
   });
 });
 
-async function testResumingReplication(factory: TestStorageFactory, stopAfter: number) {
+async function testResumingReplication(config: TestStorageConfig, stopAfter: number) {
   // This tests interrupting and then resuming initial replication.
   // We interrupt replication after test_data1 has fully replicated, and
   // test_data2 has partially replicated.
@@ -34,7 +34,9 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   //    have been / have not been replicated at that point is not deterministic.
   //    We do allow for some variation in the test results to account for this.
 
-  await using context = await CDCStreamTestContext.open(factory, { cdcStreamOptions: { snapshotBatchSize: 1000 } });
+  await using context = await CDCStreamTestContext.open(config.factory, {
+    cdcStreamOptions: { snapshotBatchSize: 1000 }
+  });
 
   await context.updateSyncRules(`bucket_definitions:
   global:
@@ -84,7 +86,7 @@ async function testResumingReplication(factory: TestStorageFactory, stopAfter: n
   }
 
   // Bypass the usual "clear db on factory open" step.
-  await using context2 = await CDCStreamTestContext.open(factory, {
+  await using context2 = await CDCStreamTestContext.open(config.factory, {
     doNotClear: true,
     cdcStreamOptions: { snapshotBatchSize: 1000 }
   });

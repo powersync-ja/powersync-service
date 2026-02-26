@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'vitest';
-import { clearTestDb, connectPgPool } from './util.js';
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 import { TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '@powersync/service-sync-rules';
+import { describe, expect, test } from 'vitest';
+import { clearTestDb, connectPgPool } from './util.js';
 
 describe('PostgresRouteAPIAdapter tests', () => {
   test('infers connection schema', async () => {

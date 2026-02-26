@@ -14,6 +14,7 @@ import {
   PopulateChecksumCacheResults,
   ReplicationCheckpoint,
   storage,
+  StorageVersionConfig,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -35,6 +36,7 @@ import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
+import { PostgresCurrentDataStore } from './current-data-store.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -52,11 +54,13 @@ export class PostgresSyncRulesStorage
   public readonly sync_rules: storage.PersistedSyncRulesContent;
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
+  public readonly storageConfig: StorageVersionConfig;
 
   private sharedIterator = new BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
   protected db: lib_postgres.DatabaseClient;
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
@@ -71,6 +75,8 @@ export class PostgresSyncRulesStorage
     this.sync_rules = options.sync_rules;
     this.slot_name = options.sync_rules.slot_name;
     this.factory = options.factory;
+    this.storageConfig = options.sync_rules.getStorageConfig();
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -355,12 +361,12 @@ export class PostgresSyncRulesStorage
       slot_name: this.slot_name,
       last_checkpoint_lsn: checkpoint_lsn,
       keep_alive_op: syncRules?.keepalive_op,
-      no_checkpoint_before_lsn: syncRules?.no_checkpoint_before ?? options.zeroLSN,
       resumeFromLsn: maxLsn(syncRules?.snapshot_lsn, checkpoint_lsn),
       store_current_data: options.storeCurrentData,
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
-      markRecordUnavailable: options.markRecordUnavailable
+      markRecordUnavailable: options.markRecordUnavailable,
+      storageConfig: this.storageConfig
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
 
@@ -662,11 +668,7 @@ export class PostgresSyncRulesStorage
         group_id = ${{ type: 'int4', value: this.group_id }}
     `.execute();
 
-    await this.db.sql`
-      DELETE FROM current_data
-      WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
-    `.execute();
+    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.group_id });
 
     await this.db.sql`
       DELETE FROM source_tables

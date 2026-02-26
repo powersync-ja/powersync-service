@@ -1,0 +1,17 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Mongo Sync Bucket Storage Compact > partial checksums after compacting (2) 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": -1481659821,
+  "count": 1,
+}
+`;
+
+exports[`Mongo Sync Bucket Storage Compact > partial checksums after compacting 1`] = `
+{
+  "bucket": "1#global[]",
+  "checksum": 1874612650,
+  "count": 4,
+}
+`;

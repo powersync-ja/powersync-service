@@ -221,7 +221,7 @@ export class MySQLRouteAPIAdapter implements api.RouteAPI {
 
     const idColumns = idColumnsResult?.columns ?? [];
     const sourceTable = new storage.SourceTable({
-      id: 0,
+      id: '', // not used
       connectionTag: this.config.tag,
       objectId: tableName,
       schema: schema,
