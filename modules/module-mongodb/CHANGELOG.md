@@ -1,5 +1,34 @@
 # @powersync/service-module-mongodb
 
+## 0.14.0
+
+### Minor Changes
+
+- 8a4c34e: Refactor `BucketStorageFactory` and `PersistedSyncRulesContent` to be abstract classes instead of interfaces.
+- 8bd83e8: Introduce storage versions.
+
+### Patch Changes
+
+- 15aea77: Support connection parameters via database URL query string. PostgreSQL supports `connect_timeout`. MongoDB supports `connectTimeoutMS`, `socketTimeoutMS`, `serverSelectionTimeoutMS`, `maxPoolSize`, `maxIdleTimeMS`. MySQL supports `connectTimeout`, `connectionLimit`, `queueLimit`.
+- Updated dependencies [15aea77]
+- Updated dependencies [0998251]
+- Updated dependencies [65f3c89]
+- Updated dependencies [1c45667]
+- Updated dependencies [8785a3f]
+- Updated dependencies [8a4c34e]
+- Updated dependencies [b440093]
+- Updated dependencies [d7ff4ad]
+- Updated dependencies [c683322]
+- Updated dependencies [8bd83e8]
+- Updated dependencies [83989b2]
+- Updated dependencies [79a9729]
+- Updated dependencies [5edd95f]
+  - @powersync/lib-service-mongodb@0.6.20
+  - @powersync/service-core@1.20.0
+  - @powersync/service-types@0.15.0
+  - @powersync/service-sync-rules@0.32.0
+  - @powersync/lib-services-framework@0.8.3
+
 ## 0.13.2
 
 ### Patch Changes

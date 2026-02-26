@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.3.7
+
+### Patch Changes
+
+- 8bd83e8: Introduce storage versions.
+
 ## 0.3.6
 
 ### Patch Changes
