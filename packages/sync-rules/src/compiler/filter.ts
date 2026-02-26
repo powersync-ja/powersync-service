@@ -1,6 +1,6 @@
 import { NodeLocation } from 'pgsql-ast-parser';
 import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
-import { SourceResultSet } from './table.js';
+import { BaseSourceResultSet, SourceResultSet } from './table.js';
 import { expandNodeLocations } from '../errors.js';
 import { EqualsIgnoringResultSet } from './compatibility.js';
 import { StableHasher } from './equality.js';
@@ -80,7 +80,10 @@ export class SingleDependencyExpression implements EqualsIgnoringResultSet {
 
     for (const dependency of inputs) {
       if (dependency instanceof ColumnInRow) {
-        if ((resultSet != null && resultSet !== dependency.resultSet) || hasSubscriptionDependency) {
+        if (
+          hasSubscriptionDependency ||
+          (resultSet != null && !BaseSourceResultSet.areCompatible(resultSet, dependency.resultSet))
+        ) {
           return null;
         }
         resultSet = dependency.resultSet;

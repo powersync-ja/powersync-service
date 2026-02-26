@@ -129,8 +129,7 @@ streams:
     // `SELECT products.id, expanded.value as region FROM products, json_each(region.regions) AS expanded`.
     const jsonEach: TableProcessorTableValuedFunction = {
       functionName: 'json_each',
-      functionInputs: [{ type: 'data', source: { column: 'regions' } }],
-      filters: []
+      functionInputs: [{ type: 'data', source: { column: 'regions' } }]
     };
     const source: StreamDataSource = {
       outputTableName: 'products',
@@ -184,68 +183,43 @@ streams:
   });
 
   syncTest('filter on function output and source row', ({ sync }) => {
-    // The compiler currently doesn't support it, but it should. `SELECT * FROM tasks WHERE status IN '["active", "pending"]'`.
-    const jsonEach: TableProcessorTableValuedFunction = {
-      functionName: 'json_each',
-      functionInputs: [{ type: 'lit_string', value: `["active", "pending"]` }],
-      filters: []
-    };
-    const source: StreamDataSource = {
-      outputTableName: 'tasks',
-      hashCode: 0,
-      sourceTable: new ImplicitSchemaTablePattern(null, 'tasks'),
-      columns: ['star'],
-      filters: [
-        {
-          type: 'binary',
-          operator: '=',
-          left: { type: 'data', source: { column: 'status' } },
-          right: { type: 'data', source: { function: jsonEach, outputName: 'value' } }
-        }
-      ],
-      parameters: [],
-      tableValuedFunctions: [jsonEach]
-    };
-    const plan = deserializeSyncPlan(
-      serializeSyncPlan({
-        dataSources: [source],
-        buckets: [{ hashCode: 0, uniqueName: 'a', sources: [source] }],
-        parameterIndexes: [],
-        streams: []
-      })
-    );
-    const evaluator = new PreparedStreamBucketDataSource(plan.buckets[0], {
-      defaultSchema: 'test_schema',
-      engine: sync.engine,
-      sourceText: ''
-    });
+    const whereIn = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM tasks WHERE status IN '["active", "pending"]'
+`);
+
     const tasks = new TestSourceTable('tasks');
-    expect(
-      evaluator.evaluateRow({
+    function expectResult(status: string, shouldMatch: boolean) {
+      const row = {
         sourceTable: tasks,
-        record: {
+        record: { id: 'id', status }
+      };
+      const inResult = whereIn.evaluateRow(row);
+      const expectedRow = [
+        {
+          bucket: 'stream|0[]',
+          data: {
+            id: 'id',
+            status
+          },
           id: 'id',
-          status: 'archived'
+          table: 'tasks'
         }
-      })
-    ).toHaveLength(0);
-    expect(
-      evaluator.evaluateRow({
-        sourceTable: tasks,
-        record: {
-          id: 'id',
-          status: 'active'
-        }
-      })
-    ).toHaveLength(1);
-    expect(
-      evaluator.evaluateRow({
-        sourceTable: tasks,
-        record: {
-          id: 'id',
-          status: 'pending'
-        }
-      })
-    ).toHaveLength(1);
+      ];
+
+      if (shouldMatch) {
+        expect(inResult).toStrictEqual(expectedRow);
+      } else {
+        expect(inResult).toStrictEqual([]);
+      }
+    }
+
+    expectResult('active', true);
+    expectResult('pending', true);
+    expectResult('archived', false);
   });
 });
