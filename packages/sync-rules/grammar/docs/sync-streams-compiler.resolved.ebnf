@@ -1,0 +1,33 @@
+/* Top-level stream query form: streams.<name>.query / streams.<name>.queries[] */
+
+CompilerStreamQuery ::= "SELECT" ResultColumn ("," ResultColumn)* "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
+
+/* Supports wildcard, table wildcard, or scalar expression columns */
+
+ResultColumn ::= "*" | Identifier ("." Identifier)? "." "*" | ScalarExpr Alias?
+
+FromSource ::= (TableValuedCall Alias | TableValuedCall) | "(" CompilerSubquery ")" Alias ("(" ColumnNameList ")")? | (TableRef Alias | TableRef)
+
+JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereExpr)?
+
+WhereExpr ::= "NOT"? (Predicate | "(" WhereExpr ")") ("AND" "NOT"? (Predicate | "(" WhereExpr ")"))* ("OR" "NOT"? (Predicate | "(" WhereExpr ")") ("AND" "NOT"? (Predicate | "(" WhereExpr ")"))*)*
+
+Predicate ::= ScalarExpr ("=" ScalarExpr | "IN" ("(" CompilerSubquery ")" | Identifier | ScalarExpr) | "NOT" "IN" ("(" CompilerSubquery ")" | Identifier | ScalarExpr) | "&&" ("(" CompilerSubquery ")" | Identifier | ScalarExpr) | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" ScalarExpr "AND" ScalarExpr) | ScalarExpr
+
+/* Scalar expression subset lowered by compiler/sqlite.ts */
+
+ScalarExpr ::= PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))* (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))*)*
+
+PrimaryTerm ::= Literal | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+
+/* CASE expression subset supported by compiler parser */
+
+CaseExpr ::= "CASE" "WHEN" OrExpr "THEN" ScalarExpr ("WHEN" OrExpr "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END" | "CASE" ScalarExpr "WHEN" ScalarExpr "THEN" ScalarExpr ("WHEN" ScalarExpr "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+
+CastExpr ::= "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
+
+FunctionCall ::= (Identifier ".")? Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")"
+
+/* CTE bodies (streams.<name>.with.<cte_name>) disallow wildcard columns by using ScalarExpr columns only */
+
+CompilerCteSubquery ::= "SELECT" CteResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
