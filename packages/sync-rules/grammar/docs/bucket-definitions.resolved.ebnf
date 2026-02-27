@@ -1,10 +1,10 @@
 /* Parameter-query SQL forms used under bucket_definitions.<name>.parameters */
 
-ParameterQuery ::= "SELECT" SelectList "FROM" JsonEachCall Alias? ("WHERE" MatchExpr)? | "SELECT" SelectList "FROM" TableRef ("WHERE" MatchExpr)? | "SELECT" SelectList ("WHERE" MatchExpr)?
+ParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" JsonEachCall ("AS" Identifier)? ("WHERE" MatchExpr)? | "SELECT" SelectItem ("," SelectItem)* "FROM" Identifier ("." Identifier)? ("WHERE" MatchExpr)? | "SELECT" SelectItem ("," SelectItem)* ("WHERE" MatchExpr)?
 
 /* Data-query SQL forms used under bucket_definitions.<name>.data[] */
 
-DataQuery ::= "SELECT" ("*" | ScalarExpr Alias?) ("," ("*" | ScalarExpr Alias?))* "FROM" TableRef ("WHERE" DataMatchExpr)?
+DataQuery ::= "SELECT" ("*" | ScalarExpr ("AS" Identifier)?) ("," ("*" | ScalarExpr ("AS" Identifier)?))* "FROM" Identifier ("." Identifier)? ("WHERE" MatchExpr)?
 
 SelectItem ::= ScalarExpr ("AS" Identifier)?
 
@@ -18,4 +18,14 @@ Predicate ::= ScalarExpr ("=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "
 
 ScalarExpr ::= PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))* (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))*)*
 
-PrimaryTerm ::= (StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL") | "CAST" "(" ScalarExpr "AS" CastType ")" | (Identifier ".")? Identifier "(" ArgList? ")" | Identifier ("." Identifier)? | "(" ScalarExpr ")"
+PrimaryTerm ::= (StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL") | "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")" | (Identifier ".")? Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")" | Identifier ("." Identifier)? | "(" ScalarExpr ")"
+
+/* Identifiers are matched after SQL normalization to uppercase in tests. */
+
+Identifier ::= [A-Z_] ([A-Z_0-9])*
+
+StringLiteral ::= "'" ([\x20-\x26] | [\x28-\x7E])* "'"
+
+IntegerLiteral ::= ([0-9])+
+
+NumericLiteral ::= ([0-9])+ ("." ([0-9])+)?
