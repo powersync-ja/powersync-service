@@ -19,7 +19,8 @@
     "build": "pnpm build:tsc && pnpm run build:extra",
     "build:extra": "node scripts/compile-schema.js",
     "build:tests": "tsc -b test/tsconfig.json",
-    "test": "vitest"
+    "test": "vitest",
+    "generate:grammar-flat": "tsx scripts/generate-grammar-docs.ts --mode flat"
   },
   "dependencies": {
     "@powersync/service-jsonbig": "workspace:^",
@@ -32,6 +33,8 @@
   "devDependencies": {
     "@types/node": "^22.16.2",
     "ebnf": "^1.9.1",
+    "railroad-diagrams": "^1.0.0",
+    "tsx": "^4.21.0",
     "vitest": "catalog:"
   }
 }
