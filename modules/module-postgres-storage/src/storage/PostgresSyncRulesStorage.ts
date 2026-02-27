@@ -249,7 +249,8 @@ export class PostgresSyncRulesStorage
         schema: schema,
         name: table,
         replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true
+        snapshotComplete: sourceTableRow!.snapshot_done ?? true,
+        initialSnapshotFilter: options.sync_rules.definition.getInitialSnapshotFilter(connection_tag, schema, table)
       });
       if (!sourceTable.snapshotComplete) {
         sourceTable.snapshotStatus = {

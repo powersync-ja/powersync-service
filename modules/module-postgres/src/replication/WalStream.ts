@@ -558,6 +558,11 @@ WHERE  oid = $1::regclass`,
       q = new SimpleSnapshotQuery(db, table, this.snapshotChunkLength);
       at = 0;
     }
+
+    if (table.initialSnapshotFilter?.sql) {
+      this.logger.info(`Applying initial snapshot filter: ${table.initialSnapshotFilter.sql}`);
+    }
+
     await q.initialize();
 
     let hasRemainingData = true;

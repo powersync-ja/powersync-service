@@ -13,12 +13,19 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   private lastCursor: mongo.FindCursor | null = null;
   private collection: mongo.Collection;
   private batchSize: number;
+  private snapshotFilter: any;
 
-  public constructor(options: { collection: mongo.Collection; batchSize: number; key?: Uint8Array | null }) {
+  public constructor(options: {
+    collection: mongo.Collection;
+    batchSize: number;
+    key?: Uint8Array | null;
+    filter?: any;
+  }) {
     this.lastKey = options.key ? bson.deserialize(options.key, { useBigInt64: true })._id : null;
     this.lastCursor = null;
     this.collection = options.collection;
     this.batchSize = options.batchSize;
+    this.snapshotFilter = options.filter;
   }
 
   async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {
@@ -35,8 +42,23 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       // any parsing as an operator.
       // Starting in MongoDB 5.0, this filter can use the _id index. Source:
       // https://www.mongodb.com/docs/manual/release-notes/5.0/#general-aggregation-improvements
-      const filter: mongo.Filter<mongo.Document> =
+
+      // Build base filter for _id
+      const idFilter: mongo.Filter<mongo.Document> =
         this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
+
+      // Combine with snapshot filter if present
+      let filter: mongo.Filter<mongo.Document>;
+      if (this.snapshotFilter) {
+        if (this.lastKey == null) {
+          filter = this.snapshotFilter;
+        } else {
+          filter = { $and: [idFilter, this.snapshotFilter] };
+        }
+      } else {
+        filter = idFilter;
+      }
+
       cursor = this.collection.find(filter, {
         readConcern: 'majority',
         limit: this.batchSize,
