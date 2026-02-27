@@ -69,6 +69,7 @@ interface GrammarConfig {
   label: string;
   ebnfFile: string;
   inlineRules: Record<string, string[]>;
+  lexicalRules: string[];
 }
 
 const GRAMMARS: GrammarConfig[] = [
@@ -77,36 +78,123 @@ const GRAMMARS: GrammarConfig[] = [
     label: 'Sync Streams',
     ebnfFile: 'grammar/sync-streams-compiler.ebnf',
     inlineRules: {
-      CompilerStreamQuery: ['ResultColumnList', 'Alias', 'TableRef'],
-      ResultColumn: ['Reference'],
-      FromSource: ['TableSource', 'TableValuedSource', 'SubquerySource'],
+      CompilerStreamQuery: ['ResultColumnList', 'Alias', 'TableRef', 'FromContinuation'],
+      ResultColumn: ['Reference', 'Alias'],
+      FromSource: [],
+      TableSource: ['TableRef', 'Alias'],
+      TableValuedSource: ['TableValuedCall', 'Alias', 'ArgList'],
+      SubquerySource: ['ColumnNameList', 'Alias'],
       JoinClause: [],
       WhereExpr: ['OrExpr', 'AndExpr', 'UnaryExpr', 'WhereAtom'],
-      Predicate: ['PredicateTail', 'InSource', 'CteShorthandRef'],
+      Predicate: [],
+      PredicateTail: [],
+      InSource: ['CteShorthandRef'],
       ScalarExpr: ['ValueTerm', 'MemberSuffix', 'BinaryOp'],
-      PrimaryTerm: [],
-      CaseExpr: ['SearchedCaseExpr', 'SimpleCaseExpr', 'CaseCondition'],
+      PrimaryTerm: ['Literal', 'Reference'],
+      CaseExpr: [],
+      SearchedCaseExpr: [],
+      CaseCondition: ['OrExpr', 'AndExpr', 'UnaryExpr', 'WhereAtom'],
+      SimpleCaseExpr: [],
       CastExpr: ['CastType'],
       FunctionCall: ['ArgList'],
-      CompilerCteSubquery: ['CteResultColumn']
-    }
+      CompilerSubquery: ['ResultColumnList', 'Alias', 'TableRef', 'FromContinuation'],
+      CompilerCteSubquery: ['CteResultColumn', 'CteResultColumnList', 'Alias', 'FromContinuation']
+    },
+    lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral']
   },
   {
     id: 'bucket-definitions',
     label: 'Sync Rules',
     ebnfFile: 'grammar/bucket-definitions.ebnf',
     inlineRules: {
-      ParameterQuery: ['StaticParameterQuery', 'TableParameterQuery', 'TableValuedParameterQuery'],
-      DataQuery: ['DataSelectList', 'DataSelectItem'],
+      ParameterQuery: ['StaticParameterQuery', 'TableParameterQuery', 'TableValuedParameterQuery', 'SelectList', 'TableRef', 'Alias'],
+      DataQuery: ['DataSelectList', 'DataSelectItem', 'DataMatchExpr', 'TableRef', 'Alias'],
       SelectItem: ['Alias'],
       JsonEachCall: [],
       MatchExpr: ['OrExpr', 'AndExpr', 'UnaryExpr', 'MatchAtom'],
       Predicate: ['PredicateTail'],
       ScalarExpr: ['ValueTerm', 'MemberSuffix', 'BinaryOp'],
-      PrimaryTerm: ['CastExpr', 'FunctionCall', 'Reference', 'Literal']
-    }
+      PrimaryTerm: ['CastExpr', 'FunctionCall', 'Reference', 'Literal', 'ArgList', 'CastType']
+    },
+    lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral']
   }
 ];
+
+const DEFAULT_LEXICAL_NOTES: Record<string, string> = {
+  Identifier: 'Identifier normalized to uppercase: starts with A-Z or _, then A-Z, 0-9, _.',
+  StringLiteral: 'Single-quoted string literal.',
+  IntegerLiteral: 'One or more digits.',
+  NumericLiteral: 'Digits with an optional decimal fraction.',
+};
+
+interface LexicalRuleSummary {
+  name: string;
+  pattern: string;
+  note: string;
+}
+
+interface InlineOnlySummary {
+  name: string;
+  inlinedInto: string[];
+  ruleBody: string;
+}
+
+function getProductionNames(grammar: GrammarConfig): string[] {
+  return [...Object.keys(grammar.inlineRules), ...grammar.lexicalRules.filter((name) => !(name in grammar.inlineRules))];
+}
+
+function buildLexicalSummaries(
+  grammar: GrammarConfig,
+  ruleMap: Map<string, IRule>,
+  descriptions: DescriptionMap
+): LexicalRuleSummary[] {
+  const summaries: LexicalRuleSummary[] = [];
+
+  for (const name of grammar.lexicalRules) {
+    const rule = ruleMap.get(name);
+    if (!rule) {
+      console.warn(`  WARNING: Lexical rule '${name}' not found in grammar, skipping lexical summary row`);
+      continue;
+    }
+
+    const pattern = ruleToEbnfText(rule, ruleMap, new Set(), new Set());
+    const note = descriptions[name] || DEFAULT_LEXICAL_NOTES[name] || '';
+
+    summaries.push({ name, pattern, note });
+  }
+
+  return summaries;
+}
+
+function buildInlineOnlySummaries(
+  grammar: GrammarConfig,
+  productionNames: string[],
+  ruleMap: Map<string, IRule>
+): InlineOnlySummary[] {
+  const diagrammed = new Set(productionNames);
+  const parentsByTerm = new Map<string, Set<string>>();
+
+  for (const [parent, inlines] of Object.entries(grammar.inlineRules)) {
+    for (const term of inlines) {
+      if (diagrammed.has(term)) continue;
+      if (!parentsByTerm.has(term)) {
+        parentsByTerm.set(term, new Set());
+      }
+      parentsByTerm.get(term)!.add(parent);
+    }
+  }
+
+  const summaries: InlineOnlySummary[] = [];
+  const terms = Array.from(parentsByTerm.keys()).sort();
+  for (const term of terms) {
+    const inlinedInto = Array.from(parentsByTerm.get(term) || []).sort();
+    const rule = ruleMap.get(term);
+    const ruleBody = rule ? ruleToEbnfText(rule, ruleMap, new Set(), new Set()) : '(missing rule)';
+    summaries.push({ name: term, inlinedInto, ruleBody });
+  }
+
+  return summaries;
+}
 
 // ---------------------------------------------------------------------------
 // Comment pre-processor
@@ -198,6 +286,130 @@ function parseRuleName(ref: string): { name: string; modifier: string } {
 
 function parseGrammar(ebnfSource: string): IRule[] {
   return Grammars.W3C.getRules(ebnfSource) as IRule[];
+}
+
+interface CoverageSummary {
+  inlined: string[];
+  skipped: string[];
+}
+
+function classifyCoverage(userRules: IRule[], grammar: GrammarConfig, diagrammedNames: Set<string>): CoverageSummary {
+  const inlineTargets = new Set(Object.values(grammar.inlineRules).flat());
+  const inlined: string[] = [];
+  const skipped: string[] = [];
+
+  for (const rule of userRules) {
+    if (diagrammedNames.has(rule.name)) continue;
+    if (inlineTargets.has(rule.name)) {
+      inlined.push(rule.name);
+    } else {
+      skipped.push(rule.name);
+    }
+  }
+
+  inlined.sort();
+  skipped.sort();
+
+  return { inlined, skipped };
+}
+
+function assertNoSkippedTerms(grammar: GrammarConfig, skipped: string[]): void {
+  if (skipped.length === 0) return;
+
+  const skippedList = skipped.map((name) => `- ${name}`).join('\n');
+  throw new Error(
+    `Coverage check failed for ${grammar.id}: ${skipped.length} user term(s) are neither diagrammed nor inlined.\n` +
+      'Add each term as a top-level diagram or include it in at least one inline list.\n\n' +
+      `Missing terms:\n${skippedList}`
+  );
+}
+
+/**
+ * Collect all NonTerminal references that appear in rendered diagrams.
+ * A NonTerminal is any rule reference that is NOT inlined and NOT synthetic —
+ * i.e., it will render as a NonTerminal box. Every such reference MUST be
+ * in diagrammedNames, otherwise the user sees a box with no destination.
+ */
+function collectNonTerminalRefs(
+  productionName: string,
+  rule: IRule,
+  allRules: Map<string, IRule>,
+  inlinedNames: Set<string>,
+  visited: Set<string>
+): Set<string> {
+  const refs = new Set<string>();
+  const newVisited = new Set(visited);
+  newVisited.add(rule.name);
+
+  for (const seq of rule.bnf) {
+    for (const entry of seq) {
+      if (entry instanceof RegExp) continue;
+      const { name: refName } = parseRuleName(entry);
+      if (parseTerminal(refName) !== null) continue;
+
+      const isSynthetic = refName.startsWith('%') || refName.startsWith('%%');
+      const shouldInline = isSynthetic || inlinedNames.has(refName);
+
+      if (shouldInline) {
+        // Recurse into inlined rules to find their NonTerminal refs
+        const inlinedRule = allRules.get(refName);
+        if (inlinedRule && !newVisited.has(refName)) {
+          for (const innerRef of collectNonTerminalRefs(productionName, inlinedRule, allRules, inlinedNames, newVisited)) {
+            refs.add(innerRef);
+          }
+        }
+      } else {
+        // This will render as a NonTerminal box
+        refs.add(refName);
+      }
+    }
+  }
+
+  return refs;
+}
+
+function assertAllRefsAreDiagrammed(
+  grammar: GrammarConfig,
+  ruleMap: Map<string, IRule>,
+  diagrammedNames: Set<string>
+): void {
+  const danglingRefs: { production: string; ref: string }[] = [];
+
+  for (const productionName of diagrammedNames) {
+    const rule = ruleMap.get(productionName);
+    if (!rule) continue;
+
+    const inlines = grammar.inlineRules[productionName] || [];
+    const inlinedNames = new Set(inlines);
+    const refs = collectNonTerminalRefs(productionName, rule, ruleMap, inlinedNames, new Set());
+
+    for (const ref of refs) {
+      if (!diagrammedNames.has(ref)) {
+        danglingRefs.push({ production: productionName, ref });
+      }
+    }
+  }
+
+  if (danglingRefs.length === 0) return;
+
+  const seen = new Set<string>();
+  const uniqueRefs: string[] = [];
+  for (const { ref } of danglingRefs) {
+    if (!seen.has(ref)) {
+      seen.add(ref);
+      uniqueRefs.push(ref);
+    }
+  }
+
+  const details = danglingRefs
+    .map(({ production, ref }) => `- ${ref} (referenced by ${production})`)
+    .join('\n');
+
+  throw new Error(
+    `Reference coverage check failed for ${grammar.id}: ${uniqueRefs.length} term(s) appear as NonTerminal boxes but have no diagram section.\n` +
+      'Each must be promoted to a top-level diagram (add to inlineRules keys) or inlined into every diagram that references it.\n\n' +
+      `Dangling references:\n${details}`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -318,14 +530,23 @@ function entryToRailroad(
     return rd.Terminal(regexpToDisplay(entry));
   }
 
-  // Terminal string (starts with ")
-  const termText = parseTerminal(entry);
-  if (termText !== null) {
-    return rd.Terminal(termText);
-  }
-
-  // Rule reference — parse name and modifier
+  // Parse name and modifier first so terminals like "NOT"? are handled correctly.
   const { name: refName, modifier } = parseRuleName(entry);
+
+  // Terminal string (starts with ")
+  const termText = parseTerminal(refName);
+  if (termText !== null) {
+    switch (modifier) {
+      case '?':
+        return rd.Optional(rd.Terminal(termText));
+      case '*':
+        return rd.ZeroOrMore(rd.Terminal(termText));
+      case '+':
+        return rd.OneOrMore(rd.Terminal(termText));
+      default:
+        return rd.Terminal(termText);
+    }
+  }
 
   // Build the inner node
   let node: any;
@@ -410,23 +631,18 @@ function addStyleToSvg(svgStr: string): string {
 }
 
 /**
- * Post-process SVG to wrap NonTerminal nodes that reference other diagrammed
- * productions in <a> links. NonTerminals are <rect> without rx/ry (sharp corners)
- * followed by a <text> element. We match by text content against the linkable set.
+ * Post-process SVG to wrap NonTerminal nodes in <a> links.
+ * NonTerminals are <rect> without rx/ry (sharp corners) followed by <text>.
  */
-function addNonTerminalLinks(
-  svgStr: string,
-  linkableNames: Set<string>,
-  hrefPrefix: string
-): string {
+function addNonTerminalLinks(svgStr: string, hrefByName: Map<string, string>): string {
   // Match: <rect ...></rect>\n<text ...>NAME</text>
   // NonTerminals have no rx/ry attributes; Terminals have rx="10" ry="10"
   return svgStr.replace(
     /(<rect(?![^>]*\brx=)[^>]*><\/rect>\s*<text[^>]*>)([^<]+)(<\/text>)/g,
     (_match, before, name, after) => {
-      if (linkableNames.has(name)) {
-        const anchor = name.toLowerCase();
-        return `<a xlink:href="${hrefPrefix}#${anchor}" href="${hrefPrefix}#${anchor}">${before}${name}${after}</a>`;
+      const href = hrefByName.get(name);
+      if (href) {
+        return `<a xlink:href="${href}" href="${href}">${before}${name}${after}</a>`;
       }
       return `${before}${name}${after}`;
     }
@@ -538,12 +754,21 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function escapeMarkdownTableCell(text: string): string {
+  return text.replace(/\|/g, '\\|').replace(/\n/g, ' ').trim();
+}
+
 // ---------------------------------------------------------------------------
 // Flat MDX generation
 // ---------------------------------------------------------------------------
 
-function generateFlatMdx(grammar: GrammarConfig, descriptions: DescriptionMap, outdir: string): void {
-  const productionNames = Object.keys(grammar.inlineRules);
+function generateFlatMdx(
+  grammar: GrammarConfig,
+  descriptions: DescriptionMap,
+  productionNames: string[],
+  lexicalSummaries: LexicalRuleSummary[],
+  outdir: string
+): void {
   const lines: string[] = [];
 
   // YAML frontmatter
@@ -560,6 +785,9 @@ function generateFlatMdx(grammar: GrammarConfig, descriptions: DescriptionMap, o
   lines.push('');
   for (const name of productionNames) {
     lines.push(`- [${name}](#${name.toLowerCase()})`);
+  }
+  if (lexicalSummaries.length > 0) {
+    lines.push('- [Lexical Rules](#lexical-rules)');
   }
   lines.push('');
   lines.push('---');
@@ -583,6 +811,21 @@ function generateFlatMdx(grammar: GrammarConfig, descriptions: DescriptionMap, o
     lines.push('---');
   }
 
+  if (lexicalSummaries.length > 0) {
+    lines.push('');
+    lines.push('## Lexical Rules');
+    lines.push('');
+    lines.push('| Production | Pattern | Notes |');
+    lines.push('| --- | --- | --- |');
+
+    for (const row of lexicalSummaries) {
+      const pattern = escapeMarkdownTableCell(row.pattern);
+      const note = escapeMarkdownTableCell(row.note);
+      const noteCell = note.length > 0 ? note : '-';
+      lines.push(`| [\`${row.name}\`](#${row.name.toLowerCase()}) | \`${pattern}\` | ${noteCell} |`);
+    }
+  }
+
   const mdxPath = path.join(outdir, `${grammar.id}-flat.mdx`);
   fs.writeFileSync(mdxPath, lines.join('\n') + '\n', 'utf8');
   console.log(`  Wrote MDX: ${mdxPath}`);
@@ -595,10 +838,12 @@ function generateFlatMdx(grammar: GrammarConfig, descriptions: DescriptionMap, o
 function generateFlatHtml(
   grammar: GrammarConfig,
   descriptions: DescriptionMap,
+  productionNames: string[],
+  lexicalSummaries: LexicalRuleSummary[],
+  inlineOnlySummaries: InlineOnlySummary[],
   diagrammedNames: Set<string>,
   outdir: string
 ): void {
-  const productionNames = Object.keys(grammar.inlineRules);
   const lines: string[] = [];
 
   lines.push('<!DOCTYPE html>');
@@ -632,6 +877,17 @@ function generateFlatHtml(
   lines.push('  .diagram-container a:hover rect { fill: hsl(210,100%,90%); }');
   lines.push('  .diagram-container a { cursor: pointer; }');
   lines.push('  .description { color: #4b5563; margin-top: 0.5rem; }');
+  lines.push('  .inlining { color: #6b7280; margin: 0.3rem 0 0.8rem; font-size: 0.92rem; }');
+  lines.push('  .inlining code { background: #eef2ff; padding: 0.12em 0.32em; border-radius: 3px; }');
+  lines.push('  .review-note { color: #4b5563; margin: 0.35rem 0 0.75rem; }');
+  lines.push('  .inlined-table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.92rem; }');
+  lines.push('  .inlined-table th, .inlined-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }');
+  lines.push('  .inlined-table th { background: #f9fafb; }');
+  lines.push('  .inlined-table code { background: #eef2ff; padding: 0.12em 0.32em; border-radius: 3px; }');
+  lines.push('  .lexical-table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.92rem; }');
+  lines.push('  .lexical-table th, .lexical-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }');
+  lines.push('  .lexical-table th { background: #f3f4f6; }');
+  lines.push('  .lexical-table code { background: #e5e7eb; padding: 0.12em 0.32em; border-radius: 3px; }');
   lines.push('  hr { border: none; border-top: 1px solid #ddd; margin: 2rem 0; }');
   lines.push('</style>');
   lines.push('</head>');
@@ -648,9 +904,21 @@ function generateFlatHtml(
   for (const name of productionNames) {
     lines.push(`    <li><a href="#${name.toLowerCase()}">${name}</a></li>`);
   }
+  if (lexicalSummaries.length > 0) {
+    lines.push('    <li><a href="#lexical-rules">Lexical Rules</a></li>');
+  }
+  if (inlineOnlySummaries.length > 0) {
+    lines.push('    <li><a href="#inlined-only-terms">Inlined-Only Terms (Review)</a></li>');
+  }
   lines.push('  </ul>');
   lines.push('</div>');
   lines.push('');
+
+  // Build link targets: only diagrammed productions get links
+  const linkTargets = new Map<string, string>();
+  for (const name of productionNames) {
+    linkTargets.set(name, `#${name.toLowerCase()}`);
+  }
 
   // Productions
   for (let i = 0; i < productionNames.length; i++) {
@@ -658,12 +926,24 @@ function generateFlatHtml(
     lines.push(`<div class="production" id="${name.toLowerCase()}">`);
     lines.push(`  <h2>${name}</h2>`);
     lines.push(`  <p><code>${name}</code></p>`);
+
+    const inlined = grammar.inlineRules[name] || [];
+    if (inlined.length > 0) {
+      const renderedInlines = inlined.map((inlineName) => {
+        if (diagrammedNames.has(inlineName)) {
+          return `<a href="#${inlineName.toLowerCase()}"><code>${escapeHtml(inlineName)}</code></a>`;
+        }
+        return `<code>${escapeHtml(inlineName)}</code>`;
+      });
+      lines.push(`  <p class="inlining">This term inlined the following terms: ${renderedInlines.join(', ')}.</p>`);
+    }
+
     lines.push('  <div class="diagram-container">');
     // Inline the SVG with anchor links for interactive navigation
     const svgFile = path.join(outdir, 'diagrams', `${grammar.id}--${name}.svg`);
     try {
       let svgContent = fs.readFileSync(svgFile, 'utf8');
-      svgContent = addNonTerminalLinks(svgContent, diagrammedNames, '');
+      svgContent = addNonTerminalLinks(svgContent, linkTargets);
       lines.push(`    ${svgContent}`);
     } catch {
       lines.push(`    <p>SVG not found: ${grammar.id}--${name}.svg</p>`);
@@ -685,6 +965,60 @@ function generateFlatHtml(
     }
   }
 
+  if (lexicalSummaries.length > 0) {
+    if (productionNames.length > 0) {
+      lines.push('<hr>');
+      lines.push('');
+    }
+
+    lines.push('<section id="lexical-rules">');
+    lines.push('  <h2>Lexical Rules</h2>');
+    lines.push('  <table class="lexical-table">');
+    lines.push('    <thead>');
+    lines.push('      <tr><th>Production</th><th>Pattern</th><th>Notes</th></tr>');
+    lines.push('    </thead>');
+    lines.push('    <tbody>');
+
+    for (const row of lexicalSummaries) {
+      const note = row.note.length > 0 ? row.note : '-';
+      lines.push(
+        `      <tr><td><a href="#${row.name.toLowerCase()}"><code>${escapeHtml(row.name)}</code></a></td><td><code>${escapeHtml(row.pattern)}</code></td><td>${escapeHtml(note)}</td></tr>`
+      );
+    }
+
+    lines.push('    </tbody>');
+    lines.push('  </table>');
+    lines.push('</section>');
+    lines.push('');
+  }
+
+  if (inlineOnlySummaries.length > 0) {
+    lines.push('<hr>');
+    lines.push('');
+    lines.push('<section id="inlined-only-terms">');
+    lines.push('  <h2>Inlined-Only Terms (Review)</h2>');
+    lines.push('  <p class="review-note">These terms are expanded into parent diagrams and do not have top-level sections.</p>');
+    lines.push('  <table class="inlined-table">');
+    lines.push('    <thead>');
+    lines.push('      <tr><th>Term</th><th>Inlined Into</th><th>Rule</th></tr>');
+    lines.push('    </thead>');
+    lines.push('    <tbody>');
+
+    for (const row of inlineOnlySummaries) {
+      const parentLinks = row.inlinedInto
+        .map((parent) => `<a href="#${parent.toLowerCase()}"><code>${escapeHtml(parent)}</code></a>`)
+        .join(', ');
+      lines.push(
+        `      <tr><td><code>${escapeHtml(row.name)}</code></td><td>${parentLinks}</td><td><code>${escapeHtml(row.ruleBody)}</code></td></tr>`
+      );
+    }
+
+    lines.push('    </tbody>');
+    lines.push('  </table>');
+    lines.push('</section>');
+    lines.push('');
+  }
+
   lines.push('');
   lines.push('</body>');
   lines.push('</html>');
@@ -702,16 +1036,16 @@ function generateResolvedEbnf(
   grammar: GrammarConfig,
   descriptions: DescriptionMap,
   ruleMap: Map<string, IRule>,
+  productionNames: string[],
   outdir: string
 ): void {
-  const productionNames = Object.keys(grammar.inlineRules);
   const blocks: string[] = [];
 
   for (const productionName of productionNames) {
     const rule = ruleMap.get(productionName);
     if (!rule) continue;
 
-    const inlinedNames = new Set(grammar.inlineRules[productionName]);
+    const inlinedNames = new Set(grammar.inlineRules[productionName] || []);
     const body = ruleToEbnfText(rule, ruleMap, inlinedNames, new Set());
 
     const desc = descriptions[productionName];
@@ -786,6 +1120,10 @@ async function main() {
         console.log(`  ${diagram} (no inlines)`);
       }
     }
+    if (grammar.lexicalRules.length > 0) {
+      console.log(`\nLexical rules to diagram for ${grammar.id}:`);
+      console.log(`  ${grammar.lexicalRules.join(', ')}`);
+    }
 
     // Build rule map (all rules including synthetic)
     const ruleMap = new Map<string, IRule>();
@@ -794,23 +1132,26 @@ async function main() {
     }
 
     // Determine diagrammed and inlined sets
-    const diagrammedNames = new Set(Object.keys(grammar.inlineRules));
+    const productionNames = getProductionNames(grammar);
+    const diagrammedNames = new Set(productionNames);
+    const lexicalSummaries = buildLexicalSummaries(grammar, ruleMap, descriptions);
+    const inlineOnlySummaries = buildInlineOnlySummaries(grammar, productionNames, ruleMap);
+    const coverage = classifyCoverage(userRules, grammar, diagrammedNames);
     const rendered: string[] = [];
-    const inlinedAll: string[] = [];
-    const skippedAll: string[] = [];
 
     // Create diagrams directory
     const diagramsDir = path.join(cliArgs.outdir, 'diagrams');
     fs.mkdirSync(diagramsDir, { recursive: true });
 
     // Generate diagrams for each diagrammed production
-    for (const [productionName, inlines] of Object.entries(grammar.inlineRules)) {
+    for (const productionName of productionNames) {
       const rule = ruleMap.get(productionName);
       if (!rule) {
         console.warn(`  WARNING: Rule '${productionName}' not found in grammar, skipping diagram`);
         continue;
       }
 
+      const inlines = grammar.inlineRules[productionName] || [];
       const inlinedNames = new Set(inlines);
 
       try {
@@ -826,31 +1167,30 @@ async function main() {
       }
     }
 
-    // Classify which user rules were inlined vs skipped
-    for (const rule of userRules) {
-      if (diagrammedNames.has(rule.name)) continue; // it's a diagram itself
-      // Check if it appears in any inline list
-      const isInlined = Object.values(grammar.inlineRules).some((inlines) => inlines.includes(rule.name));
-      if (isInlined) {
-        inlinedAll.push(rule.name);
-      } else {
-        skippedAll.push(rule.name);
-      }
-    }
-
     console.log(`\nDiagram generation for ${grammar.id}:`);
     console.log(`  Rendered (${rendered.length}): ${rendered.join(', ')}`);
-    console.log(`  Inlined  (${inlinedAll.length}): ${inlinedAll.join(', ')}`);
-    console.log(`  Skipped  (${skippedAll.length}): ${skippedAll.join(', ')}`);
+    console.log(`  Inlined  (${coverage.inlined.length}): ${coverage.inlined.join(', ')}`);
+    console.log(`  Skipped  (${coverage.skipped.length}): ${coverage.skipped.join(', ')}`);
+
+    assertNoSkippedTerms(grammar, coverage.skipped);
+    assertAllRefsAreDiagrammed(grammar, ruleMap, diagrammedNames);
 
     // Generate flat MDX file
-    generateFlatMdx(grammar, descriptions, cliArgs.outdir);
+    generateFlatMdx(grammar, descriptions, productionNames, lexicalSummaries, cliArgs.outdir);
 
     // Generate HTML review file (inlines SVGs with anchor links)
-    generateFlatHtml(grammar, descriptions, diagrammedNames, cliArgs.outdir);
+    generateFlatHtml(
+      grammar,
+      descriptions,
+      productionNames,
+      lexicalSummaries,
+      inlineOnlySummaries,
+      diagrammedNames,
+      cliArgs.outdir
+    );
 
     // Generate resolved EBNF file
-    generateResolvedEbnf(grammar, descriptions, ruleMap, cliArgs.outdir);
+    generateResolvedEbnf(grammar, descriptions, ruleMap, productionNames, cliArgs.outdir);
   }
 
   // Write descriptions.yaml
