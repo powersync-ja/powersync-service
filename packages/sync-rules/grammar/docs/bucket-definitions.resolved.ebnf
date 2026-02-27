@@ -1,0 +1,21 @@
+/* Parameter-query SQL forms used under bucket_definitions.<name>.parameters */
+
+ParameterQuery ::= "SELECT" SelectList "FROM" JsonEachCall Alias? ("WHERE" MatchExpr)? | "SELECT" SelectList "FROM" TableRef ("WHERE" MatchExpr)? | "SELECT" SelectList ("WHERE" MatchExpr)?
+
+/* Data-query SQL forms used under bucket_definitions.<name>.data[] */
+
+DataQuery ::= "SELECT" ("*" | ScalarExpr Alias?) ("," ("*" | ScalarExpr Alias?))* "FROM" TableRef ("WHERE" DataMatchExpr)?
+
+SelectItem ::= ScalarExpr ("AS" Identifier)?
+
+JsonEachCall ::= "JSON_EACH" "(" ScalarExpr ")"
+
+MatchExpr ::= "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | "(" MatchExpr ")"))* ("OR" "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | "(" MatchExpr ")"))*)*
+
+Predicate ::= ScalarExpr ("=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL") | ScalarExpr
+
+/* Scalar expression subset (sql_filters/sql_functions) */
+
+ScalarExpr ::= PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))* (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))*)*
+
+PrimaryTerm ::= (StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL") | "CAST" "(" ScalarExpr "AS" CastType ")" | (Identifier ".")? Identifier "(" ArgList? ")" | Identifier ("." Identifier)? | "(" ScalarExpr ")"
