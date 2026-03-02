@@ -43,7 +43,7 @@ export class SyncPlanSchemaAnalyzer {
       const outputName = source.outputTableName ?? table.name;
       const outputTable = (tables[outputName] ??= {});
 
-      const addOutputColumn = (definition: ColumnDefinition) => {
+      function addOutputColumn(definition: ColumnDefinition) {
         if (definition.name == 'id') {
           return; // Is implicit
         }
@@ -57,7 +57,7 @@ export class SyncPlanSchemaAnalyzer {
         } else {
           outputTable[definition.name] = definition;
         }
-      };
+      }
 
       for (const column of source.columns) {
         if (column === 'star') {
@@ -106,6 +106,7 @@ export class SyncPlanSchemaAnalyzer {
       return mergedTypes!;
     };
 
+    // If the given parameter value is a subscription parameter, infers its type to the expected type.
     const inferQuerierParameter = (expectedType: ColumnType, parameter: ParameterValue) => {
       switch (parameter.type) {
         case 'request':
@@ -256,7 +257,8 @@ class ParameterTypeInference extends RecursiveExpressionVisitor<RequestSqlParame
     }
 
     if (foundParameter == null) {
-      // Not a parameter, recurse into inner expressions.
+      // Not a parameter, recurse into inner expressions. Because this might be a function call or another complex
+      // expression, we can't pass the outer expectedType down without changes.
       return super.visitChildren(expr, ExpressionTypeInference.ANY);
     } else {
       const existing = this.parameters[foundParameter];

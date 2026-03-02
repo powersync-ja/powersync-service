@@ -51,21 +51,6 @@ ${generated.join('\n')}
     return `.${this.columnType(column)}("${column.name}")`;
   }
 
-  /**
-struct TypedSyncStreams {
-    private var db: PowerSyncDatabaseProtocol
-    init(_ db: PowerSyncDatabaseProtocol) {
-        self.db = db
-    }
-    
-    func users(name: String) -> SyncStream {
-        return db.syncStream(name: "users", params: [
-            "name": JsonValue.string(name)
-        ]);
-    }
-}
-   */
-
   private generateStreamHelper(source: SyncConfig, schema: SourceSchema): string | undefined {
     const optionalSyncStreams = this.getOptionalStreams(source, schema);
     if (optionalSyncStreams.length) {
