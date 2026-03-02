@@ -128,7 +128,7 @@ ${generated.join('\n')}
         let args = 'db: PowerSyncDatabase';
         if (allParams.length) {
           const paramsType = allParams.map(([name, type]) => `${name}: ${this.valueType(type)}`).join(', ');
-          args += `, params: {${paramsType}}`;
+          args += `, params: { ${paramsType} }`;
         }
 
         return `  ${toCamelCase(stream.name)}(${args}): SyncStream {

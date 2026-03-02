@@ -85,7 +85,7 @@ export interface OptionalStream {
 
 export function toCamelCase(source: string, initialUpper: boolean = false): string {
   let result = '';
-  for (const chunk of source.split(/[A-Z_-]/)) {
+  for (const chunk of source.split(/[_-]/)) {
     if (chunk.length == 0) continue;
 
     const firstCharUpper = result.length > 0 || initialUpper;

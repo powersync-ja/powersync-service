@@ -10,8 +10,6 @@ import {
   CastExpression,
   ScalarFunctionCallExpression,
   LiteralExpression,
-  BetweenExpression,
-  ScalarInExpression,
   SqlExpression
 } from './expression.js';
 import { ExpressionVisitor, RecursiveExpressionVisitor, visitExpr } from './expression_visitor.js';

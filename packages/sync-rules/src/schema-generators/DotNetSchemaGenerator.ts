@@ -58,7 +58,7 @@ ${generated.join('\n')}
     const optionalSyncStreams = this.getOptionalStreams(source, schema);
     if (optionalSyncStreams.length) {
       let generatedCode = `
-public readonly ref struct TypedStreams(PowerSyncDatabase db)
+public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)
 {
     private PowerSyncDatabase db { get; } = db;
 `;
@@ -100,16 +100,6 @@ public readonly ref struct TypedStreams(PowerSyncDatabase db)
       return 'int';
     } else {
       return 'string';
-    }
-  }
-
-  private swiftJsonParamType({ type }: ColumnType): string {
-    if (type.typeFlags & TYPE_INTEGER) {
-      return 'JsonValue.int';
-    } else if (type.typeFlags & TYPE_REAL) {
-      return 'JsonValue.double';
-    } else {
-      return 'JsonValue.string';
     }
   }
 }

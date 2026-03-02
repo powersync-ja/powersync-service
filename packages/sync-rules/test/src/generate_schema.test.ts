@@ -155,7 +155,7 @@ export const typedStreams = Object.freeze({
   assetsOne(db: PowerSyncDatabase): SyncStream {
     return db.syncStream('assets_one', {});
   },
-  assets2(db: PowerSyncDatabase, params: {name: string}): SyncStream {
+  assets2(db: PowerSyncDatabase, params: { name: string }): SyncStream {
     return db.syncStream('assets_2', params);
   }
 });
@@ -198,7 +198,7 @@ export const typedStreams = Object.freeze({
   assetsOne(db: PowerSyncDatabase): SyncStream {
     return db.syncStream('assets_one', {});
   },
-  assets2(db: PowerSyncDatabase, params: {name: string}): SyncStream {
+  assets2(db: PowerSyncDatabase, params: { name: string }): SyncStream {
     return db.syncStream('assets_2', params);
   }
 });
@@ -411,7 +411,7 @@ class AppSchema
     public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
 }
 
-public readonly ref struct TypedStreams(PowerSyncDatabase db)
+public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)
 {
     private PowerSyncDatabase db { get; } = db;
     public ISyncStream AssetsOne()
@@ -460,7 +460,7 @@ class AppSchema
     public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
 }
 
-public readonly ref struct TypedStreams(PowerSyncDatabase db)
+public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)
 {
     private PowerSyncDatabase db { get; } = db;
     public ISyncStream AssetsOne()
