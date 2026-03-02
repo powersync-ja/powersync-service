@@ -142,7 +142,8 @@ export const syncStreamed = routeDefinition({
         status: 200,
         headers: {
           'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType,
-          ...encodingHeaders
+          ...encodingHeaders,
+          'X-Accel-Buffering': 'no'
         },
         data: stream,
         afterSend: async (details) => {
