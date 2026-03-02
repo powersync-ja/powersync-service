@@ -83,12 +83,18 @@ export interface OptionalStream {
   parameters: Record<string, ColumnType>;
 }
 
-export function toCamelCase(source: string): string {
-  const split = source.split(/[A-Z_-]/);
-  let [result] = split.splice(0, 1);
-  for (const part of split) {
-    result += part[0].toUpperCase();
-    result += part.substring(1);
+export function toCamelCase(source: string, initialUpper: boolean = false): string {
+  let result = '';
+  for (const chunk of source.split(/[A-Z_-]/)) {
+    if (chunk.length == 0) continue;
+
+    const firstCharUpper = result.length > 0 || initialUpper;
+    if (firstCharUpper) {
+      result += chunk.charAt(0).toUpperCase();
+      result += chunk.substring(1);
+    } else {
+      result += chunk;
+    }
   }
 
   return result;

@@ -1,7 +1,7 @@
 import { SyncConfig } from '../SyncConfig.js';
-import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
+import { ColumnDefinition, ColumnType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
 import { SourceSchema } from '../types.js';
-import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
+import { GenerateSchemaOptions, SchemaGenerator, toCamelCase } from './SchemaGenerator.js';
 
 export interface TsSchemaGeneratorOptions {
   language?: TsSchemaLanguage;
@@ -49,8 +49,9 @@ export class TsSchemaGenerator extends SchemaGenerator {
 
   generate(source: SyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
+    const streamsHelper = this.generateStreamHelper(source, schema);
 
-    return `${this.generateImports()}
+    return `${this.generateImports(streamsHelper != null)}
 
 ${tables.map((table) => this.generateTable(table.name, table.columns, options)).join('\n\n')}
 
@@ -58,7 +59,8 @@ export const AppSchema = new Schema({
   ${tables.map((table) => table.name).join(',\n  ')}
 });
 
-${this.generateTypeExports()}`;
+${this.generateTypeExports()}
+${streamsHelper ?? ''}`;
   }
 
   private generateTypeExports() {
@@ -69,15 +71,21 @@ ${this.generateTypeExports()}`;
     }
   }
 
-  private generateImports() {
+  private generateImports(includeSyncStreams: boolean) {
     const importStyle = this.options.imports ?? 'auto';
+    const importedNames = ['column', 'Schema', 'Table'];
+    if (includeSyncStreams) {
+      importedNames.push(...['PowerSyncDatabase', 'SyncStream']);
+    }
+    const importStart = `import { ${importedNames.join(', ')} } from`;
+
     if (importStyle == TsSchemaImports.web) {
-      return `import { column, Schema, Table } from '@powersync/web';`;
+      return `${importStart} '@powersync/web';`;
     } else if (importStyle == TsSchemaImports.reactNative) {
-      return `import { column, Schema, Table } from '@powersync/react-native';`;
+      return `${importStart} '@powersync/react-native';`;
     } else {
-      return `import { column, Schema, Table } from '@powersync/web';
-// OR: import { column, Schema, Table } from '@powersync/react-native';`;
+      return `${importStart} '@powersync/web';
+// OR: ${importStart} '@powersync/react-native';`;
     }
   }
 
@@ -108,6 +116,32 @@ ${generated.join('\n')}
 );`;
   }
 
+  private generateStreamHelper(source: SyncConfig, schema: SourceSchema): string | undefined {
+    const optionalSyncStreams = this.getOptionalStreams(source, schema);
+    if (optionalSyncStreams.length) {
+      let generatedCode = `export const typedStreams = Object.freeze({
+`;
+
+      const methods = optionalSyncStreams.map((stream) => {
+        const allParams = Object.entries(stream.parameters);
+
+        let args = 'db: PowerSyncDatabase';
+        if (allParams.length) {
+          const paramsType = allParams.map(([name, type]) => `${name}: ${this.valueType(type)}`).join(', ');
+          args += `, params: {${paramsType}}`;
+        }
+
+        return `  ${toCamelCase(stream.name)}(${args}): SyncStream {
+    return db.syncStream('${stream.name}', ${allParams.length ? 'params' : '{}'});
+  }`;
+      });
+
+      generatedCode += methods.join(',\n');
+      generatedCode += `\n});\n`;
+      return generatedCode;
+    }
+  }
+
   private generateColumn(column: ColumnDefinition) {
     const t = column.type;
     if (t.typeFlags & TYPE_TEXT) {
@@ -118,6 +152,14 @@ ${generated.join('\n')}
       return `${column.name}: column.integer`;
     } else {
       return `${column.name}: column.text`;
+    }
+  }
+
+  private valueType({ type }: ColumnType): string {
+    if (type.typeFlags & (TYPE_INTEGER | TYPE_REAL)) {
+      return 'number';
+    } else {
+      return 'string';
     }
   }
 }

@@ -19,7 +19,7 @@ export class DartSchemaGenerator extends SchemaGenerator {
 
     const optionalSyncStreams = this.getOptionalStreams(source, schema);
     if (optionalSyncStreams.length) {
-      generatedCode += '\nextension type TypedSyncStreams._(PowerSyncDatabase _db) {\n';
+      generatedCode += '\nextension type TypedSyncStreams(PowerSyncDatabase _db) {\n';
 
       for (const stream of optionalSyncStreams) {
         let dartParameters = Object.entries(stream.parameters)
@@ -37,10 +37,6 @@ export class DartSchemaGenerator extends SchemaGenerator {
       }
 
       generatedCode += `}
-
-extension GetTypedSyncStreams on PowerSyncDatabase {
-  TypedSyncStreams get typedSyncStreams => TypedSyncStreams._(this);        
-}
 `;
     }
 

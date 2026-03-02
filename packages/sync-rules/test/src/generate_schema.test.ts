@@ -57,13 +57,9 @@ streams:
 
   test('dart', () => {
     const streams = `
-extension type TypedSyncStreams._(PowerSyncDatabase _db) {
+extension type TypedSyncStreams(PowerSyncDatabase _db) {
   SyncStream assetsOne() => _db.syncStream('assets_one', {});
   SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
-}
-
-extension GetTypedSyncStreams on PowerSyncDatabase {
-  TypedSyncStreams get typedSyncStreams => TypedSyncStreams._(this);        
 }`;
 
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
@@ -124,8 +120,8 @@ ${streams}
 
   test('ts', () => {
     expect(new TsSchemaGenerator().generate(rules, schema, {})).toEqual(
-      `import { column, Schema, Table } from '@powersync/web';
-// OR: import { column, Schema, Table } from '@powersync/react-native';
+      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -154,12 +150,21 @@ export const AppSchema = new Schema({
 });
 
 export type Database = (typeof AppSchema)['types'];
+
+export const typedStreams = Object.freeze({
+  assetsOne(db: PowerSyncDatabase): SyncStream {
+    return db.syncStream('assets_one', {});
+  },
+  assets2(db: PowerSyncDatabase, params: {name: string}): SyncStream {
+    return db.syncStream('assets_2', params);
+  }
+});
 `
     );
 
     expect(new TsSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(
-      `import { column, Schema, Table } from '@powersync/web';
-// OR: import { column, Schema, Table } from '@powersync/react-native';
+      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -188,14 +193,36 @@ export const AppSchema = new Schema({
 });
 
 export type Database = (typeof AppSchema)['types'];
+
+export const typedStreams = Object.freeze({
+  assetsOne(db: PowerSyncDatabase): SyncStream {
+    return db.syncStream('assets_one', {});
+  },
+  assets2(db: PowerSyncDatabase, params: {name: string}): SyncStream {
+    return db.syncStream('assets_2', params);
+  }
+});
 `
     );
   });
 
   test('kotlin', () => {
+    const streams = `
+@JvmInline
+value class TypedSyncStreams(private val db: PowerSyncDatabase) {
+  fun assetsOne(): SyncStream = db.syncStream("assets_one", emptyMap())
+  fun assets2(name: String): SyncStream = db.syncStream("assets_2", buildMap {
+    put("name", JsonParam.String(name))
+  })
+}`;
+
     expect(new KotlinSchemaGenerator().generate(rules, schema)).toEqual(`import com.powersync.db.schema.Column
 import com.powersync.db.schema.Schema
 import com.powersync.db.schema.Table
+import com.powersync.PowerSyncDatabase
+import com.powersync.sync.SyncStream
+import com.powersync.utils.JsonParam
+import kotlin.jvm.JvmInline
 
 val schema = Schema(
   Table(
@@ -215,12 +242,18 @@ val schema = Schema(
         Column.text("foo")
     )
   )
-)`);
+)
+${streams}
+`);
 
     expect(new KotlinSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
       .toEqual(`import com.powersync.db.schema.Column
 import com.powersync.db.schema.Schema
 import com.powersync.db.schema.Table
+import com.powersync.PowerSyncDatabase
+import com.powersync.sync.SyncStream
+import com.powersync.utils.JsonParam
+import kotlin.jvm.JvmInline
 
 val schema = Schema(
   Table(
@@ -240,7 +273,9 @@ val schema = Schema(
         Column.text("foo")
     )
   )
-)`);
+)
+${streams}
+`);
   });
 
   test('room', () => {
@@ -288,7 +323,23 @@ let schema = Schema(
         .text("foo")
     ]
   )
-)`);
+)
+
+struct TypedSyncStreams {
+    private var db: PowerSyncDatabaseProtocol
+    init(_ db: PowerSyncDatabaseProtocol) {
+        self.db = db
+    }
+    func assetsOne() -> SyncStream {
+        return db.syncStream(name: "assets_one", params: [:])
+    }
+    func assets2(name: String) -> SyncStream {
+        return db.syncStream(name: "assets_2", params: [
+            "name": JsonValue.string(name)
+        ])
+    }
+}
+`);
 
     expect(new SwiftSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`import PowerSync
 
@@ -310,7 +361,23 @@ let schema = Schema(
         .text("foo")
     ]
   )
-)`);
+)
+
+struct TypedSyncStreams {
+    private var db: PowerSyncDatabaseProtocol
+    init(_ db: PowerSyncDatabaseProtocol) {
+        self.db = db
+    }
+    func assetsOne() -> SyncStream {
+        return db.syncStream(name: "assets_one", params: [:])
+    }
+    func assets2(name: String) -> SyncStream {
+        return db.syncStream(name: "assets_2", params: [
+            "name": JsonValue.string(name)
+        ])
+    }
+}
+`);
   });
 
   test('dotnet', () => {
