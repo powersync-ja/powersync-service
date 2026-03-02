@@ -41,17 +41,31 @@ describe('schema generation', () => {
 
   const { config: rules } = SqlSyncRules.fromYaml(
     `
-bucket_definitions:
-  mybucket:
-    data:
-      - SELECT * FROM assets as assets1
-      - SELECT id, name, count FROM assets as assets2
+config:
+  edition: 3
+
+streams:
+  assets_one:
+    query: SELECT * FROM assets as assets1
+  assets_2:
+    queries:
+      - SELECT id, name, count FROM assets as assets2 WHERE name = subscription.parameter('name')
       - SELECT id, owner_id as other_id, foo FROM assets as ASSETS2
-  `,
+`,
     PARSE_OPTIONS
   );
 
   test('dart', () => {
+    const streams = `
+extension type TypedSyncStreams._(PowerSyncDatabase _db) {
+  SyncStream assetsOne() => _db.syncStream('assets_one', {});
+  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
+}
+
+extension GetTypedSyncStreams on PowerSyncDatabase {
+  TypedSyncStreams get typedSyncStreams => TypedSyncStreams._(this);        
+}`;
+
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
   Table('assets1', [
     Column.text('name'),
@@ -65,6 +79,7 @@ bucket_definitions:
     Column.text('foo')
   ])
 ]);
+${streams}
 `);
 
     expect(new DartSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`Schema([
@@ -80,6 +95,7 @@ bucket_definitions:
     Column.text('foo')
   ])
 ]);
+${streams}
 `);
   });
 
