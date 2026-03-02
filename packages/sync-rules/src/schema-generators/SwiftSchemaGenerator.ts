@@ -79,7 +79,7 @@ struct TypedSyncStreams {
 
       for (const stream of optionalSyncStreams) {
         const entries = Object.entries(stream.parameters);
-        let kotlinParameters = entries
+        let swiftParameters = entries
           .map(([parameter, type]) => `${toCamelCase(parameter)}: ${this.swiftType(type)}`)
           .join(', ');
 
@@ -94,7 +94,7 @@ struct TypedSyncStreams {
           parameterMap = '[:]';
         }
 
-        generatedCode += `    func ${toCamelCase(stream.name)}(${kotlinParameters}) -> SyncStream {
+        generatedCode += `    func ${toCamelCase(stream.name)}(${swiftParameters}) -> SyncStream {
         return db.syncStream(name: "${stream.name}", params: ${parameterMap})
     }
 `;

@@ -409,7 +409,25 @@ class AppSchema
     };
 
     public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
-}`);
+}
+
+public readonly ref struct TypedStreams(PowerSyncDatabase db)
+{
+    private PowerSyncDatabase db { get; } = db;
+    public ISyncStream AssetsOne()
+    {
+        var parameters = new Dictionary<string, object>() {};
+        return db.SyncStream("assets_one", parameters);
+    }
+    public ISyncStream Assets2(string name)
+    {
+        var parameters = new Dictionary<string, object>() {
+            { "name", name }
+        };
+        return db.SyncStream("assets_2", parameters);
+    }
+}
+`);
 
     expect(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
       .toEqual(`using PowerSync.Common.DB.Schema;
@@ -440,7 +458,25 @@ class AppSchema
     };
 
     public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
-}`);
+}
+
+public readonly ref struct TypedStreams(PowerSyncDatabase db)
+{
+    private PowerSyncDatabase db { get; } = db;
+    public ISyncStream AssetsOne()
+    {
+        var parameters = new Dictionary<string, object>() {};
+        return db.SyncStream("assets_one", parameters);
+    }
+    public ISyncStream Assets2(string name)
+    {
+        var parameters = new Dictionary<string, object>() {
+            { "name", name }
+        };
+        return db.SyncStream("assets_2", parameters);
+    }
+}
+`);
   });
 
   describe('sql', () => {
