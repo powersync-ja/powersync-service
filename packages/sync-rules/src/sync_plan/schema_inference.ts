@@ -9,10 +9,20 @@ import {
   CaseWhenExpression,
   CastExpression,
   ScalarFunctionCallExpression,
-  LiteralExpression
+  LiteralExpression,
+  BetweenExpression,
+  ScalarInExpression,
+  SqlExpression
 } from './expression.js';
 import { ExpressionVisitor, visitExpr } from './expression_visitor.js';
-import { ColumnSqlParameterValue, StreamDataSource } from './plan.js';
+import {
+  ColumnSqlParameterValue,
+  ParameterValue,
+  RequestSqlParameterValue,
+  StreamDataSource,
+  StreamQuerier,
+  TableProcessor
+} from './plan.js';
 
 /**
  * Infers the output schema of sync streams by resolving references against a statically-known source schema.
@@ -33,7 +43,7 @@ export class SyncPlanSchemaAnalyzer {
       const outputName = source.outputTableName ?? table.name;
       const outputTable = (tables[outputName] ??= {});
 
-      function addOutputColumn(definition: ColumnDefinition) {
+      const addOutputColumn = (definition: ColumnDefinition) => {
         if (definition.name == 'id') {
           return; // Is implicit
         }
@@ -42,13 +52,12 @@ export class SyncPlanSchemaAnalyzer {
         if (existing != null) {
           outputTable[definition.name] = {
             name: definition.name,
-            type: existing.type.or(definition.type),
-            originalType: definition.originalType == existing.originalType ? existing.originalType : undefined
+            ...mergeType(existing, definition)
           };
         } else {
           outputTable[definition.name] = definition;
         }
-      }
+      };
 
       for (const column of source.columns) {
         if (column === 'star') {
@@ -62,6 +71,83 @@ export class SyncPlanSchemaAnalyzer {
       }
     }
   }
+
+  /**
+   * Resolves all parameters referenced in queriers for a stream, and attempts to infer their type.
+   */
+  resolveReferencedParameters(queriers: StreamQuerier[]): Record<string, ColumnType> {
+    const parameters: Record<string, ColumnType> = {};
+    const parameterInference = new ParameterTypeInference(parameters);
+
+    const mergeTypes = (a: ColumnType[], b: ColumnType[]): ColumnType[] => {
+      return a.map((type, index) => {
+        const other = b[index];
+        return mergeType(type, other);
+      });
+    };
+
+    const inferSourceParameters = (sources: TableProcessor[]) => {
+      let mergedTypes: ColumnType[] | null = null;
+      for (const source of sources) {
+        const tables = this.schema.getTables(source.sourceTable.toTablePattern(this.defaultSchema));
+
+        for (const table of tables) {
+          const typeResolver = new ExpressionTypeInference(table);
+          const types = source.parameters.map((p) => visitExpr(typeResolver, p.expr, null));
+          if (mergedTypes != null) {
+            mergedTypes = mergeTypes(mergedTypes, types);
+          } else {
+            mergedTypes = types;
+          }
+        }
+      }
+
+      return mergedTypes!;
+    };
+
+    const inferQuerierParameter = (expectedType: ColumnType, parameter: ParameterValue) => {
+      switch (parameter.type) {
+        case 'request':
+          parameterInference.resolve(parameter.expr, expectedType);
+          break;
+        case 'lookup':
+          const lookup = parameter.lookup;
+          if (lookup.type === 'parameter') {
+            const inputTypes = inferSourceParameters([lookup.lookup]);
+            lookup.instantiation.forEach((param, i) => inferQuerierParameter(inputTypes[i], param));
+          } else {
+            // Inputs to table-valued functions must be strings.
+            for (const input of lookup.functionInputs) {
+              parameterInference.resolve(input, { type: ExpressionType.TEXT });
+            }
+          }
+          break;
+        case 'intersection':
+          for (const value of parameter.values) {
+            inferQuerierParameter(expectedType, value);
+          }
+          break;
+      }
+    };
+
+    for (const querier of queriers) {
+      // Infer types of bucket parameters to apply them to subscription parameters. For a stream defined as
+      // `SELECT * FROM org WHERE id = subscription.parameter('org')`, this gives us [typeOfId]. By going through the
+      // instantiation, we see that parameter 0 corresponds to `subscription.parameter('org')` and thus infer that org
+      // needs to have a matching type. The same principle applies to values passed into parameter lookups.
+      const parameterTypes = inferSourceParameters(querier.bucket.sources);
+      querier.sourceInstantiation.forEach((param, i) => inferQuerierParameter(parameterTypes[i], param));
+    }
+
+    return parameters;
+  }
+}
+
+function mergeType(a: ColumnType, b: ColumnType): ColumnType {
+  return {
+    type: a.type.or(b.type),
+    originalType: a.originalType === b.originalType ? a.originalType : undefined
+  };
 }
 
 /**
@@ -145,5 +231,86 @@ class ExpressionTypeInference implements ExpressionVisitor<ColumnSqlParameterVal
 
   // We don't care about compatibility as these functions are only used to infer types.
   private static readonly functions = generateSqlFunctions(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-  private static readonly BOOLEAN: ColumnType = { type: ExpressionType.INTEGER, originalType: 'bool' };
+  static readonly BOOLEAN: ColumnType = { type: ExpressionType.INTEGER, originalType: 'bool' };
+  static readonly ANY: ColumnType = { type: ExpressionType.ANY };
+}
+
+class ParameterTypeInference implements ExpressionVisitor<RequestSqlParameterValue, void, ColumnType> {
+  constructor(readonly parameters: Record<string, ColumnType>) {}
+
+  resolve(expr: SqlExpression<RequestSqlParameterValue>, expectedType: ColumnType) {
+    // Recognize the "->>($subscription, $parameterName)" pattern.
+    let foundParameter: string | null = null;
+    if (expr.type == 'function' && expr.function == '->>') {
+      const [source, key] = expr.parameters;
+      if (source.type == 'data' && source.source.request === 'subscription' && key.type == 'lit_string') {
+        foundParameter = key.value;
+      }
+    }
+
+    if (foundParameter == null) {
+      // Not a parameter, recurse into inner expressions.
+      return visitExpr(this, expr, expectedType);
+    } else {
+      const existing = this.parameters[foundParameter];
+      this.parameters[foundParameter] = existing ? mergeType(existing, expectedType) : expectedType;
+    }
+  }
+
+  visitExternalData(): void {}
+
+  visitUnaryExpression(expr: UnaryExpression<RequestSqlParameterValue>, arg: ColumnType): void {
+    switch (expr.operator) {
+      case 'not':
+        this.resolve(expr.operand, ExpressionTypeInference.BOOLEAN);
+      case '+':
+        this.resolve(expr.operand, arg);
+    }
+  }
+
+  visitBinaryExpression(expr: BinaryExpression<RequestSqlParameterValue>, arg: ColumnType): void {
+    // This is a fairly complex expression, we kind of give up here. It's very unlikely that a subscription parameter is
+    // used in something like `subscription.parameter('foo') > 3` anyway.
+    this.resolve(expr.left, ExpressionTypeInference.ANY);
+    this.resolve(expr.right, ExpressionTypeInference.ANY);
+  }
+
+  visitBetweenExpression(expr: BetweenExpression<RequestSqlParameterValue>, arg: ColumnType): void {
+    this.resolve(expr.value, ExpressionTypeInference.ANY);
+    this.resolve(expr.low, ExpressionTypeInference.ANY);
+    this.resolve(expr.high, ExpressionTypeInference.ANY);
+  }
+
+  visitScalarInExpression(expr: ScalarInExpression<RequestSqlParameterValue>, arg: ColumnType): void {
+    this.resolve(expr.target, ExpressionTypeInference.ANY);
+    for (const element of expr.in) {
+      this.resolve(element, ExpressionTypeInference.ANY);
+    }
+  }
+
+  visitCaseWhenExpression(expr: CaseWhenExpression<RequestSqlParameterValue>, arg: ColumnType): void {
+    if (expr.operand) {
+      this.resolve(expr.operand, ExpressionTypeInference.ANY);
+    }
+    for (const { when, then } of expr.whens) {
+      this.resolve(when, ExpressionTypeInference.ANY);
+      this.resolve(then, ExpressionTypeInference.ANY);
+    }
+    if (expr.else) {
+      this.resolve(expr.else, ExpressionTypeInference.ANY);
+    }
+  }
+
+  visitCastExpression(expr: CastExpression<RequestSqlParameterValue>, arg: ColumnType): void {
+    this.resolve(expr.operand, ExpressionTypeInference.ANY);
+  }
+
+  visitScalarFunctionCallExpression(expr: ScalarFunctionCallExpression<RequestSqlParameterValue>): void {
+    // Currently, we don't have expected argument types available. So we just infer every argument to be ANY.
+    for (const param of expr.parameters) {
+      this.resolve(param, ExpressionTypeInference.ANY);
+    }
+  }
+
+  visitLiteralExpression(): void {}
 }
