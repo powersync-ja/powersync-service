@@ -143,6 +143,10 @@ export const syncStreamed = routeDefinition({
         headers: {
           'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType,
           ...encodingHeaders,
+          // If the service is behind an nginx reverse-proxy with the default configuration, the response we're about to
+          // send would be buffered. This is not what we want for this streaming endpoint, and this behavior keeps
+          // breaking users. Setting this unconditionally isn't great, but we don't have a reliable way of checking
+          // whether we're behind nginx and we just want the default config to work.
           'X-Accel-Buffering': 'no'
         },
         data: stream,
