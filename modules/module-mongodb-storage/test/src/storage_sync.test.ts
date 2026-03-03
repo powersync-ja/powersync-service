@@ -2,6 +2,8 @@ import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
+import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
+import { CurrentDataDocumentV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
@@ -126,11 +128,46 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     // Test that the checksum type is correct.
     // Specifically, test that it never persisted as double.
-    const mongoFactory = factory as any;
+    const mongoFactory = factory as MongoBucketStorage;
     const checksumTypes = await mongoFactory.db.bucket_data
       .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
       .toArray();
     expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
+  });
+
+  test.runIf(storageVersion >= 3)('uses v3 mongodb model shapes', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        data:
+          - SELECT id, description FROM "%"
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'shape-check',
+          description: 'shape'
+        },
+        afterReplicaId: test_utils.rid('shape-check')
+      });
+    });
+
+    const mongoFactory = factory as MongoBucketStorage;
+    const currentData = (await mongoFactory.db.v3_current_data.findOne({})) as CurrentDataDocumentV3 | null;
+    expect(currentData?.buckets?.[0]?.def).toBeGreaterThan(0);
+
+    const syncRule = (await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id })) as SyncRuleDocument | null;
+    expect(Object.keys(syncRule?.rule_mapping?.definitions ?? {})).not.toHaveLength(0);
   });
 }
 

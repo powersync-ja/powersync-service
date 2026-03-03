@@ -1,11 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
+import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './models.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 
 export class MongoPersistedSyncRulesContent extends storage.PersistedSyncRulesContent {
   public current_lock: MongoSyncRulesLock | null = null;
+  public readonly mapping: BucketDefinitionMapping;
 
   constructor(
     private db: PowerSyncMongo,
@@ -25,10 +28,24 @@ export class MongoPersistedSyncRulesContent extends storage.PersistedSyncRulesCo
       active: doc.state == 'ACTIVE',
       storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
+    this.mapping = BucketDefinitionMapping.fromSyncRules(doc);
   }
 
   getStorageConfig() {
     return getMongoStorageConfig(this.storageVersion);
+  }
+
+  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+    const parsed = super.parsed(options);
+    const storageConfig = this.getStorageConfig();
+
+    return new MongoPersistedSyncRules(
+      parsed.id,
+      parsed.sync_rules,
+      parsed.slot_name,
+      storageConfig.incrementalReprocessing ? this.mapping : null,
+      storageConfig
+    );
   }
 
   async lock() {

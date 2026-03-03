@@ -2,6 +2,7 @@ import { GetIntanceOptions, storage } from '@powersync/service-core';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
@@ -12,6 +13,7 @@ import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedS
 import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
@@ -203,6 +205,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         last_fatal_error_ts: null,
         last_keepalive_ts: null
       };
+      if (storageConfig.incrementalReprocessing) {
+        const parsed = SqlSyncRules.fromYaml(options.config.yaml, {
+          schema: undefined,
+          defaultSchema: 'not_applicable'
+        });
+        doc.rule_mapping = BucketDefinitionMapping.fromParsedSyncRules(parsed).serialize();
+      }
       await this.db.sync_rules.insertOne(doc);
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);

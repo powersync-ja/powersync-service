@@ -38,11 +38,20 @@ export interface CurrentDataDocument {
   lookups: bson.Binary[];
 }
 
+export interface CurrentBucketV3 extends CurrentBucket {
+  def: number;
+}
+
+export interface RecordedLookupV3 {
+  d: number;
+  l: bson.Binary;
+}
+
 export interface CurrentDataDocumentV3 {
   _id: SourceKey;
   data: bson.Binary;
-  buckets: CurrentBucket[];
-  lookups: bson.Binary[];
+  buckets: CurrentBucketV3[];
+  lookups: RecordedLookupV3[];
   /**
    * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
    *
@@ -62,6 +71,10 @@ export interface BucketParameterDocument {
   key: SourceKey;
   lookup: bson.Binary;
   bucket_parameters: Record<string, SqliteJsonValue>[];
+}
+
+export interface BucketParameterDocumentV3 extends BucketParameterDocument {
+  def: number;
 }
 
 export interface BucketDataDocument {
@@ -89,6 +102,11 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+}
+
+export interface SourceTableDocumentV3 extends SourceTableDocument {
+  bucket_data_source_ids: number[];
+  parameter_lookup_source_ids: number[];
 }
 
 export interface SourceTableDocumentSnapshotStatus {
@@ -214,6 +232,10 @@ export interface SyncRuleDocument {
 
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
+  rule_mapping?: {
+    definitions: Record<string, number>;
+    parameter_lookups: Record<string, number>;
+  };
 
   lock?: {
     id: string;
@@ -231,9 +253,14 @@ export interface StorageConfig extends storage.StorageVersionConfig {
    * a Long before summing.
    */
   longChecksums: boolean;
+  /**
+   * Enables v3 MongoDB storage behavior used for incremental reprocessing.
+   */
+  incrementalReprocessing: boolean;
 }
 
 const LONG_CHECKSUMS_STORAGE_VERSION = 2;
+const INCREMENTAL_REPROCESSING_STORAGE_VERSION = storage.STORAGE_VERSION_3;
 
 export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
@@ -241,7 +268,11 @@ export function getMongoStorageConfig(storageVersion: number): StorageConfig {
     throw new ServiceError(ErrorCode.PSYNC_S1005, `Unsupported storage version ${storageVersion}`);
   }
 
-  return { ...baseConfig, longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION };
+  return {
+    ...baseConfig,
+    longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION,
+    incrementalReprocessing: storageVersion >= INCREMENTAL_REPROCESSING_STORAGE_VERSION
+  };
 }
 
 export interface CheckpointEventDocument {
@@ -286,3 +317,17 @@ export interface InstanceDocument {
 }
 
 export interface ClientConnectionDocument extends event_types.ClientConnection {}
+
+export type CommonCurrentDataDocument = CurrentDataDocument | CurrentDataDocumentV3;
+export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
+export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
+export type CommonBucketParameterDocument = BucketParameterDocument | BucketParameterDocumentV3;
+export type CommonSourceTableDocument = SourceTableDocument | SourceTableDocumentV3;
+
+export function isCurrentBucketV3(bucket: CommonCurrentBucket): bucket is CurrentBucketV3 {
+  return 'def' in bucket;
+}
+
+export function isRecordedLookupV3(lookup: CommonCurrentLookup): lookup is RecordedLookupV3 {
+  return !(lookup instanceof bson.Binary);
+}
