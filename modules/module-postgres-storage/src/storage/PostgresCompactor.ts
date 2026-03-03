@@ -281,6 +281,7 @@ export class PostgresCompactor {
               group_id = ${{ type: 'int4', value: this.group_id }}
               AND bucket_name = ${{ type: 'varchar', value: bucket }}
               AND op_id <= ${{ type: 'int8', value: op }}
+              AND op != 'PUT'
             ORDER BY
               op_id
             LIMIT
