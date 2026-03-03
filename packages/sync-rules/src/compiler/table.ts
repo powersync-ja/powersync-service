@@ -31,6 +31,27 @@ export abstract class BaseSourceResultSet {
   constructor(readonly source: SyntacticResultSetSource) {}
 
   abstract get description(): string;
+
+  /**
+   * The result set used as a target during evaluation.
+   *
+   * For all {@link PhysicalSourceResultSet}s, this is the result set itself.
+   * For table-valued functions that are attached to a physical result set, this is the physical result set they're
+   * attached to.
+   * For table-valued functions that need to be evaluated for connections (e.g. because they expand request data), this
+   * is also the result set itself.
+   */
+  abstract get evaluationTarget(): SourceResultSet;
+
+  static areCompatible(a: SourceResultSet, b: SourceResultSet): boolean {
+    if (a instanceof TableValuedResultSet) {
+      return a.canAttachTo(b);
+    } else if (b instanceof TableValuedResultSet) {
+      return b.canAttachTo(a);
+    } else {
+      return a === b;
+    }
+  }
 }
 
 /**
@@ -54,6 +75,10 @@ export class PhysicalSourceResultSet extends BaseSourceResultSet {
     super(source);
   }
 
+  get evaluationTarget(): SourceResultSet {
+    return this;
+  }
+
   get description(): string {
     return this.tablePattern.name;
   }
@@ -64,6 +89,11 @@ export class PhysicalSourceResultSet extends BaseSourceResultSet {
  * or request data.
  */
 export class TableValuedResultSet extends BaseSourceResultSet {
+  // non-null: References inputs from a physical result set.
+  // null: References connection data.
+  // undefined: Static inputs only, can evaluate with a physical result set.
+  #attachedToPhysicalTable: PhysicalSourceResultSet | null | undefined;
+
   constructor(
     readonly tableValuedFunctionName: string,
     readonly parameters: SingleDependencyExpression[],
@@ -72,27 +102,50 @@ export class TableValuedResultSet extends BaseSourceResultSet {
     super(source);
 
     // All parameters must depend on the same result set.
-    const resultSet = this.inputResultSet;
-    for (const parameter of parameters) {
-      if (parameter.resultSet !== resultSet) {
-        throw new Error(
-          'Illegal table-valued result set: All inputs must depend on a single result set or request data.'
-        );
+    if (this.parameters.length) {
+      const firstParameter = this.parameters[0];
+      const resultSet = firstParameter.resultSet;
+      if (resultSet instanceof TableValuedResultSet) {
+        throw new Error('Table-valued functions cannot use inputs from other table-valued functions');
+      }
+
+      this.#attachedToPhysicalTable = firstParameter.dependsOnConnection ? null : (resultSet ?? undefined);
+      for (const parameter of parameters) {
+        if (parameter.resultSet !== resultSet) {
+          throw new Error(
+            'Illegal table-valued result set: All inputs must depend on a single result set or request data.'
+          );
+        }
       }
     }
   }
 
   get inputResultSet(): SourceResultSet | null {
-    // It's the same for all inputs, validated in the constructor
-    if (this.parameters.length) {
-      return this.parameters[0].resultSet;
-    }
+    return this.#attachedToPhysicalTable ?? null;
+  }
 
-    return null;
+  get evaluationTarget(): SourceResultSet {
+    return this.#attachedToPhysicalTable ?? this;
   }
 
   get description(): string {
     return this.tableValuedFunctionName;
+  }
+
+  canAttachTo(table: SourceResultSet) {
+    if (this.#attachedToPhysicalTable === table) {
+      return true;
+    } else if (this.#attachedToPhysicalTable === undefined && table instanceof PhysicalSourceResultSet) {
+      // This table-valued function was not previously attached to a source result set, so we can attach it to any
+      // physical table. This can only be done once (because it's a single logical result set, we must not evaluate
+      // the function twice), but the table we attach it to is arbitrary.
+      // Attaching a static table-valued function to a result set improves the efficiency of sync plans, since it allows
+      // turning parameter match clauses into static row filters that reduce the amount of buckets.
+      this.#attachedToPhysicalTable = table;
+      return true;
+    } else {
+      return false;
+    }
   }
 
   buildBehaviorHashCode(hasher: StableHasher) {

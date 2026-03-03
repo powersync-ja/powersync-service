@@ -7,6 +7,7 @@ import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
 import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 import { SourceResultSet } from './table.js';
+import { RowExpression } from './filter.js';
 
 export class CompilerModelToSyncPlan {
   private static readonly evaluatorHash: Equality<rows.RowEvaluator[]> = unorderedEquality({
@@ -79,15 +80,21 @@ export class CompilerModelToSyncPlan {
   }
 
   private translatePartitionKey(value: rows.PartitionKey, context: rows.SourceRowProcessor): plan.PartitionKey {
+    let sourceExpression: SyncExpression;
+
+    // TODO: Unify scalar and table-valued partition keys in compiler IR?
     if (value instanceof rows.ScalarPartitionKey) {
+      sourceExpression = value.expression.expression;
       return { expr: this.translateExpression(value.expression.expression, context.syntacticSource) };
     } else if (value instanceof rows.TableValuedPartitionKey) {
-      return {
-        expr: this.translateExpression(value.output.expression, context.syntacticSource, context.addedFunctions)
-      };
+      sourceExpression = value.output.expression;
+    } else {
+      throw new Error('Unhandled partition key');
     }
 
-    throw new Error('Unhandled partition key');
+    return {
+      expr: this.translateExpression(sourceExpression, context.syntacticSource, context.addedFunctions)
+    };
   }
 
   private translateAddedTableValuedFunctions(
@@ -95,12 +102,11 @@ export class CompilerModelToSyncPlan {
     context: rows.SourceRowProcessor
   ): plan.TableProcessorTableValuedFunction[] {
     return input.map((fn) => {
-      return this.translateStatefulObject(fn, () => {
+      return this.translateStatefulObject(fn, (): plan.TableProcessorTableValuedFunction => {
         return {
           functionName: fn.functionName,
-          functionInputs: fn.inputs.map((e) => this.translateExpression(e.expression, context.syntacticSource)),
-          filters: fn.filters.map((e) => this.translateExpression(e.expression, fn.syntacticSource))
-        } satisfies plan.TableProcessorTableValuedFunction;
+          functionInputs: fn.inputs.map((e) => this.translateExpression(e.expression, context.syntacticSource))
+        };
       });
     });
   }
@@ -137,6 +143,7 @@ export class CompilerModelToSyncPlan {
     return this.translateStatefulObject(value, () => {
       const hasher = new StableHasher();
       value.buildBehaviorHashCode(hasher);
+
       return {
         sourceTable: value.tablePattern,
         defaultLookupScope: {
@@ -150,7 +157,9 @@ export class CompilerModelToSyncPlan {
         outputs: value.result.map((e) =>
           this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
         ),
-        filters: value.filters.map((e) => this.translateExpression(e.expression, value.syntacticSource)),
+        filters: value.filters.map((e) =>
+          this.translateExpression(e.expression, value.syntacticSource, value.addedFunctions)
+        ),
         parameters: value.partitionBy.map((e) => this.translatePartitionKey(e, value))
       } satisfies plan.StreamParameterIndexLookupCreator;
     });
@@ -158,8 +167,10 @@ export class CompilerModelToSyncPlan {
 
   /**
    * @param expression The expression to translate.
-   * @param table The implicit table (from context) that columns are resolved against.
-   * @param tableValued Additional table-valued functions that can be referenced.
+   * @param table The implicit table (from context) that columns are resolved against. Null for querier expressions
+   * where no such table is available.
+   * @param tableValued Additional table-valued functions that are evaluated with the source table and can be
+   * referenced.
    */
   private translateExpression<T>(
     expression: SyncExpression,

@@ -43,6 +43,22 @@ streams:
     ]);
   });
 
+  syncTest('NOT IN', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM notes WHERE state NOT IN '["deleted", "archived"]'
+`);
+
+    const notes = new TestSourceTable('notes');
+    expect(desc.evaluateRow({ sourceTable: notes, record: { id: 'id', state: 'public' } })).toHaveLength(1);
+    expect(desc.evaluateRow({ sourceTable: notes, record: { id: 'id', state: 'deleted' } })).toHaveLength(0);
+  });
+
   syncTest('debugWriteOutputTables', ({ sync }) => {
     const desc = sync.prepareWithoutHydration(`
 config:

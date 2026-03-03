@@ -26,7 +26,11 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
       engine,
       prepareWithoutHydration: (inputs) => {
         const plan = compileToSyncPlanWithoutErrors(inputs);
-        return new PrecompiledSyncConfig(plan, { engine, sourceText: '', defaultSchema: 'test_schema' });
+        return new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
+          engine,
+          sourceText: '',
+          defaultSchema: 'test_schema'
+        });
       },
       prepareSyncStreams(inputs, params?: CreateSourceParams) {
         return this.prepareWithoutHydration(inputs).hydrate(params ?? { hydrationState: DEFAULT_HYDRATION_STATE });

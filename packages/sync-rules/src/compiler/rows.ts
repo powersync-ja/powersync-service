@@ -244,8 +244,7 @@ export class SourceRowProcessorAddedTableValuedFunction implements EqualsIgnorin
   constructor(
     readonly syntacticSource: TableValuedResultSet,
     readonly functionName: string,
-    readonly inputs: RowExpression[],
-    readonly filters: RowExpression[]
+    readonly inputs: RowExpression[]
   ) {}
 
   equalsAssumingSameResultSet(other: EqualsIgnoringResultSet): boolean {
@@ -253,17 +252,12 @@ export class SourceRowProcessorAddedTableValuedFunction implements EqualsIgnorin
       return false;
     }
 
-    return (
-      other.functionName == this.functionName &&
-      equalsIgnoringResultSetList.equals(other.inputs, this.inputs) &&
-      equalsIgnoringResultSetList.equals(other.filters, this.filters)
-    );
+    return other.functionName == this.functionName && equalsIgnoringResultSetList.equals(other.inputs, this.inputs);
   }
 
   assumingSameResultSetEqualityHashCode(hasher: StableHasher): void {
     hasher.addString(this.functionName);
     equalsIgnoringResultSetList.hash(hasher, this.inputs);
-    equalsIgnoringResultSetUnordered.hash(hasher, this.filters);
   }
 }
 

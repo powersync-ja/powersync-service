@@ -219,7 +219,8 @@ export class SyncConfigFromYaml {
       streamCompiler.finish();
     }
 
-    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), {
+    // We pass an empty array for eventDefinitions here because those will get parsed in #parseEventDefinitions.
+    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), compatibility, [], {
       defaultSchema: this.options.defaultSchema,
       engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml

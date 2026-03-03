@@ -268,7 +268,7 @@ export class BinLogStream {
           logger: this.logger,
           zeroLSN: common.ReplicatedGTID.ZERO.comparable,
           defaultSchema: this.defaultSchema,
-          storeCurrentData: true
+          storeCurrentData: false
         },
         async (batch) => {
           for (let tablePattern of sourceTables) {
@@ -378,7 +378,7 @@ export class BinLogStream {
           logger: this.logger,
           zeroLSN: common.ReplicatedGTID.ZERO.comparable,
           defaultSchema: this.defaultSchema,
-          storeCurrentData: true
+          storeCurrentData: false
         },
         async (batch) => {
           for (let tablePattern of sourceTables) {
@@ -414,7 +414,7 @@ export class BinLogStream {
 
     if (!this.stopped) {
       await this.storage.startBatch(
-        { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: true },
+        { zeroLSN: common.ReplicatedGTID.ZERO.comparable, defaultSchema: this.defaultSchema, storeCurrentData: false },
         async (batch) => {
           const binlogEventHandler = this.createBinlogEventHandler(batch);
           const binlogListener = new BinLogListener({

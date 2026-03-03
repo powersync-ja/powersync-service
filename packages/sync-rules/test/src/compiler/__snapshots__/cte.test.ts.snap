@@ -142,7 +142,7 @@ exports[`common table expressions > as data source 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;
 
@@ -319,6 +319,6 @@ exports[`common table expressions > as parameter query 1`] = `
       },
     },
   ],
-  "version": "unstable",
+  "version": 1,
 }
 `;

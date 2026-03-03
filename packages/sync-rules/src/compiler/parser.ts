@@ -586,7 +586,10 @@ export class StreamQueryParser {
             dependency.syntacticOrigin
           );
           hadError = true;
-        } else if (referencingResultSet != null && referencingResultSet[0] != dependency.resultSet) {
+        } else if (
+          referencingResultSet != null &&
+          !BaseSourceResultSet.areCompatible(referencingResultSet[0], dependency.resultSet)
+        ) {
           const name = referencingResultSet[0].description;
           this.errors.report(
             `This expression already references '${name}', so it can't also reference data from this row unless the two are compared with an equals operator.`,

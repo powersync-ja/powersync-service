@@ -38,7 +38,7 @@ describe('schema inference', () => {
   function generateSchema(...queries: string[]) {
     const serializedPlan = compileSingleStreamAndSerialize(...queries);
     const plan = deserializeSyncPlan(serializedPlan);
-    const rules = new PrecompiledSyncConfig(plan, {
+    const rules = new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
       // Engine isn't actually used here, but required to load sync plan
       engine: javaScriptExpressionEngine(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY),
       sourceText: '',
