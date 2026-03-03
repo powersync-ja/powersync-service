@@ -1,16 +1,16 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
 import { GetCheckpointChangesOptions, InternalOpId, storage } from '@powersync/service-core';
-import { PowerSyncMongo } from './db.js';
+import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
 
 export type MongoCheckpointAPIOptions = {
-  db: PowerSyncMongo;
+  db: VersionedPowerSyncMongo;
   mode: storage.WriteCheckpointMode;
   sync_rules_id: number;
 };
 
 export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
-  readonly db: PowerSyncMongo;
+  readonly db: VersionedPowerSyncMongo;
   private _mode: storage.WriteCheckpointMode;
 
   constructor(options: MongoCheckpointAPIOptions) {
@@ -166,7 +166,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
 }
 
 export async function batchCreateCustomWriteCheckpoints(
-  db: PowerSyncMongo,
+  db: VersionedPowerSyncMongo,
   session: mongo.ClientSession,
   checkpoints: storage.CustomWriteCheckpointOptions[],
   opId: InternalOpId

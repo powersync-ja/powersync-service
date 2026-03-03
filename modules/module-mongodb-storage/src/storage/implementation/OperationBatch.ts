@@ -2,6 +2,7 @@ import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
+import { mongoTableId } from '../storage-index.js';
 
 /**
  * Maximum number of operations in a batch.
@@ -86,8 +87,8 @@ export class RecordOperation {
     const beforeId = record.beforeReplicaId ?? record.afterReplicaId;
     this.afterId = afterId;
     this.beforeId = beforeId;
-    this.internalBeforeKey = cacheKey(record.sourceTable.id, beforeId);
-    this.internalAfterKey = afterId ? cacheKey(record.sourceTable.id, afterId) : null;
+    this.internalBeforeKey = cacheKey(mongoTableId(record.sourceTable.id), beforeId);
+    this.internalAfterKey = afterId ? cacheKey(mongoTableId(record.sourceTable.id), afterId) : null;
 
     this.estimatedSize = estimateRowSize(record.before) + estimateRowSize(record.after);
   }

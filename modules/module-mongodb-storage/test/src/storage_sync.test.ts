@@ -1,17 +1,21 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
-function registerSyncStorageTests(storageFactory: storage.TestStorageFactory, storageVersion: number) {
-  register.registerSyncTests(storageFactory, { storageVersion });
+function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
+  register.registerSyncTests(storageConfig.factory, {
+    storageVersion,
+    tableIdStrings: storageConfig.tableIdStrings
+  });
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageConfig);
 
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    await using factory = await storageFactory();
+    await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
