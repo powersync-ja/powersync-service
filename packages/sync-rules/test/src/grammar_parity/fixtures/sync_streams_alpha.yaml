@@ -32,11 +32,10 @@ query:
     - sql: SELECT * FROM comments WHERE deleted_at IS NOT NULL
     - sql: SELECT * FROM comments WHERE category IN '["draft", "hidden"]'
     - sql: SELECT * FROM comments WHERE category NOT IN '["draft", "hidden"]'
+    - sql: 'SELECT "comment id" AS id FROM "comment-items"'
+    - sql: "SELECT * FROM comments WHERE status = 'it''s active'"
 
   rejected_syntax:
-    # double quotes denote identifiers, not string literals
-    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.parameter("owner_id"))
-
     # parser: GROUP BY is not supported
     - sql: SELECT id FROM comments GROUP BY id
       err: GROUP BY
@@ -61,8 +60,13 @@ query:
     # parser: list not supported here
     - sql: SELECT * FROM comments WHERE category NOT IN ('draft', 'hidden')
       err: list not supported here
+    - sql: SELECT * FROM comments WHERE id = 0xFF
+    - sql: SELECT * FROM comments WHERE id = 6.02e2
 
   rejected_semantic:
+    # grammar accepts double-quoted identifiers, but the parser requires single-quoted string literals here
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.parameter("owner_id"))
+
     # parser: Negations are not allowed here
     - sql: SELECT * FROM comments WHERE issue_id NOT IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
       err: negations are not allowed

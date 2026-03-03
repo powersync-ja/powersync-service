@@ -38,13 +38,12 @@ query:
     - sql: SELECT * FROM comments WHERE deleted_at IS NOT NULL
     - sql: SELECT * FROM comments WHERE category IN '["draft", "hidden"]'
     - sql: SELECT * FROM comments WHERE status != 'archived'
+    - sql: 'SELECT "User-Data"."display name" FROM "User-Data"'
+    - sql: "SELECT * FROM comments WHERE status = 'it''s active'"
     # FIXME: This one should work
     # - sql: SELECT * FROM comments WHERE category NOT IN '["draft", "hidden"]'
 
   rejected_syntax:
-    # double quotes denote identifiers, not string literals
-    - sql: SELECT * FROM users WHERE id = auth.parameter("id")
-
     # parser: FULL JOIN is not supported
     - sql: SELECT u.* FROM users u FULL JOIN orgs o ON u.org_id = o.id
       err: JOIN
@@ -75,7 +74,16 @@ query:
     - sql: SELECT * FROM comments WHERE id NOT IN subscription.parameter('excluded_ids')
       err: can't also reference data from this row
 
+    # hexadecimal integer literal form is not supported
+    - sql: SELECT * FROM users WHERE id = 0xFF
+
+    # scientific notation literal form is not supported
+    - sql: SELECT * FROM users WHERE id BETWEEN 1e2 AND 1.5e3
+
   rejected_semantic:
+    # "id" is parsed as a identifier here (not a string literal), and it cannot be used in this way
+    - sql: SELECT * FROM users WHERE id = auth.parameter("id")
+
     # parser: This expression already references 'users', so it can't also reference data from this row unless the two are compared with an equals operator. | This filter is unrelated to the request or the table being synced, and not supported.
     - sql: SELECT * FROM users WHERE id NOT IN (SELECT id FROM users WHERE id IS NOT NULL)
       err: can't also reference data from this row
@@ -112,6 +120,8 @@ with:
     - sql: SELECT o.id FROM orgs AS o WHERE o.id IN (SELECT id FROM orgs AS x)
     - sql: SELECT o.id FROM orgs AS o WHERE o.id NOT IN (SELECT id FROM orgs AS x)
     - sql: SELECT o.id FROM orgs AS o WHERE o.id BETWEEN 1 AND 10
+    - sql: 'SELECT "Org-Table"."display name" FROM "Org-Table"'
+    - sql: "SELECT id FROM orgs WHERE owner_id = 'owner\\id'"
 
   rejected_syntax:
     # CTE output columns cannot include wildcard

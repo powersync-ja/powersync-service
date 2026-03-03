@@ -24,15 +24,14 @@ parameters:
     - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = request.user_id() AND users.is_admin = TRUE
     - sql: SELECT users.org_id AS org_id FROM users WHERE users.owner_id = request.user_id() OR users.shared_with = request.user_id()
     - sql: SELECT users.org_id AS org_id FROM users WHERE NOT users.is_admin = TRUE
+    - sql: SELECT 'it''s active' AS status_text
+    - sql: 'SELECT "User-Records"."display name" AS "display name" FROM "User-Records" WHERE "User-Records"."owner id" = request.user_id()'
 
   rejected_syntax:
     # table aliases are not supported in parameter queries
     # parser: Table aliases not supported in parameter queries
     - sql: SELECT u.org_id AS org_id FROM users u WHERE u.id = token_parameters.user_id
       err: alias
-
-    # double quotes denote identifiers, not string literals
-    - sql: SELECT request.parameter("tenant_id") AS tenant_id
 
     # only json_each(...) table-valued functions are supported
     # parser: Table-valued function generate_series is not defined.
@@ -43,7 +42,16 @@ parameters:
     - sql: SELECT token_parameters.user_id AS user_id LIMIT 1
       err: LIMIT
 
+    # hexadecimal integer literal form is not supported
+    - sql: SELECT 0xFF AS id_value
+
+    # scientific notation literal form is not supported
+    - sql: SELECT 1.5e3 AS id_value
+
   rejected_semantic:
+    # double-quoted means identifier, which cannot be used here
+    - sql: SELECT request.parameter("tenant_id") AS tenant_id
+
     # parser: Left and right sides of OR must use the same parameters, or split into separate queries. [{"key":"token_parameters.user_id","expands":false}] != [{"key":"request.user_id()","expands":false}]
     - sql: SELECT users.org_id AS org_id FROM users WHERE users.id = token_parameters.user_id OR users.id = request.user_id()
       err: same parameters
@@ -98,6 +106,8 @@ data:
     - sql: SELECT id FROM assets WHERE status != 'archived'
     - sql: SELECT id FROM assets WHERE deleted_at IS NOT NULL
     - sql: SELECT id FROM assets WHERE category IN '["draft", "hidden"]'
+    - sql: 'SELECT "asset id" AS id FROM "asset-items"'
+    - sql: "SELECT id FROM assets WHERE status = 'it''s active'"
 
   rejected_syntax:
     # parser: Must SELECT from a single table
@@ -111,6 +121,8 @@ data:
     - sql: SELECT id FROM assets WHERE category NOT IN '["draft", "hidden"]'
 
     - sql: SELECT id FROM assets WHERE category IN ('draft', 'hidden')
+    - sql: SELECT id FROM assets WHERE id = 0xFF
+    - sql: SELECT id FROM assets WHERE id = 6.02e2
 
   rejected_semantic:
     # parser: alias is required
