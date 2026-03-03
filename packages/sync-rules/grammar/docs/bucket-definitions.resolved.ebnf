@@ -1,10 +1,12 @@
-/* Parameter-query SQL forms used under bucket_definitions.<name>.parameters */
+ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParameterQuery
 
-ParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" JsonEachCall ("AS" Identifier)? ("WHERE" MatchExpr)? | "SELECT" SelectItem ("," SelectItem)* "FROM" Identifier ("." Identifier)? ("WHERE" MatchExpr)? | "SELECT" SelectItem ("," SelectItem)* ("WHERE" MatchExpr)?
+TableValuedParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" JsonEachCall ("AS" Identifier)? ("WHERE" MatchExpr)?
 
-/* Data-query SQL forms used under bucket_definitions.<name>.data[] */
+TableParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" Reference ("WHERE" MatchExpr)?
 
-DataQuery ::= "SELECT" ("*" | ScalarExpr ("AS" Identifier)?) ("," ("*" | ScalarExpr ("AS" Identifier)?))* "FROM" Identifier ("." Identifier)? ("WHERE" MatchExpr)?
+StaticParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* ("WHERE" MatchExpr)?
+
+DataQuery ::= "SELECT" ("*" | SelectItem) ("," SelectItem)* "FROM" Reference ("WHERE" MatchExpr)?
 
 SelectItem ::= ScalarExpr ("AS" Identifier)?
 
@@ -14,13 +16,19 @@ MatchExpr ::= "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | 
 
 Predicate ::= ScalarExpr ("=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL") | ScalarExpr
 
-/* Scalar expression subset (sql_filters/sql_functions) */
+ScalarExpr ::= PrimaryTerm MemberSuffix? ScalarBinaryOp?
 
-ScalarExpr ::= PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))* (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))*)*
+ScalarBinaryOp ::= (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm MemberSuffix?)+
 
-PrimaryTerm ::= (StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL") | "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")" | (Identifier ".")? Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")" | Identifier ("." Identifier)? | "(" ScalarExpr ")"
+MemberSuffix ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
 
-/* Identifiers are matched after SQL normalization to uppercase in tests. */
+Reference ::= Identifier ("." Identifier)?
+
+CastExpr ::= "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
+
+FunctionCall ::= Reference "(" (ScalarExpr ("," ScalarExpr)*)? ")"
+
+PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
 
 Identifier ::= [A-Z_] ([A-Z_0-9])*
 

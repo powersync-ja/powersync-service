@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Grammars } from 'ebnf';
-import { stringify as yamlStringify } from 'yaml';
+
 
 // railroad-diagrams is CJS-only (v1.0.0)
 const require = createRequire(import.meta.url);
@@ -78,26 +78,32 @@ const GRAMMARS: GrammarConfig[] = [
     label: 'Sync Streams',
     ebnfFile: 'grammar/sync-streams-compiler.ebnf',
     inlineRules: {
-      CompilerStreamQuery: ['ResultColumnList', 'Alias', 'TableRef', 'FromContinuation'],
-      ResultColumn: ['Reference', 'Alias'],
+      CompilerStreamQuery: ['ResultColumnList', 'Alias', 'FromContinuation'],
+      ResultColumn: ['Alias'],
+      Reference: [],
       FromSource: [],
-      TableSource: ['TableRef', 'Alias'],
-      TableValuedSource: ['TableValuedCall', 'Alias', 'ArgList'],
+      TableSource: ['Alias'],
+      TableValuedCall: ['ArgList'],
+      TableValuedSource: ['Alias'],
       SubquerySource: ['ColumnNameList', 'Alias'],
       JoinClause: [],
-      WhereExpr: ['OrExpr', 'AndExpr', 'UnaryExpr', 'WhereAtom'],
-      Predicate: [],
+      WhereExpr: ['OrExpr', 'AndExpr', 'UnaryExpr'],
+      WhereAtom: ['Predicate'],
       PredicateTail: [],
       InSource: ['CteShorthandRef'],
-      ScalarExpr: ['ValueTerm', 'MemberSuffix', 'BinaryOp'],
-      PrimaryTerm: ['Literal', 'Reference'],
+      ScalarExpr: ['ValueTerm'],
+      ScalarBinaryOp: ['BinaryOp', 'ValueTerm'],
+      MemberSuffix: ['MemberSuffixOp', 'MemberSuffixValue'],
+      PrimaryTerm: [],
       CaseExpr: [],
       SearchedCaseExpr: [],
-      CaseCondition: ['OrExpr', 'AndExpr', 'UnaryExpr', 'WhereAtom'],
+      WhenCaseExpr: [],
+      CaseCondition: ['OrExpr', 'AndExpr', 'UnaryExpr'],
       SimpleCaseExpr: [],
+      WhenScalarExpr: [],
       CastExpr: ['CastType'],
       FunctionCall: ['ArgList'],
-      CompilerSubquery: ['ResultColumnList', 'Alias', 'TableRef', 'FromContinuation'],
+      CompilerSubquery: ['ResultColumnList', 'Alias', 'FromContinuation'],
       CompilerCteSubquery: ['CteResultColumn', 'CteResultColumnList', 'Alias', 'FromContinuation']
     },
     lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral']
@@ -107,14 +113,22 @@ const GRAMMARS: GrammarConfig[] = [
     label: 'Sync Rules',
     ebnfFile: 'grammar/bucket-definitions.ebnf',
     inlineRules: {
-      ParameterQuery: ['StaticParameterQuery', 'TableParameterQuery', 'TableValuedParameterQuery', 'SelectList', 'TableRef', 'Alias'],
-      DataQuery: ['DataSelectList', 'DataSelectItem', 'DataMatchExpr', 'TableRef', 'Alias'],
+      ParameterQuery: [],
+      TableValuedParameterQuery: ['SelectList', 'Alias'],
+      TableParameterQuery: ['SelectList', 'Alias'],
+      StaticParameterQuery: ['SelectList', 'Alias'],
+      DataQuery: ['DataSelectList', 'DataMatchExpr', 'Alias'],
       SelectItem: ['Alias'],
       JsonEachCall: [],
       MatchExpr: ['OrExpr', 'AndExpr', 'UnaryExpr', 'MatchAtom'],
       Predicate: ['PredicateTail'],
-      ScalarExpr: ['ValueTerm', 'MemberSuffix', 'BinaryOp'],
-      PrimaryTerm: ['CastExpr', 'FunctionCall', 'Reference', 'Literal', 'ArgList', 'CastType']
+      ScalarExpr: ['ValueTerm'],
+      ScalarBinaryOp: ['BinaryOp', 'ValueTerm'],
+      MemberSuffix: ['MemberSuffixOp', 'MemberSuffixValue'],
+      Reference: [],
+      CastExpr: ['CastType'],
+      FunctionCall: ['ArgList'],
+      PrimaryTerm: []
     },
     lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral']
   }
@@ -145,8 +159,7 @@ function getProductionNames(grammar: GrammarConfig): string[] {
 
 function buildLexicalSummaries(
   grammar: GrammarConfig,
-  ruleMap: Map<string, IRule>,
-  descriptions: DescriptionMap
+  ruleMap: Map<string, IRule>
 ): LexicalRuleSummary[] {
   const summaries: LexicalRuleSummary[] = [];
 
@@ -158,7 +171,7 @@ function buildLexicalSummaries(
     }
 
     const pattern = ruleToEbnfText(rule, ruleMap, new Set(), new Set());
-    const note = descriptions[name] || DEFAULT_LEXICAL_NOTES[name] || '';
+    const note = DEFAULT_LEXICAL_NOTES[name] || '';
 
     summaries.push({ name, pattern, note });
   }
@@ -198,70 +211,6 @@ function buildInlineOnlySummaries(
 
 // ---------------------------------------------------------------------------
 // Comment pre-processor
-// ---------------------------------------------------------------------------
-
-interface DescriptionMap {
-  [productionName: string]: string;
-}
-
-function extractComments(ebnfSource: string): DescriptionMap {
-  const descriptions: DescriptionMap = {};
-  const lines = ebnfSource.split('\n');
-
-  // Regex for block comments — may span multiple lines
-  const commentRegex = /\/\*[\s\S]*?\*\//g;
-
-  // Find all comments with their positions
-  interface CommentInfo {
-    text: string;
-    endIndex: number;
-  }
-
-  const comments: CommentInfo[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = commentRegex.exec(ebnfSource)) !== null) {
-    const text = match[0];
-    const endIndex = match.index + text.length;
-    comments.push({ text, endIndex });
-  }
-
-  // Skip the first comment if it's a file-level header
-  // (appears before any production rule)
-  const firstProductionMatch = ebnfSource.match(/^[A-Z]\w*\s*::=/m);
-  const firstProductionIndex = firstProductionMatch ? ebnfSource.indexOf(firstProductionMatch[0]) : Infinity;
-
-  let skippedHeader = false;
-
-  for (const comment of comments) {
-    // Skip the file-level header comment (first comment before any production)
-    if (!skippedHeader && comment.endIndex <= firstProductionIndex) {
-      skippedHeader = true;
-      continue;
-    }
-    // If we haven't skipped a header yet but this comment is after first production,
-    // that means there was no header comment — mark it as done
-    if (!skippedHeader) {
-      skippedHeader = true;
-    }
-
-    // Find the next non-blank, non-comment line after this comment
-    const remaining = ebnfSource.slice(comment.endIndex);
-    const nextLineMatch = remaining.match(/^[\s]*((?!\/\*)[A-Z]\w*)\s*::=/m);
-    if (nextLineMatch) {
-      const productionName = nextLineMatch[1];
-      // Clean up the comment text
-      let cleaned = comment.text
-        .replace(/^\/\*\s*/, '')
-        .replace(/\s*\*\/$/, '')
-        .replace(/\n\s*/g, ' ')
-        .trim();
-      descriptions[productionName] = cleaned;
-    }
-  }
-
-  return descriptions;
-}
-
 // ---------------------------------------------------------------------------
 // EBNF parsing
 // ---------------------------------------------------------------------------
@@ -321,6 +270,40 @@ function assertNoSkippedTerms(grammar: GrammarConfig, skipped: string[]): void {
     `Coverage check failed for ${grammar.id}: ${skipped.length} user term(s) are neither diagrammed nor inlined.\n` +
       'Add each term as a top-level diagram or include it in at least one inline list.\n\n' +
       `Missing terms:\n${skippedList}`
+  );
+}
+
+/**
+ * Check that every name referenced in the inline config actually exists in the
+ * parsed grammar. Catches stale references left behind after EBNF edits.
+ */
+function assertNoStaleInlineRefs(grammar: GrammarConfig, ruleMap: Map<string, IRule>): void {
+  const stale: { parent: string; ref: string }[] = [];
+
+  for (const [parent, inlines] of Object.entries(grammar.inlineRules)) {
+    if (!ruleMap.has(parent)) {
+      stale.push({ parent: 'inlineRules key', ref: parent });
+    }
+    for (const ref of inlines) {
+      if (!ruleMap.has(ref)) {
+        stale.push({ parent: `inlineRules.${parent}`, ref });
+      }
+    }
+  }
+
+  for (const name of grammar.lexicalRules) {
+    if (!ruleMap.has(name)) {
+      stale.push({ parent: 'lexicalRules', ref: name });
+    }
+  }
+
+  if (stale.length === 0) return;
+
+  const details = stale.map(({ parent, ref }) => `- "${ref}" in ${parent}`).join('\n');
+  throw new Error(
+    `Stale config check failed for ${grammar.id}: ${stale.length} name(s) in the script config do not exist in the grammar.\n` +
+      'Remove them from inlineRules/lexicalRules or add them back to the EBNF.\n\n' +
+      `Stale references:\n${details}`
   );
 }
 
@@ -764,7 +747,6 @@ function escapeMarkdownTableCell(text: string): string {
 
 function generateFlatMdx(
   grammar: GrammarConfig,
-  descriptions: DescriptionMap,
   productionNames: string[],
   lexicalSummaries: LexicalRuleSummary[],
   outdir: string
@@ -801,12 +783,6 @@ function generateFlatMdx(
     lines.push('');
     lines.push(`![${name} syntax diagram](diagrams/${grammar.id}--${name}.svg)`);
 
-    const desc = descriptions[name];
-    if (desc) {
-      lines.push('');
-      lines.push(desc);
-    }
-
     lines.push('');
     lines.push('---');
   }
@@ -837,7 +813,6 @@ function generateFlatMdx(
 
 function generateFlatHtml(
   grammar: GrammarConfig,
-  descriptions: DescriptionMap,
   productionNames: string[],
   lexicalSummaries: LexicalRuleSummary[],
   inlineOnlySummaries: InlineOnlySummary[],
@@ -876,7 +851,7 @@ function generateFlatHtml(
   lines.push('  .diagram-container a text { fill: #2563eb; }');
   lines.push('  .diagram-container a:hover rect { fill: hsl(210,100%,90%); }');
   lines.push('  .diagram-container a { cursor: pointer; }');
-  lines.push('  .description { color: #4b5563; margin-top: 0.5rem; }');
+
   lines.push('  .inlining { color: #6b7280; margin: 0.3rem 0 0.8rem; font-size: 0.92rem; }');
   lines.push('  .inlining code { background: #eef2ff; padding: 0.12em 0.32em; border-radius: 3px; }');
   lines.push('  .review-note { color: #4b5563; margin: 0.35rem 0 0.75rem; }');
@@ -949,11 +924,6 @@ function generateFlatHtml(
       lines.push(`    <p>SVG not found: ${grammar.id}--${name}.svg</p>`);
     }
     lines.push('  </div>');
-
-    const desc = descriptions[name];
-    if (desc) {
-      lines.push(`  <p class="description">${escapeHtml(desc)}</p>`);
-    }
 
     lines.push('</div>');
     lines.push('');
@@ -1034,7 +1004,6 @@ function generateFlatHtml(
 
 function generateResolvedEbnf(
   grammar: GrammarConfig,
-  descriptions: DescriptionMap,
   ruleMap: Map<string, IRule>,
   productionNames: string[],
   outdir: string
@@ -1048,10 +1017,6 @@ function generateResolvedEbnf(
     const inlinedNames = new Set(grammar.inlineRules[productionName] || []);
     const body = ruleToEbnfText(rule, ruleMap, inlinedNames, new Set());
 
-    const desc = descriptions[productionName];
-    if (desc) {
-      blocks.push(`/* ${desc} */`);
-    }
     blocks.push(`${productionName} ::= ${body}`);
   }
 
@@ -1072,9 +1037,6 @@ async function main() {
   // Ensure output directory exists
   fs.mkdirSync(cliArgs.outdir, { recursive: true });
 
-  // Collect all descriptions across grammars
-  const allDescriptions: Record<string, Record<string, string>> = {};
-
   for (const grammar of GRAMMARS) {
     console.log(`\n${'='.repeat(60)}`);
     console.log(`Processing grammar: ${grammar.label} (${grammar.id})`);
@@ -1083,15 +1045,6 @@ async function main() {
     // Read the EBNF file
     const ebnfPath = path.join(PACKAGE_ROOT, grammar.ebnfFile);
     const ebnfSource = fs.readFileSync(ebnfPath, 'utf8');
-
-    // Extract comments
-    const descriptions = extractComments(ebnfSource);
-    allDescriptions[grammar.id] = descriptions;
-
-    console.log(`\nExtracted descriptions:`);
-    for (const [name, desc] of Object.entries(descriptions)) {
-      console.log(`  ${name}: ${desc}`);
-    }
 
     // Parse EBNF
     const rules = parseGrammar(ebnfSource);
@@ -1134,7 +1087,7 @@ async function main() {
     // Determine diagrammed and inlined sets
     const productionNames = getProductionNames(grammar);
     const diagrammedNames = new Set(productionNames);
-    const lexicalSummaries = buildLexicalSummaries(grammar, ruleMap, descriptions);
+    const lexicalSummaries = buildLexicalSummaries(grammar, ruleMap);
     const inlineOnlySummaries = buildInlineOnlySummaries(grammar, productionNames, ruleMap);
     const coverage = classifyCoverage(userRules, grammar, diagrammedNames);
     const rendered: string[] = [];
@@ -1172,16 +1125,16 @@ async function main() {
     console.log(`  Inlined  (${coverage.inlined.length}): ${coverage.inlined.join(', ')}`);
     console.log(`  Skipped  (${coverage.skipped.length}): ${coverage.skipped.join(', ')}`);
 
+    assertNoStaleInlineRefs(grammar, ruleMap);
     assertNoSkippedTerms(grammar, coverage.skipped);
     assertAllRefsAreDiagrammed(grammar, ruleMap, diagrammedNames);
 
     // Generate flat MDX file
-    generateFlatMdx(grammar, descriptions, productionNames, lexicalSummaries, cliArgs.outdir);
+    generateFlatMdx(grammar, productionNames, lexicalSummaries, cliArgs.outdir);
 
     // Generate HTML review file (inlines SVGs with anchor links)
     generateFlatHtml(
       grammar,
-      descriptions,
       productionNames,
       lexicalSummaries,
       inlineOnlySummaries,
@@ -1190,14 +1143,8 @@ async function main() {
     );
 
     // Generate resolved EBNF file
-    generateResolvedEbnf(grammar, descriptions, ruleMap, productionNames, cliArgs.outdir);
+    generateResolvedEbnf(grammar, ruleMap, productionNames, cliArgs.outdir);
   }
-
-  // Write descriptions.yaml
-  const descriptionsPath = path.join(cliArgs.outdir, 'descriptions.yaml');
-  const yamlContent = yamlStringify(allDescriptions, { lineWidth: 120 });
-  fs.writeFileSync(descriptionsPath, yamlContent, 'utf8');
-  console.log(`\nWrote descriptions to: ${descriptionsPath}`);
 
   // Summary
   const svgFiles = fs.readdirSync(path.join(cliArgs.outdir, 'diagrams')).filter((f) => f.endsWith('.svg'));
