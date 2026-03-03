@@ -36,8 +36,8 @@ import {
   BucketDataDocument,
   BucketDataKey,
   BucketStateDocument,
+  CommonSourceTableDocument,
   SourceKey,
-  SourceTableDocument,
   StorageConfig
 } from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
@@ -183,6 +183,7 @@ export class MongoSyncBucketStorage
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
+      mapping: this.sync_rules.mapping,
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
@@ -213,10 +214,11 @@ export class MongoSyncBucketStorage
       type: column.type,
       type_oid: column.typeId
     }));
+    const mapping = this.sync_rules.mapping;
     let result: storage.ResolveTableResult | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables;
-      let filter: Partial<SourceTableDocument> = {
+      let filter: Partial<CommonSourceTableDocument> = {
         group_id: group_id,
         connection_id: connection_id,
         schema_name: schema,
@@ -228,8 +230,17 @@ export class MongoSyncBucketStorage
       }
       let doc = await col.findOne(filter, { session });
       if (doc == null) {
-        doc = {
-          _id: new bson.ObjectId(),
+        const candidateSourceTable = new storage.SourceTable({
+          id: new bson.ObjectId(),
+          connectionTag: connection_tag,
+          objectId: objectId,
+          schema: schema,
+          name: name,
+          replicaIdColumns: replicaIdColumns,
+          snapshotComplete: false
+        });
+        const createDoc: CommonSourceTableDocument = {
+          _id: candidateSourceTable.id as bson.ObjectId,
           group_id: group_id,
           connection_id: connection_id,
           relation_id: objectId,
@@ -240,6 +251,20 @@ export class MongoSyncBucketStorage
           snapshot_done: false,
           snapshot_status: undefined
         };
+        if (this.db.storageConfig.incrementalReprocessing) {
+          const bucketDataSourceIds = options.sync_rules.definition.bucketDataSources
+            .filter((source) => source.tableSyncsData(candidateSourceTable))
+            .map((source) => mapping.bucketSourceId(source));
+          const parameterLookupSourceIds = options.sync_rules.definition.bucketParameterLookupSources
+            .filter((source) => source.tableSyncsParameters(candidateSourceTable))
+            .map((source) => mapping.parameterLookupId(source));
+
+          Object.assign(createDoc, {
+            bucket_data_source_ids: bucketDataSourceIds,
+            parameter_lookup_source_ids: parameterLookupSourceIds
+          });
+        }
+        doc = createDoc;
 
         await col.insertOne(doc, { session });
       }

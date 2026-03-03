@@ -6,15 +6,20 @@ import { MongoStorageConfig } from '../../types/types.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
+  BucketParameterDocumentV3,
   BucketStateDocument,
   CheckpointEventDocument,
   ClientConnectionDocument,
+  CommonBucketParameterDocument,
+  CommonCurrentDataDocument,
+  CommonSourceTableDocument,
   CurrentDataDocument,
   CurrentDataDocumentV3,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
   SourceTableDocument,
+  SourceTableDocumentV3,
   StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
@@ -33,9 +38,11 @@ export class PowerSyncMongo {
   readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
   readonly bucket_data: mongo.Collection<BucketDataDocument>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
+  readonly v3_bucket_parameters: mongo.Collection<BucketParameterDocumentV3>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
   readonly sync_rules: mongo.Collection<SyncRuleDocument>;
   readonly source_tables: mongo.Collection<SourceTableDocument>;
+  readonly v3_source_tables: mongo.Collection<SourceTableDocumentV3>;
   readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
@@ -59,9 +66,11 @@ export class PowerSyncMongo {
     this.v3_current_data = db.collection('v3_current_data');
     this.bucket_data = db.collection('bucket_data');
     this.bucket_parameters = db.collection('bucket_parameters');
+    this.v3_bucket_parameters = db.collection('v3_bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
     this.sync_rules = db.collection('sync_rules');
     this.source_tables = db.collection('source_tables');
+    this.v3_source_tables = db.collection('v3_source_tables');
     this.custom_write_checkpoints = db.collection('custom_write_checkpoints');
     this.write_checkpoints = db.collection('write_checkpoints');
     this.instance = db.collection('instance');
@@ -83,9 +92,11 @@ export class PowerSyncMongo {
     await this.v3_current_data.deleteMany({});
     await this.bucket_data.deleteMany({});
     await this.bucket_parameters.deleteMany({});
+    await this.v3_bucket_parameters.deleteMany({});
     await this.op_id_sequence.deleteMany({});
     await this.sync_rules.deleteMany({});
     await this.source_tables.deleteMany({});
+    await this.v3_source_tables.deleteMany({});
     await this.write_checkpoints.deleteMany({});
     await this.instance.deleteOne({});
     await this.locks.deleteMany({});
@@ -183,7 +194,7 @@ export class PowerSyncMongo {
   }
 
   async initializeStorageVersion(storageConfig: StorageConfig) {
-    if (storageConfig.softDeleteCurrentData) {
+    if (storageConfig.incrementalReprocessing) {
       // Initialize the v3_current_data collection, which is used for the new storage version.
       // No-op if this already exists
       await this.v3_current_data.createIndex(
@@ -194,6 +205,28 @@ export class PowerSyncMongo {
         {
           partialFilterExpression: { pending_delete: { $exists: true } },
           name: 'pending_delete'
+        }
+      );
+      await this.v3_bucket_parameters.createIndex(
+        {
+          'key.g': 1,
+          lookup: 1,
+          _id: 1
+        },
+        {
+          name: 'lookup_group_id'
+        }
+      );
+      await this.v3_source_tables.createIndex(
+        {
+          group_id: 1,
+          connection_id: 1,
+          schema_name: 1,
+          table_name: 1,
+          relation_id: 1
+        },
+        {
+          name: 'source_lookup'
         }
       );
     }
@@ -222,27 +255,27 @@ export class VersionedPowerSyncMongo {
    *
    * Use in places where it does not matter which version is used.
    */
-  get common_current_data(): mongo.Collection<CurrentDataDocument> {
-    if (this.storageConfig.softDeleteCurrentData) {
-      return this.#upstream.v3_current_data;
+  get common_current_data(): mongo.Collection<CommonCurrentDataDocument> {
+    if (this.storageConfig.incrementalReprocessing) {
+      return this.#upstream.v3_current_data as unknown as mongo.Collection<CommonCurrentDataDocument>;
     } else {
-      return this.#upstream.current_data;
+      return this.#upstream.current_data as unknown as mongo.Collection<CommonCurrentDataDocument>;
     }
   }
 
   get v1_current_data() {
-    if (this.storageConfig.softDeleteCurrentData) {
+    if (this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
-        'current_data collection should not be used when softDeleteCurrentData is enabled'
+        'current_data collection should not be used when incrementalReprocessing is enabled'
       );
     }
     return this.#upstream.current_data;
   }
 
   get v3_current_data() {
-    if (!this.storageConfig.softDeleteCurrentData) {
+    if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
-        'v3_current_data collection should not be used when softDeleteCurrentData is disabled'
+        'v3_current_data collection should not be used when incrementalReprocessing is disabled'
       );
     }
     return this.#upstream.v3_current_data;
@@ -253,7 +286,11 @@ export class VersionedPowerSyncMongo {
   }
 
   get bucket_parameters() {
-    return this.#upstream.bucket_parameters;
+    if (this.storageConfig.incrementalReprocessing) {
+      return this.#upstream.v3_bucket_parameters as unknown as mongo.Collection<CommonBucketParameterDocument>;
+    } else {
+      return this.#upstream.bucket_parameters as unknown as mongo.Collection<CommonBucketParameterDocument>;
+    }
   }
 
   get op_id_sequence() {
@@ -265,7 +302,11 @@ export class VersionedPowerSyncMongo {
   }
 
   get source_tables() {
-    return this.#upstream.source_tables;
+    if (this.storageConfig.incrementalReprocessing) {
+      return this.#upstream.v3_source_tables as unknown as mongo.Collection<CommonSourceTableDocument>;
+    } else {
+      return this.#upstream.source_tables as unknown as mongo.Collection<CommonSourceTableDocument>;
+    }
   }
 
   get custom_write_checkpoints() {

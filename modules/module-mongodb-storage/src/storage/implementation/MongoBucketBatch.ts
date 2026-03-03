@@ -25,12 +25,21 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
-import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
+import { VersionedPowerSyncMongo } from './db.js';
+import {
+  CommonCurrentBucket,
+  CommonCurrentLookup,
+  CommonCurrentDataDocument,
+  CurrentBucketV3,
+  RecordedLookupV3,
+  SourceKey,
+  SyncRuleDocument
+} from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
  * 15MB
@@ -55,6 +64,7 @@ export interface MongoBucketBatchOptions {
   keepaliveOp: InternalOpId | null;
   resumeFromLsn: string | null;
   storeCurrentData: boolean;
+  mapping: BucketDefinitionMapping;
   /**
    * Set to true for initial replication.
    */
@@ -81,6 +91,7 @@ export class MongoBucketBatch
   private readonly slot_name: string;
   private readonly storeCurrentData: boolean;
   private readonly skipExistingRows: boolean;
+  private readonly mapping: BucketDefinitionMapping;
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
@@ -129,6 +140,7 @@ export class MongoBucketBatch
     this.slot_name = options.slotName;
     this.sync_rules = options.syncRules;
     this.storeCurrentData = options.storeCurrentData;
+    this.mapping = options.mapping;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = new OperationBatch();
@@ -259,7 +271,7 @@ export class MongoBucketBatch
       const lookups: SourceKey[] = b.map((r) => {
         return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
       });
-      let current_data_lookup = new Map<string, CurrentDataDocument>();
+      let current_data_lookup = new Map<string, CommonCurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
       const projection = this.skipExistingRows ? { _id: 1 } : undefined;
       const cursor = this.db.common_current_data.find(
@@ -272,7 +284,7 @@ export class MongoBucketBatch
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
       }
 
-      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.db, this.group_id, transactionSize, {
+      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.db, this.group_id, this.mapping, transactionSize, {
         logger: this.logger
       });
 
@@ -323,7 +335,7 @@ export class MongoBucketBatch
   private saveOperation(
     batch: PersistedBatch,
     operation: RecordOperation,
-    current_data: CurrentDataDocument | null,
+    current_data: CommonCurrentDataDocument | null,
     opSeq: MongoIdSequence
   ) {
     const record = operation.record;
@@ -332,10 +344,10 @@ export class MongoBucketBatch
     let after = record.after;
     const sourceTable = record.sourceTable;
 
-    let existing_buckets: CurrentBucket[] = [];
-    let new_buckets: CurrentBucket[] = [];
-    let existing_lookups: bson.Binary[] = [];
-    let new_lookups: bson.Binary[] = [];
+    let existing_buckets: CommonCurrentBucket[] = [];
+    let new_buckets: CommonCurrentBucket[] = [];
+    let existing_lookups: CommonCurrentLookup[] = [];
+    let new_lookups: CommonCurrentLookup[] = [];
 
     const before_key: SourceKey = { g: this.group_id, t: mongoTableId(record.sourceTable.id), k: beforeId };
 
@@ -498,13 +510,25 @@ export class MongoBucketBatch
           table: sourceTable,
           before_buckets: existing_buckets
         });
-        new_buckets = evaluated.map((e) => {
-          return {
-            bucket: e.bucket,
-            table: e.table,
-            id: e.id
-          };
-        });
+        if (this.db.storageConfig.incrementalReprocessing) {
+          new_buckets = evaluated.map((e) => {
+            const def = this.mapping.bucketSourceId(e.source);
+            return {
+              def,
+              bucket: e.bucket,
+              table: e.table,
+              id: e.id
+            } satisfies CurrentBucketV3;
+          });
+        } else {
+          new_buckets = evaluated.map((e) => {
+            return {
+              bucket: e.bucket,
+              table: e.table,
+              id: e.id
+            };
+          });
+        }
       }
 
       if (sourceTable.syncParameters) {
@@ -537,19 +561,27 @@ export class MongoBucketBatch
           evaluated: paramEvaluated,
           existing_lookups
         });
-        new_lookups = paramEvaluated.map((p) => {
-          return storage.serializeLookup(p.lookup);
-        });
+        if (this.db.storageConfig.incrementalReprocessing) {
+          new_lookups = paramEvaluated.map((p) => {
+            const def = this.mapping.parameterLookupId(p.lookup.source);
+            return { d: def, l: storage.serializeLookup(p.lookup) } satisfies RecordedLookupV3;
+          });
+        } else {
+          new_lookups = paramEvaluated.map((p) => {
+            return storage.serializeLookup(p.lookup);
+          });
+        }
       }
     }
 
-    let result: CurrentDataDocument | null = null;
+    let result: CommonCurrentDataDocument | null = null;
 
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
       const after_key: SourceKey = { g: this.group_id, t: mongoTableId(sourceTable.id), k: afterId };
-      batch.upsertCurrentData(after_key, {
+      batch.upsertCurrentData({
+        id: after_key,
         data: afterData,
         buckets: new_buckets,
         lookups: new_lookups
@@ -838,7 +870,7 @@ export class MongoBucketBatch
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
-      if (this.db.storageConfig.softDeleteCurrentData && newLastCheckpoint != null) {
+      if (this.db.storageConfig.incrementalReprocessing && newLastCheckpoint != null) {
         await this.cleanupCurrentData(newLastCheckpoint);
       }
     }
@@ -1012,7 +1044,7 @@ export class MongoBucketBatch
     let lastBatchCount = BATCH_LIMIT;
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
-        const current_data_filter: mongo.Filter<CurrentDataDocument> = {
+        const current_data_filter: mongo.Filter<CommonCurrentDataDocument> = {
           _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: mongoTableId(sourceTable.id) }, ['k']),
           // Skip soft-deleted data
           // Works for both v1 and v3 current_data schemas
@@ -1029,7 +1061,7 @@ export class MongoBucketBatch
           session: session
         });
         const batch = await cursor.toArray();
-        const persistedBatch = new PersistedBatch(this.db, this.group_id, 0, { logger: this.logger });
+        const persistedBatch = new PersistedBatch(this.db, this.group_id, this.mapping, 0, { logger: this.logger });
 
         for (let value of batch) {
           persistedBatch.saveBucketData({
@@ -1195,6 +1227,7 @@ export class MongoBucketBatch
   }
 }
 
-export function currentBucketKey(b: CurrentBucket) {
-  return `${b.bucket}/${b.table}/${b.id}`;
+export function currentBucketKey(b: CommonCurrentBucket) {
+  const prefix = 'def' in b ? `${b.def}:` : '';
+  return `${prefix}${b.bucket}/${b.table}/${b.id}`;
 }
