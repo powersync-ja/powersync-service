@@ -23,7 +23,7 @@ FromContinuation ::= "," FromSource | JoinClause
 FromSource ::= TableValuedSource | SubquerySource | TableSource
 
 /* Table and table-valued sources may be unaliased or AS-aliased */
-TableSource ::= TableRef Alias | TableRef
+TableSource ::= Reference Alias | Reference
 
 TableValuedSource ::= TableValuedCall Alias | TableValuedCall
 
@@ -65,34 +65,42 @@ CteResultColumnList ::= CteResultColumn ("," CteResultColumn)*
 CteResultColumn ::= ScalarExpr Alias?
 
 /* Scalar expression subset lowered by compiler/sqlite.ts */
-ScalarExpr ::= ValueTerm (BinaryOp ValueTerm)*
+ScalarExpr ::= ValueTerm ScalarBinaryOp?
 
-ValueTerm ::= PrimaryTerm MemberSuffix*
+ScalarBinaryOp ::= (BinaryOp ValueTerm)+
 
-PrimaryTerm ::= Literal | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+ValueTerm ::= PrimaryTerm MemberSuffix?
 
-MemberSuffix ::= ("->>" | "->") (StringLiteral | IntegerLiteral)
+PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+
+MemberSuffix ::= (MemberSuffixOp MemberSuffixValue)+
+
+MemberSuffixOp ::= ("->>" | "->")
+
+MemberSuffixValue ::= (StringLiteral | IntegerLiteral)
 
 CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
 
 /* CASE expression subset supported by compiler parser */
 CaseExpr ::= SearchedCaseExpr | SimpleCaseExpr
 
-SearchedCaseExpr ::= "CASE" "WHEN" CaseCondition "THEN" ScalarExpr ("WHEN" CaseCondition "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+SearchedCaseExpr ::= "CASE" WhenCaseExpr ("ELSE" ScalarExpr)? "END"
 
-SimpleCaseExpr ::= "CASE" ScalarExpr "WHEN" ScalarExpr "THEN" ScalarExpr ("WHEN" ScalarExpr "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+WhenCaseExpr ::= "WHEN" CaseCondition "THEN" ScalarExpr WhenCaseExpr?
+
+SimpleCaseExpr ::= "CASE" ScalarExpr WhenScalarExpr ("ELSE" ScalarExpr)? "END"
+
+WhenScalarExpr ::= "WHEN" ScalarExpr "THEN" ScalarExpr WhenScalarExpr?
 
 CaseCondition ::= OrExpr
 
-FunctionCall ::= (Identifier ".")? Identifier "(" ArgList? ")"
+FunctionCall ::= Reference "(" ArgList? ")"
 
 ArgList ::= ScalarExpr ("," ScalarExpr)*
 
 Reference ::= Identifier ("." Identifier)?
 
 Alias ::= "AS" Identifier
-
-TableRef ::= Identifier ("." Identifier)?
 
 ColumnNameList ::= Identifier ("," Identifier)*
 
@@ -102,8 +110,6 @@ CastType ::= "TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB"
 
 /* Identifiers are matched after SQL normalization to uppercase in tests. */
 Identifier ::= [A-Z_][A-Z_0-9]*
-
-Literal ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL"
 
 StringLiteral ::= "'" ([#x20-#x26] | [#x28-#x7E])* "'"
 

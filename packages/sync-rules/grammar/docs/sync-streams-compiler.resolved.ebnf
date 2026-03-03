@@ -1,62 +1,56 @@
-/* Top-level stream query form: streams.<name>.query / streams.<name>.queries[] */
-
 CompilerStreamQuery ::= "SELECT" ResultColumn ("," ResultColumn)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
 
-/* Supports wildcard, table wildcard, or scalar expression columns */
+ResultColumn ::= "*" | Reference "." "*" | ScalarExpr ("AS" Identifier)?
 
-ResultColumn ::= "*" | Identifier ("." Identifier)? "." "*" | ScalarExpr ("AS" Identifier)?
+Reference ::= Identifier ("." Identifier)?
 
 FromSource ::= TableValuedSource | SubquerySource | TableSource
 
-/* Table and table-valued sources may be unaliased or AS-aliased */
+TableSource ::= Reference "AS" Identifier | Reference
 
-TableSource ::= Identifier ("." Identifier)? "AS" Identifier | Identifier ("." Identifier)?
+TableValuedCall ::= Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")"
 
-TableValuedSource ::= Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")" "AS" Identifier | Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")"
-
-/* Subqueries require an alias; optional column-name list is supported */
+TableValuedSource ::= TableValuedCall "AS" Identifier | TableValuedCall
 
 SubquerySource ::= "(" CompilerSubquery ")" "AS" Identifier ("(" Identifier ("," Identifier)* ")")?
 
 JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereExpr)?
 
-WhereExpr ::= "NOT"? (Predicate | "(" WhereExpr ")") ("AND" "NOT"? (Predicate | "(" WhereExpr ")"))* ("OR" "NOT"? (Predicate | "(" WhereExpr ")") ("AND" "NOT"? (Predicate | "(" WhereExpr ")"))*)*
+WhereExpr ::= "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)* ("OR" "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)*)*
 
-Predicate ::= ScalarExpr PredicateTail | ScalarExpr
-
-/* Includes IN/NOT IN, overlap, null checks, and BETWEEN */
+WhereAtom ::= (ScalarExpr PredicateTail | ScalarExpr) | "(" WhereExpr ")"
 
 PredicateTail ::= "=" ScalarExpr | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" ScalarExpr "AND" ScalarExpr
 
 InSource ::= "(" CompilerSubquery ")" | Identifier | ScalarExpr
 
-/* Scalar expression subset lowered by compiler/sqlite.ts */
+ScalarExpr ::= PrimaryTerm MemberSuffix? ScalarBinaryOp?
 
-ScalarExpr ::= PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))* (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm (("->>" | "->") (StringLiteral | IntegerLiteral))*)*
+ScalarBinaryOp ::= (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm MemberSuffix?)+
 
-PrimaryTerm ::= (StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL") | CaseExpr | CastExpr | FunctionCall | Identifier ("." Identifier)? | "(" ScalarExpr ")"
+MemberSuffix ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
 
-/* CASE expression subset supported by compiler parser */
+PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
 
 CaseExpr ::= SearchedCaseExpr | SimpleCaseExpr
 
-SearchedCaseExpr ::= "CASE" "WHEN" CaseCondition "THEN" ScalarExpr ("WHEN" CaseCondition "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+SearchedCaseExpr ::= "CASE" WhenCaseExpr ("ELSE" ScalarExpr)? "END"
 
-CaseCondition ::= "NOT"? (Predicate | "(" WhereExpr ")") ("AND" "NOT"? (Predicate | "(" WhereExpr ")"))* ("OR" "NOT"? (Predicate | "(" WhereExpr ")") ("AND" "NOT"? (Predicate | "(" WhereExpr ")"))*)*
+WhenCaseExpr ::= "WHEN" CaseCondition "THEN" ScalarExpr WhenCaseExpr?
 
-SimpleCaseExpr ::= "CASE" ScalarExpr "WHEN" ScalarExpr "THEN" ScalarExpr ("WHEN" ScalarExpr "THEN" ScalarExpr)* ("ELSE" ScalarExpr)? "END"
+CaseCondition ::= "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)* ("OR" "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)*)*
+
+SimpleCaseExpr ::= "CASE" ScalarExpr WhenScalarExpr ("ELSE" ScalarExpr)? "END"
+
+WhenScalarExpr ::= "WHEN" ScalarExpr "THEN" ScalarExpr WhenScalarExpr?
 
 CastExpr ::= "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
 
-FunctionCall ::= (Identifier ".")? Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")"
+FunctionCall ::= Reference "(" (ScalarExpr ("," ScalarExpr)*)? ")"
 
 CompilerSubquery ::= "SELECT" ResultColumn ("," ResultColumn)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
 
-/* CTE bodies (streams.<name>.with.<cte_name>) disallow wildcard columns by using ScalarExpr columns only */
-
 CompilerCteSubquery ::= "SELECT" ScalarExpr ("AS" Identifier)? ("," ScalarExpr ("AS" Identifier)?)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
-
-/* Identifiers are matched after SQL normalization to uppercase in tests. */
 
 Identifier ::= [A-Z_] ([A-Z_0-9])*
 
