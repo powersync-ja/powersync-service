@@ -1,15 +1,18 @@
-import { bucketRequest, bucketRequests, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, bucketRequests, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
   register.registerCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
   describe('with blank bucket_state', () => {
     // This can happen when migrating from older service versions, that did not populate bucket_state yet.
     const populate = async (bucketStorage: SyncRulesBucketStorage) => {
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('1/1');
+
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,
@@ -37,7 +40,7 @@ describe('Mongo Sync Bucket Storage Compact', () => {
     };
 
     const setup = async () => {
-      await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY();
+      await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
       const syncRules = await factory.updateSyncRules(
         updateSyncRulesFromYaml(`
 bucket_definitions:

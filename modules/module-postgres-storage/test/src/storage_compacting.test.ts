@@ -1,13 +1,14 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, bucketRequestMap, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, bucketRequestMap, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
 
 describe('Postgres Sync Bucket Storage Compact', () => register.registerCompactTests(POSTGRES_STORAGE_FACTORY));
 
 describe('Postgres Compact - explicit bucket name', () => {
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], POSTGRES_STORAGE_FACTORY);
   test('compacts a specific bucket by exact name', async () => {
-    await using factory = await POSTGRES_STORAGE_FACTORY();
+    await using factory = await POSTGRES_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(`
 bucket_definitions:

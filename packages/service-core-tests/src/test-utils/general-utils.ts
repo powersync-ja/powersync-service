@@ -14,9 +14,14 @@ export const BATCH_OPTIONS: storage.StartBatchOptions = {
   storeCurrentData: true
 };
 
-export function makeTestTable(name: string, replicaIdColumns?: string[] | undefined) {
+export function makeTestTable(
+  name: string,
+  replicaIdColumns?: string[] | undefined,
+  options?: { tableIdStrings: boolean }
+) {
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  const id = new bson.ObjectId('6544e3899293153fa7b38331');
+  const id =
+    options?.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
   return new storage.SourceTable({
     id: id,
     connectionTag: storage.SourceTable.DEFAULT_TAG,
