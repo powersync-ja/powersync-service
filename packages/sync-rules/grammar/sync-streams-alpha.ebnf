@@ -54,7 +54,8 @@ ValueTerm ::= PrimaryTerm MemberSuffix*
 
 PrimaryTerm ::= Literal | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
 
-MemberSuffix ::= ("->>" | "->") (StringLiteral | IntegerLiteral)
+/* Legacy parser path only supports string member keys for -> / ->> */
+MemberSuffix ::= ("->>" | "->") StringLiteral
 
 CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
 

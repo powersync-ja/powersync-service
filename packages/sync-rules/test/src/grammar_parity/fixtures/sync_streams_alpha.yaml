@@ -34,6 +34,7 @@ query:
     - sql: SELECT * FROM comments WHERE category NOT IN '["draft", "hidden"]'
     - sql: 'SELECT "comment id" AS id FROM "comment-items"'
     - sql: "SELECT * FROM comments WHERE status = 'it''s active'"
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') -> 'user' ->> 'role' = 'admin'
 
   rejected_syntax:
     # parser: GROUP BY is not supported
@@ -62,6 +63,12 @@ query:
       err: list not supported here
     - sql: SELECT * FROM comments WHERE id = 0xFF
     - sql: SELECT * FROM comments WHERE id = 6.02e2
+    # function call after ->> is not supported
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') ->> auth.parameter('key') = 'admin'
+    # expressions after -> is not supported
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') -> ('x' || '') IS NOT NULL
+    # numeric literal after -> is not supported (only string literals are supported)
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') -> 0 IS NOT NULL
 
   rejected_semantic:
     # grammar accepts double-quoted identifiers, but the parser requires single-quoted string literals here

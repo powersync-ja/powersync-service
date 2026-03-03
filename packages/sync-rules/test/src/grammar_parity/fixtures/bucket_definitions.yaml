@@ -25,6 +25,7 @@ parameters:
     - sql: SELECT users.org_id AS org_id FROM users WHERE users.owner_id = request.user_id() OR users.shared_with = request.user_id()
     - sql: SELECT users.org_id AS org_id FROM users WHERE NOT users.is_admin = TRUE
     - sql: SELECT 'it''s active' AS status_text
+    - sql: SELECT request.parameters() -> 'profile' ->> 'role' AS role
     - sql: 'SELECT "User-Records"."display name" AS "display name" FROM "User-Records" WHERE "User-Records"."owner id" = request.user_id()'
 
   rejected_syntax:
@@ -47,6 +48,12 @@ parameters:
 
     # scientific notation literal form is not supported
     - sql: SELECT 1.5e3 AS id_value
+    # function call after ->> is not supported
+    - sql: SELECT request.parameters() ->> request.parameter('key') AS value_text
+    # expressions after -> is not supported
+    - sql: SELECT request.parameters() -> ('x' || '') AS value_text
+    # numeric literal after -> is not supported (only string literals are supported)
+    - sql: SELECT request.parameters() -> 0 AS first_item
 
   rejected_semantic:
     # double-quoted means identifier, which cannot be used here

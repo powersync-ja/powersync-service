@@ -40,6 +40,8 @@ query:
     - sql: SELECT * FROM comments WHERE status != 'archived'
     - sql: 'SELECT "User-Data"."display name" FROM "User-Data"'
     - sql: "SELECT * FROM comments WHERE status = 'it''s active'"
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') -> 'user' ->> 'role' = 'admin'
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') -> 0 IS NOT NULL
     # FIXME: This one should work
     # - sql: SELECT * FROM comments WHERE category NOT IN '["draft", "hidden"]'
 
@@ -79,6 +81,8 @@ query:
 
     # scientific notation literal form is not supported
     - sql: SELECT * FROM users WHERE id BETWEEN 1e2 AND 1.5e3
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') ->> auth.parameter('key') = 'admin'
+    - sql: SELECT * FROM comments WHERE auth.parameter('profile') -> ('x' || '') IS NOT NULL
 
   rejected_semantic:
     # "id" is parsed as a identifier here (not a string literal), and it cannot be used in this way
