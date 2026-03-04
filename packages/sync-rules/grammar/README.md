@@ -4,11 +4,11 @@ W3C EBNF grammars for the SQL dialects supported by PowerSync sync rules.
 
 ## Source files
 
-| File | Description |
-|------|-------------|
-| `bucket-definitions.ebnf` | Sync Rules (bucket definitions) — parameter queries and data queries |
-| `sync-streams-compiler.ebnf` | Sync Streams — stream queries, CTEs, subqueries |
-| `sync-streams-alpha.ebnf` | Sync Streams alpha (deprecated, not used for docs generation) |
+| File                         | Description                                                          |
+| ---------------------------- | -------------------------------------------------------------------- |
+| `bucket-definitions.ebnf`    | Sync Rules (bucket definitions) — parameter queries and data queries |
+| `sync-streams-compiler.ebnf` | Sync Streams — stream queries, CTEs, subqueries                      |
+| `sync-streams-alpha.ebnf`    | Sync Streams alpha (deprecated, not used for docs generation)        |
 
 These files are the source of truth. They are validated against the actual parser by the grammar parity tests in `test/src/grammar_parity/`.
 
@@ -23,13 +23,13 @@ pnpm --filter='./packages/sync-rules' generate:grammar-flat
 
 This generates output into `grammar/docs/`:
 
-| Output | Description |
-|--------|-------------|
-| `diagrams/*.svg` | Standalone SVG railroad diagrams (one per production) |
-| `*-flat.html` | Single-page HTML review file with inline SVGs, clickable cross-references, inlining notes, and a review table of inlined-only terms |
-| `*-flat.mdx` | Single-page MDX for the docs site (Mintlify-compatible) |
-| `descriptions.yaml` | Production descriptions extracted from `/* ... */` comments in the EBNF source |
-| `*.resolved.ebnf` | Post-inlining grammar re-emitted as EBNF (shows what each diagram contains) |
+| Output              | Description                                                                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `diagrams/*.svg`    | Standalone SVG railroad diagrams (one per production)                                                                               |
+| `*-flat.html`       | Single-page HTML review file with inline SVGs, clickable cross-references, inlining notes, and a review table of inlined-only terms |
+| `*-flat.mdx`        | Single-page MDX for the docs site (Mintlify-compatible)                                                                             |
+| `descriptions.yaml` | Production descriptions extracted from `/* ... */` comments in the EBNF source                                                      |
+| `*.resolved.ebnf`   | Post-inlining grammar re-emitted as EBNF (shows what each diagram contains)                                                         |
 
 SVG files are namespaced as `<grammar-id>--<ProductionName>.svg` because the two grammars share some production names (e.g. `ScalarExpr`, `Predicate`).
 
