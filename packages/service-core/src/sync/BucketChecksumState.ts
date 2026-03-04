@@ -168,7 +168,7 @@ export class BucketChecksumState {
     }
 
     // Subset of buckets for which there may be new data in this batch.
-    let bucketsToFetch: BucketDescription[];
+    let bucketsToFetch: ResolvedBucket[];
 
     let checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
 
@@ -339,7 +339,7 @@ export class BucketChecksumState {
         deferredLog();
       },
 
-      getFilteredBucketPositions: (buckets?: BucketDescription[]): Map<string, util.InternalOpId> => {
+      getFilteredBucketPositions: (buckets?: ResolvedBucket[]): Map<string, util.InternalOpId> => {
         if (!hasAdvanced) {
           throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
         }
@@ -657,7 +657,7 @@ export class BucketParameterState {
 
 export interface CheckpointLine {
   checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
-  bucketsToFetch: BucketDescription[];
+  bucketsToFetch: ResolvedBucket[];
 
   /**
    * Call when a checkpoint line is being sent to a client, to update the internal state.
@@ -669,7 +669,7 @@ export interface CheckpointLine {
    *
    * @param bucketsToFetch List of buckets to fetch - either this.bucketsToFetch, or a subset of it. Defaults to this.bucketsToFetch.
    */
-  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): Map<string, util.InternalOpId>;
+  getFilteredBucketPositions(bucketsToFetch?: ResolvedBucket[]): Map<string, util.InternalOpId>;
 
   /**
    * Update the position of bucket data the client has, after it was sent to the client.

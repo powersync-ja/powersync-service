@@ -122,7 +122,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '1#global[]',
         priority: 3
@@ -194,7 +194,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '1#global[]',
         priority: 3
@@ -234,7 +234,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '2#global[1]',
         priority: 3
@@ -302,7 +302,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '1#global[]',
         priority: 3
@@ -365,7 +365,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([{ bucket: '2#global[1]', priority: 3 }]);
+    expect(line2.bucketsToFetch).toMatchObject([{ bucket: '2#global[1]', priority: 3 }]);
   });
 
   test('invalidating all buckets', async () => {
@@ -415,7 +415,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([
+    expect(line2.bucketsToFetch).toMatchObject([
       { bucket: '2#global[1]', priority: 3 },
       { bucket: '2#global[2]', priority: 3 }
     ]);
@@ -452,7 +452,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '2#global[1]',
         priority: 3
@@ -505,7 +505,7 @@ bucket_definitions:
       }
     });
     // This should contain both buckets, even though only one changed.
-    expect(line2.bucketsToFetch).toEqual([
+    expect(line2.bucketsToFetch).toMatchObject([
       {
         bucket: '2#global[1]',
         priority: 3
@@ -576,7 +576,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '3#by_project[1]',
         priority: 3
