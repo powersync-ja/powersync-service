@@ -596,4 +596,61 @@ bucket_definitions:
     // storage-specific checksum - just check that it does not change
     expect(globalChecksum).toMatchSnapshot();
   });
+
+  test('defaults maxOpId to current checkpoint', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
+bucket_definitions:
+  global:
+    data: [select * from test]
+      `)
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 't1' },
+        afterReplicaId: test_utils.rid('t1')
+      });
+      await batch.commit('1/1');
+    });
+
+    const checkpoint1 = result1!.flushed_op;
+
+    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      // This is flushed but not committed (does not advance the checkpoint)
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.UPDATE,
+        after: { id: 't1' },
+        afterReplicaId: test_utils.rid('t1')
+      });
+    });
+    const checkpoint2 = result2!.flushed_op;
+
+    const checkpointBeforeCompact = await bucketStorage.getCheckpoint();
+    expect(checkpointBeforeCompact.checkpoint).toEqual(checkpoint1);
+
+    // With default options, Postgres compaction should use the active checkpoint.
+    await bucketStorage.compact({
+      moveBatchLimit: 1,
+      moveBatchQueryLimit: 1,
+      minBucketChanges: 1,
+      minChangeRatio: 0
+    });
+
+    const batchAfterDefaultCompact = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint2, bucketRequestMap(syncRules, [['global[]', 0n]]))
+    );
+
+    // Operation 1 should remain a PUT because op_id=2 is above the default maxOpId checkpoint.
+    expect(batchAfterDefaultCompact.chunkData.data).toMatchObject([
+      { op_id: '1', op: 'PUT', object_id: 't1' },
+      { op_id: '2', op: 'PUT', object_id: 't1' }
+    ]);
+  });
 }
