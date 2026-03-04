@@ -69,56 +69,50 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     const bucket = bucketRequest(syncRules, 'global[]');
 
-    await factory.db.query({
-      statement: `
-        INSERT INTO bucket_data (
-          group_id,
-          bucket_name,
-          op_id,
-          op,
-          source_table,
-          source_key,
-          table_name,
-          row_id,
-          checksum,
-          data,
-          target_op
-        ) VALUES
-          ($1, $2, 1, 'REMOVE', NULL, NULL, NULL, NULL, 101, NULL, NULL),
-          ($1, $2, 2, 'PUT', NULL, NULL, NULL, NULL, 202, NULL, NULL),
-          ($1, $2, 3, 'REMOVE', NULL, NULL, NULL, NULL, 303, NULL, NULL),
-          ($1, $2, 4, 'PUT', NULL, NULL, NULL, NULL, 404, NULL, NULL)
-      `,
-      params: [
-        { type: 'int4', value: bucketStorage.group_id },
-        { type: 'varchar', value: bucket }
-      ]
+    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 't1' },
+        afterReplicaId: test_utils.rid('t1')
+      });
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.DELETE,
+        before: { id: 't1' },
+        beforeReplicaId: test_utils.rid('t1')
+      });
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: { id: 't2' },
+        afterReplicaId: test_utils.rid('t2')
+      });
+      await batch.save({
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.DELETE,
+        before: { id: 't2' },
+        beforeReplicaId: test_utils.rid('t2')
+      });
+      await batch.commit('1/1');
     });
+
+    const checkpoint = result!.flushed_op;
+    const rowsBefore = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]))
+    );
+    const dataBefore = test_utils.getBatchData(rowsBefore);
+    const clearToOpId = BigInt(dataBefore[2].op_id);
 
     const compactor = new PostgresCompactor(factory.db, bucketStorage.group_id, {});
     // Trigger the private method directly
-    await expect(compactor.clearBucketForTests(bucket, 3n)).rejects.toThrow(/Unexpected PUT operation/);
+    await expect(compactor.clearBucketForTests(bucket, clearToOpId)).rejects.toThrow(/Unexpected PUT operation/);
 
     // The method wraps in a transaction; on assertion error the bucket must remain unchanged.
-    const rowsAfter = await factory.db.sql`
-      SELECT
-        op_id,
-        op,
-        checksum
-      FROM
-        bucket_data
-      WHERE
-        group_id = ${{ type: 'int4', value: bucketStorage.group_id }}
-        AND bucket_name = ${{ type: 'varchar', value: bucket }}
-      ORDER BY
-        op_id
-    `.rows<{ op_id: bigint; op: string; checksum: bigint }>();
-
-    expect(rowsAfter).toEqual([
-      { op_id: 1n, op: 'REMOVE', checksum: 101n },
-      { op_id: 2n, op: 'PUT', checksum: 202n },
-      { op_id: 3n, op: 'REMOVE', checksum: 303n },
-      { op_id: 4n, op: 'PUT', checksum: 404n }
-    ]);
+    const rowsAfter = await test_utils.oneFromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]))
+    );
+    expect(test_utils.getBatchData(rowsAfter)).toEqual(dataBefore);
   });
 });

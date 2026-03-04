@@ -597,7 +597,7 @@ bucket_definitions:
     expect(globalChecksum).toMatchSnapshot();
   });
 
-  test.only('defaults maxOpId to current checkpoint', async () => {
+  test('defaults maxOpId to current checkpoint', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(`
