@@ -21,7 +21,29 @@ export const isValidPriority = (i: number): i is BucketPriority => {
   return Number.isInteger(i) && i >= 0 && i <= 3;
 };
 
-export interface BucketDescription {
+/**
+ * There is no _direct_ way to define that a property is not enumerable in TypeScript.
+ *
+ * A getter on a class does that indirectly.
+ *
+ * This is _not_ the same as defining `get source(): BucketDataSource` directly on the interface.
+ *
+ * We never instantiate this class - we only use the type.
+ */
+class NonEnumerableSourceClass {
+  private constructor() {}
+
+  /**
+   * This is specifically not enumerable - must be excluded from tests and serialization.
+   */
+  get source(): BucketDataSource {
+    throw new Error('Do not use');
+  }
+}
+
+export type NonEnumerableBucketDataSource = NonEnumerableSourceClass;
+
+export interface BucketDescription extends NonEnumerableBucketDataSource {
   /**
    * The id of the bucket, which is derived from the name of the bucket's definition
    * in the sync rules as well as the values returned by the parameter queries.
@@ -31,11 +53,6 @@ export interface BucketDescription {
    * The priority used to synchronize this bucket, derived from its definition.
    */
   priority: BucketPriority;
-
-  /**
-   * This must specifically not be enumerable - must be excluded from tests.
-   */
-  get source(): BucketDataSource;
 }
 
 /**

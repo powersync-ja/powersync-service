@@ -75,6 +75,7 @@ export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
 
 function cloneResolvedBucket(bucket: ResolvedBucket) {
   let clone = structuredClone(bucket);
+  // The structured clone does not include the non-enumerable source - set it directly.
   return withBucketSource(clone, bucket.source);
 }
 
