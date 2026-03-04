@@ -157,15 +157,23 @@ const GRAMMARS: GrammarConfig[] = [
 
 const DEFAULT_LEXICAL_NOTES: Record<string, string> = {
   Identifier: 'Bare identifiers are normalized to uppercase and may contain letters, digits, and underscores. Double-quoted identifiers ("name") allow any printable character and support escaped quotes ("").',
-  StringLiteral: "Single-quoted string literal. Embedded single quotes are escaped by doubling them (''). For example: 'it''s'.",
+  StringLiteral: "Single-quoted string literal. Embedded single quotes are escaped by doubling them ('').",
   IntegerLiteral: 'One or more decimal digits (0-9).',
   NumericLiteral: 'Decimal number: one or more digits with an optional fractional part (.digits).'
+};
+
+const DEFAULT_LEXICAL_EXAMPLES: Record<string, string[]> = {
+  Identifier: ['user_id', 'MY_TABLE', '"Column Name"', '"with ""quotes"" inside"'],
+  StringLiteral: ["'hello'", "'it''s'", "''"],
+  IntegerLiteral: ['0', '42', '12345'],
+  NumericLiteral: ['3.14', '42', '0.5']
 };
 
 interface LexicalRuleSummary {
   name: string;
   pattern: string;
   note: string;
+  examples: string[];
 }
 
 interface InlineOnlySummary {
@@ -204,8 +212,9 @@ function buildLexicalSummaries(
 
     const pattern = ruleToEbnfText(rule, ruleMap, new Set(), new Set(), grammar.operatorTableRules);
     const note = DEFAULT_LEXICAL_NOTES[name] || '';
+    const examples = DEFAULT_LEXICAL_EXAMPLES[name] || [];
 
-    summaries.push({ name, pattern, note });
+    summaries.push({ name, pattern, note, examples });
   }
 
   return summaries;
@@ -706,7 +715,7 @@ function replaceNonTerminalLinks(svgStr: string, hrefByName: Map<string, string>
 
 /**
  * Build split-mode link targets for a grammar.
- * Productions link to ./kebab-name, lexical rules link to ./lexical-rules#name.
+ * Productions link to ./kebab-name, lexical rules link to ./lexical-rules.
  */
 function buildSplitLinkTargets(grammar: GrammarConfig, productionNames: string[]): Map<string, string> {
   const targets = new Map<string, string>();
@@ -714,7 +723,7 @@ function buildSplitLinkTargets(grammar: GrammarConfig, productionNames: string[]
     targets.set(name, `./${productionToPageSlug(name)}`);
   }
   for (const name of grammar.lexicalRules) {
-    targets.set(name, `./lexical-rules#${name.toLowerCase()}`);
+    targets.set(name, './lexical-rules');
   }
   return targets;
 }
@@ -722,10 +731,13 @@ function buildSplitLinkTargets(grammar: GrammarConfig, productionNames: string[]
 /**
  * Build flat-mode (anchor) link targets for a grammar.
  */
-function buildFlatLinkTargets(productionNames: string[]): Map<string, string> {
+function buildFlatLinkTargets(productionNames: string[], lexicalRules: string[]): Map<string, string> {
   const targets = new Map<string, string>();
   for (const name of productionNames) {
     targets.set(name, `#${name.toLowerCase()}`);
+  }
+  for (const name of lexicalRules) {
+    targets.set(name, '#lexical-rules');
   }
   return targets;
 }
@@ -944,20 +956,26 @@ function generateFlatMdx(
     lines.push('---');
   }
 
-  // Lexical rules — individual sections with prose + EBNF rule text (no diagrams)
+  // Lexical rules — summary table then per-rule subsections with examples
   if (lexicalSummaries.length > 0) {
     lines.push('');
     lines.push('## Lexical Rules');
     lines.push('');
 
+    // Summary table
+    lines.push('| Token | Examples | Rule |');
+    lines.push('| --- | --- | --- |');
+    for (const row of lexicalSummaries) {
+      const ex = row.examples.map((e) => `\`${e}\``).join(', ');
+      lines.push(`| [${row.name}](#${row.name.toLowerCase()}) | ${ex} | \`${row.pattern}\` |`);
+    }
+    lines.push('');
+
+    // Per-rule subsections with description
     for (const row of lexicalSummaries) {
       lines.push(`### ${row.name}`);
       lines.push('');
       lines.push(row.note);
-      lines.push('');
-      lines.push('```ebnf');
-      lines.push(`${row.name} ::= ${row.pattern}`);
-      lines.push('```');
       lines.push('');
     }
   }
@@ -1056,7 +1074,7 @@ function generateFlatHtml(
   lines.push('');
 
   // Build anchor link targets for flat HTML (overrides split-mode links baked into SVGs)
-  const linkTargets = buildFlatLinkTargets(productionNames);
+  const linkTargets = buildFlatLinkTargets(productionNames, grammar.lexicalRules);
 
   // Productions
   for (let i = 0; i < productionNames.length; i++) {
@@ -1123,7 +1141,7 @@ function generateFlatHtml(
     }
   }
 
-  // Lexical rules — individual sections with prose description + EBNF rule text (no diagrams)
+  // Lexical rules — summary table then per-rule subsections with examples
   if (lexicalSummaries.length > 0) {
     lines.push('<hr>');
     lines.push('');
@@ -1131,11 +1149,23 @@ function generateFlatHtml(
     lines.push('<section id="lexical-rules">');
     lines.push('  <h2>Lexical Rules</h2>');
 
+    // Summary table
+    lines.push('  <table class="lexical-table">');
+    lines.push('    <thead><tr><th>Token</th><th>Examples</th><th>Rule</th></tr></thead>');
+    lines.push('    <tbody>');
+    for (const row of lexicalSummaries) {
+      const ex = row.examples.map((e) => `<code>${escapeHtml(e)}</code>`).join(', ');
+      lines.push(`      <tr><td><a href="#${row.name.toLowerCase()}">${escapeHtml(row.name)}</a></td><td>${ex}</td><td><code>${escapeHtml(row.pattern)}</code></td></tr>`);
+    }
+    lines.push('    </tbody>');
+    lines.push('  </table>');
+    lines.push('');
+
+    // Per-rule subsections with description
     for (const row of lexicalSummaries) {
       lines.push(`  <div class="production" id="${row.name.toLowerCase()}">`);
       lines.push(`    <h3>${escapeHtml(row.name)}</h3>`);
       lines.push(`    <p class="lexical-description">${escapeHtml(row.note)}</p>`);
-      lines.push(`    <pre><code>${escapeHtml(row.name)} ::= ${escapeHtml(row.pattern)}</code></pre>`);
       lines.push('  </div>');
       lines.push('');
     }
@@ -1252,7 +1282,7 @@ function generateSplitMdx(
     indexLines.push('');
     indexLines.push(`- [Lexical Rules](./lexical-rules)`);
     for (const row of lexicalSummaries) {
-      indexLines.push(`  - [${row.name}](./lexical-rules#${row.name.toLowerCase()})`);
+      indexLines.push(`  - [${row.name}](./lexical-rules)`);
     }
     indexLines.push('');
   }
@@ -1322,7 +1352,7 @@ function generateSplitMdx(
       const lexicalNames = new Set(grammar.lexicalRules);
       for (const ref of refs) {
         if (lexicalNames.has(ref)) {
-          lines.push(`- [${ref}](./lexical-rules#${ref.toLowerCase()})`);
+          lines.push(`- [${ref}](./lexical-rules)`);
         } else {
           lines.push(`- [${ref}](./${productionToPageSlug(ref)})`);
         }
@@ -1347,14 +1377,20 @@ function generateSplitMdx(
     lexLines.push('## Lexical Rules');
     lexLines.push('');
 
+    // Summary table
+    lexLines.push('| Token | Examples | Rule |');
+    lexLines.push('| --- | --- | --- |');
+    for (const row of lexicalSummaries) {
+      const ex = row.examples.map((e) => `\`${e}\``).join(', ');
+      lexLines.push(`| [${row.name}](#${row.name.toLowerCase()}) | ${ex} | \`${row.pattern}\` |`);
+    }
+    lexLines.push('');
+
+    // Per-rule subsections with description
     for (const row of lexicalSummaries) {
       lexLines.push(`### ${row.name}`);
       lexLines.push('');
       lexLines.push(row.note);
-      lexLines.push('');
-      lexLines.push('```ebnf');
-      lexLines.push(`${row.name} ::= ${row.pattern}`);
-      lexLines.push('```');
       lexLines.push('');
     }
 
