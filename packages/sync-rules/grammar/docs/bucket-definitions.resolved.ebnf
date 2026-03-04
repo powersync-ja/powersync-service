@@ -16,9 +16,7 @@ MatchExpr ::= "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | 
 
 Predicate ::= ScalarExpr ("=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL") | ScalarExpr
 
-ScalarExpr ::= PrimaryTerm MemberSuffix? ScalarBinaryOp?
-
-ScalarBinaryOp ::= (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm MemberSuffix?)+
+ScalarExpr ::= PrimaryTerm MemberSuffix? ((«operator» PrimaryTerm MemberSuffix?)+)?
 
 MemberSuffix ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
 
@@ -29,11 +27,3 @@ CastExpr ::= "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC"
 FunctionCall ::= Reference "(" (ScalarExpr ("," ScalarExpr)*)? ")"
 
 PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
-
-Identifier ::= [A-Z_] ([A-Z_0-9])*
-
-StringLiteral ::= "'" ([\x20-\x26] | [\x28-\x7E])* "'"
-
-IntegerLiteral ::= ([0-9])+
-
-NumericLiteral ::= ([0-9])+ ("." ([0-9])+)?
