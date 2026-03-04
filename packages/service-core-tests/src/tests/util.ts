@@ -1,4 +1,11 @@
 import { storage } from '@powersync/service-core';
+import {
+  ParameterIndexLookupCreator,
+  SourceTableInterface,
+  SqliteRow,
+  TablePattern
+} from '@powersync/service-sync-rules';
+import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 
 export function bucketRequest(syncRules: storage.PersistedSyncRulesContent, bucketName: string): string {
   if (/^\d+#/.test(bucketName)) {
@@ -18,4 +25,31 @@ export function bucketRequestMap(
   buckets: Iterable<readonly [string, bigint]>
 ): Map<string, bigint> {
   return new Map(Array.from(buckets, ([bucketName, opId]) => [bucketRequest(syncRules, bucketName), opId]));
+}
+
+const EMPTY_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
+  get defaultLookupScope(): ParameterLookupScope {
+    return {
+      lookupName: 'lookup',
+      queryId: '0',
+      source: EMPTY_LOOKUP_SOURCE
+    };
+  },
+  getSourceTables(): Set<TablePattern> {
+    return new Set();
+  },
+  evaluateParameterRow(_sourceTable: SourceTableInterface, _row: SqliteRow) {
+    return [];
+  },
+  tableSyncsParameters(_table: SourceTableInterface): boolean {
+    return false;
+  }
+};
+
+export function parameterLookupScope(
+  lookupName: string,
+  queryId: string,
+  source: ParameterIndexLookupCreator = EMPTY_LOOKUP_SOURCE
+): ParameterLookupScope {
+  return { lookupName, queryId, source };
 }

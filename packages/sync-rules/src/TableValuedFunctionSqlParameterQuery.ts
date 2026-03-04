@@ -23,7 +23,7 @@ import {
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
-import { buildBucketName, isJsonValue, serializeBucketParameters } from './utils.js';
+import { buildBucketInfo, isJsonValue, serializeBucketParameters, SOURCE, withBucketSource } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
@@ -237,11 +237,12 @@ export class TableValuedFunctionSqlParameterQuery {
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketScope).map((desc) => {
-          return {
+          const resolved = {
             ...desc,
             definition: this.descriptorName,
             inclusion_reasons: ['default']
           } satisfies ResolvedBucket;
+          return withBucketSource(resolved, desc[SOURCE]);
         });
 
         if (staticBuckets.length == 0) {
@@ -306,11 +307,15 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     const serializedBucketParameters = serializeBucketParameters(this.bucketParameters, result);
+    const info = buildBucketInfo(bucketScope, serializedBucketParameters);
 
-    return {
-      bucket: buildBucketName(bucketScope, serializedBucketParameters),
-      priority: this.priority
-    };
+    return withBucketSource(
+      {
+        bucket: info.bucket,
+        priority: this.priority
+      },
+      info[SOURCE]
+    );
   }
 
   private visitParameterExtractorsAndCallClause(): DetectRequestParameters {

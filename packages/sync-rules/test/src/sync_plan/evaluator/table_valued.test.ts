@@ -1,6 +1,6 @@
 import { describe, expect } from 'vitest';
 import { syncTest } from './utils.js';
-import { requestParameters, TestSourceTable } from '../../util.js';
+import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
 import {
   deserializeSyncPlan,
   ImplicitSchemaTablePattern,
@@ -55,7 +55,7 @@ streams:
       desc.evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['user', 'another']) })
     ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['chat']),
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
         bucketParameters: [
           {
             '0': 'user'
@@ -63,7 +63,7 @@ streams:
         ]
       },
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['chat']),
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
         bucketParameters: [
           {
             '0': 'another'
@@ -87,15 +87,7 @@ streams:
 
     const buckets = await querier.queryDynamicBucketDescriptions({
       getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-        expect(lookups).toStrictEqual([
-          ScopedParameterLookup.direct(
-            {
-              lookupName: 'lookup',
-              queryId: '0'
-            },
-            ['chat']
-          )
-        ]);
+        expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat'])]);
 
         return [{ '0': 'user' }, { '0': 'another' }];
       }

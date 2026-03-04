@@ -1,5 +1,6 @@
 import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/service-jsonbig';
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
+import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
@@ -17,9 +18,32 @@ import {
 } from './types.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { castAsText } from './sql_functions.js';
+import { BucketDescription, BucketInclusionReason, ResolvedBucket } from './index.js';
+import { ResolveBucket } from './compiler/bucket_resolver.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
+}
+
+export const SOURCE = Symbol.for('BucketSourceStorage');
+
+export function buildBucketInfo(
+  scope: BucketDataScope,
+  serializedParameters: string
+): { bucket: string; [SOURCE]: BucketDataSource } {
+  const info = { bucket: scope.bucketPrefix + serializedParameters };
+  return withBucketSource(info, scope.source);
+}
+
+export function withBucketSource<T extends object>(
+  value: T,
+  source: BucketDataSource
+): T & { [SOURCE]: BucketDataSource } {
+  Object.defineProperty(value, SOURCE, {
+    value: source,
+    enumerable: false
+  });
+  return value as T & { [SOURCE]: BucketDataSource };
 }
 
 export function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {

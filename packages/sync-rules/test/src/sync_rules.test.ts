@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'vitest';
-import { CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
+import { CreateSourceParams, ScopedParameterLookup, SOURCE, SqlSyncRules } from '../../src/index.js';
 
-import { DEFAULT_HYDRATION_STATE, HydrationState } from '../../src/HydrationState.js';
+import {
+  BucketDataScope,
+  DEFAULT_HYDRATION_STATE,
+  HydrationState,
+  ParameterLookupScope
+} from '../../src/HydrationState.js';
 import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import {
@@ -11,6 +16,7 @@ import {
   TestSourceTable,
   USERS,
   findQuerierLookups,
+  lookupScope,
   normalizeQuerierOptions,
   requestParameters
 } from './util.js';
@@ -61,6 +67,38 @@ bucket_definitions:
       staticBuckets: [{ bucket: 'mybucket[]', priority: 3 }],
       hasDynamicBuckets: false
     });
+  });
+
+  test('tracks source metadata on rows, lookups and bucket descriptions', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT token_parameters.user_id as user_id
+      - SELECT users.id as user_id FROM users WHERE users.id = token_parameters.user_id
+    data:
+      - SELECT id FROM assets WHERE assets.user_id = bucket.user_id
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    const staticBuckets = hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier
+      .staticBuckets;
+    expect(staticBuckets).toHaveLength(1);
+    expect(staticBuckets[0][SOURCE]).toBe(rules.bucketDataSources[0]);
+
+    const dataResults = hydrated.evaluateRow({
+      sourceTable: ASSETS,
+      record: { id: 'asset1', user_id: 'user1' }
+    });
+    expect(dataResults).toHaveLength(1);
+    expect(dataResults[0].source).toBe(rules.bucketDataSources[0]);
+
+    const parameterResults = hydrated.evaluateParameterRow(USERS, { id: 'user1' });
+    expect(parameterResults).toHaveLength(1);
+    expect(parameterResults[0].lookup.source).toBe(rules.bucketParameterLookupSources[0]);
   });
 
   test('parse global sync rules with filter', () => {
@@ -114,7 +152,7 @@ bucket_definitions:
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{}],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1' }, ['user1'])
+        lookup: ScopedParameterLookup.direct(lookupScope('mybucket', '1'), ['user1'])
       }
     ]);
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -183,13 +221,14 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const hydrationState: HydrationState = {
-      getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}-test` };
+      getBucketSourceScope(source): BucketDataScope {
+        return { bucketPrefix: `${source.uniqueName}-test`, source };
       },
-      getParameterIndexLookupScope(source) {
+      getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };
@@ -207,13 +246,13 @@ bucket_definitions:
       }
     ]);
     expect(await findQuerierLookups(querier)).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+      ScopedParameterLookup.direct(lookupScope('mybucket.test', '2.test'), ['user1'])
     ]);
 
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 })).toEqual([
       {
         bucketParameters: [{ user_id: 'user1' }],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test' }, ['user1'])
+        lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', '2.test'), ['user1'])
       }
     ]);
 
@@ -1044,7 +1083,7 @@ bucket_definitions:
     });
 
     expect(await findQuerierLookups(hydratedQuerier)).toEqual([
-      ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1' }, [1])
+      ScopedParameterLookup.direct(lookupScope('admin_only', '1'), [1])
     ]);
   });
 

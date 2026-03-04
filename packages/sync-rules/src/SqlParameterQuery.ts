@@ -42,12 +42,14 @@ import {
   SqliteRow
 } from './types.js';
 import {
-  buildBucketName,
+  buildBucketInfo,
   filterJsonRow,
   isJsonValue,
   isSelectStatement,
   normalizeParameterValue,
-  serializeBucketParameters
+  serializeBucketParameters,
+  SOURCE,
+  withBucketSource
 } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
@@ -337,7 +339,8 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
   public get defaultLookupScope(): ParameterLookupScope {
     return {
       lookupName: this.descriptorName,
-      queryId: this.queryId
+      queryId: this.queryId,
+      source: this
     };
   }
 
@@ -441,10 +444,12 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
 
         const serializedParameters = serializeBucketParameters(this.bucketParameters, result);
 
-        return {
-          bucket: buildBucketName(bucketScope, serializedParameters),
+        const info = buildBucketInfo(bucketScope, serializedParameters);
+        const bucketDescription = {
+          bucket: info.bucket,
           priority: this.priority
         };
+        return withBucketSource(bucketDescription, info[SOURCE]);
       })
       .filter((lookup) => lookup != null);
   }
@@ -547,11 +552,14 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
       hasDynamicBuckets: true,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
-        return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => ({
-          ...bucket,
-          definition: this.descriptorName,
-          inclusion_reasons: reasons
-        }));
+        return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => {
+          const resolved = {
+            ...bucket,
+            definition: this.descriptorName,
+            inclusion_reasons: reasons
+          };
+          return withBucketSource(resolved, bucket[SOURCE]);
+        });
       }
     };
   }

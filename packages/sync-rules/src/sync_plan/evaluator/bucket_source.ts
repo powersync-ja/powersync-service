@@ -15,7 +15,7 @@ import { parametersForRequest, RequestParameterEvaluators } from './parameter_ev
 import { PendingQueriers } from '../../BucketParameterQuerier.js';
 import { RequestedStream } from '../../SqlSyncRules.js';
 import { BucketInclusionReason, ResolvedBucket } from '../../BucketDescription.js';
-import { buildBucketName, JSONBucketNameSerialize } from '../../utils.js';
+import { buildBucketInfo, JSONBucketNameSerialize, SOURCE, withBucketSource } from '../../utils.js';
 
 export interface StreamInput extends StreamEvaluationContext {
   preparedBuckets: Map<plan.StreamBucketDataSource, BucketDataSource>;
@@ -130,12 +130,16 @@ class PreparedQuerier {
       const bucketScope = hydration.hydrationState.getBucketSourceScope(this.dataSource);
 
       const parametersToBucket = (instantiation: SqliteParameterValue[]): ResolvedBucket => {
-        return {
-          definition: this.stream.name,
-          inclusion_reasons: [reason],
-          bucket: buildBucketName(bucketScope, JSONBucketNameSerialize.stringify(instantiation)),
-          priority: this.stream.priority
-        };
+        const info = buildBucketInfo(bucketScope, JSONBucketNameSerialize.stringify(instantiation));
+        return withBucketSource(
+          {
+            definition: this.stream.name,
+            inclusion_reasons: [reason],
+            bucket: info.bucket,
+            priority: this.stream.priority
+          },
+          info[SOURCE]
+        );
       };
 
       // Do we need parameter lookups to resolve parameters?

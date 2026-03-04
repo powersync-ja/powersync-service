@@ -8,7 +8,7 @@ import {
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
-import { requestParameters, TestSourceTable } from '../../util.js';
+import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
 
 describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {
@@ -222,7 +222,7 @@ streams:
 
     expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0' }, ['user1']),
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user1']),
         bucketParameters: [
           {
             '0': 'issue_id'
@@ -349,28 +349,12 @@ streams:
         if (call == 0) {
           // First call. Lookup from users.id => users.name
           call++;
-          expect(lookups).toStrictEqual([
-            ScopedParameterLookup.direct(
-              {
-                lookupName: 'lookup',
-                queryId: '0'
-              },
-              ['user']
-            )
-          ]);
+          expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
           return [{ '0': 'name' }];
         } else if (call == 1) {
           // Second call. Lookup from issues.owned_by => issues.id
           call++;
-          expect(lookups).toStrictEqual([
-            ScopedParameterLookup.direct(
-              {
-                lookupName: 'lookup',
-                queryId: '1'
-              },
-              ['name']
-            )
-          ]);
+          expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '1'), ['name'])]);
           return [{ '0': 'issue' }];
         }
 

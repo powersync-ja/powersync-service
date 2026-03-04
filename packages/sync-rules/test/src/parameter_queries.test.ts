@@ -2,8 +2,10 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import { HydrationState } from '../../src/HydrationState.js';
 import {
   BucketParameterQuerier,
+  BucketDataScope,
   GetQuerierOptions,
   mergeParameterIndexLookupCreators,
+  ParameterLookupScope,
   QuerierError,
   RequestParameters,
   ScopedParameterLookup,
@@ -12,7 +14,15 @@ import {
   UnscopedParameterLookup
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
-import { BASIC_SCHEMA, EMPTY_DATA_SOURCE, findQuerierLookups, PARSE_OPTIONS, requestParameters } from './util.js';
+import {
+  BASIC_SCHEMA,
+  bucketDataScope,
+  EMPTY_DATA_SOURCE,
+  findQuerierLookups,
+  lookupScope,
+  PARSE_OPTIONS,
+  requestParameters
+} from './util.js';
 
 describe('parameter queries', () => {
   const table = (name: string): SourceTableInterface => ({
@@ -123,15 +133,19 @@ describe('parameter queries', () => {
 
     // We _do_ need to care about the bucket string representation.
     expect(
-      query.resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], requestParameters({}), {
-        bucketPrefix: 'mybucket'
-      })
+      query.resolveBucketDescriptions(
+        [{ int1: 314, float1: 3.14, float2: 314 }],
+        requestParameters({}),
+        bucketDataScope('mybucket')
+      )
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
     expect(
-      query.resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], requestParameters({}), {
-        bucketPrefix: 'mybucket'
-      })
+      query.resolveBucketDescriptions(
+        [{ int1: 314n, float1: 3.14, float2: 314 }],
+        requestParameters({}),
+        bucketDataScope('mybucket')
+      )
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
@@ -494,7 +508,7 @@ describe('parameter queries', () => {
       query.resolveBucketDescriptions(
         [{ user_id: 'user1' }],
         requestParameters({ sub: 'user1', parameters: { is_admin: true } }),
-        { bucketPrefix: 'mybucket' }
+        bucketDataScope('mybucket')
       )
     ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });
@@ -872,13 +886,14 @@ describe('parameter queries', () => {
 
   describe('custom hydrationState', function () {
     const hydrationState: HydrationState = {
-      getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}-test` };
+      getBucketSourceScope(source): BucketDataScope {
+        return { bucketPrefix: `${source.uniqueName}-test`, source };
       },
-      getParameterIndexLookupScope(source) {
+      getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };
@@ -906,13 +921,11 @@ describe('parameter queries', () => {
       });
       expect(result).toEqual([
         {
-          lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, ['test-user']),
+          lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', 'myquery.test'), ['test-user']),
           bucketParameters: [{ group_id: 'group1' }]
         },
         {
-          lookup: ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, [
-            'other-user'
-          ]),
+          lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', 'myquery.test'), ['other-user']),
           bucketParameters: [{ group_id: 'group1' }]
         }
       ]);
@@ -944,7 +957,7 @@ describe('parameter queries', () => {
       const querier = queriers[0];
       expect(querier.hasDynamicBuckets).toBeTruthy();
       expect(await findQuerierLookups(querier)).toEqual([
-        ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test' }, ['test-user'])
+        ScopedParameterLookup.direct(lookupScope('mybucket.test', 'myquery.test'), ['test-user'])
       ]);
     });
   });

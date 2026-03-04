@@ -207,10 +207,7 @@ export class BucketChecksumState {
         ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
-        return {
-          priority: bucketDescriptionMap.get(b)!.priority,
-          bucket: b
-        };
+        return bucketDescriptionMap.get(b)!;
       });
 
       deferredLog = () => {
@@ -265,7 +262,7 @@ export class BucketChecksumState {
           totalParamResults
         );
       };
-      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
+      bucketsToFetch = allBuckets;
 
       const subscriptions: util.StreamDescription[] = [];
       const streamNameToIndex = new Map<string, number>();
