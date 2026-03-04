@@ -32,15 +32,23 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 // CLI argument parsing
 // ---------------------------------------------------------------------------
 
+const DEFAULT_OUTDIR = path.join(PACKAGE_ROOT, 'grammar', 'docs');
+
 interface CliArgs {
   mode: 'flat' | 'split';
+  /** Where flat output (HTML, flat MDX, resolved EBNF, diagrams) is written. Always the default path. */
   outdir: string;
+  /** Where split-mode MDX pages are written. Defaults to outdir; override with --outdir to target e.g. a docs repo. */
+  splitOutdir: string;
+  /** URL base path for split-mode pages (e.g. "/sync/grammar"). Used to build absolute <img> src paths. */
+  baseUrl: string;
 }
 
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
   let mode: 'flat' | 'split' = 'flat';
-  let outdir = path.join(PACKAGE_ROOT, 'grammar', 'docs');
+  let splitOutdir: string | undefined;
+  let baseUrl = '';
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--mode' && args[i + 1]) {
@@ -52,12 +60,15 @@ function parseArgs(): CliArgs {
       mode = val;
       i++;
     } else if (args[i] === '--outdir' && args[i + 1]) {
-      outdir = path.resolve(args[i + 1]);
+      splitOutdir = path.resolve(args[i + 1]);
+      i++;
+    } else if (args[i] === '--base-url' && args[i + 1]) {
+      baseUrl = args[i + 1].replace(/\/+$/, ''); // strip trailing slash
       i++;
     }
   }
 
-  return { mode, outdir };
+  return { mode, outdir: DEFAULT_OUTDIR, splitOutdir: splitOutdir || DEFAULT_OUTDIR, baseUrl };
 }
 
 // ---------------------------------------------------------------------------
@@ -669,6 +680,10 @@ function addStyleToSvg(svgStr: string): string {
   if (!svgStr.includes('xmlns=')) {
     svgStr = svgStr.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
   }
+  // Add xmlns:xlink for xlink:href attributes in <a> links
+  if (!svgStr.includes('xmlns:xlink')) {
+    svgStr = svgStr.replace('<svg ', '<svg xmlns:xlink="http://www.w3.org/1999/xlink" ');
+  }
   // Insert style after the opening <svg ...> tag
   const insertPos = svgStr.indexOf('>');
   if (insertPos === -1) return svgStr;
@@ -711,6 +726,16 @@ function replaceNonTerminalLinks(svgStr: string, hrefByName: Map<string, string>
       return `${before}${name}${after}`;
     }
   );
+}
+
+/**
+ * Strip <a> link wrappers from SVG for use as static image assets.
+ * When SVGs are referenced via <img>, links don't work anyway, so remove
+ * them to keep the markup clean. The link targets are still visible as
+ * NonTerminal labels in the diagram.
+ */
+function svgStripLinks(svgStr: string): string {
+  return svgStr.replace(/<a [^>]*>([\s\S]*?)<\/a>/g, '$1');
 }
 
 /**
@@ -1254,7 +1279,9 @@ function generateSplitMdx(
   lexicalSummaries: LexicalRuleSummary[],
   diagrammedNames: Set<string>,
   ruleMap: Map<string, IRule>,
-  outdir: string
+  svgMap: Map<string, string>,
+  outdir: string,
+  baseUrl: string
 ): void {
   const subdir = grammarSubdir(grammar);
   const splitDir = path.join(outdir, subdir);
@@ -1303,23 +1330,19 @@ function generateSplitMdx(
     lines.push('');
     lines.push(`## ${name}`);
     lines.push('');
-    lines.push(`![${name}](../diagrams/${grammar.id}--${name}.svg)`);
+    const svgContent = svgMap.get(name);
+    if (svgContent) {
+      // Write SVG as a co-located static file; reference via absolute URL path
+      const svgFileName = `${slug}.svg`;
+      fs.writeFileSync(path.join(splitDir, svgFileName), svgStripLinks(svgContent), 'utf8');
+      const imgSrc = baseUrl ? `${baseUrl}/${subdir}/${svgFileName}` : `./${svgFileName}`;
+      lines.push(`![${name} syntax diagram](${imgSrc})`);
+    } else {
+      lines.push(`{/* SVG not found for ${name} */}`);
+    }
     lines.push('');
     lines.push('{/* TODO: add description */}');
     lines.push('');
-
-    // Inlining note
-    const inlined = grammar.inlineRules[name] || [];
-    if (inlined.length > 0) {
-      const inlineLinks = inlined.map((inlineName) => {
-        if (diagrammedNames.has(inlineName)) {
-          return `[${inlineName}](./${productionToPageSlug(inlineName)})`;
-        }
-        return `\`${inlineName}\``;
-      });
-      lines.push(`**Inlines:** ${inlineLinks.join(', ')}`);
-      lines.push('');
-    }
 
     // Operator table for ScalarExpr
     if (name === 'ScalarExpr' && Object.keys(grammar.operatorTableRules).length > 0) {
@@ -1337,7 +1360,11 @@ function generateSplitMdx(
       for (const [, config] of Object.entries(grammar.operatorTableRules)) {
         for (let i = 0; i < config.groups.length; i++) {
           const group = config.groups[i];
-          const ops = group.operators.map((op) => `\`${op}\``).join(' ');
+          // Escape < and > for MDX compatibility (MDX parses < as JSX even inside backticks)
+          const ops = group.operators.map((op) => {
+            const escaped = op.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return `\`${escaped}\``;
+          }).join(' ');
           lines.push(`| ${i + 1} | ${ops} | ${group.description} |`);
         }
       }
@@ -1408,6 +1435,12 @@ async function main() {
   const cliArgs = parseArgs();
   console.log(`Mode: ${cliArgs.mode}`);
   console.log(`Output directory: ${cliArgs.outdir}`);
+  if (cliArgs.mode === 'split' && cliArgs.splitOutdir !== cliArgs.outdir) {
+    console.log(`Split output directory: ${cliArgs.splitOutdir}`);
+  }
+  if (cliArgs.baseUrl) {
+    console.log(`Base URL: ${cliArgs.baseUrl}`);
+  }
 
   // Ensure output directory exists
   fs.mkdirSync(cliArgs.outdir, { recursive: true });
@@ -1475,6 +1508,7 @@ async function main() {
     const splitLinkTargets = buildSplitLinkTargets(grammar, productionNames);
 
     // Generate diagrams for each diagrammed production (with split-mode links baked in)
+    const svgMap = new Map<string, string>();
     for (const productionName of productionNames) {
       const rule = ruleMap.get(productionName);
       if (!rule) {
@@ -1494,6 +1528,7 @@ async function main() {
 
         const svgPath = path.join(diagramsDir, `${grammar.id}--${productionName}.svg`);
         fs.writeFileSync(svgPath, svgStr, 'utf8');
+        svgMap.set(productionName, svgStr);
         rendered.push(productionName);
       } catch (err) {
         console.error(`  ERROR generating diagram for '${productionName}':`, err);
@@ -1527,7 +1562,7 @@ async function main() {
 
     // Generate split-mode MDX pages
     if (cliArgs.mode === 'split') {
-      generateSplitMdx(grammar, productionNames, lexicalSummaries, diagrammedNames, ruleMap, cliArgs.outdir);
+      generateSplitMdx(grammar, productionNames, lexicalSummaries, diagrammedNames, ruleMap, svgMap, cliArgs.splitOutdir, cliArgs.baseUrl);
     }
   }
 
