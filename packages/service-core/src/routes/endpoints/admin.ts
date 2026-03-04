@@ -176,6 +176,7 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesConten
         ...this.apiHandler.getParseSyncRulesOptions(),
         schema: this.schema
       }),
+      hydrationState: DEFAULT_HYDRATION_STATE,
       hydratedSyncRules() {
         return this.sync_rules.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
       }

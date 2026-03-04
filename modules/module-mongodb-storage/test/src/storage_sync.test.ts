@@ -80,11 +80,9 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const checkpoint = result!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
-    const batchRequest = (start: bigint): storage.BucketDataRequest[] => [
-      { bucket: globalBucket, start, source: {} as any }
-    ];
-
-    const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, batchRequest(0n), options));
+    const batch1 = await test_utils.fromAsync(
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)], options)
+    );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
       { op_id: '2', op: 'PUT', object_id: 'large1', checksum: 1178768505 }
@@ -96,7 +94,11 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     });
 
     const batch2 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, batchRequest(BigInt(batch1[0].chunkData.next_after)), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        [bucketRequest(syncRules, 'global[]', batch1[0].chunkData.next_after)],
+        options
+      )
     );
     expect(test_utils.getBatchData(batch2)).toEqual([
       { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1607205872 }
@@ -108,7 +110,11 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     });
 
     const batch3 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, batchRequest(BigInt(batch2[0].chunkData.next_after)), options)
+      bucketStorage.getBucketDataBatch(
+        checkpoint,
+        [bucketRequest(syncRules, 'global[]', batch2[0].chunkData.next_after)],
+        options
+      )
     );
     expect(test_utils.getBatchData(batch3)).toEqual([
       { op_id: '4', op: 'PUT', object_id: 'test3', checksum: 1359888332 }

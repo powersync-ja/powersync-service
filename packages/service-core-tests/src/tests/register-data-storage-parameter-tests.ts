@@ -2,7 +2,8 @@ import { CURRENT_STORAGE_VERSION, JwtPayload, storage, updateSyncRulesFromYaml }
 import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { bucketRequest, parameterLookupScope } from './util.js';
+import { bucketRequest } from '../test-utils/test-utils-index.js';
+import { parameterLookupScope } from './util.js';
 
 /**
  * @example
@@ -383,7 +384,7 @@ bucket_definitions:
     });
     expect(buckets).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'by_workspace["workspace1"]'),
+        bucket: bucketRequest(syncRules, 'by_workspace["workspace1"]').bucket,
         priority: 3,
         definition: 'by_workspace',
         inclusion_reasons: ['default']
@@ -467,13 +468,13 @@ bucket_definitions:
     buckets.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(buckets).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'by_public_workspace["workspace1"]'),
+        bucket: bucketRequest(syncRules, 'by_public_workspace["workspace1"]').bucket,
         priority: 3,
         definition: 'by_public_workspace',
         inclusion_reasons: ['default']
       },
       {
-        bucket: bucketRequest(syncRules, 'by_public_workspace["workspace3"]'),
+        bucket: bucketRequest(syncRules, 'by_public_workspace["workspace3"]').bucket,
         priority: 3,
         definition: 'by_public_workspace',
         inclusion_reasons: ['default']
@@ -581,8 +582,8 @@ bucket_definitions:
 
     buckets.sort();
     expect(buckets).toEqual([
-      bucketRequest(syncRules, 'by_workspace["workspace1"]'),
-      bucketRequest(syncRules, 'by_workspace["workspace3"]')
+      bucketRequest(syncRules, 'by_workspace["workspace1"]').bucket,
+      bucketRequest(syncRules, 'by_workspace["workspace3"]').bucket
     ]);
   });
 

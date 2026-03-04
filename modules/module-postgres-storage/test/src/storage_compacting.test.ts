@@ -41,7 +41,7 @@ bucket_definitions:
     // Compact with an explicit bucket name — exercises the this.buckets
     // iteration path, NOT the compactAllBuckets discovery path.
     await bucketStorage.compact({
-      compactBuckets: [bucketRequest(syncRules, 'global[]')],
+      compactBuckets: [bucketRequest(syncRules, 'global[]').bucket],
       minBucketChanges: 1
     });
 
