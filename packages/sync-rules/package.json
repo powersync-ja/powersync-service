@@ -20,7 +20,8 @@
     "build:extra": "node scripts/compile-schema.js",
     "build:tests": "tsc -b test/tsconfig.json",
     "test": "vitest",
-    "generate:grammar-flat": "tsx scripts/generate-grammar-docs.ts --mode flat"
+    "generate:grammar-flat": "tsx scripts/generate-grammar-docs.ts --mode flat",
+    "generate:grammar-docs": "tsx scripts/generate-grammar-docs.ts --mode split"
   },
   "dependencies": {
     "@powersync/service-jsonbig": "workspace:^",

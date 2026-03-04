@@ -24,9 +24,7 @@ PredicateTail ::= "=" ScalarExpr | "IN" InSource | "NOT" "IN" InSource | "&&" In
 
 InSource ::= "(" CompilerSubquery ")" | Identifier | ScalarExpr
 
-ScalarExpr ::= PrimaryTerm MemberSuffix? ScalarBinaryOp?
-
-ScalarBinaryOp ::= (("=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>") PrimaryTerm MemberSuffix?)+
+ScalarExpr ::= PrimaryTerm MemberSuffix? ((«operator» PrimaryTerm MemberSuffix?)+)?
 
 MemberSuffix ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
 
@@ -51,11 +49,3 @@ FunctionCall ::= Reference "(" (ScalarExpr ("," ScalarExpr)*)? ")"
 CompilerSubquery ::= "SELECT" ResultColumn ("," ResultColumn)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
 
 CompilerCteSubquery ::= "SELECT" ScalarExpr ("AS" Identifier)? ("," ScalarExpr ("AS" Identifier)?)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
-
-Identifier ::= [A-Z_] ([A-Z_0-9])*
-
-StringLiteral ::= "'" ([\x20-\x26] | [\x28-\x7E])* "'"
-
-IntegerLiteral ::= ([0-9])+
-
-NumericLiteral ::= ([0-9])+ ("." ([0-9])+)?
