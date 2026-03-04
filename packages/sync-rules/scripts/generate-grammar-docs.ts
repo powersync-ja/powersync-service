@@ -4,7 +4,6 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Grammars } from 'ebnf';
 
-
 // railroad-diagrams is CJS-only (v1.0.0)
 const require = createRequire(import.meta.url);
 const rd = require('railroad-diagrams') as {
@@ -167,7 +166,8 @@ const GRAMMARS: GrammarConfig[] = [
 ];
 
 const DEFAULT_LEXICAL_NOTES: Record<string, string> = {
-  Identifier: 'Bare identifiers are normalized to uppercase and may contain letters, digits, and underscores. Double-quoted identifiers ("name") allow any printable character and support escaped quotes ("").',
+  Identifier:
+    'Bare identifiers are normalized to uppercase and may contain letters, digits, and underscores. Double-quoted identifiers ("name") allow any printable character and support escaped quotes ("").',
   StringLiteral: "Single-quoted string literal. Embedded single quotes are escaped by doubling them ('').",
   IntegerLiteral: 'One or more decimal digits (0-9).',
   NumericLiteral: 'Decimal number: one or more digits with an optional fractional part (.digits).'
@@ -200,7 +200,10 @@ function getProductionNames(grammar: GrammarConfig): string[] {
 
 /** Convert PascalCase production name to kebab-case filename (without extension). */
 function toKebabCase(name: string): string {
-  return name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2').toLowerCase();
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+    .toLowerCase();
 }
 
 /** Get the split-mode page path for a production (relative, no extension). */
@@ -208,10 +211,7 @@ function productionToPageSlug(name: string): string {
   return toKebabCase(name);
 }
 
-function buildLexicalSummaries(
-  grammar: GrammarConfig,
-  ruleMap: Map<string, IRule>
-): LexicalRuleSummary[] {
+function buildLexicalSummaries(grammar: GrammarConfig, ruleMap: Map<string, IRule>): LexicalRuleSummary[] {
   const summaries: LexicalRuleSummary[] = [];
 
   for (const name of grammar.lexicalRules) {
@@ -254,7 +254,9 @@ function buildInlineOnlySummaries(
   for (const term of terms) {
     const inlinedInto = Array.from(parentsByTerm.get(term) || []).sort();
     const rule = ruleMap.get(term);
-    const ruleBody = rule ? ruleToEbnfText(rule, ruleMap, new Set(), new Set(), grammar.operatorTableRules) : '(missing rule)';
+    const ruleBody = rule
+      ? ruleToEbnfText(rule, ruleMap, new Set(), new Set(), grammar.operatorTableRules)
+      : '(missing rule)';
     summaries.push({ name: term, inlinedInto, ruleBody });
   }
 
@@ -393,7 +395,13 @@ function collectNonTerminalRefs(
         // Recurse into inlined rules to find their NonTerminal refs
         const inlinedRule = allRules.get(refName);
         if (inlinedRule && !newVisited.has(refName)) {
-          for (const innerRef of collectNonTerminalRefs(productionName, inlinedRule, allRules, inlinedNames, newVisited)) {
+          for (const innerRef of collectNonTerminalRefs(
+            productionName,
+            inlinedRule,
+            allRules,
+            inlinedNames,
+            newVisited
+          )) {
             refs.add(innerRef);
           }
         }
@@ -441,9 +449,7 @@ function assertAllRefsAreDiagrammed(
     }
   }
 
-  const details = danglingRefs
-    .map(({ production, ref }) => `- ${ref} (referenced by ${production})`)
-    .join('\n');
+  const details = danglingRefs.map(({ production, ref }) => `- ${ref} (referenced by ${production})`).join('\n');
 
   throw new Error(
     `Reference coverage check failed for ${grammar.id}: ${uniqueRefs.length} term(s) appear as NonTerminal boxes but have no diagram section.\n` +
@@ -537,8 +543,22 @@ function sequenceToRailroad(
           // Check if first element of synthetic is a terminal (separator)
           if (typeof sepEntry === 'string' && sepEntry.startsWith('"')) {
             const sepText = parseTerminal(sepEntry)!;
-            const firstItem = entryToRailroad(seq[0], allRules, inlinedNames, diagrammedNames, visited, operatorTableRules);
-            const repeatItem = entryToRailroad(itemEntry, allRules, inlinedNames, diagrammedNames, visited, operatorTableRules);
+            const firstItem = entryToRailroad(
+              seq[0],
+              allRules,
+              inlinedNames,
+              diagrammedNames,
+              visited,
+              operatorTableRules
+            );
+            const repeatItem = entryToRailroad(
+              itemEntry,
+              allRules,
+              inlinedNames,
+              diagrammedNames,
+              visited,
+              operatorTableRules
+            );
             // If first item and repeat item would look the same, use OneOrMore with just separator
             // The pattern is: item (sep item)* → OneOrMore(item, sep)
             // But we need to check if repeatItem matches firstItem conceptually
@@ -551,7 +571,9 @@ function sequenceToRailroad(
     }
   }
 
-  const items = seq.map((entry) => entryToRailroad(entry, allRules, inlinedNames, diagrammedNames, visited, operatorTableRules));
+  const items = seq.map((entry) =>
+    entryToRailroad(entry, allRules, inlinedNames, diagrammedNames, visited, operatorTableRules)
+  );
   if (items.length === 1) return items[0];
   return rd.Sequence(...items);
 }
@@ -595,10 +617,14 @@ function entryToRailroad(
     const opConfig = operatorTableRules[refName];
     const node = rd.Terminal(opConfig.diagramLabel);
     switch (modifier) {
-      case '?': return rd.Optional(node);
-      case '*': return rd.ZeroOrMore(node);
-      case '+': return rd.OneOrMore(node);
-      default: return node;
+      case '?':
+        return rd.Optional(node);
+      case '*':
+        return rd.ZeroOrMore(node);
+      case '+':
+        return rd.OneOrMore(node);
+      default:
+        return node;
     }
   }
 
@@ -868,7 +894,13 @@ function sequenceToEbnfText(
           if (typeof sepEntry === 'string' && sepEntry.startsWith('"')) {
             const sepText = parseTerminal(sepEntry)!;
             const firstItem = entryToEbnfText(seq[0], allRules, inlinedNames, visited, operatorTableRules);
-            const repeatItem = entryToEbnfText(synthRule.bnf[0][1], allRules, inlinedNames, visited, operatorTableRules);
+            const repeatItem = entryToEbnfText(
+              synthRule.bnf[0][1],
+              allRules,
+              inlinedNames,
+              visited,
+              operatorTableRules
+            );
             return `${firstItem} ("${sepText}" ${repeatItem})*`;
           }
         }
@@ -893,7 +925,9 @@ function ruleToEbnfText(
   const newVisited = new Set(visited);
   newVisited.add(rule.name);
 
-  const alternatives = rule.bnf.map((seq) => sequenceToEbnfText(seq, allRules, inlinedNames, newVisited, operatorTableRules));
+  const alternatives = rule.bnf.map((seq) =>
+    sequenceToEbnfText(seq, allRules, inlinedNames, newVisited, operatorTableRules)
+  );
   return alternatives.join(' | ');
 }
 
@@ -962,7 +996,9 @@ function generateFlatMdx(
       lines.push('Binary operators supported in scalar expressions, listed from highest to lowest precedence.');
       lines.push('');
       lines.push('<Note>');
-      lines.push('PowerSync evaluates all binary operators with equal precedence (left to right). Use parentheses to control evaluation order.');
+      lines.push(
+        'PowerSync evaluates all binary operators with equal precedence (left to right). Use parentheses to control evaluation order.'
+      );
       lines.push('</Note>');
       lines.push('');
       lines.push('| Precedence | Operators | Description |');
@@ -1059,17 +1095,25 @@ function generateFlatHtml(
   lines.push('  .inlining code { background: #eef2ff; padding: 0.12em 0.32em; border-radius: 3px; }');
   lines.push('  .review-note { color: #4b5563; margin: 0.35rem 0 0.75rem; }');
   lines.push('  .inlined-table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.92rem; }');
-  lines.push('  .inlined-table th, .inlined-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }');
+  lines.push(
+    '  .inlined-table th, .inlined-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }'
+  );
   lines.push('  .inlined-table th { background: #f9fafb; }');
   lines.push('  .inlined-table code { background: #eef2ff; padding: 0.12em 0.32em; border-radius: 3px; }');
   lines.push('  .lexical-table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.92rem; }');
-  lines.push('  .lexical-table th, .lexical-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }');
+  lines.push(
+    '  .lexical-table th, .lexical-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }'
+  );
   lines.push('  .lexical-table th { background: #f3f4f6; }');
   lines.push('  .lexical-table code { background: #e5e7eb; padding: 0.12em 0.32em; border-radius: 3px; }');
   lines.push('  .operator-table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; font-size: 0.92rem; }');
-  lines.push('  .operator-table th, .operator-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }');
+  lines.push(
+    '  .operator-table th, .operator-table td { border: 1px solid #d1d5db; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }'
+  );
   lines.push('  .operator-table th { background: #f0f4ff; }');
-  lines.push('  .operator-table code { background: #eef2ff; padding: 0.15em 0.4em; border-radius: 3px; font-family: "SF Mono", "Fira Code", monospace; }');
+  lines.push(
+    '  .operator-table code { background: #eef2ff; padding: 0.15em 0.4em; border-radius: 3px; font-family: "SF Mono", "Fira Code", monospace; }'
+  );
   lines.push('  .operator-note { color: #6b7280; font-size: 0.88rem; margin-top: 0.5rem; }');
   lines.push('  .lexical-description { color: #374151; margin: 0.4rem 0 0.5rem; line-height: 1.5; }');
   lines.push('  hr { border: none; border-top: 1px solid #ddd; margin: 2rem 0; }');
@@ -1134,7 +1178,9 @@ function generateFlatHtml(
     // Embed operator table directly under ScalarExpr
     if (name === 'ScalarExpr' && Object.keys(grammar.operatorTableRules).length > 0) {
       lines.push('  <h3>Operators</h3>');
-      lines.push('  <p>Binary operators supported in scalar expressions, listed from highest to lowest precedence.</p>');
+      lines.push(
+        '  <p>Binary operators supported in scalar expressions, listed from highest to lowest precedence.</p>'
+      );
 
       for (const [, config] of Object.entries(grammar.operatorTableRules)) {
         lines.push('  <table class="operator-table">');
@@ -1153,7 +1199,9 @@ function generateFlatHtml(
         lines.push('  </table>');
       }
 
-      lines.push('  <p class="operator-note">PowerSync evaluates all binary operators with equal precedence (left to right). Use parentheses to control evaluation order.</p>');
+      lines.push(
+        '  <p class="operator-note">PowerSync evaluates all binary operators with equal precedence (left to right). Use parentheses to control evaluation order.</p>'
+      );
     }
 
     lines.push('</div>');
@@ -1180,7 +1228,9 @@ function generateFlatHtml(
     lines.push('    <tbody>');
     for (const row of lexicalSummaries) {
       const ex = row.examples.map((e) => `<code>${escapeHtml(e)}</code>`).join(', ');
-      lines.push(`      <tr><td><a href="#${row.name.toLowerCase()}">${escapeHtml(row.name)}</a></td><td>${ex}</td><td><code>${escapeHtml(row.pattern)}</code></td></tr>`);
+      lines.push(
+        `      <tr><td><a href="#${row.name.toLowerCase()}">${escapeHtml(row.name)}</a></td><td>${ex}</td><td><code>${escapeHtml(row.pattern)}</code></td></tr>`
+      );
     }
     lines.push('    </tbody>');
     lines.push('  </table>');
@@ -1204,7 +1254,9 @@ function generateFlatHtml(
     lines.push('');
     lines.push('<section id="inlined-only-terms">');
     lines.push('  <h2>Inlined-Only Terms (Review)</h2>');
-    lines.push('  <p class="review-note">These terms are expanded into parent diagrams and do not have top-level sections.</p>');
+    lines.push(
+      '  <p class="review-note">These terms are expanded into parent diagrams and do not have top-level sections.</p>'
+    );
     lines.push('  <table class="inlined-table">');
     lines.push('    <thead>');
     lines.push('      <tr><th>Term</th><th>Inlined Into</th><th>Rule</th></tr>');
@@ -1349,7 +1401,9 @@ function generateSplitMdx(
       lines.push('Binary operators supported in scalar expressions, listed from highest to lowest precedence.');
       lines.push('');
       lines.push('<Note>');
-      lines.push('PowerSync evaluates all binary operators with equal precedence (left to right). Use parentheses to control evaluation order.');
+      lines.push(
+        'PowerSync evaluates all binary operators with equal precedence (left to right). Use parentheses to control evaluation order.'
+      );
       lines.push('</Note>');
       lines.push('');
       lines.push('| Precedence | Operators | Description |');
@@ -1359,10 +1413,12 @@ function generateSplitMdx(
         for (let i = 0; i < config.groups.length; i++) {
           const group = config.groups[i];
           // Escape | for markdown table, < and > for MDX compatibility
-          const ops = group.operators.map((op) => {
-            const escaped = op.replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            return `\`${escaped}\``;
-          }).join(' ');
+          const ops = group.operators
+            .map((op) => {
+              const escaped = op.replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              return `\`${escaped}\``;
+            })
+            .join(' ');
           lines.push(`| ${i + 1} | ${ops} | ${group.description} |`);
         }
       }
@@ -1546,21 +1602,23 @@ async function main() {
     generateFlatMdx(grammar, productionNames, lexicalSummaries, cliArgs.outdir);
 
     // Generate HTML review file (inlines SVGs with anchor links, replacing split-mode links)
-    generateFlatHtml(
-      grammar,
-      productionNames,
-      lexicalSummaries,
-      inlineOnlySummaries,
-      diagrammedNames,
-      cliArgs.outdir
-    );
+    generateFlatHtml(grammar, productionNames, lexicalSummaries, inlineOnlySummaries, diagrammedNames, cliArgs.outdir);
 
     // Generate resolved EBNF file
     generateResolvedEbnf(grammar, ruleMap, productionNames, cliArgs.outdir);
 
     // Generate split-mode MDX pages
     if (cliArgs.mode === 'split') {
-      generateSplitMdx(grammar, productionNames, lexicalSummaries, diagrammedNames, ruleMap, svgMap, cliArgs.splitOutdir, cliArgs.baseUrl);
+      generateSplitMdx(
+        grammar,
+        productionNames,
+        lexicalSummaries,
+        diagrammedNames,
+        ruleMap,
+        svgMap,
+        cliArgs.splitOutdir,
+        cliArgs.baseUrl
+      );
     }
   }
 
