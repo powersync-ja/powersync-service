@@ -1,16 +1,16 @@
 import { SelectFromStatement } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { BucketParameterQuerier, PendingQueriers } from './BucketParameterQuerier.js';
 import { CreateSourceParams } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
-import { BucketDataSource, BucketParameterQuerierSource, GetQuerierOptions } from './index.js';
+import { BucketDataSource, BucketParameterQuerierSource, GetQuerierOptions, resolvedBucket } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
 import { TablePattern } from './TablePattern.js';
 import { ParameterValueClause, QueryParseOptions, RequestParameters, SqliteJsonValue } from './types.js';
-import { buildBucketInfo, isJsonValue, serializeBucketParameters, SOURCE, withBucketSource } from './utils.js';
+import { bucketDescription, isJsonValue, serializeBucketParameters } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface StaticSqlParameterQueryOptions {
@@ -181,12 +181,7 @@ export class StaticSqlParameterQuery {
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketScope).map((desc) => {
-          const resolved = {
-            ...desc,
-            definition: this.descriptorName,
-            inclusion_reasons: ['default']
-          } satisfies ResolvedBucket;
-          return withBucketSource(resolved, desc[SOURCE]);
+          return resolvedBucket(desc, { definition: this.descriptorName, inclusion_reasons: ['default'] });
         });
 
         if (staticBuckets.length == 0) {
@@ -225,17 +220,9 @@ export class StaticSqlParameterQuery {
     }
 
     const serializedParamters = serializeBucketParameters(this.bucketParameters, result);
-    const info = buildBucketInfo(bucketSourceScope, serializedParamters);
+    const desc = bucketDescription(bucketSourceScope, serializedParamters, this.priority);
 
-    return [
-      withBucketSource(
-        {
-          bucket: info.bucket,
-          priority: this.priority
-        },
-        info[SOURCE]
-      )
-    ];
+    return [desc];
   }
 
   get hasAuthenticatedBucketParameters(): boolean {

@@ -1,5 +1,6 @@
 import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/service-jsonbig';
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
+import { BucketDescription, BucketInclusionReason, BucketPriority, ResolvedBucket } from './BucketDescription.js';
 import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
@@ -24,12 +25,24 @@ export function isSelectStatement(q: Statement): q is SelectFromStatement {
 
 export const SOURCE = Symbol.for('BucketSourceStorage');
 
-export function buildBucketInfo(
+export function bucketDescription(
   scope: BucketDataScope,
-  serializedParameters: string
-): { bucket: string; [SOURCE]: BucketDataSource } {
-  const info = { bucket: scope.bucketPrefix + serializedParameters };
+  serializedParameters: string,
+  priority: BucketPriority
+): BucketDescription {
+  const info = { bucket: scope.bucketPrefix + serializedParameters, priority };
   return withBucketSource(info, scope.source);
+}
+
+export function resolvedBucket(
+  description: BucketDescription,
+  options: { definition: string; inclusion_reasons: BucketInclusionReason[] }
+): ResolvedBucket {
+  const result = {
+    ...description,
+    ...options
+  };
+  return withBucketSource(result, description[SOURCE]);
 }
 
 export function withBucketSource<T extends object>(

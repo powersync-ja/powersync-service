@@ -18,6 +18,7 @@ import {
   BucketDataSource,
   BucketParameterQuerierSource,
   GetQuerierOptions,
+  resolvedBucket,
   ScopedParameterLookup,
   UnscopedEvaluatedParameters,
   UnscopedEvaluatedParametersResult
@@ -42,14 +43,12 @@ import {
   SqliteRow
 } from './types.js';
 import {
-  buildBucketInfo,
+  bucketDescription,
   filterJsonRow,
   isJsonValue,
   isSelectStatement,
   normalizeParameterValue,
-  serializeBucketParameters,
-  SOURCE,
-  withBucketSource
+  serializeBucketParameters
 } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
@@ -443,13 +442,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
         }
 
         const serializedParameters = serializeBucketParameters(this.bucketParameters, result);
-
-        const info = buildBucketInfo(bucketScope, serializedParameters);
-        const bucketDescription = {
-          bucket: info.bucket,
-          priority: this.priority
-        };
-        return withBucketSource(bucketDescription, info[SOURCE]);
+        return bucketDescription(bucketScope, serializedParameters, this.priority);
       })
       .filter((lookup) => lookup != null);
   }
@@ -553,12 +546,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => {
-          const resolved = {
-            ...bucket,
-            definition: this.descriptorName,
-            inclusion_reasons: reasons
-          };
-          return withBucketSource(resolved, bucket[SOURCE]);
+          return resolvedBucket(bucket, { definition: this.descriptorName, inclusion_reasons: reasons });
         });
       }
     };

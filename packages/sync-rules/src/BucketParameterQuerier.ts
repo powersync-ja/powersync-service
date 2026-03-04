@@ -145,7 +145,7 @@ export class ScopedParameterLookup {
   }
 
   /**
-   * Source, not enumerable.
+   * Source, not enumerable (not checked in tests).
    */
   get source() {
     return this.#source;
