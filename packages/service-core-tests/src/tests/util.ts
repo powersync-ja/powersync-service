@@ -1,5 +1,6 @@
 import { storage } from '@powersync/service-core';
 import {
+  BucketDataSource,
   ParameterIndexLookupCreator,
   SourceTableInterface,
   SqliteRow,
@@ -16,16 +17,36 @@ export function bucketRequest(syncRules: storage.PersistedSyncRulesContent, buck
   return versionedBuckets ? `${syncRules.id}#${bucketName}` : bucketName;
 }
 
-export function bucketRequests(syncRules: storage.PersistedSyncRulesContent, bucketNames: string[]): string[] {
-  return bucketNames.map((bucketName) => bucketRequest(syncRules, bucketName));
-}
-
 export function bucketRequestMap(
   syncRules: storage.PersistedSyncRulesContent,
   buckets: Iterable<readonly [string, bigint]>
-): Map<string, bigint> {
-  return new Map(Array.from(buckets, ([bucketName, opId]) => [bucketRequest(syncRules, bucketName), opId]));
+): storage.BucketDataRequest[] {
+  return Array.from(buckets, ([bucketName, opId]) => ({
+    bucket: bucketRequest(syncRules, bucketName),
+    start: opId,
+    source: EMPTY_DATA_SOURCE
+  }));
 }
+
+export function bucketRequests(
+  syncRules: storage.PersistedSyncRulesContent,
+  bucketNames: string[]
+): storage.BucketChecksumRequest[] {
+  return bucketNames.map((bucketName) => ({
+    bucket: bucketRequest(syncRules, bucketName),
+    source: EMPTY_DATA_SOURCE
+  }));
+}
+
+const EMPTY_DATA_SOURCE: BucketDataSource = {
+  uniqueName: 'empty',
+  bucketParameters: [],
+  getSourceTables: () => new Set(),
+  tableSyncsData: () => false,
+  evaluateRow: () => [],
+  resolveResultSets: () => {},
+  debugWriteOutputTables: () => {}
+};
 
 const EMPTY_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
   get defaultLookupScope(): ParameterLookupScope {

@@ -169,10 +169,18 @@ export class CDCStreamTestContext implements AsyncDisposable {
     return checkpoint;
   }
 
+  private bucketDataRequest(bucket: string, start: InternalOpId): storage.BucketDataRequest {
+    return {
+      bucket,
+      start,
+      source: {} as any
+    };
+  }
+
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    const requests = Object.entries(buckets).map(([bucket, start]) => this.bucketDataRequest(bucket, start));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, requests));
   }
 
   /**
@@ -184,17 +192,17 @@ export class CDCStreamTestContext implements AsyncDisposable {
       start = BigInt(start);
     }
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    let request: storage.BucketDataRequest = this.bucketDataRequest(bucket, start);
     let data: OplogEntry[] = [];
     while (true) {
-      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+      const batch = this.storage!.getBucketDataBatch(checkpoint, [request]);
 
       const batches = await test_utils.fromAsync(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+      request = this.bucketDataRequest(bucket, BigInt(batches[0]!.chunkData.next_after));
     }
     return data;
   }
@@ -208,8 +216,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
       start = BigInt(start);
     }
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, [this.bucketDataRequest(bucket, start)]);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }

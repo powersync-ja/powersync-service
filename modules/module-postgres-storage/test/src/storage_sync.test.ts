@@ -87,9 +87,12 @@ function registerStorageVersionTests(storageVersion: number) {
       const checkpoint = result!.flushed_op;
 
       const options: storage.BucketDataBatchOptions = {};
+      const batchRequest = (start: bigint): storage.BucketDataRequest[] => [
+        { bucket: globalBucket, start, source: {} as any }
+      ];
 
       const batch1 = await test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(checkpoint, new Map([[globalBucket, 0n]]), options)
+        bucketStorage.getBucketDataBatch(checkpoint, batchRequest(0n), options)
       );
       expect(test_utils.getBatchData(batch1)).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
@@ -101,11 +104,7 @@ function registerStorageVersionTests(storageVersion: number) {
       });
 
       const batch2 = await test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(
-          checkpoint,
-          new Map([[globalBucket, BigInt(batch1[0].chunkData.next_after)]]),
-          options
-        )
+        bucketStorage.getBucketDataBatch(checkpoint, batchRequest(BigInt(batch1[0].chunkData.next_after)), options)
       );
       expect(test_utils.getBatchData(batch2)).toEqual([
         { op_id: '2', op: 'PUT', object_id: 'large1', checksum: 1178768505 }
@@ -117,11 +116,7 @@ function registerStorageVersionTests(storageVersion: number) {
       });
 
       const batch3 = await test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(
-          checkpoint,
-          new Map([[globalBucket, BigInt(batch2[0].chunkData.next_after)]]),
-          options
-        )
+        bucketStorage.getBucketDataBatch(checkpoint, batchRequest(BigInt(batch2[0].chunkData.next_after)), options)
       );
       expect(test_utils.getBatchData(batch3)).toEqual([
         { op_id: '3', op: 'PUT', object_id: 'large2', checksum: 1607205872 }
@@ -133,11 +128,7 @@ function registerStorageVersionTests(storageVersion: number) {
       });
 
       const batch4 = await test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(
-          checkpoint,
-          new Map([[globalBucket, BigInt(batch3[0].chunkData.next_after)]]),
-          options
-        )
+        bucketStorage.getBucketDataBatch(checkpoint, batchRequest(BigInt(batch3[0].chunkData.next_after)), options)
       );
       expect(test_utils.getBatchData(batch4)).toEqual([
         { op_id: '4', op: 'PUT', object_id: 'test3', checksum: 1359888332 }

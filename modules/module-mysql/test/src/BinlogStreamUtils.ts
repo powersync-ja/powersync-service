@@ -152,10 +152,18 @@ export class BinlogStreamTestContext {
     return checkpoint;
   }
 
+  private bucketDataRequest(bucket: string, start: InternalOpId): storage.BucketDataRequest {
+    return {
+      bucket,
+      start,
+      source: {} as any
+    };
+  }
+
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    const requests = Object.entries(buckets).map(([bucket, start]) => this.bucketDataRequest(bucket, start));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, requests));
   }
 
   async getBucketData(
@@ -168,8 +176,7 @@ export class BinlogStreamTestContext {
       start = BigInt(start);
     }
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, [this.bucketDataRequest(bucket, start)]);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }

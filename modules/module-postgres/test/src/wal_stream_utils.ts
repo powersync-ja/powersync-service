@@ -192,12 +192,25 @@ export class WalStreamTestContext implements AsyncDisposable {
     return `${this.syncRulesId}#${bucket}`;
   }
 
+  private bucketDataRequest(bucket: string, start: InternalOpId): storage.BucketDataRequest {
+    return {
+      bucket: this.resolveBucketName(bucket),
+      start,
+      source: {} as any
+    };
+  }
+
+  private bucketChecksumRequest(bucket: string): storage.BucketChecksumRequest {
+    return {
+      bucket: this.resolveBucketName(bucket),
+      source: {} as any
+    };
+  }
+
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(
-      Object.entries(buckets).map(([bucket, opId]) => [this.resolveBucketName(bucket), opId])
-    );
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    const requests = Object.entries(buckets).map(([bucket, opId]) => this.bucketDataRequest(bucket, opId));
+    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, requests));
   }
 
   /**
@@ -208,31 +221,31 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const resolvedBucket = this.resolveBucketName(bucket);
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[resolvedBucket, start]]);
+    const resolvedBucket = this.resolveBucketName(bucket);
+    let request: storage.BucketDataRequest = { bucket: resolvedBucket, start, source: {} as any };
     let data: OplogEntry[] = [];
     while (true) {
-      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+      const batch = this.storage!.getBucketDataBatch(checkpoint, [request]);
 
       const batches = await test_utils.fromAsync(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(resolvedBucket, BigInt(batches[0]!.chunkData.next_after));
+      request = { ...request, start: BigInt(batches[0]!.chunkData.next_after) };
     }
     return data;
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const versionedBuckets = buckets.map((bucket) => this.resolveBucketName(bucket));
+    const versionedBuckets = buckets.map((bucket) => this.bucketChecksumRequest(bucket));
     const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned = new Map();
     for (let i = 0; i < buckets.length; i++) {
-      unversioned.set(buckets[i], checksums.get(versionedBuckets[i])!);
+      unversioned.set(buckets[i], checksums.get(versionedBuckets[i].bucket)!);
     }
 
     return unversioned;
@@ -251,10 +264,8 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const resolvedBucket = this.resolveBucketName(bucket);
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = new Map<string, InternalOpId>([[resolvedBucket, start]]);
-    const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+    const batch = this.storage!.getBucketDataBatch(checkpoint, [this.bucketDataRequest(bucket, start)]);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }

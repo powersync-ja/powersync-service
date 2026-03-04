@@ -662,6 +662,7 @@ export class MongoCompactor {
       buckets.map((bucket) => {
         return {
           bucket,
+          source: {} as any,
           end: this.maxOpId
         };
       })
