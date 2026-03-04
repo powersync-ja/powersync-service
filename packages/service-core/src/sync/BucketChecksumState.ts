@@ -7,7 +7,8 @@ import {
   QuerierError,
   RequestedStream,
   RequestParameters,
-  ResolvedBucket
+  ResolvedBucket,
+  mergeBuckets
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -758,33 +759,4 @@ function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number)
   }
   const limited = buckets.slice(0, limit);
   return `${JSON.stringify(limited)}...`;
-}
-
-/**
- * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
- *
- * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
- *
- * ```
- * sync_streams:
- *  assets_by_category:
- *    query: select * from assets where category in (request.parameters() -> 'categories')
- * ```
- *
- * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
- * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
- * bucket.
- */
-function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
-  const byBucketId: Record<string, ResolvedBucket> = {};
-
-  for (const bucket of buckets) {
-    if (Object.hasOwn(byBucketId, bucket.bucket)) {
-      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
-    } else {
-      byBucketId[bucket.bucket] = structuredClone(bucket);
-    }
-  }
-
-  return Object.values(byBucketId);
 }

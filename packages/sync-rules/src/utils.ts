@@ -43,6 +43,41 @@ export function resolvedBucket(
   return withBucketSource(result, description.source);
 }
 
+/**
+ * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
+ *
+ * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
+ *
+ * ```
+ * sync_streams:
+ *  assets_by_category:
+ *    query: select * from assets where category in (request.parameters() -> 'categories')
+ * ```
+ *
+ * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
+ * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
+ * bucket.
+ */
+export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
+  const byBucketId: Record<string, ResolvedBucket> = {};
+
+  for (const bucket of buckets) {
+    if (Object.hasOwn(byBucketId, bucket.bucket)) {
+      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
+    } else {
+      // Clone so that we can modify the merged value without affecting the input value
+      byBucketId[bucket.bucket] = cloneResolvedBucket(bucket);
+    }
+  }
+
+  return Object.values(byBucketId);
+}
+
+function cloneResolvedBucket(bucket: ResolvedBucket) {
+  let clone = structuredClone(bucket);
+  return withBucketSource(clone, bucket.source);
+}
+
 function withBucketSource<T extends object>(value: T, source: BucketDataSource): T & { source: BucketDataSource } {
   Object.defineProperty(value, 'source', {
     value: source,
