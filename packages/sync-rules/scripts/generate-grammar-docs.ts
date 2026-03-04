@@ -1358,9 +1358,9 @@ function generateSplitMdx(
       for (const [, config] of Object.entries(grammar.operatorTableRules)) {
         for (let i = 0; i < config.groups.length; i++) {
           const group = config.groups[i];
-          // Escape < and > for MDX compatibility (MDX parses < as JSX even inside backticks)
+          // Escape | for markdown table, < and > for MDX compatibility
           const ops = group.operators.map((op) => {
-            const escaped = op.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const escaped = op.replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             return `\`${escaped}\``;
           }).join(' ');
           lines.push(`| ${i + 1} | ${ops} | ${group.description} |`);
