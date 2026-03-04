@@ -6,7 +6,7 @@ import { WalStreamTestContext } from './wal_stream_utils.js';
 import { updateSyncRulesFromYaml } from '@powersync/service-core';
 
 test('validate tables', async () => {
-  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY);
+  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
   const { pool } = context;
 
   await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);

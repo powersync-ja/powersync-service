@@ -1,6 +1,12 @@
 import { DEFAULT_TAG } from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
+import { bson } from '../index.js';
+
+/**
+ * Format of the id depends on the bucket storage module. It should be consistent within the module.
+ */
+export type SourceTableId = string | bson.ObjectId;
 
 /**
  * Filter definition for initial snapshot replication.
@@ -14,7 +20,7 @@ export type InitialSnapshotFilter = {
 };
 
 export interface SourceTableOptions {
-  id: any;
+  id: SourceTableId;
   connectionTag: string;
   objectId: number | string | undefined;
   schema: string;

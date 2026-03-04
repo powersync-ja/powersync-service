@@ -1,3 +1,4 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import {
   CompatibilityContext,
   CompatibilityOption,
@@ -12,10 +13,9 @@ import {
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
+import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 
 export interface ParseSyncRulesOptions {
   defaultSchema: string;

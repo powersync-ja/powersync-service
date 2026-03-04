@@ -18,7 +18,9 @@ describe('CDCStream tests', () => {
   describeWithStorage({ timeout: 20_000 }, defineCDCStreamTests);
 });
 
-function defineCDCStreamTests(factory: storage.TestStorageFactory) {
+function defineCDCStreamTests(config: storage.TestStorageConfig) {
+  const { factory } = config;
+
   test('Initial snapshot sync', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     const { connectionManager } = context;

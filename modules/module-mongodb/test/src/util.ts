@@ -5,8 +5,8 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as types from '@module/types/types.js';
 import {
   BSON_DESERIALIZE_DATA_OPTIONS,
-  CURRENT_STORAGE_VERSION,
-  LEGACY_STORAGE_VERSION,
+  SUPPORTED_STORAGE_VERSIONS,
+  TestStorageConfig,
   TestStorageFactory
 } from '@powersync/service-core';
 import { describe, TestOptions } from 'vitest';
@@ -24,11 +24,11 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoT
   isCI: env.CI
 });
 
-export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestStorageFactoryGenerator({
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL
 });
 
-const TEST_STORAGE_VERSIONS = [LEGACY_STORAGE_VERSION, CURRENT_STORAGE_VERSION];
+export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
 
 export interface StorageVersionTestContext {
   factory: TestStorageFactory;
@@ -36,12 +36,12 @@ export interface StorageVersionTestContext {
 }
 
 export function describeWithStorage(options: TestOptions, fn: (context: StorageVersionTestContext) => void) {
-  const describeFactory = (storageName: string, factory: TestStorageFactory) => {
+  const describeFactory = (storageName: string, config: TestStorageConfig) => {
     describe(`${storageName} storage`, options, function () {
       for (const storageVersion of TEST_STORAGE_VERSIONS) {
         describe(`storage v${storageVersion}`, function () {
           fn({
-            factory,
+            factory: config.factory,
             storageVersion
           });
         });

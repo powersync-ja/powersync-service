@@ -12,7 +12,7 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
-import { PowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 
 /**
@@ -49,7 +49,7 @@ export class MongoChecksums {
   private readonly storageConfig: StorageConfig;
 
   constructor(
-    private db: PowerSyncMongo,
+    private db: VersionedPowerSyncMongo,
     private group_id: number,
     private options: MongoChecksumOptions
   ) {

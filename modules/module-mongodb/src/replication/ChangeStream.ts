@@ -376,7 +376,7 @@ export class ChangeStream {
 
         for (let table of tablesWithStatus) {
           await this.snapshotTable(batch, table);
-          await batch.markSnapshotDone([table], MongoLSN.ZERO.comparable);
+          await batch.markTableSnapshotDone([table]);
 
           this.touch();
         }
@@ -385,7 +385,7 @@ export class ChangeStream {
         // point before the data can be considered consistent.
         // We could do this for each individual table, but may as well just do it once for the entire snapshot.
         const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-        await batch.markSnapshotDone([], checkpoint);
+        await batch.markAllSnapshotDone(checkpoint);
 
         // This will not create a consistent checkpoint yet, but will persist the op.
         // Actual checkpoint will be created when streaming replication caught up.
@@ -507,7 +507,7 @@ export class ChangeStream {
       }
 
       if (this.abort_signal.aborted) {
-        throw new ReplicationAbortedError(`Aborted initial replication`);
+        throw new ReplicationAbortedError(`Aborted initial replication`, this.abort_signal.reason);
       }
 
       // Pre-fetch next batch, so that we can read and write concurrently
@@ -644,7 +644,7 @@ export class ChangeStream {
       await this.snapshotTable(batch, result.table);
       const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
-      const [table] = await batch.markSnapshotDone([result.table], no_checkpoint_before_lsn);
+      const [table] = await batch.markTableSnapshotDone([result.table], no_checkpoint_before_lsn);
       return table;
     }
 
@@ -1026,9 +1026,11 @@ export class ChangeStream {
             if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
               waitForCheckpointLsn = null;
             }
-            const didCommit = await batch.commit(lsn, { oldestUncommittedChange: this.oldestUncommittedChange });
+            const { checkpointBlocked } = await batch.commit(lsn, {
+              oldestUncommittedChange: this.oldestUncommittedChange
+            });
 
-            if (didCommit) {
+            if (!checkpointBlocked) {
               this.oldestUncommittedChange = null;
               this.isStartingReplication = false;
               changesSinceLastCheckpoint = 0;
