@@ -15,8 +15,6 @@ import {
   mergeBucketParameterQueriers,
   UnscopedParameterLookup,
   QuerierError,
-  RequestParameters,
-  SOURCE,
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
@@ -132,7 +130,7 @@ describe('streams', () => {
     });
     expect(errors).toHaveLength(0);
     expect(querier.staticBuckets).toHaveLength(1);
-    expect(querier.staticBuckets[0][SOURCE]).toBe(desc.dataSources[0]);
+    expect(querier.staticBuckets[0].source).toBe(desc.dataSources[0]);
 
     const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
       async getParameterSets() {
@@ -140,7 +138,7 @@ describe('streams', () => {
       }
     });
     expect(dynamicBuckets).toHaveLength(1);
-    expect(dynamicBuckets[0][SOURCE]).toBe(desc.dataSources[1]);
+    expect(dynamicBuckets[0].source).toBe(desc.dataSources[1]);
   });
 
   describe('or', () => {

@@ -23,8 +23,6 @@ export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
 }
 
-export const SOURCE = Symbol.for('BucketSourceStorage');
-
 export function bucketDescription(
   scope: BucketDataScope,
   serializedParameters: string,
@@ -42,18 +40,17 @@ export function resolvedBucket(
     ...description,
     ...options
   };
-  return withBucketSource(result, description[SOURCE]);
+  return withBucketSource(result, description.source);
 }
 
-export function withBucketSource<T extends object>(
-  value: T,
-  source: BucketDataSource
-): T & { [SOURCE]: BucketDataSource } {
-  Object.defineProperty(value, SOURCE, {
+function withBucketSource<T extends object>(value: T, source: BucketDataSource): T & { source: BucketDataSource } {
+  Object.defineProperty(value, 'source', {
     value: source,
+    // This is important. If the property is enumerable, it may end up in JSON output to the client,
+    // and will pollute tests.
     enumerable: false
   });
-  return value as T & { [SOURCE]: BucketDataSource };
+  return value as T & { source: BucketDataSource };
 }
 
 export function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {

@@ -1,5 +1,4 @@
 import { BucketDataSource } from './BucketSource.js';
-import { SOURCE } from './utils.js';
 
 /**
  * The priority in which to synchronize buckets.
@@ -34,9 +33,9 @@ export interface BucketDescription {
   priority: BucketPriority;
 
   /**
-   * Symbol to specifically exclude from serialization.
+   * This must specifically not be enumerable - must be excluded from tests.
    */
-  [SOURCE]: BucketDataSource;
+  get source(): BucketDataSource;
 }
 
 /**

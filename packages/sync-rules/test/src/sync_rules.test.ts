@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CreateSourceParams, ScopedParameterLookup, SOURCE, SqlSyncRules } from '../../src/index.js';
+import { CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
 
 import {
   BucketDataScope,
@@ -12,13 +12,13 @@ import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import {
   ASSETS,
   BASIC_SCHEMA,
-  PARSE_OPTIONS,
-  TestSourceTable,
-  USERS,
   findQuerierLookups,
   lookupScope,
   normalizeQuerierOptions,
-  requestParameters
+  PARSE_OPTIONS,
+  requestParameters,
+  TestSourceTable,
+  USERS
 } from './util.js';
 
 describe('sync rules', () => {
@@ -87,7 +87,7 @@ bucket_definitions:
     const staticBuckets = hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier
       .staticBuckets;
     expect(staticBuckets).toHaveLength(1);
-    expect(staticBuckets[0][SOURCE]).toBe(rules.bucketDataSources[0]);
+    expect(staticBuckets[0].source).toBe(rules.bucketDataSources[0]);
 
     const dataResults = hydrated.evaluateRow({
       sourceTable: ASSETS,
