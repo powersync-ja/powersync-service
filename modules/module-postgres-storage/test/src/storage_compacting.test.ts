@@ -96,7 +96,8 @@ bucket_definitions:
     });
 
     const compactor = new PostgresCompactor(factory.db, bucketStorage.group_id, {});
-    await expect((compactor as any).clearBucket(bucket, 3n)).rejects.toThrow(/Unexpected PUT operation/);
+    // Trigger the private method directly
+    await expect(compactor.clearBucketForTests(bucket, 3n)).rejects.toThrow(/Unexpected PUT operation/);
 
     // The method wraps in a transaction; on assertion error the bucket must remain unchanged.
     const rowsAfter = await factory.db.sql`

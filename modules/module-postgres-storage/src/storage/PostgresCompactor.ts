@@ -241,6 +241,15 @@ export class PostgresCompactor {
   }
 
   /**
+   * Expose the internal clearBucket() method to tests.
+   *
+   * @deprecated Only for tests
+   */
+  clearBucketForTests(bucket: string, op: InternalOpId) {
+    return this.clearBucket(bucket, op);
+  }
+
+  /**
    * Perform a CLEAR compact for a bucket.
    *
    * @param bucket bucket name
