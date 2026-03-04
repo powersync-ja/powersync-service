@@ -1325,10 +1325,8 @@ function generateSplitMdx(
 
     lines.push('---');
     lines.push(`title: "${name}"`);
-    lines.push(`description: Syntax diagram for ${name}.`);
+    lines.push(`description: Syntax diagram and usage.`);
     lines.push('---');
-    lines.push('');
-    lines.push(`## ${name}`);
     lines.push('');
     const svgContent = svgMap.get(name);
     if (svgContent) {
@@ -1401,15 +1399,15 @@ function generateSplitMdx(
     lexLines.push(`description: Lexical token definitions for ${grammar.label}.`);
     lexLines.push('---');
     lexLines.push('');
-    lexLines.push('## Lexical Rules');
-    lexLines.push('');
 
     // Summary table
     lexLines.push('| Token | Examples | Rule |');
     lexLines.push('| --- | --- | --- |');
     for (const row of lexicalSummaries) {
       const ex = row.examples.map((e) => `\`${e}\``).join(', ');
-      lexLines.push(`| [${row.name}](#${row.name.toLowerCase()}) | ${ex} | \`${row.pattern}\` |`);
+      // Escape pipe characters inside the Rule column so they don't break the markdown table
+      const escapedPattern = row.pattern.replace(/\|/g, '\\|');
+      lexLines.push(`| [${row.name}](#${row.name.toLowerCase()}) | ${ex} | \`${escapedPattern}\` |`);
     }
     lexLines.push('');
 
