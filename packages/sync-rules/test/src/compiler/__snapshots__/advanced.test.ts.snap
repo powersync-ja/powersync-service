@@ -100,6 +100,98 @@ exports[`new sync stream features > IN operator with static left clause 1`] = `
 }
 `;
 
+exports[`new sync stream features > IN operator with two static clauses 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 274764250,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 466638588,
+      "outputTableName": "issues",
+      "partitionBy": [],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "issues",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "filters": [
+                  {
+                    "left": {
+                      "type": "lit_string",
+                      "value": "issues",
+                    },
+                    "operator": "=",
+                    "right": {
+                      "source": {
+                        "column": "value",
+                      },
+                      "type": "data",
+                    },
+                    "type": "binary",
+                  },
+                ],
+                "functionInputs": [
+                  {
+                    "function": "->>",
+                    "parameters": [
+                      {
+                        "source": {
+                          "request": "auth",
+                        },
+                        "type": "data",
+                      },
+                      {
+                        "type": "lit_string",
+                        "value": "synced_tables",
+                      },
+                    ],
+                    "type": "function",
+                  },
+                ],
+                "functionName": "json_each",
+                "outputs": [],
+                "type": "table_valued",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
 exports[`new sync stream features > in array 1`] = `
 {
   "buckets": [

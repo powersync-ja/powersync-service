@@ -242,4 +242,10 @@ SELECT * FROM notes
       compileSingleStreamAndSerialize("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
     ).toMatchSnapshot();
   });
+
+  test('IN operator with two static clauses', () => {
+    expect(
+      compileSingleStreamAndSerialize("SELECT * FROM issues WHERE 'issues' IN auth.parameter('synced_tables')")
+    ).toMatchSnapshot();
+  });
 });
