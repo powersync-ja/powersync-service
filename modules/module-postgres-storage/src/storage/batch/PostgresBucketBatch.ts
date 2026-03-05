@@ -29,7 +29,8 @@ import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteC
 import { PostgresCurrentDataStore } from '../current-data-store.js';
 import { PostgresSyncRulesStorage } from '../PostgresSyncRulesStorage.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
-import { PostgresPersistedBatch, postgresTableId } from './PostgresPersistedBatch.js';
+import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
+import { postgresTableId } from '../table-id.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;

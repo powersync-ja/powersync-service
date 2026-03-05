@@ -11,7 +11,6 @@ import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 function registerStorageVersionTests(storageVersion: number) {
   describe(`storage v${storageVersion}`, () => {
     const storageFactory = POSTGRES_STORAGE_FACTORY;
-    const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageFactory);
 
     register.registerSyncTests(storageFactory.factory, {
       storageVersion,

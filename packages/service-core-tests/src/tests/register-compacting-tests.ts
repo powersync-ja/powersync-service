@@ -597,28 +597,35 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
 
-    const result1 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: TEST_TABLE,
+    const result1 = await (async () => {
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+      await writer.markAllSnapshotDone('1/1');
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: { id: 't1' },
         afterReplicaId: test_utils.rid('t1')
       });
-      await batch.commit('1/1');
-    });
+      const flushed = await writer.flush();
+      await writer.commit('1/1');
+      return flushed;
+    })();
 
     const checkpoint1 = result1!.flushed_op;
 
-    const result2 = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    const result2 = await (async () => {
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
       // This is flushed but not committed (does not advance the checkpoint)
-      await batch.save({
-        sourceTable: TEST_TABLE,
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.UPDATE,
         after: { id: 't1' },
         afterReplicaId: test_utils.rid('t1')
       });
-    });
+      return writer.flush();
+    })();
     const checkpoint2 = result2!.flushed_op;
 
     const checkpointBeforeCompact = await bucketStorage.getCheckpoint();

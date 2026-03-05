@@ -2,11 +2,13 @@ import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import {
   CompatibilityContext,
   CompatibilityOption,
+  BucketDataSource,
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   HydratedSyncRules,
   HydrationState,
   javaScriptExpressionEngine,
+  ParameterIndexLookupCreator,
   PrecompiledSyncConfig,
   SqlEventDescriptor,
   SqlSyncRules,
@@ -141,10 +143,16 @@ export interface PersistedSyncRules {
   readonly id: number;
   readonly sync_rules: SyncConfigWithErrors;
   readonly slot_name: string;
+  readonly mapping?: BucketDefinitionMapping;
   /**
    * For testing only.
    */
   readonly hydrationState: HydrationState;
 
   hydratedSyncRules(): HydratedSyncRules;
+}
+
+export interface BucketDefinitionMapping {
+  bucketSourceId(source: BucketDataSource): number;
+  parameterLookupId(source: ParameterIndexLookupCreator): number;
 }

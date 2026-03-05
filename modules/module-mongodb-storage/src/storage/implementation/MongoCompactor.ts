@@ -67,8 +67,6 @@ const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
 const DEFAULT_MIN_CHANGE_RATIO = 0.1;
-const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
-
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
 
@@ -136,6 +134,7 @@ export class MongoCompactor {
       const buckets = await this.dirtyBucketBatch({
         sqlSyncRules,
         minBucketChanges: this.minBucketChanges,
+        minChangeRatio: this.minChangeRatio,
         exclude: recentlyCompacted
       });
       if (buckets.length == 0) {
@@ -542,6 +541,7 @@ export class MongoCompactor {
   private async dirtyBucketBatch(options: {
     sqlSyncRules: SqlSyncRules;
     minBucketChanges: number;
+    minChangeRatio: number;
     exclude?: string[];
   }): Promise<{ def: number; bucket: string; estimatedCount: number; source: BucketDataSource }[]> {
     if (options.minBucketChanges <= 0) {
@@ -554,81 +554,6 @@ export class MongoCompactor {
       const id = mapping.bucketSourceId(source);
       definitions.set(id, source);
     }
-    let lastId = { g: this.group_id, b: new mongo.MinKey() as any };
-    const maxId = { g: this.group_id, b: new mongo.MaxKey() as any };
-    while (true) {
-      // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, we use an aggregation pipeline
-      // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria, rather than limiting
-      // on the output number.
-      const [result] = await this.db.bucket_state
-        .aggregate<{
-          buckets: Pick<BucketStateDocument, '_id' | 'estimate_since_compact' | 'compacted_state'>[];
-          cursor: Pick<BucketStateDocument, '_id'>[];
-        }>(
-          [
-            {
-              $match: {
-                _id: { $gt: lastId, $lt: maxId }
-              }
-            },
-            {
-              $sort: { _id: 1 }
-            },
-            {
-              // Scan a fixed number of docs each query so sparse matches don't block progress.
-              $limit: DIRTY_BUCKET_SCAN_BATCH_SIZE
-            },
-            {
-              $facet: {
-                // This is the results for the batch
-                buckets: [
-                  {
-                    $match: {
-                      'estimate_since_compact.count': { $gte: options.minBucketChanges }
-                    }
-                  },
-                  {
-                    $project: {
-                      _id: 1,
-                      estimate_since_compact: 1,
-                      compacted_state: 1
-                    }
-                  }
-                ],
-                // This is used for the next query.
-                cursor: [{ $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }]
-              }
-            }
-          ],
-          { maxTimeMS: MONGO_OPERATION_TIMEOUT_MS }
-        )
-        .toArray();
-
-      const cursor = result?.cursor?.[0];
-      if (cursor == null) {
-        break;
-      }
-      lastId = cursor._id;
-
-      const mapped = (result?.buckets ?? []).map((b) => {
-        const updatedCount = b.estimate_since_compact?.count ?? 0;
-        const totalCount = (b.compacted_state?.count ?? 0) + updatedCount;
-        const updatedBytes = b.estimate_since_compact?.bytes ?? 0;
-        const totalBytes = (b.compacted_state?.bytes ?? 0) + updatedBytes;
-        const dirtyChangeNumber = totalCount > 0 ? updatedCount / totalCount : 0;
-        const dirtyChangeBytes = totalBytes > 0 ? updatedBytes / totalBytes : 0;
-        return {
-          bucket: b._id.b,
-          estimatedCount: totalCount,
-          dirtyRatio: Math.max(dirtyChangeNumber, dirtyChangeBytes)
-        };
-      });
-      const filtered = mapped.filter(
-        (b) => b.estimatedCount >= options.minBucketChanges && b.dirtyRatio >= options.minChangeRatio
-      );
-      yield filtered;
-    }
-
     // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
     const dirtyBuckets = await this.db.bucket_state
       .find(
@@ -652,12 +577,26 @@ export class MongoCompactor {
       )
       .toArray();
 
-    return dirtyBuckets.map((bucket) => ({
-      def: bucket._id.g,
-      bucket: bucket._id.b,
-      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0),
-      source: definitions.get(bucket._id.g)!
-    }));
+    return dirtyBuckets
+      .map((bucket) => {
+        const updatedCount = bucket.estimate_since_compact?.count ?? 0;
+        const totalCount = updatedCount + (bucket.compacted_state?.count ?? 0);
+        const updatedBytes = bucket.estimate_since_compact?.bytes ?? 0;
+        const totalBytes = updatedBytes + (bucket.compacted_state?.bytes ?? 0);
+        const dirtyChangeNumber = totalCount > 0 ? updatedCount / totalCount : 0;
+        const dirtyChangeBytes = totalBytes > 0 ? updatedBytes / totalBytes : 0;
+        return {
+          def: bucket._id.g,
+          bucket: bucket._id.b,
+          estimatedCount: totalCount,
+          dirtyRatio: Math.max(dirtyChangeNumber, dirtyChangeBytes),
+          source: definitions.get(bucket._id.g)!
+        };
+      })
+      .filter(
+        (bucket) => bucket.estimatedCount >= options.minBucketChanges && bucket.dirtyRatio >= options.minChangeRatio
+      )
+      .map(({ dirtyRatio: _dirtyRatio, ...bucket }) => bucket);
   }
 
   /**
@@ -678,10 +617,6 @@ export class MongoCompactor {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
-
-    const defs = options.syncConfig.bucketDataSources.map((source) =>
-      this.storage.sync_rules.mapping.bucketSourceId(source)
-    );
 
     const mapping = this.storage.sync_rules.mapping;
     let definitions = new Map<number, BucketDataSource>();

@@ -51,12 +51,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   getInstance(syncRules: storage.PersistedSyncRulesContent, options?: GetIntanceOptions): MongoSyncBucketStorage {
+    const mongoSyncRules = syncRules as MongoPersistedSyncRulesContent;
     let { id, slot_name } = syncRules;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storageConfig = syncRules.getStorageConfig();
-    const storage = new MongoSyncBucketStorage(this, id, syncRules, slot_name, undefined, {
+    const storageConfig = mongoSyncRules.getStorageConfig();
+    const storage = new MongoSyncBucketStorage(this, id, mongoSyncRules, slot_name, undefined, {
       ...this.internalOptions,
       storageConfig
     });
@@ -84,7 +85,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const mergedProcessor = MergedSyncRules.merge(mongoStorages.map((s) => s.getParsedSyncRules(options)));
 
     const writer = new MongoBucketDataWriter({
-      db: this.db,
+      db: this.db.versioned(mongoStorages[0].sync_rules.getStorageConfig()),
       mapping: mergedMappings,
       markRecordUnavailable: options.markRecordUnavailable,
       rowProcessor: mergedProcessor,
@@ -236,7 +237,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
-      const syncRules = SqlSyncRules.fromYaml(options.content, {
+      const syncRules = SqlSyncRules.fromYaml(options.config.yaml, {
         // No schema-based validation at this point
         schema: undefined,
         defaultSchema: 'not_applicable', // Not needed for validation
@@ -315,7 +316,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);
       if (options.lock) {
-        await rules.lock(this.session);
+        await rules.lock();
       }
     });
 

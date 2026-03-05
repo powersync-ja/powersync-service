@@ -112,7 +112,7 @@ export class MongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): MongoPersistedSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): PersistedSyncRules {
     this.getHydratedSyncRules(options);
     return this.parsedSyncRulesCache!.parsed;
   }
@@ -125,7 +125,11 @@ export class MongoSyncBucketStorage
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
       const parsed = this.sync_rules.parsed(options);
-      this.parsedSyncRulesCache = { parsed, hydrated: parsed.hydratedSyncRules(), options };
+      this.parsedSyncRulesCache = {
+        parsed: Object.assign(parsed, { mapping: this.mapping }),
+        hydrated: parsed.hydratedSyncRules(),
+        options
+      };
     }
 
     return this.parsedSyncRulesCache!.hydrated;
@@ -554,7 +558,7 @@ export class MongoSyncBucketStorage
 
     // Legacy
     await this.retriedDelete('deleting current data records', signal, () =>
-      this.db.current_data.deleteMany(
+      this.db.common_current_data.deleteMany(
         {
           _id: idPrefixFilter<SourceKey>({ g: this.group_id as any }, ['t', 'k'])
         },
@@ -587,7 +591,7 @@ export class MongoSyncBucketStorage
 
     for (let table of tables) {
       await this.retriedDelete(`deleting current data records for table ${table.table_name}`, signal, () =>
-        this.db.current_data.deleteMany(
+        this.db.common_current_data.deleteMany(
           {
             _id: idPrefixFilter<SourceKey>({ g: 0, t: table._id }, ['k'])
           },

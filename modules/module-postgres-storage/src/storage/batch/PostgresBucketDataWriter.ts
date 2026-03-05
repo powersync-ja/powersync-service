@@ -10,7 +10,7 @@ import {
 import { RowProcessor } from '@powersync/service-sync-rules';
 import { models } from '../../types/types.js';
 import { PostgresBucketBatch } from './PostgresBucketBatch.js';
-import { postgresTableId } from './PostgresPersistedBatch.js';
+import { postgresTableId } from '../table-id.js';
 import { PostgresSourceTable } from '../PostgresSourceTable.js';
 
 export interface PostgresWriterOptions {
@@ -51,20 +51,24 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
 
   async keepalive(lsn: string): Promise<CheckpointResult> {
     let allBlocked = true;
+    let checkpointCreated = false;
     for (let batch of this.subWriters) {
       const result = await batch.keepalive(lsn);
       allBlocked &&= result.checkpointBlocked;
+      checkpointCreated ||= result.checkpointCreated;
     }
-    return { checkpointBlocked: allBlocked };
+    return { checkpointBlocked: allBlocked, checkpointCreated };
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
     let allBlocked = true;
+    let checkpointCreated = false;
     for (let batch of this.subWriters) {
       const result = await batch.commit(lsn, options);
       allBlocked &&= result.checkpointBlocked;
+      checkpointCreated ||= result.checkpointCreated;
     }
-    return { checkpointBlocked: allBlocked };
+    return { checkpointBlocked: allBlocked, checkpointCreated };
   }
 
   async setResumeLsn(lsn: string): Promise<void> {

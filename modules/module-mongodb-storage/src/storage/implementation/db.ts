@@ -224,7 +224,7 @@ export class VersionedPowerSyncMongo {
    */
   get common_current_data(): mongo.Collection<CurrentDataDocument> {
     if (this.storageConfig.softDeleteCurrentData) {
-      return this.#upstream.v3_current_data;
+      return this.#upstream.v3_current_data as unknown as mongo.Collection<CurrentDataDocument>;
     } else {
       return this.#upstream.current_data;
     }

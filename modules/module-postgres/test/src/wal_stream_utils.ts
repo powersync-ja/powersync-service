@@ -23,6 +23,7 @@ import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './uti
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
+  private syncRulesId?: number;
   private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;

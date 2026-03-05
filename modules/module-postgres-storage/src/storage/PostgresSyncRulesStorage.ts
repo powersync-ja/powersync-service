@@ -35,7 +35,7 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
-import { postgresTableId } from './batch/PostgresPersistedBatch.js';
+import { postgresTableId } from './table-id.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
 import { PostgresCurrentDataStore } from './current-data-store.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';

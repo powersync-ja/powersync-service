@@ -699,20 +699,19 @@ streams:
     );
     const bucketStorage = factory.getInstance(syncRules);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          baz: 'baz',
-          bar: 'bar'
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
-
-      await batch.commit('1/1');
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        baz: 'baz',
+        bar: 'bar'
+      },
+      afterReplicaId: test_utils.rid('t1')
     });
+    await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const parameters = await checkpoint.getParameterSets([

@@ -20,6 +20,7 @@ import {
   InternalOpId,
   isCompleteRow,
   maxLsn,
+  PersistedSyncRules,
   ResolveTableToDropsOptions,
   SaveOperationTag,
   SourceTable,
@@ -40,7 +41,6 @@ import {
   SyncRuleDocument
 } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
-import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
@@ -78,8 +78,8 @@ export interface MongoWriterOptions {
 }
 
 interface MongoBucketBatchOptions {
-  db: PowerSyncMongo;
-  syncRules: MongoPersistedSyncRules;
+  db: VersionedPowerSyncMongo;
+  syncRules: PersistedSyncRules;
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
   resumeFromLsn: string | null;
@@ -88,7 +88,7 @@ interface MongoBucketBatchOptions {
 }
 
 export interface ForSyncRulesOptions {
-  syncRules: MongoPersistedSyncRules;
+  syncRules: PersistedSyncRules;
 
   lastCheckpointLsn: string | null;
   resumeFromLsn: string | null;
@@ -159,20 +159,24 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
 
   async keepalive(lsn: string): Promise<CheckpointResult> {
     let allBlocked = true;
+    let checkpointCreated = false;
     for (let batch of this.subWriters) {
       const result = await batch.keepalive(lsn);
       allBlocked &&= result.checkpointBlocked;
+      checkpointCreated ||= result.checkpointCreated;
     }
-    return { checkpointBlocked: allBlocked };
+    return { checkpointBlocked: allBlocked, checkpointCreated };
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
     let allBlocked = true;
+    let checkpointCreated = false;
     for (let batch of this.subWriters) {
       const result = await batch.commit(lsn, options);
       allBlocked &&= result.checkpointBlocked;
+      checkpointCreated ||= result.checkpointCreated;
     }
-    return { checkpointBlocked: allBlocked };
+    return { checkpointBlocked: allBlocked, checkpointCreated };
   }
 
   async setResumeLsn(lsn: string): Promise<void> {
@@ -629,7 +633,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
       }
 
-      let persistedBatch: PersistedBatch | null = new PersistedBatch(transactionSize, {
+      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.db, transactionSize, {
         logger: this.logger,
         mapping: this.mapping
       });
@@ -1130,7 +1134,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           session: session
         });
         const batch = await cursor.toArray();
-        const persistedBatch = new PersistedBatch(0, { logger: this.logger, mapping: this.mapping });
+        const persistedBatch = new PersistedBatch(this.db, 0, { logger: this.logger, mapping: this.mapping });
 
         for (let value of batch) {
           persistedBatch.saveBucketData({
@@ -1208,7 +1212,7 @@ export class MongoBucketBatch
 {
   private logger: Logger;
 
-  public readonly db: PowerSyncMongo;
+  public readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
 
   public readonly group_id: number;
@@ -1487,7 +1491,7 @@ export class MongoBucketBatch
   }
 
   private async cleanupCurrentData(lastCheckpoint: bigint) {
-    const result = await this.db.current_data.deleteMany({
+    const result = await this.db.v3_current_data.deleteMany({
       '_id.g': this.group_id,
       pending_delete: { $exists: true, $lte: lastCheckpoint }
     });

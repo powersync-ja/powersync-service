@@ -1,5 +1,6 @@
 import { framework, GetIntanceOptions, storage, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
+import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
 

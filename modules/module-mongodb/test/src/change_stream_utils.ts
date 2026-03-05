@@ -242,14 +242,11 @@ export class ChangeStreamTestContext {
   async getChecksum(request: BucketChecksumRequest, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
     const syncRules = this.getSyncRulesContent();
-    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
-    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
-
-    const unversioned: utils.ChecksumMap = new Map();
-    for (let i = 0; i < buckets.length; i++) {
-      unversioned.set(buckets[i], checksums.get(versionedBuckets[i].bucket)!);
-    }
-    return unversioned;
+    const versionedRequest = bucketRequest(syncRules, request.bucket, 0n);
+    const checksums = await this.storage!.getChecksums(checkpoint, [
+      { bucket: versionedRequest.bucket, source: versionedRequest.source }
+    ]);
+    return checksums.get(versionedRequest.bucket)!;
   }
 }
 

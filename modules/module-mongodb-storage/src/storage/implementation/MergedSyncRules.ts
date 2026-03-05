@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { SourceTable } from '@powersync/service-core';
+import { PersistedSyncRules, SourceTable } from '@powersync/service-core';
 import {
   BucketDataSource,
   CompatibilityContext,
@@ -25,7 +25,6 @@ import {
   TableDataSources,
   TablePattern
 } from '@powersync/service-sync-rules';
-import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 
 type EvaluateRowFn = (options: EvaluateRowOptions) => EvaluationResult[];
 type EvaluateParameterRowFn = (sourceTable: SourceTableInterface, row: SqliteRow) => EvaluatedParametersResult[];
@@ -48,7 +47,7 @@ interface ResolvedParameterLookupSource {
  * This should be moved to a re-usable location, possibly merged with HydratedSyncRules logic.
  */
 export class MergedSyncRules implements RowProcessor {
-  static merge(sources: MongoPersistedSyncRules[]): MergedSyncRules {
+  static merge(sources: PersistedSyncRules[]): MergedSyncRules {
     return new MergedSyncRules(sources);
   }
 
@@ -70,13 +69,16 @@ export class MergedSyncRules implements RowProcessor {
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-  constructor(sources: MongoPersistedSyncRules[]) {
+  constructor(sources: PersistedSyncRules[]) {
     let resolvedDataSources = new Map<number, ResolvedDataSource>();
     let resolvedParameterLookupSources = new Map<number, ResolvedParameterLookupSource>();
     let sourcePatternMap = new Map<string, TablePattern>();
 
     this.allSyncRules = [];
     for (let source of sources) {
+      if (source.mapping == null) {
+        throw new ReplicationAssertionError('MergedSyncRules requires sync-rules mapping');
+      }
       const syncRules = source.sync_rules.config;
       const mapping = source.mapping;
       const hydrationState = source.hydrationState;

@@ -5,7 +5,7 @@
 
 import { storage, utils } from '@powersync/service-core';
 import { RequiredOperationBatchLimits } from '../../types/types.js';
-import { postgresTableId } from './PostgresPersistedBatch.js';
+import { postgresTableId } from '../table-id.js';
 
 /**
  * Batch of input operations.
