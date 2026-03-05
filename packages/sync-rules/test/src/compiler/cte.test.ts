@@ -77,4 +77,28 @@ streams:
       ]);
     });
   });
+
+  test('multiple output references', () => {
+    // Regression test for https://github.com/powersync-ja/powersync-service/issues/546
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  workspaces/role=user/type=individual:
+    auto_subscribe: true
+    with:
+      workspaces_param: |
+        SELECT value ->> 'id'
+        FROM json_each(auth.parameter('workspaces'))
+        WHERE value ->> 'role' = 'user'
+          AND value ->> 'type' = 'individual'
+    queries:
+      - SELECT *
+        FROM workspace
+        WHERE workspace.id IN workspaces_param
+`);
+
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
+  });
 });
