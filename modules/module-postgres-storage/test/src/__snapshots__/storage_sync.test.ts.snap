@@ -31,79 +31,6 @@ exports[`sync - postgres > storage v1 > compacting data - invalidate checkpoint 
 ]
 `;
 
-exports[`sync - postgres > storage v1 > compacting data - invalidate checkpoint 2`] = `
-[
-  {
-    "data": {
-      "after": "0",
-      "bucket": "mybucket[]",
-      "data": [
-        {
-          "checksum": -93886621,
-          "op": "CLEAR",
-          "op_id": "2",
-        },
-      ],
-      "has_more": false,
-      "next_after": "2",
-    },
-  },
-  {
-    "checkpoint_diff": {
-      "last_op_id": "4",
-      "removed_buckets": [],
-      "updated_buckets": [
-        {
-          "bucket": "mybucket[]",
-          "checksum": 499012468,
-          "count": 4,
-          "priority": 3,
-          "subscriptions": [
-            {
-              "default": 0,
-            },
-          ],
-        },
-      ],
-      "write_checkpoint": undefined,
-    },
-  },
-  {
-    "data": {
-      "after": "2",
-      "bucket": "mybucket[]",
-      "data": [
-        {
-          "checksum": 1859363232,
-          "data": "{"id":"t1","description":"Test 1b"}",
-          "object_id": "t1",
-          "object_type": "test",
-          "op": "PUT",
-          "op_id": "3",
-          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
-        },
-        {
-          "checksum": 3028503153,
-          "data": "{"id":"t2","description":"Test 2b"}",
-          "object_id": "t2",
-          "object_type": "test",
-          "op": "PUT",
-          "op_id": "4",
-          "subkey": "a17e6883-d5d2-599d-a805-d60528127dbd",
-        },
-      ],
-      "has_more": false,
-      "next_after": "4",
-    },
-  },
-  {
-    "checkpoint_complete": {
-      "last_op_id": "4",
-    },
-  },
-]
-`;
-
 exports[`sync - postgres > storage v1 > encodes sync rules id in buckets for streams 1`] = `
 [
   {
@@ -1121,79 +1048,6 @@ exports[`sync - postgres > storage v2 > compacting data - invalidate checkpoint 
         },
       ],
       "write_checkpoint": undefined,
-    },
-  },
-]
-`;
-
-exports[`sync - postgres > storage v2 > compacting data - invalidate checkpoint 2`] = `
-[
-  {
-    "data": {
-      "after": "0",
-      "bucket": "1#mybucket[]",
-      "data": [
-        {
-          "checksum": -93886621,
-          "op": "CLEAR",
-          "op_id": "2",
-        },
-      ],
-      "has_more": false,
-      "next_after": "2",
-    },
-  },
-  {
-    "checkpoint_diff": {
-      "last_op_id": "4",
-      "removed_buckets": [],
-      "updated_buckets": [
-        {
-          "bucket": "1#mybucket[]",
-          "checksum": 499012468,
-          "count": 4,
-          "priority": 3,
-          "subscriptions": [
-            {
-              "default": 0,
-            },
-          ],
-        },
-      ],
-      "write_checkpoint": undefined,
-    },
-  },
-  {
-    "data": {
-      "after": "2",
-      "bucket": "1#mybucket[]",
-      "data": [
-        {
-          "checksum": 1859363232,
-          "data": "{"id":"t1","description":"Test 1b"}",
-          "object_id": "t1",
-          "object_type": "test",
-          "op": "PUT",
-          "op_id": "3",
-          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
-        },
-        {
-          "checksum": 3028503153,
-          "data": "{"id":"t2","description":"Test 2b"}",
-          "object_id": "t2",
-          "object_type": "test",
-          "op": "PUT",
-          "op_id": "4",
-          "subkey": "a17e6883-d5d2-599d-a805-d60528127dbd",
-        },
-      ],
-      "has_more": false,
-      "next_after": "4",
-    },
-  },
-  {
-    "checkpoint_complete": {
-      "last_op_id": "4",
     },
   },
 ]
@@ -2294,7 +2148,7 @@ exports[`sync - postgres > storage v3 > compacting data - invalidate checkpoint 
 ]
 `;
 
-exports[`sync - postgres > storage v3 > encodes sync rules id in buckes for streams 1`] = `
+exports[`sync - postgres > storage v3 > encodes sync rules id in buckets for streams 1`] = `
 [
   {
     "checkpoint": {
@@ -2349,13 +2203,13 @@ exports[`sync - postgres > storage v3 > encodes sync rules id in buckes for stre
 ]
 `;
 
-exports[`sync - postgres > storage v3 > encodes sync rules id in buckes for streams 2`] = `
+exports[`sync - postgres > storage v3 > encodes sync rules id in buckets for streams 2`] = `
 [
   {
     "checkpoint": {
       "buckets": [
         {
-          "bucket": "2#test|0[]",
+          "bucket": "2#test2|0[]",
           "checksum": 920318466,
           "count": 1,
           "priority": 3,
@@ -2371,7 +2225,7 @@ exports[`sync - postgres > storage v3 > encodes sync rules id in buckes for stre
         {
           "errors": [],
           "is_default": true,
-          "name": "test",
+          "name": "test2",
         },
       ],
       "write_checkpoint": undefined,
@@ -2380,7 +2234,7 @@ exports[`sync - postgres > storage v3 > encodes sync rules id in buckes for stre
   {
     "data": {
       "after": "0",
-      "bucket": "2#test|0[]",
+      "bucket": "2#test2|0[]",
       "data": [
         {
           "checksum": 920318466,
@@ -2389,7 +2243,7 @@ exports[`sync - postgres > storage v3 > encodes sync rules id in buckes for stre
           "object_type": "test",
           "op": "PUT",
           "op_id": "2",
-          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+          "subkey": "8a5f3fdd-3f59-5153-92ae-ac115c458441",
         },
       ],
       "has_more": false,
@@ -3009,7 +2863,7 @@ exports[`sync - postgres > storage v3 > sync updates to data query only 2`] = `
           "object_type": "lists",
           "op": "PUT",
           "op_id": "2",
-          "subkey": "5ad0aa14-3d5e-5428-ad5b-2c33927d991c",
+          "subkey": "b9f16d58-e6f5-55b5-9622-7bc360dba34f",
         },
       ],
       "has_more": false,
@@ -3216,7 +3070,7 @@ exports[`sync - postgres > storage v3 > sync updates to parameter query + data 2
           "object_type": "lists",
           "op": "PUT",
           "op_id": "1",
-          "subkey": "5ad0aa14-3d5e-5428-ad5b-2c33927d991c",
+          "subkey": "b9f16d58-e6f5-55b5-9622-7bc360dba34f",
         },
       ],
       "has_more": false,
