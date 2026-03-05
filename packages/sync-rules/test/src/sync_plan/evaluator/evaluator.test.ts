@@ -583,7 +583,7 @@ streams:
         // Should request dynamic lookups to query left side of AND
         expect(querier.hasDynamicBuckets).toStrictEqual(true);
 
-        for (const hasLookupResult in [false, true]) {
+        for (const hasLookupResult of [false, true]) {
           expect(
             await querier.queryDynamicBucketDescriptions({
               getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
