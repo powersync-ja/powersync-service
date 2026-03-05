@@ -151,14 +151,16 @@ export const AppSchema = new Schema({
 
 export type Database = (typeof AppSchema)['types'];
 
-export const typedStreams = Object.freeze({
-  assetsOne(db: PowerSyncDatabase): SyncStream {
-    return db.syncStream('assets_one', {});
-  },
-  assets2(db: PowerSyncDatabase, params: { name: string }): SyncStream {
-    return db.syncStream('assets_2', params);
-  }
-});
+export function typedStreams(db: PowerSyncDatabase) {
+  return {
+    assetsOne(): SyncStream {
+      return db.syncStream('assets_one', {});
+    },
+    assets2(params: { name: string }): SyncStream {
+      return db.syncStream('assets_2', params);
+    }
+  };
+}
 `
     );
 
@@ -194,14 +196,16 @@ export const AppSchema = new Schema({
 
 export type Database = (typeof AppSchema)['types'];
 
-export const typedStreams = Object.freeze({
-  assetsOne(db: PowerSyncDatabase): SyncStream {
-    return db.syncStream('assets_one', {});
-  },
-  assets2(db: PowerSyncDatabase, params: { name: string }): SyncStream {
-    return db.syncStream('assets_2', params);
-  }
-});
+export function typedStreams(db: PowerSyncDatabase) {
+  return {
+    assetsOne(): SyncStream {
+      return db.syncStream('assets_one', {});
+    },
+    assets2(params: { name: string }): SyncStream {
+      return db.syncStream('assets_2', params);
+    }
+  };
+}
 `
     );
   });

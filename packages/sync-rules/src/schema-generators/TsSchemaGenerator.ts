@@ -119,25 +119,26 @@ ${generated.join('\n')}
   private generateStreamHelper(source: SyncConfig, schema: SourceSchema): string | undefined {
     const optionalSyncStreams = this.getOptionalStreams(source, schema);
     if (optionalSyncStreams.length) {
-      let generatedCode = `export const typedStreams = Object.freeze({
+      let generatedCode = `export function typedStreams(db: PowerSyncDatabase) {
+  return {
 `;
 
       const methods = optionalSyncStreams.map((stream) => {
         const allParams = Object.entries(stream.parameters);
 
-        let args = 'db: PowerSyncDatabase';
+        let args = '';
         if (allParams.length) {
           const paramsType = allParams.map(([name, type]) => `${name}: ${this.valueType(type)}`).join(', ');
-          args += `, params: { ${paramsType} }`;
+          args += `params: { ${paramsType} }`;
         }
 
-        return `  ${toCamelCase(stream.name)}(${args}): SyncStream {
-    return db.syncStream('${stream.name}', ${allParams.length ? 'params' : '{}'});
-  }`;
+        return `    ${toCamelCase(stream.name)}(${args}): SyncStream {
+      return db.syncStream('${stream.name}', ${allParams.length ? 'params' : '{}'});
+    }`;
       });
 
       generatedCode += methods.join(',\n');
-      generatedCode += `\n});\n`;
+      generatedCode += `\n  };\n}\n`;
       return generatedCode;
     }
   }
