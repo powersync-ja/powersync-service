@@ -1,6 +1,6 @@
 import { SyncConfig } from '../SyncConfig.js';
 import { SourceSchema } from '../types.js';
-import { SchemaGenerator } from './SchemaGenerator.js';
+import { SchemaGenerator, toCamelCase } from './SchemaGenerator.js';
 
 /**
  * Generates a schema to use with the [Room library](https://docs.powersync.com/client-sdk-references/kotlin-multiplatform/libraries/room).
@@ -20,7 +20,7 @@ import androidx.room.PrimaryKey
     for (const table of tables) {
       // @Entity(tableName = "todo_list_items") data class TodoListItems(
       buffer += `\n@Entity(tableName = "${table.name}")\n`;
-      buffer += `data class ${snakeCaseToKotlin(table.name, true)}(\n`;
+      buffer += `data class ${toCamelCase(table.name, true)}(\n`;
 
       // Id column
       buffer += '  @PrimaryKey val id: String,\n';
@@ -34,7 +34,7 @@ import androidx.room.PrimaryKey
         }[sqliteType];
 
         // @ColumnInfo(name = "author_id") val authorId: String,
-        buffer += `  @ColumnInfo("${column.name}") val ${snakeCaseToKotlin(column.name, false)}: ${kotlinType},\n`;
+        buffer += `  @ColumnInfo("${column.name}") val ${toCamelCase(column.name)}: ${kotlinType},\n`;
       }
 
       buffer += ')\n';
@@ -42,21 +42,4 @@ import androidx.room.PrimaryKey
 
     return buffer;
   }
-}
-
-function snakeCaseToKotlin(source: string, initialUpper: boolean): string {
-  let result = '';
-  for (const chunk of source.split('_')) {
-    if (chunk.length == 0) continue;
-
-    const firstCharUpper = result.length > 0 || initialUpper;
-    if (firstCharUpper) {
-      result += chunk.charAt(0).toUpperCase();
-      result += chunk.substring(1);
-    } else {
-      result += chunk;
-    }
-  }
-
-  return result;
 }

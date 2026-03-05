@@ -51,20 +51,20 @@ export class PostgresCompactor {
   private moveBatchLimit: number;
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
-  private maxOpId: InternalOpId | undefined;
+  private maxOpId: InternalOpId;
   private buckets: string[] | undefined;
 
   constructor(
     private db: lib_postgres.DatabaseClient,
     private group_id: number,
-    options?: PostgresCompactOptions
+    options: PostgresCompactOptions
   ) {
-    this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
-    this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
-    this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
-    this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
-    this.maxOpId = options?.maxOpId;
-    this.buckets = options?.compactBuckets;
+    this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
+    this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
+    this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
+    this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    this.maxOpId = options.maxOpId ?? 0n;
+    this.buckets = options.compactBuckets;
   }
 
   /**
@@ -238,6 +238,15 @@ export class PostgresCompactor {
       await this.db.query(...this.updates);
       this.updates = [];
     }
+  }
+
+  /**
+   * Expose the internal clearBucket() method to tests.
+   *
+   * @deprecated Only for tests
+   */
+  clearBucketForTests(bucket: string, op: InternalOpId) {
+    return this.clearBucket(bucket, op);
   }
 
   /**

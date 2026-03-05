@@ -127,8 +127,18 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
-  compact(options?: storage.CompactOptions): Promise<void> {
-    return new PostgresCompactor(this.db, this.group_id, options).compact();
+  async compact(options?: storage.CompactOptions): Promise<void> {
+    let maxOpId = options?.maxOpId;
+    if (maxOpId == null) {
+      const checkpoint = await this.getCheckpoint();
+      // Note: If there is no active checkpoint, this will be 0, in which case no compacting is performed
+      maxOpId = checkpoint.checkpoint;
+    }
+
+    return new PostgresCompactor(this.db, this.group_id, {
+      ...options,
+      maxOpId
+    }).compact();
   }
 
   async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
