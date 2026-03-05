@@ -34,32 +34,22 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 const DEFAULT_OUTDIR = path.join(PACKAGE_ROOT, 'grammar', 'docs');
 
 interface CliArgs {
-  mode: 'flat' | 'split';
-  /** Where flat output (HTML, flat MDX, resolved EBNF, diagrams) is written. Always the default path. */
+  /** Where local review output (HTML, flat MDX, resolved EBNF, diagrams/) is written. Always DEFAULT_OUTDIR. */
   outdir: string;
-  /** Where split-mode MDX pages are written. Defaults to outdir; override with --outdir to target e.g. a docs repo. */
-  splitOutdir: string;
-  /** URL base path for split-mode pages (e.g. "/sync/grammar"). Used to build absolute <img> src paths. */
+  /** When set, also write flat MDX + co-located SVGs here (per-grammar subdirectories). For docs repo. */
+  docsOutdir?: string;
+  /** URL base path for docs output (e.g. "/sync/grammar"). Used to build absolute <img> src paths. */
   baseUrl: string;
 }
 
 function parseArgs(): CliArgs {
   const args = process.argv.slice(2);
-  let mode: 'flat' | 'split' = 'flat';
-  let splitOutdir: string | undefined;
+  let docsOutdir: string | undefined;
   let baseUrl = '';
 
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--mode' && args[i + 1]) {
-      const val = args[i + 1];
-      if (val !== 'flat' && val !== 'split') {
-        console.error(`Invalid --mode: ${val}. Must be 'flat' or 'split'.`);
-        process.exit(1);
-      }
-      mode = val;
-      i++;
-    } else if (args[i] === '--outdir' && args[i + 1]) {
-      splitOutdir = path.resolve(args[i + 1]);
+    if (args[i] === '--outdir' && args[i + 1]) {
+      docsOutdir = path.resolve(args[i + 1]);
       i++;
     } else if (args[i] === '--base-url' && args[i + 1]) {
       baseUrl = args[i + 1].replace(/\/+$/, ''); // strip trailing slash
@@ -67,7 +57,7 @@ function parseArgs(): CliArgs {
     }
   }
 
-  return { mode, outdir: DEFAULT_OUTDIR, splitOutdir: splitOutdir || DEFAULT_OUTDIR, baseUrl };
+  return { outdir: DEFAULT_OUTDIR, docsOutdir, baseUrl };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,19 +186,6 @@ interface InlineOnlySummary {
 /** Returns only the diagrammed production names (excludes lexical rules). */
 function getProductionNames(grammar: GrammarConfig): string[] {
   return Object.keys(grammar.inlineRules);
-}
-
-/** Convert PascalCase production name to kebab-case filename (without extension). */
-function toKebabCase(name: string): string {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
-    .toLowerCase();
-}
-
-/** Get the split-mode page path for a production (relative, no extension). */
-function productionToPageSlug(name: string): string {
-  return toKebabCase(name);
 }
 
 function buildLexicalSummaries(grammar: GrammarConfig, ruleMap: Map<string, IRule>): LexicalRuleSummary[] {
@@ -765,21 +742,6 @@ function svgStripLinks(svgStr: string): string {
 }
 
 /**
- * Build split-mode link targets for a grammar.
- * Productions link to ./kebab-name, lexical rules link to ./lexical-rules.
- */
-function buildSplitLinkTargets(grammar: GrammarConfig, productionNames: string[]): Map<string, string> {
-  const targets = new Map<string, string>();
-  for (const name of productionNames) {
-    targets.set(name, `./${productionToPageSlug(name)}`);
-  }
-  for (const name of grammar.lexicalRules) {
-    targets.set(name, './lexical-rules');
-  }
-  return targets;
-}
-
-/**
  * Build flat-mode (anchor) link targets for a grammar.
  */
 function buildFlatLinkTargets(productionNames: string[], lexicalRules: string[]): Map<string, string> {
@@ -791,30 +753,6 @@ function buildFlatLinkTargets(productionNames: string[], lexicalRules: string[])
     targets.set(name, '#lexical-rules');
   }
   return targets;
-}
-
-/**
- * Collect NonTerminal references for a production after inlining.
- * Returns names that appear as NonTerminal boxes in the rendered diagram.
- */
-function collectRenderedNonTerminalRefs(
-  productionName: string,
-  grammar: GrammarConfig,
-  ruleMap: Map<string, IRule>,
-  diagrammedNames: Set<string>
-): string[] {
-  const rule = ruleMap.get(productionName);
-  if (!rule) return [];
-
-  const inlines = grammar.inlineRules[productionName] || [];
-  const inlinedNames = new Set(inlines);
-  const refs = collectNonTerminalRefs(productionName, rule, ruleMap, inlinedNames, new Set());
-
-  // Include both diagrammed productions and lexical rules
-  const lexicalNames = new Set(grammar.lexicalRules);
-  return Array.from(refs)
-    .filter((ref) => diagrammedNames.has(ref) || lexicalNames.has(ref))
-    .sort();
 }
 
 // ---------------------------------------------------------------------------
@@ -947,13 +885,73 @@ function escapeMarkdownTableCell(text: string): string {
 // Flat MDX generation
 // ---------------------------------------------------------------------------
 
-function generateFlatMdx(
+/**
+ * For each diagrammed production, compute which NonTerminal names appear in its
+ * rendered diagram (children) and which other productions reference it (parents).
+ */
+function buildReferenceGraph(
   grammar: GrammarConfig,
   productionNames: string[],
-  lexicalSummaries: LexicalRuleSummary[],
-  outdir: string
-): void {
+  ruleMap: Map<string, IRule>,
+  diagrammedNames: Set<string>
+): { children: Map<string, string[]>; parents: Map<string, string[]> } {
+  const children = new Map<string, string[]>();
+  const parents = new Map<string, string[]>();
+  const lexicalNames = new Set(grammar.lexicalRules);
+
+  for (const name of productionNames) {
+    const rule = ruleMap.get(name);
+    if (!rule) continue;
+
+    const inlines = grammar.inlineRules[name] || [];
+    const inlinedNames = new Set(inlines);
+    const refs = collectNonTerminalRefs(name, rule, ruleMap, inlinedNames, new Set());
+
+    const childList = Array.from(refs)
+      .filter((ref) => diagrammedNames.has(ref) || lexicalNames.has(ref))
+      .sort();
+    children.set(name, childList);
+  }
+
+  // Build parent map (inverse of children)
+  for (const name of productionNames) {
+    parents.set(name, []);
+  }
+  for (const lexName of grammar.lexicalRules) {
+    parents.set(lexName, []);
+  }
+  for (const [parent, childList] of children) {
+    for (const child of childList) {
+      const p = parents.get(child);
+      if (p) p.push(parent);
+    }
+  }
+
+  return { children, parents };
+}
+
+interface FlatMdxOptions {
+  grammar: GrammarConfig;
+  productionNames: string[];
+  lexicalSummaries: LexicalRuleSummary[];
+  /** Function that maps a production name to the SVG <img> src path. */
+  svgPath: (productionName: string) => string;
+  /** children[name] = terms referenced in name's diagram; parents[name] = terms whose diagrams reference name. */
+  refs: { children: Map<string, string[]>; parents: Map<string, string[]> };
+}
+
+function buildFlatMdxContent(opts: FlatMdxOptions): string {
+  const { grammar, productionNames, lexicalSummaries, svgPath, refs } = opts;
+  const lexicalNames = new Set(grammar.lexicalRules);
   const lines: string[] = [];
+
+  /** Build an anchor link for a term (production or lexical). Lexical terms link to #lexical-rules. */
+  const termLink = (name: string): string => {
+    if (lexicalNames.has(name)) {
+      return `[${name}](#lexical-rules)`;
+    }
+    return `[${name}](#${name.toLowerCase()})`;
+  };
 
   // YAML frontmatter
   lines.push('---');
@@ -961,32 +959,12 @@ function generateFlatMdx(
   lines.push(`description: Railroad diagrams for the SQL syntax supported in ${grammar.label} queries.`);
   lines.push('---');
   lines.push('');
-  lines.push(`This page shows the formal grammar for ${grammar.label}.`);
-  lines.push('');
-
-  // Table of Contents
-  lines.push('## Table of Contents');
-  lines.push('');
-  for (const name of productionNames) {
-    lines.push(`- [${name}](#${name.toLowerCase()})`);
-  }
-  if (lexicalSummaries.length > 0) {
-    lines.push('- [Lexical Rules](#lexical-rules)');
-    for (const row of lexicalSummaries) {
-      lines.push(`  - [${row.name}](#${row.name.toLowerCase()})`);
-    }
-  }
-  lines.push('');
-  lines.push('---');
 
   // Production sections
   for (const name of productionNames) {
-    lines.push('');
     lines.push(`## ${name}`);
     lines.push('');
-    lines.push(`\`${name}\``);
-    lines.push('');
-    lines.push(`![${name} syntax diagram](diagrams/${grammar.id}--${name}.svg)`);
+    lines.push(`![${name} syntax diagram](${svgPath(name)})`);
 
     // Embed operator table directly under ScalarExpr
     if (name === 'ScalarExpr' && Object.keys(grammar.operatorTableRules).length > 0) {
@@ -1007,19 +985,39 @@ function generateFlatMdx(
       for (const [, config] of Object.entries(grammar.operatorTableRules)) {
         for (let i = 0; i < config.groups.length; i++) {
           const group = config.groups[i];
-          const ops = group.operators.map((op) => `\`${op}\``).join(' ');
+          // Escape | for markdown table, < and > for MDX compatibility
+          const ops = group.operators
+            .map((op) => {
+              const escaped = op.replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              return `\`${escaped}\``;
+            })
+            .join(' ');
           lines.push(`| ${i + 1} | ${ops} | ${group.description} |`);
         }
       }
     }
 
+    // Used by (parent terms whose diagrams reference this production)
+    const parentList = refs.parents.get(name) || [];
+    if (parentList.length > 0) {
+      lines.push('');
+      lines.push(`**Used by:** ${parentList.map(termLink).join(', ')}`);
+    }
+
+    // References (child terms that appear as NonTerminal boxes in this diagram)
+    const childList = refs.children.get(name) || [];
+    if (childList.length > 0) {
+      lines.push('');
+      lines.push(`**References:** ${childList.map(termLink).join(', ')}`);
+    }
+
     lines.push('');
     lines.push('---');
+    lines.push('');
   }
 
   // Lexical rules — summary table then per-rule subsections with examples
   if (lexicalSummaries.length > 0) {
-    lines.push('');
     lines.push('## Lexical Rules');
     lines.push('');
 
@@ -1028,7 +1026,9 @@ function generateFlatMdx(
     lines.push('| --- | --- | --- |');
     for (const row of lexicalSummaries) {
       const ex = row.examples.map((e) => `\`${e}\``).join(', ');
-      lines.push(`| [${row.name}](#${row.name.toLowerCase()}) | ${ex} | \`${row.pattern}\` |`);
+      // Escape pipe characters inside the Rule column so they don't break the markdown table
+      const escapedPattern = row.pattern.replace(/\|/g, '\\|');
+      lines.push(`| [${row.name}](#${row.name.toLowerCase()}) | ${ex} | \`${escapedPattern}\` |`);
     }
     lines.push('');
 
@@ -1036,14 +1036,86 @@ function generateFlatMdx(
     for (const row of lexicalSummaries) {
       lines.push(`### ${row.name}`);
       lines.push('');
+      // Used by (parent terms)
+      const lexParents = refs.parents.get(row.name) || [];
+      if (lexParents.length > 0) {
+        lines.push(`**Used by:** ${lexParents.map(termLink).join(', ')}`);
+        lines.push('');
+      }
       lines.push(row.note);
       lines.push('');
     }
   }
 
+  return lines.join('\n') + '\n';
+}
+
+function generateFlatMdx(
+  grammar: GrammarConfig,
+  productionNames: string[],
+  lexicalSummaries: LexicalRuleSummary[],
+  refs: FlatMdxOptions['refs'],
+  outdir: string
+): void {
+  const content = buildFlatMdxContent({
+    grammar,
+    productionNames,
+    lexicalSummaries,
+    svgPath: (name) => `diagrams/${grammar.id}--${name}.svg`,
+    refs
+  });
   const mdxPath = path.join(outdir, `${grammar.id}-flat.mdx`);
-  fs.writeFileSync(mdxPath, lines.join('\n') + '\n', 'utf8');
+  fs.writeFileSync(mdxPath, content, 'utf8');
   console.log(`  Wrote MDX: ${mdxPath}`);
+}
+
+/**
+ * Write flat MDX + co-located link-stripped SVGs to the docs output directory.
+ * Creates a per-grammar subdirectory (e.g. sync-rules/, sync-streams/).
+ */
+function generateDocsFlatMdx(
+  grammar: GrammarConfig,
+  productionNames: string[],
+  lexicalSummaries: LexicalRuleSummary[],
+  refs: FlatMdxOptions['refs'],
+  svgMap: Map<string, string>,
+  docsOutdir: string,
+  baseUrl: string
+): void {
+  const subdir = grammarSubdir(grammar);
+  const outDir = path.join(docsOutdir, subdir);
+  fs.mkdirSync(outDir, { recursive: true });
+
+  // Build SVG path function using absolute baseUrl paths
+  const svgPathFn = (name: string) => {
+    const filename = `${grammar.id}--${name}.svg`;
+    return baseUrl ? `${baseUrl}/${subdir}/${filename}` : `./${filename}`;
+  };
+
+  const content = buildFlatMdxContent({
+    grammar,
+    productionNames,
+    lexicalSummaries,
+    svgPath: svgPathFn,
+    refs
+  });
+
+  // Write flat MDX as index.mdx
+  const mdxPath = path.join(outDir, 'index.mdx');
+  fs.writeFileSync(mdxPath, content, 'utf8');
+  console.log(`  Wrote docs MDX: ${mdxPath}`);
+
+  // Write co-located link-stripped SVGs
+  let svgCount = 0;
+  for (const name of productionNames) {
+    const svgContent = svgMap.get(name);
+    if (svgContent) {
+      const filename = `${grammar.id}--${name}.svg`;
+      fs.writeFileSync(path.join(outDir, filename), svgStripLinks(svgContent), 'utf8');
+      svgCount++;
+    }
+  }
+  console.log(`  Wrote ${svgCount} co-located SVGs to ${outDir}/`);
 }
 
 // ---------------------------------------------------------------------------
@@ -1314,171 +1386,11 @@ function generateResolvedEbnf(
   console.log(`  Wrote resolved EBNF: ${ebnfPath}`);
 }
 
-// ---------------------------------------------------------------------------
-// Split MDX generation
-// ---------------------------------------------------------------------------
-
 /** Map grammar ID to a human-friendly subdirectory name. */
 function grammarSubdir(grammar: GrammarConfig): string {
   if (grammar.id === 'sync-streams-compiler') return 'sync-streams';
   if (grammar.id === 'bucket-definitions') return 'sync-rules';
   return grammar.id;
-}
-
-function generateSplitMdx(
-  grammar: GrammarConfig,
-  productionNames: string[],
-  lexicalSummaries: LexicalRuleSummary[],
-  diagrammedNames: Set<string>,
-  ruleMap: Map<string, IRule>,
-  svgMap: Map<string, string>,
-  outdir: string,
-  baseUrl: string
-): void {
-  const subdir = grammarSubdir(grammar);
-  const splitDir = path.join(outdir, subdir);
-  fs.mkdirSync(splitDir, { recursive: true });
-
-  // --- Index page ---
-  const indexLines: string[] = [];
-  indexLines.push('---');
-  indexLines.push(`title: "${grammar.label}: Grammar Reference"`);
-  indexLines.push(`description: Railroad diagrams for the SQL syntax supported in ${grammar.label} queries.`);
-  indexLines.push('---');
-  indexLines.push('');
-  indexLines.push(`# ${grammar.label}: Grammar Reference`);
-  indexLines.push('');
-  indexLines.push('{/* TODO: add introduction */}');
-  indexLines.push('');
-  indexLines.push('## Productions');
-  indexLines.push('');
-  for (const name of productionNames) {
-    indexLines.push(`- [${name}](./${productionToPageSlug(name)})`);
-  }
-  indexLines.push('');
-  if (lexicalSummaries.length > 0) {
-    indexLines.push('## Lexical Rules');
-    indexLines.push('');
-    indexLines.push(`- [Lexical Rules](./lexical-rules)`);
-    for (const row of lexicalSummaries) {
-      indexLines.push(`  - [${row.name}](./lexical-rules)`);
-    }
-    indexLines.push('');
-  }
-
-  const indexPath = path.join(splitDir, 'index.mdx');
-  fs.writeFileSync(indexPath, indexLines.join('\n') + '\n', 'utf8');
-  console.log(`  Wrote split index: ${indexPath}`);
-
-  // --- Per-production pages ---
-  for (const name of productionNames) {
-    const lines: string[] = [];
-    const slug = productionToPageSlug(name);
-
-    lines.push('---');
-    lines.push(`title: "${name}"`);
-    lines.push(`description: Syntax diagram and usage.`);
-    lines.push('---');
-    lines.push('');
-    const svgContent = svgMap.get(name);
-    if (svgContent) {
-      // Write SVG as a co-located static file; reference via absolute URL path
-      const svgFileName = `${slug}.svg`;
-      fs.writeFileSync(path.join(splitDir, svgFileName), svgStripLinks(svgContent), 'utf8');
-      const imgSrc = baseUrl ? `${baseUrl}/${subdir}/${svgFileName}` : `./${svgFileName}`;
-      lines.push(`![${name} syntax diagram](${imgSrc})`);
-    } else {
-      lines.push(`{/* SVG not found for ${name} */}`);
-    }
-    lines.push('');
-    lines.push('{/* TODO: add description */}');
-    lines.push('');
-
-    // Operator table for ScalarExpr
-    if (name === 'ScalarExpr' && Object.keys(grammar.operatorTableRules).length > 0) {
-      lines.push('### Operators');
-      lines.push('');
-      lines.push('Binary operators supported in scalar expressions, listed from highest to lowest precedence.');
-      lines.push('');
-      lines.push('<Note>');
-      lines.push(
-        'PowerSync evaluates all binary operators with equal precedence (left to right). Use parentheses to control evaluation order.'
-      );
-      lines.push('</Note>');
-      lines.push('');
-      lines.push('| Precedence | Operators | Description |');
-      lines.push('| --- | --- | --- |');
-
-      for (const [, config] of Object.entries(grammar.operatorTableRules)) {
-        for (let i = 0; i < config.groups.length; i++) {
-          const group = config.groups[i];
-          // Escape | for markdown table, < and > for MDX compatibility
-          const ops = group.operators
-            .map((op) => {
-              const escaped = op.replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-              return `\`${escaped}\``;
-            })
-            .join(' ');
-          lines.push(`| ${i + 1} | ${ops} | ${group.description} |`);
-        }
-      }
-      lines.push('');
-    }
-
-    // Referenced terms
-    const refs = collectRenderedNonTerminalRefs(name, grammar, ruleMap, diagrammedNames);
-    if (refs.length > 0) {
-      lines.push('**Referenced terms:**');
-      lines.push('');
-      const lexicalNames = new Set(grammar.lexicalRules);
-      for (const ref of refs) {
-        if (lexicalNames.has(ref)) {
-          lines.push(`- [${ref}](./lexical-rules)`);
-        } else {
-          lines.push(`- [${ref}](./${productionToPageSlug(ref)})`);
-        }
-      }
-      lines.push('');
-    }
-
-    const pagePath = path.join(splitDir, `${slug}.mdx`);
-    fs.writeFileSync(pagePath, lines.join('\n') + '\n', 'utf8');
-  }
-
-  console.log(`  Wrote ${productionNames.length} production pages to ${splitDir}/`);
-
-  // --- Lexical Rules page ---
-  if (lexicalSummaries.length > 0) {
-    const lexLines: string[] = [];
-    lexLines.push('---');
-    lexLines.push(`title: "Lexical Rules"`);
-    lexLines.push(`description: Lexical token definitions for ${grammar.label}.`);
-    lexLines.push('---');
-    lexLines.push('');
-
-    // Summary table
-    lexLines.push('| Token | Examples | Rule |');
-    lexLines.push('| --- | --- | --- |');
-    for (const row of lexicalSummaries) {
-      const ex = row.examples.map((e) => `\`${e}\``).join(', ');
-      // Escape pipe characters inside the Rule column so they don't break the markdown table
-      const escapedPattern = row.pattern.replace(/\|/g, '\\|');
-      lexLines.push(`| [${row.name}](#${row.name.toLowerCase()}) | ${ex} | \`${escapedPattern}\` |`);
-    }
-    lexLines.push('');
-
-    // Per-rule subsections with description
-    for (const row of lexicalSummaries) {
-      lexLines.push(`### ${row.name}`);
-      lexLines.push('');
-      lexLines.push(row.note);
-      lexLines.push('');
-    }
-
-    const lexPath = path.join(splitDir, 'lexical-rules.mdx');
-    fs.writeFileSync(lexPath, lexLines.join('\n') + '\n', 'utf8');
-    console.log(`  Wrote lexical rules: ${lexPath}`);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1487,10 +1399,9 @@ function generateSplitMdx(
 
 async function main() {
   const cliArgs = parseArgs();
-  console.log(`Mode: ${cliArgs.mode}`);
   console.log(`Output directory: ${cliArgs.outdir}`);
-  if (cliArgs.mode === 'split' && cliArgs.splitOutdir !== cliArgs.outdir) {
-    console.log(`Split output directory: ${cliArgs.splitOutdir}`);
+  if (cliArgs.docsOutdir) {
+    console.log(`Docs output directory: ${cliArgs.docsOutdir}`);
   }
   if (cliArgs.baseUrl) {
     console.log(`Base URL: ${cliArgs.baseUrl}`);
@@ -1558,10 +1469,10 @@ async function main() {
     const diagramsDir = path.join(cliArgs.outdir, 'diagrams');
     fs.mkdirSync(diagramsDir, { recursive: true });
 
-    // Build split-mode link targets (baked into SVGs)
-    const splitLinkTargets = buildSplitLinkTargets(grammar, productionNames);
+    // Build flat anchor link targets (baked into SVGs for HTML review)
+    const flatLinkTargets = buildFlatLinkTargets(productionNames, grammar.lexicalRules);
 
-    // Generate diagrams for each diagrammed production (with split-mode links baked in)
+    // Generate diagrams for each diagrammed production (with flat anchor links)
     const svgMap = new Map<string, string>();
     for (const productionName of productionNames) {
       const rule = ruleMap.get(productionName);
@@ -1577,8 +1488,8 @@ async function main() {
         const diagram = ruleToRailroad(rule, ruleMap, inlinedNames, diagrammedNames, grammar.operatorTableRules);
         let svgStr = diagram.toString() as string;
         svgStr = addStyleToSvg(svgStr);
-        // Bake split-mode links into SVGs
-        svgStr = addNonTerminalLinks(svgStr, splitLinkTargets);
+        // Bake flat anchor links into SVGs (used by HTML review; stripped for docs output)
+        svgStr = addNonTerminalLinks(svgStr, flatLinkTargets);
 
         const svgPath = path.join(diagramsDir, `${grammar.id}--${productionName}.svg`);
         fs.writeFileSync(svgPath, svgStr, 'utf8');
@@ -1598,25 +1509,27 @@ async function main() {
     assertNoSkippedTerms(grammar, coverage.skipped);
     assertAllRefsAreDiagrammed(grammar, ruleMap, diagrammedNames);
 
-    // Generate flat MDX file
-    generateFlatMdx(grammar, productionNames, lexicalSummaries, cliArgs.outdir);
+    // Build reference graph for MDX cross-links
+    const refGraph = buildReferenceGraph(grammar, productionNames, ruleMap, diagrammedNames);
 
-    // Generate HTML review file (inlines SVGs with anchor links, replacing split-mode links)
+    // Generate flat MDX file (local review, relative SVG paths)
+    generateFlatMdx(grammar, productionNames, lexicalSummaries, refGraph, cliArgs.outdir);
+
+    // Generate HTML review file (inlines SVGs with anchor links)
     generateFlatHtml(grammar, productionNames, lexicalSummaries, inlineOnlySummaries, diagrammedNames, cliArgs.outdir);
 
     // Generate resolved EBNF file
     generateResolvedEbnf(grammar, ruleMap, productionNames, cliArgs.outdir);
 
-    // Generate split-mode MDX pages
-    if (cliArgs.mode === 'split') {
-      generateSplitMdx(
+    // Generate docs output (flat MDX + co-located link-stripped SVGs)
+    if (cliArgs.docsOutdir) {
+      generateDocsFlatMdx(
         grammar,
         productionNames,
         lexicalSummaries,
-        diagrammedNames,
-        ruleMap,
+        refGraph,
         svgMap,
-        cliArgs.splitOutdir,
+        cliArgs.docsOutdir,
         cliArgs.baseUrl
       );
     }
