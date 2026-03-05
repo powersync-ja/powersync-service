@@ -15,6 +15,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   mergeAsyncIterables,
+  BucketDefinitionMapping,
   PersistedSyncRules,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
@@ -32,7 +33,6 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, StorageConfig } from './models.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';

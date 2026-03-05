@@ -3,9 +3,8 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 
 import { Logger } from '@powersync/lib-services-framework';
-import { InternalOpId, storage, utils } from '@powersync/service-core';
+import { BucketDefinitionMapping, InternalOpId, storage, utils } from '@powersync/service-core';
 import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketDataWriter.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { VersionedPowerSyncMongo } from './db.js';

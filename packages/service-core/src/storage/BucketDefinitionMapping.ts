@@ -1,9 +1,15 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDataSource, ParameterIndexLookupCreator, SqlSyncRules } from '@powersync/service-sync-rules';
-import { SyncRuleDocument } from './models.js';
+import { BucketDataSource, ParameterIndexLookupCreator } from '@powersync/service-sync-rules';
+
+export interface BucketDefinitionMappingData {
+  rule_mapping: {
+    definitions: Record<string, number>;
+    parameter_lookups: Record<string, number>;
+  };
+}
 
 export class BucketDefinitionMapping {
-  static fromSyncRules(doc: Pick<SyncRuleDocument, 'rule_mapping'>): BucketDefinitionMapping {
+  static fromSyncRules(doc: BucketDefinitionMappingData): BucketDefinitionMapping {
     return new BucketDefinitionMapping(doc.rule_mapping.definitions, doc.rule_mapping.parameter_lookups);
   }
 

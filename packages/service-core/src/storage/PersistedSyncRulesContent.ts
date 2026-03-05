@@ -2,19 +2,18 @@ import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import {
   CompatibilityContext,
   CompatibilityOption,
-  BucketDataSource,
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   HydratedSyncRules,
   HydrationState,
   javaScriptExpressionEngine,
-  ParameterIndexLookupCreator,
   PrecompiledSyncConfig,
   SqlEventDescriptor,
   SqlSyncRules,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
@@ -150,9 +149,4 @@ export interface PersistedSyncRules {
   readonly hydrationState: HydrationState;
 
   hydratedSyncRules(): HydratedSyncRules;
-}
-
-export interface BucketDefinitionMapping {
-  bucketSourceId(source: BucketDataSource): number;
-  parameterLookupId(source: ParameterIndexLookupCreator): number;
 }

@@ -1,4 +1,5 @@
 export * from './bson.js';
+export * from './BucketDefinitionMapping.js';
 export * from './BucketStorage.js';
 export * from './ChecksumCache.js';
 export * from './ReplicationEventPayload.js';

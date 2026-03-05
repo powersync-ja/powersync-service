@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import {
   addPartialChecksums,
   bson,
+  BucketDefinitionMapping,
   BucketChecksum,
   BucketChecksumRequest,
   ChecksumCache,
@@ -13,7 +14,6 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 

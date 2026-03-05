@@ -1,6 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { storage } from '@powersync/service-core';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { BucketDefinitionMapping, storage } from '@powersync/service-core';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './models.js';

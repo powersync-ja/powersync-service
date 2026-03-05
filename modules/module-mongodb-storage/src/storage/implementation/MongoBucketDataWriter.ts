@@ -14,6 +14,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BatchedCustomWriteCheckpointOptions,
+  BucketDefinitionMapping,
   BucketStorageMarkRecordUnavailable,
   CheckpointResult,
   deserializeBson,
@@ -30,7 +31,6 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
 import {
   CurrentBucket,
@@ -1262,7 +1262,7 @@ export class MongoBucketBatch
     this.resumeFromLsn = options.resumeFromLsn;
     this.writer = options.writer;
     this.session = this.writer.session;
-    this.mapping = options.syncRules.mapping;
+    this.mapping = options.syncRules.mapping!;
 
     this.persisted_op = options.keepaliveOp ?? null;
   }

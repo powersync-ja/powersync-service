@@ -1,6 +1,12 @@
 import { BucketDataSource, ParameterIndexLookupCreator, SqlSyncRules } from '@powersync/service-sync-rules';
 
-import { CreateWriterOptions, GetIntanceOptions, maxLsn, storage } from '@powersync/service-core';
+import {
+  BucketDefinitionMapping,
+  CreateWriterOptions,
+  GetIntanceOptions,
+  maxLsn,
+  storage
+} from '@powersync/service-core';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -9,7 +15,6 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { generateSlotName } from '../utils/util.js';
-import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { MergedSyncRules } from './implementation/MergedSyncRules.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
