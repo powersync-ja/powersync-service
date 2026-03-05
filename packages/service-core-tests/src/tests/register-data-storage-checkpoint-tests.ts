@@ -39,18 +39,18 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-    });
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.flush();
 
     const writeCheckpoint = await bucketStorage.createManagedWriteCheckpoint({
       heads: { '1': '5/0' },
       user_id: 'user1'
     });
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.keepalive('5/0');
-    });
+    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer2.keepalive('5/0');
+    await writer2.flush();
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -82,9 +82,9 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-    });
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.flush();
 
     const abortController = new AbortController();
     context.onTestFinished(() => abortController.abort());
@@ -92,9 +92,9 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.keepalive('5/0');
-    });
+    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer2.keepalive('5/0');
+    await writer2.flush();
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -115,9 +115,9 @@ bucket_definitions:
     // We have to trigger a new keepalive after the checkpoint, at least to cover postgres storage.
     // This is what is effetively triggered with RouteAPI.createReplicationHead().
     // MongoDB storage doesn't explicitly need this anymore.
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.keepalive('6/0');
-    });
+    await using writer3 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer3.keepalive('6/0');
+    await writer3.flush();
 
     let result2 = await iter.next();
     if (result2.value?.base?.lsn == '5/0') {
@@ -154,9 +154,9 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-    });
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.flush();
 
     const abortController = new AbortController();
     context.onTestFinished(() => abortController.abort());
@@ -164,14 +164,14 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.addCustomWriteCheckpoint({
+    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer2.addCustomWriteCheckpoint({
         checkpoint: 5n,
         user_id: 'user1'
       });
-      await batch.flush();
-      await batch.keepalive('5/0');
-    });
+    await writer2.flush();
+    await writer2.keepalive('5/0');
+    await writer2.flush();
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -203,9 +203,9 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-    });
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.flush();
 
     const abortController = new AbortController();
     context.onTestFinished(() => abortController.abort());
@@ -213,17 +213,17 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       // Flush to clear state
-      await batch.flush();
+    await writer2.flush();
 
-      await batch.addCustomWriteCheckpoint({
+    await writer2.addCustomWriteCheckpoint({
         checkpoint: 5n,
         user_id: 'user1'
       });
-      await batch.flush();
-      await batch.keepalive('5/0');
-    });
+    await writer2.flush();
+    await writer2.keepalive('5/0');
+    await writer2.flush();
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -255,9 +255,9 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(r.persisted_sync_rules!);
     bucketStorage.setWriteCheckpointMode(storage.WriteCheckpointMode.CUSTOM);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-    });
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.flush();
 
     const abortController = new AbortController();
     context.onTestFinished(() => abortController.abort());
@@ -265,9 +265,9 @@ bucket_definitions:
       .watchCheckpointChanges({ user_id: 'user1', signal: abortController.signal })
       [Symbol.asyncIterator]();
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.keepalive('5/0');
-    });
+    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await writer2.keepalive('5/0');
+    await writer2.flush();
 
     const result = await iter.next();
     expect(result).toMatchObject({
@@ -280,14 +280,14 @@ bucket_definitions:
       }
     });
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      batch.addCustomWriteCheckpoint({
+    await using writer3 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    writer3.addCustomWriteCheckpoint({
         checkpoint: 6n,
         user_id: 'user1'
       });
-      await batch.flush();
-      await batch.keepalive('6/0');
-    });
+    await writer3.flush();
+    await writer3.keepalive('6/0');
+    await writer3.flush();
 
     let result2 = await iter.next();
     expect(result2).toMatchObject({
@@ -301,14 +301,14 @@ bucket_definitions:
       }
     });
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      batch.addCustomWriteCheckpoint({
+    await using writer4 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    writer4.addCustomWriteCheckpoint({
         checkpoint: 7n,
         user_id: 'user1'
       });
-      await batch.flush();
-      await batch.keepalive('7/0');
-    });
+    await writer4.flush();
+    await writer4.keepalive('7/0');
+    await writer4.flush();
 
     let result3 = await iter.next();
     expect(result3).toMatchObject({

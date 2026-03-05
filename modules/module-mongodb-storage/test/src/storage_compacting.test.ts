@@ -10,10 +10,10 @@ describe('Mongo Sync Bucket Storage Compact', () => {
   describe('with blank bucket_state', () => {
     // This can happen when migrating from older service versions, that did not populate bucket_state yet.
     const populate = async (bucketStorage: SyncRulesBucketStorage) => {
-      await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-        await batch.markAllSnapshotDone('1/1');
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      await writer.markAllSnapshotDone('1/1');
 
-        await batch.save({
+      await writer.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -23,7 +23,7 @@ describe('Mongo Sync Bucket Storage Compact', () => {
           afterReplicaId: test_utils.rid('t1')
         });
 
-        await batch.save({
+      await writer.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -33,8 +33,8 @@ describe('Mongo Sync Bucket Storage Compact', () => {
           afterReplicaId: test_utils.rid('t2')
         });
 
-        await batch.commit('1/1');
-      });
+      await writer.commit('1/1');
+      await writer.flush();
 
       return bucketStorage.getCheckpoint();
     };

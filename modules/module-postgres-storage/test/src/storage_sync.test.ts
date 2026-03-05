@@ -37,12 +37,13 @@ function registerStorageVersionTests(storageVersion: number) {
       const bucketStorage = factory.getInstance(syncRules);
       const globalBucket = bucketRequest(syncRules, 'global[]');
 
-      const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const result = await (async () => {
         const sourceTable = TEST_TABLE;
 
         const largeDescription = '0123456789'.repeat(2_000_00);
 
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -52,7 +53,7 @@ function registerStorageVersionTests(storageVersion: number) {
           afterReplicaId: test_utils.rid('test1')
         });
 
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -63,7 +64,7 @@ function registerStorageVersionTests(storageVersion: number) {
         });
 
         // Large enough to split the returned batch
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -73,7 +74,7 @@ function registerStorageVersionTests(storageVersion: number) {
           afterReplicaId: test_utils.rid('large2')
         });
 
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -82,7 +83,9 @@ function registerStorageVersionTests(storageVersion: number) {
           },
           afterReplicaId: test_utils.rid('test3')
         });
-      });
+        await writer.flush();
+        return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
+      })();
 
       const checkpoint = result!.flushed_op;
 
