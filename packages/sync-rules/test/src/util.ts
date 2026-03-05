@@ -1,17 +1,18 @@
 import { expect } from 'vitest';
 import {
   BaseJwtPayload,
+  BucketDataScope,
   BucketDataSource,
   BucketParameterQuerier,
   ColumnDefinition,
   CompatibilityContext,
   DEFAULT_TAG,
   GetQuerierOptions,
+  ParameterIndexLookupCreator,
+  ParameterLookupScope,
   RequestedStream,
-  RequestJwtPayload,
   RequestParameters,
   ScopedParameterLookup,
-  SOURCE,
   SourceSchema,
   SourceTableInterface,
   StaticSchema,
@@ -120,14 +121,35 @@ export function removeSource<T extends { source?: any }>(obj: T): Omit<T, 'sourc
   return rest;
 }
 
-/**
- * Removes the [SOURCE] symbol property from an object.
- *
- * This is for tests where we don't care about this value, and it adds a lot of noise in the output.
- */
-export function removeSourceSymbol<T extends { [SOURCE]: any }>(obj: T): Omit<T, typeof SOURCE> {
-  const { [SOURCE]: source, ...rest } = obj;
-  return rest;
+export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
+  get defaultLookupScope(): ParameterLookupScope {
+    return {
+      lookupName: 'lookup',
+      queryId: '0',
+      source: EMPTY_PARAMETER_LOOKUP_SOURCE
+    };
+  },
+  getSourceTables(): TablePattern[] {
+    return [];
+  },
+  evaluateParameterRow() {
+    return [];
+  },
+  tableSyncsParameters() {
+    return false;
+  }
+};
+
+export function bucketDataScope(bucketPrefix: string, source: BucketDataSource = EMPTY_DATA_SOURCE): BucketDataScope {
+  return { bucketPrefix, source };
+}
+
+export function lookupScope(
+  lookupName: string,
+  queryId: string,
+  source: ParameterIndexLookupCreator = EMPTY_PARAMETER_LOOKUP_SOURCE
+): ParameterLookupScope {
+  return { lookupName, queryId, source };
 }
 
 export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {

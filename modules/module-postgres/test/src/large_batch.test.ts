@@ -1,9 +1,9 @@
+import { bucketRequest } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { bucketRequest } from '@powersync/service-core-tests';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, defineBatchTests);
@@ -98,7 +98,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
       if (!syncRules) {
         throw new Error('Active sync rules not available');
       }
-      const request = bucketRequest(syncRules);
+      const request = bucketRequest(syncRules, 'global[]');
       const duration = Date.now() - start;
       const checksum = await context.storage!.getChecksums(checkpoint, [request]);
       expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
@@ -242,7 +242,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     if (!syncRules) {
       throw new Error('Active sync rules not available');
     }
-    const request = bucketRequest(syncRules);
+    const request = bucketRequest(syncRules, 'global[]');
     const checksum = await context.storage!.getChecksums(checkpoint, [request]);
     expect(checksum.get(request.bucket)!.count).toEqual((numDocs + 2) * 4);
   });

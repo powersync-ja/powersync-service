@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
@@ -14,15 +14,17 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
     await using factory = await storageConfig.factory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
     bucket_definitions:
       global:
         data:
           - SELECT id, description FROM "%"
     `,
-      storageVersion
-    });
+        { storageVersion }
+      )
+    );
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -77,7 +79,6 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const checkpoint = flushResult!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
-
     const batch1 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)], options)
     );

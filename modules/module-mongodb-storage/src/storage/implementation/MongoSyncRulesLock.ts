@@ -1,9 +1,9 @@
 import crypto from 'crypto';
 
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { PowerSyncMongo } from './db.js';
-import { mongo } from '@powersync/lib-service-mongodb';
+import { VersionedPowerSyncMongo } from './db.js';
 
 /**
  * Manages a lock on a sync rules document, so that only one process
@@ -13,7 +13,7 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
   private readonly refreshInterval: NodeJS.Timeout;
 
   static async createLock(
-    db: PowerSyncMongo,
+    db: VersionedPowerSyncMongo,
     sync_rules: storage.PersistedSyncRulesContent,
     session?: mongo.ClientSession
   ): Promise<MongoSyncRulesLock> {
@@ -56,7 +56,7 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
   }
 
   constructor(
-    private db: PowerSyncMongo,
+    private db: VersionedPowerSyncMongo,
     public sync_rules_id: number,
     private lock_id: string
   ) {

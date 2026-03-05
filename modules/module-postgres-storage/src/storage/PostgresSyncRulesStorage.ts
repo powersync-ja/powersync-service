@@ -2,8 +2,6 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import {
   BroadcastIterable,
   BucketChecksum,
-  BucketChecksumRequest,
-  BucketDataRequest,
   BucketDataWriter,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
@@ -18,6 +16,7 @@ import {
   PopulateChecksumCacheResults,
   ReplicationCheckpoint,
   storage,
+  StorageVersionConfig,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -36,10 +35,11 @@ import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
+import { postgresTableId } from './batch/PostgresPersistedBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
+import { PostgresCurrentDataStore } from './current-data-store.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
-import { postgresTableId } from './batch/PostgresPersistedBatch.js';
 import { PostgresSourceTable } from './PostgresSourceTable.js';
 
 export type PostgresSyncRulesStorageOptions = {
@@ -58,11 +58,13 @@ export class PostgresSyncRulesStorage
   public readonly sync_rules: storage.PersistedSyncRulesContent;
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
+  public readonly storageConfig: StorageVersionConfig;
 
   private sharedIterator = new BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
   protected db: lib_postgres.DatabaseClient;
   protected writeCheckpointAPI: PostgresWriteCheckpointAPI;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
@@ -77,6 +79,8 @@ export class PostgresSyncRulesStorage
     this.sync_rules = options.sync_rules;
     this.slot_name = options.sync_rules.slot_name;
     this.factory = options.factory;
+    this.storageConfig = options.sync_rules.getStorageConfig();
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -134,8 +138,18 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
-  compact(options?: storage.CompactOptions): Promise<void> {
-    return new PostgresCompactor(this.db, this.group_id, options).compact();
+  async compact(options?: storage.CompactOptions): Promise<void> {
+    let maxOpId = options?.maxOpId;
+    if (maxOpId == null) {
+      const checkpoint = await this.getCheckpoint();
+      // Note: If there is no active checkpoint, this will be 0, in which case no compacting is performed
+      maxOpId = checkpoint.checkpoint;
+    }
+
+    return new PostgresCompactor(this.db, this.group_id, {
+      ...options,
+      maxOpId
+    }).compact();
   }
 
   async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
@@ -383,7 +397,8 @@ export class PostgresSyncRulesStorage
       store_current_data: options.storeCurrentData,
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
-      markRecordUnavailable: options.markRecordUnavailable
+      markRecordUnavailable: options.markRecordUnavailable,
+      storageConfig: this.storageConfig
     });
     this.iterateListeners((cb) => cb.batchStarted?.(batch));
     return batch;
@@ -431,7 +446,7 @@ export class PostgresSyncRulesStorage
 
   async *getBucketDataBatch(
     checkpoint: InternalOpId,
-    dataBuckets: BucketDataRequest[],
+    dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
     if (dataBuckets.length == 0) {
@@ -446,11 +461,8 @@ export class PostgresSyncRulesStorage
     // not match up with chunks.
 
     const end = checkpoint ?? BIGINT_MAX;
-    const filters = dataBuckets.map(({ bucket, start }) => ({
-      bucket_name: bucket,
-      start: start
-    }));
-    const bucketMap = new Map<string, InternalOpId>(dataBuckets.map((d) => [d.bucket, d.start]));
+    const filters = dataBuckets.map((request) => ({ bucket_name: request.bucket, start: request.start }));
+    const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     const batchRowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
     const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
@@ -550,7 +562,7 @@ export class PostgresSyncRulesStorage
           }
 
           if (start == null) {
-            const startOpId = bucketMap.get(bucket_name);
+            const startOpId = startOpByBucket.get(bucket_name);
             if (startOpId == null) {
               throw new framework.ServiceAssertionError(`data for unexpected bucket: ${bucket_name}`);
             }
@@ -605,7 +617,10 @@ export class PostgresSyncRulesStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
+  async getChecksums(
+    checkpoint: utils.InternalOpId,
+    buckets: storage.BucketChecksumRequest[]
+  ): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 
@@ -679,11 +694,7 @@ export class PostgresSyncRulesStorage
         group_id = ${{ type: 'int4', value: this.group_id }}
     `.execute();
 
-    await this.db.sql`
-      DELETE FROM current_data
-      WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
-    `.execute();
+    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.group_id });
 
     await this.db.sql`
       DELETE FROM source_tables

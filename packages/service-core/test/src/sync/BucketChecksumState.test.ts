@@ -16,16 +16,42 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
   DEFAULT_HYDRATION_STATE,
+  ParameterIndexLookupCreator,
   ScopedParameterLookup,
+  SourceTableInterface,
   SqliteJsonRow,
+  SqliteRow,
   SqlSyncRules,
   TablePattern,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
+import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { beforeEach, describe, expect, test } from 'vitest';
-import { removeSource, removeSourceSymbol } from '../utils.js';
 
 describe('BucketChecksumState', () => {
+  const LOOKUP_SOURCE: ParameterIndexLookupCreator = {
+    get defaultLookupScope(): ParameterLookupScope {
+      return {
+        lookupName: 'lookup',
+        queryId: '0',
+        source: LOOKUP_SOURCE
+      };
+    },
+    getSourceTables(): TablePattern[] {
+      return [];
+    },
+    evaluateParameterRow(_sourceTable: SourceTableInterface, _row: SqliteRow) {
+      return [];
+    },
+    tableSyncsParameters(_table: SourceTableInterface): boolean {
+      return false;
+    }
+  };
+
+  function lookupScope(lookupName: string, queryId: string): ParameterLookupScope {
+    return { lookupName, queryId, source: LOOKUP_SOURCE };
+  }
+
   // Single global[] bucket.
   // We don't care about data in these tests
   const SYNC_RULES_GLOBAL = SqlSyncRules.fromYaml(
@@ -70,6 +96,10 @@ bucket_definitions:
   const syncRequest: StreamingSyncRequest = {};
   const tokenPayload = new JwtPayload({ sub: '' });
 
+  function bucketStarts(requests: { bucket: string; start: InternalOpId }[]) {
+    return new Map(requests.map((request) => [request.bucket, request.start]));
+  }
+
   test('global bucket with update', async () => {
     const storage = new MockBucketChecksumStateStorage();
     // Set intial state
@@ -97,14 +127,14 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: 'global[]',
         priority: 3
       }
     ]);
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 0n }]);
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 0n]]));
 
     // This similuates the bucket data being sent
     line.advance();
@@ -133,7 +163,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 1n }]);
+    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 1n]]));
   });
 
   test('global bucket with initial state', async () => {
@@ -167,14 +197,14 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: 'global[]',
         priority: 3
       }
     ]);
     // This is the main difference between this and the previous test
-    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 1n }]);
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 1n]]));
   });
 
   test('multiple static buckets', async () => {
@@ -207,7 +237,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: 'global[1]',
         priority: 3
@@ -275,13 +305,13 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: 'global[]',
         priority: 3
       }
     ]);
-    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'global[]', start: 0n }]);
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 0n]]));
   });
 
   test('invalidating individual bucket', async () => {
@@ -338,7 +368,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([{ bucket: 'global[1]', priority: 3 }]);
+    expect(line2.bucketsToFetch).toMatchObject([{ bucket: '2#global[1]', priority: 3 }]);
   });
 
   test('invalidating all buckets', async () => {
@@ -388,9 +418,9 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([
-      { bucket: 'global[1]', priority: 3 },
-      { bucket: 'global[2]', priority: 3 }
+    expect(line2.bucketsToFetch).toMatchObject([
+      { bucket: '2#global[1]', priority: 3 },
+      { bucket: '2#global[2]', priority: 3 }
     ]);
   });
 
@@ -425,7 +455,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: 'global[1]',
         priority: 3
@@ -437,16 +467,12 @@ bucket_definitions:
     ]);
 
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([
-      {
-        bucket: 'global[1]',
-        start: 0n
-      },
-      {
-        bucket: 'global[2]',
-        start: 0n
-      }
-    ]);
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(
+      new Map([
+        ['2#global[1]', 0n],
+        ['2#global[2]', 0n]
+      ])
+    );
 
     // No data changes here.
     // We simulate partial data sent, before a checkpoint is interrupted.
@@ -482,7 +508,7 @@ bucket_definitions:
       }
     });
     // This should contain both buckets, even though only one changed.
-    expect(line2.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+    expect(line2.bucketsToFetch).toMatchObject([
       {
         bucket: 'global[1]',
         priority: 3
@@ -493,16 +519,12 @@ bucket_definitions:
       }
     ]);
 
-    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([
-      {
-        bucket: 'global[1]',
-        start: 3n
-      },
-      {
-        bucket: 'global[2]',
-        start: 1n
-      }
-    ]);
+    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(
+      new Map([
+        ['2#global[1]', 3n],
+        ['2#global[2]', 1n]
+      ])
+    );
   });
 
   test('dynamic buckets with updates', async () => {
@@ -525,9 +547,7 @@ bucket_definitions:
 
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
-        expect(lookups).toEqual([
-          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
-        ]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct(lookupScope('by_project', '1'), ['u1'])]);
         return [{ id: 1 }, { id: 2 }];
       }),
       writeCheckpoint: null,
@@ -562,7 +582,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line.bucketsToFetch.map(removeSourceSymbol)).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: 'by_project[1]',
         priority: 3
@@ -574,16 +594,12 @@ bucket_definitions:
     ]);
     line.advance();
     // This is the bucket data to be fetched
-    expect(line.getFilteredBucketPositions().map(removeSource)).toEqual([
-      {
-        bucket: 'by_project[1]',
-        start: 0n
-      },
-      {
-        bucket: 'by_project[2]',
-        start: 0n
-      }
-    ]);
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(
+      new Map([
+        ['3#by_project[1]', 0n],
+        ['3#by_project[2]', 0n]
+      ])
+    );
 
     line.advance();
     line.updateBucketPosition({ bucket: 'by_project[1]', nextAfter: 1n, hasMore: false });
@@ -592,9 +608,7 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
-        expect(lookups).toEqual([
-          ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1', source }, ['u1'])
-        ]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct(lookupScope('by_project', '1'), ['u1'])]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
       writeCheckpoint: null,
@@ -622,7 +636,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.getFilteredBucketPositions().map(removeSource)).toEqual([{ bucket: 'by_project[3]', start: 0n }]);
+    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['3#by_project[3]', 0n]]));
   });
 
   describe('streams', () => {
@@ -847,6 +861,206 @@ config:
       });
     });
   });
+
+  describe('parameter query result logging', () => {
+    test('logs parameter query results for dynamic buckets', async () => {
+      const storage = new MockBucketChecksumStateStorage();
+      storage.updateTestChecksum({ bucket: 'by_project[1]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: 'by_project[2]', checksum: 1, count: 1 });
+      storage.updateTestChecksum({ bucket: 'by_project[3]', checksum: 1, count: 1 });
+
+      const logMessages: string[] = [];
+      const logData: any[] = [];
+      const mockLogger = {
+        info: (message: string, data: any) => {
+          logMessages.push(message);
+          logData.push(data);
+        },
+        error: () => {},
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const state = new BucketChecksumState({
+        syncContext,
+        tokenPayload: new JwtPayload({ sub: 'u1' }),
+        syncRequest,
+        syncRules: SYNC_RULES_DYNAMIC,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      const line = (await state.buildNextCheckpointLine({
+        base: storage.makeCheckpoint(1n, (lookups) => {
+          return [{ id: 1 }, { id: 2 }, { id: 3 }];
+        }),
+        writeCheckpoint: null,
+        update: CHECKPOINT_INVALIDATE_ALL
+      }))!;
+      line.advance();
+
+      expect(logMessages[0]).toContain('param_results: 3');
+      expect(logData[0].parameter_query_results).toBe(3);
+    });
+
+    test('throws error with breakdown when parameter query limit is exceeded', async () => {
+      const SYNC_RULES_MULTI = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  projects:
+    parameters: select id from projects where user_id = request.user_id()
+    data: []
+  tasks:
+    parameters: select id from tasks where user_id = request.user_id()
+    data: []
+  comments:
+    parameters: select id from comments where user_id = request.user_id()
+    data: []
+    `,
+        { defaultSchema: 'public' }
+      ).config.hydrate({ hydrationState: versionedHydrationState(4) });
+
+      const storage = new MockBucketChecksumStateStorage();
+
+      const errorMessages: string[] = [];
+      const errorData: any[] = [];
+      const mockLogger = {
+        info: () => {},
+        error: (message: string, data: any) => {
+          errorMessages.push(message);
+          errorData.push(data);
+        },
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const smallContext = new SyncContext({
+        maxBuckets: 100,
+        maxParameterQueryResults: 50,
+        maxDataFetchConcurrency: 10
+      });
+
+      const state = new BucketChecksumState({
+        syncContext: smallContext,
+        tokenPayload: new JwtPayload({ sub: 'u1' }),
+        syncRequest,
+        syncRules: SYNC_RULES_MULTI,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      // Create 60 total results: 30 projects + 20 tasks + 10 comments
+      const projectIds = Array.from({ length: 30 }, (_, i) => ({ id: i + 1 }));
+      const taskIds = Array.from({ length: 20 }, (_, i) => ({ id: i + 1 }));
+      const commentIds = Array.from({ length: 10 }, (_, i) => ({ id: i + 1 }));
+
+      for (let i = 1; i <= 30; i++) {
+        storage.updateTestChecksum({ bucket: `projects[${i}]`, checksum: 1, count: 1 });
+      }
+      for (let i = 1; i <= 20; i++) {
+        storage.updateTestChecksum({ bucket: `tasks[${i}]`, checksum: 1, count: 1 });
+      }
+      for (let i = 1; i <= 10; i++) {
+        storage.updateTestChecksum({ bucket: `comments[${i}]`, checksum: 1, count: 1 });
+      }
+
+      await expect(
+        state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(1n, (lookups) => {
+            const lookup = lookups[0];
+            const lookupName = lookup.values[0];
+            if (lookupName === 'projects') {
+              return projectIds;
+            } else if (lookupName === 'tasks') {
+              return taskIds;
+            } else {
+              return commentIds;
+            }
+          }),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        })
+      ).rejects.toThrow('Too many parameter query results: 60 (limit of 50)');
+
+      // Verify error log includes breakdown
+      expect(errorMessages[0]).toContain('Parameter query results by definition:');
+      expect(errorMessages[0]).toContain('projects: 30');
+      expect(errorMessages[0]).toContain('tasks: 20');
+      expect(errorMessages[0]).toContain('comments: 10');
+
+      expect(errorData[0].parameter_query_results).toBe(60);
+      expect(errorData[0].parameter_query_results_by_definition).toEqual({
+        projects: 30,
+        tasks: 20,
+        comments: 10
+      });
+    });
+
+    test('limits breakdown to top 10 definitions', async () => {
+      // Create sync rules with 15 different definitions with dynamic parameters
+      let yamlDefinitions = 'bucket_definitions:\n';
+      for (let i = 1; i <= 15; i++) {
+        yamlDefinitions += `  def${i}:\n`;
+        yamlDefinitions += `    parameters: select id from def${i}_table where user_id = request.user_id()\n`;
+        yamlDefinitions += `    data: []\n`;
+      }
+
+      const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
+        hydrationState: versionedHydrationState(5)
+      });
+
+      const storage = new MockBucketChecksumStateStorage();
+
+      const errorMessages: string[] = [];
+      const mockLogger = {
+        info: () => {},
+        error: (message: string) => {
+          errorMessages.push(message);
+        },
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const smallContext = new SyncContext({
+        maxBuckets: 100,
+        maxParameterQueryResults: 10,
+        maxDataFetchConcurrency: 10
+      });
+
+      const state = new BucketChecksumState({
+        syncContext: smallContext,
+        tokenPayload: new JwtPayload({ sub: 'u1' }),
+        syncRequest,
+        syncRules: SYNC_RULES_MANY,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      // Each definition creates one bucket, total 15 buckets
+      for (let i = 1; i <= 15; i++) {
+        storage.updateTestChecksum({ bucket: `def${i}[${i}]`, checksum: 1, count: 1 });
+      }
+
+      await expect(
+        state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(1n, (lookups) => {
+            // Return one result for each definition
+            return [{ id: 1 }];
+          }),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        })
+      ).rejects.toThrow('Too many parameter query results: 15 (limit of 10)');
+
+      // Verify only top 10 are shown
+      const errorMessage = errorMessages[0];
+      expect(errorMessage).toContain('... and 5 more results from 5 definitions');
+
+      // Count how many definitions are listed (should be exactly 10)
+      const defMatches = errorMessage.match(/def\d+:/g);
+      expect(defMatches?.length).toBe(10);
+    });
+  });
 });
 
 class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
@@ -864,7 +1078,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
     this.filter?.({ invalidate: true });
   }
 
-  async getChecksums(checkpoint: InternalOpId, requests: BucketChecksumRequest[]): Promise<ChecksumMap> {
+  async getChecksums(_checkpoint: InternalOpId, requests: BucketChecksumRequest[]): Promise<ChecksumMap> {
     return new Map<string, BucketChecksum>(
       requests.map((request) => {
         const checksum = this.state.get(request.bucket);

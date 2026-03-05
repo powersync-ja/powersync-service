@@ -69,6 +69,7 @@ describe('Config', () => {
 
     expect(config.api_parameters.max_buckets_per_connection).toBe(1);
   });
+
   it('should throw YAML validation error for invalid base64 config', {}, async () => {
     const yamlConfig = /* yaml */ `
       # PowerSync config
@@ -85,5 +86,119 @@ describe('Config', () => {
         config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
       })
     ).rejects.toThrow(/YAML Error:[\s\S]*Attempting to substitute environment variable INVALID_VAR/);
+  });
+
+  it('should resolve inline sync config', async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      sync_config:
+        content: |
+          config:
+            edition: 2
+          streams:
+            a:
+              query: SELECT * FROM users
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const result = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+    });
+
+    expect(result.sync_rules).toEqual({
+      present: true,
+      exit_on_error: true,
+      content: expect.stringContaining('edition: 2')
+    });
+  });
+
+  it('should still resolve inline sync rules', async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      sync_rules:
+        content: |
+          config:
+            edition: 2
+          streams:
+            a:
+              query: SELECT * FROM users
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const result = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+    });
+
+    expect(result.sync_rules).toEqual({
+      present: true,
+      exit_on_error: true,
+      content: expect.stringContaining('edition: 2')
+    });
+  });
+
+  it('should resolve base64 sync config', async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+    `;
+    const yamlSyncConfig = /* yaml */ `
+      config:
+        edition: 2
+      streams:
+        a:
+          query: SELECT * FROM users
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    const result = await collector.collectConfig({
+      config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64'),
+      sync_config_base64: Buffer.from(yamlSyncConfig, 'utf-8').toString('base64')
+    });
+
+    expect(result.sync_rules).toEqual({
+      present: true,
+      exit_on_error: true,
+      content: expect.stringContaining('edition: 2')
+    });
+  });
+
+  it('should not allow both sync_config and sync_rules', async () => {
+    const yamlConfig = /* yaml */ `
+      # PowerSync config
+      replication:
+        connections: []
+      storage:
+        type: mongodb
+      sync_config:
+        content: |
+          config:
+            edition: 2
+      sync_rules:
+        content: |
+          config:
+            edition: 2
+    `;
+
+    const collector = new CompoundConfigCollector();
+
+    await expect(
+      collector.collectConfig({
+        config_base64: Buffer.from(yamlConfig, 'utf-8').toString('base64')
+      })
+    ).rejects.toThrow(/Both `sync_config` and `sync_rules` are present/);
   });
 });

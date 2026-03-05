@@ -5,6 +5,7 @@ import {
   ExprCall,
   ExprRef,
   nil,
+  NodeLocation,
   PGNode,
   SelectFromStatement
 } from 'pgsql-ast-parser';
@@ -18,10 +19,16 @@ import {
 } from '../sync_plan/expression.js';
 import { ConnectionParameterSource } from '../sync_plan/plan.js';
 import { ParsingErrorListener } from './compiler.js';
-import { ColumnInRow, ConnectionParameter, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
-import { BaseSourceResultSet, PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
+import {
+  ColumnInRow,
+  ConnectionParameter,
+  ExpressionInput,
+  NodeLocations,
+  SourceLocation,
+  SyncExpression
+} from './expression.js';
 import { SqlScope } from './scope.js';
-import { SourceSchema } from '../types.js';
+import { BaseSourceResultSet, PhysicalSourceResultSet, SourceResultSet, SyntacticResultSetSource } from './table.js';
 
 export interface ResolvedSubqueryExpression {
   filters: SqlExpression<ExpressionInput>[];
@@ -90,7 +97,7 @@ export class PostgresToSqlite {
 
   private translateNodeWithLocation(expr: Expr): SqlExpression<ExpressionInput> {
     const translated = this.translateToNode(expr);
-    this.options.locations.sourceForNode.set(translated, expr);
+    this.options.locations.sourceForNode.set(translated, this.sourceLocation(expr));
     return translated;
   }
 
@@ -242,17 +249,11 @@ export class PostgresToSqlite {
           this.options.errors.report('LIKE expressions are not currently supported.', expr);
           return { type: 'function', function: 'like', parameters: [left, right] };
         } else if (expr.op === 'NOT LIKE') {
-          return {
-            type: 'unary',
-            operator: 'not',
-            operand: { type: 'function', function: 'like', parameters: [left, right] }
-          };
+          this.options.errors.report('LIKE expressions are not currently supported.', expr);
+          return this.negate(expr, { type: 'function', function: 'like', parameters: [left, right] });
         } else if (expr.op === '!=') {
-          return {
-            type: 'unary',
-            operator: 'not',
-            operand: { type: 'binary', left, right, operator: '=' }
-          };
+          const equals: SqlExpression<ExpressionInput> = { type: 'binary', left, right, operator: '=' };
+          return this.negate(expr, equals);
         }
 
         const supported = supportedBinaryOperators[expr.op];
@@ -272,7 +273,7 @@ export class PostgresToSqlite {
           case '+':
             return { type: 'unary', operator: expr.op, operand: this.translateNodeWithLocation(expr.operand) };
           case 'NOT':
-            return { type: 'unary', operator: 'not', operand: this.translateNodeWithLocation(expr.operand) };
+            return this.negate(expr, this.translateToNode(expr.operand));
           case 'IS NOT NULL':
             not = true;
           case 'IS NULL': // fallthrough
@@ -298,9 +299,7 @@ export class PostgresToSqlite {
         };
 
         if (not) {
-          // Also track the location of the inner node.
-          this.options.locations.sourceForNode.set(mappedIs, expr);
-          return { type: 'unary', operator: 'not', operand: mappedIs };
+          return this.negate(expr, mappedIs);
         } else {
           return mappedIs;
         }
@@ -321,7 +320,7 @@ export class PostgresToSqlite {
           high: this.translateNodeWithLocation(expr.hi)
         };
 
-        return expr.op === 'BETWEEN' ? between : { type: 'unary', operator: 'not', operand: between };
+        return expr.op === 'NOT BETWEEN' ? this.negate(expr, between) : between;
       }
       case 'case': {
         return {
@@ -376,18 +375,21 @@ export class PostgresToSqlite {
     let translatedRight: SqlExpression<ExpressionInput>;
     let additionalFilters: SqlExpression<ExpressionInput>[] = [];
 
-    const expand = (expr: Expr): SqlExpression<ExpressionInput> => {
+    const expand = (
+      expr: Expr,
+      acceptScalarArray: boolean
+    ): { expr: SqlExpression<ExpressionInput>; isScalar: boolean } => {
       if (expr.type === 'select') {
         const resolved = this.options.joinSubqueryExpression(expr);
         if (resolved == null) {
           // An error would have been logged.
           const bogusValue: SqlExpression<ExpressionInput> = { type: 'lit_null' };
-          this.options.locations.sourceForNode.set(bogusValue, expr);
-          return bogusValue;
+          this.options.locations.sourceForNode.set(bogusValue, this.sourceLocation(expr));
+          return { expr: bogusValue, isScalar: false };
         }
 
         additionalFilters.push(...resolved.filters);
-        return resolved.output;
+        return { expr: resolved.output, isScalar: false };
       } else {
         if (expr.type == 'ref' && expr.table == null) {
           // This might be a reference to a common table expression, e.g. in  WHERE x IN $cte.
@@ -397,32 +399,43 @@ export class PostgresToSqlite {
             const columns = Object.keys(cte.resultColumns);
             if (columns.length != 1) {
               const bogus = this.invalidExpression(expr, 'Common-table expression must return a single column');
-              this.options.locations.sourceForNode.set(bogus, expr);
-              return bogus;
+              this.options.locations.sourceForNode.set(bogus, this.sourceLocation(expr));
+              return { expr: bogus, isScalar: false };
             }
 
-            return expand({
-              type: 'select',
-              columns: [
-                { expr: { type: 'ref', name: columns[0], table: { name: expr.name }, _location: expr._location } }
-              ],
-              from: [{ type: 'table', name: { name: expr.name } }]
-            });
+            return expand(
+              {
+                type: 'select',
+                columns: [
+                  { expr: { type: 'ref', name: columns[0], table: { name: expr.name }, _location: expr._location } }
+                ],
+                from: [{ type: 'table', name: { name: expr.name } }]
+              },
+              false
+            );
           }
         }
 
-        // Translate `x IN a` to `x IN (SELECT value FROM json_each(a))`.
-        const name = this.options.generateTableAlias();
-        return expand({
-          type: 'select',
-          columns: [{ expr: { type: 'ref', name: 'value', table: { name }, _location: expr._location } }],
-          from: [{ type: 'call', function: { name: 'json_each' }, args: [expr], alias: { name } }]
-        });
+        // This is a scalar expression. Is this acceptable?
+        if (acceptScalarArray) {
+          return { expr: this.translateNodeWithLocation(expr), isScalar: true };
+        } else {
+          // No, then translate `x IN a` to `x IN (SELECT value FROM json_each(a))`.
+          const name = this.options.generateTableAlias();
+          return expand(
+            {
+              type: 'select',
+              columns: [{ expr: { type: 'ref', name: 'value', table: { name }, _location: expr._location } }],
+              from: [{ type: 'call', function: { name: 'json_each' }, args: [expr], alias: { name } }]
+            },
+            false
+          );
+        }
       }
     };
 
     if (type === 'overlap') {
-      translatedLeft = expand(original.left);
+      translatedLeft = expand(original.left, false).expr;
     } else {
       // For IN expressions, the left side is always a scalar.
       translatedLeft = this.translateNodeWithLocation(original.left);
@@ -430,13 +443,27 @@ export class PostgresToSqlite {
       // Additionally, we support IN ARRAY[...] and IN ROW(...) expressions which are always scalar.
       // TODO: We might be able to simplify expressions by translating them into json_array() invocations in expand()?
       if (original.right.type == 'array') {
-        return this.desugarInValues(negated, translatedLeft, original.right.expressions);
+        return this.desugarInValues(negated, original, translatedLeft, original.right.expressions);
       } else if (original.right.type == 'call' && original.right.function.name.toLowerCase() == 'row') {
-        return this.desugarInValues(negated, translatedLeft, original.right.args);
+        return this.desugarInValues(negated, original, translatedLeft, original.right.args);
       }
     }
 
-    translatedRight = expand(original.right);
+    // Generally, we try to transform `x IN y` operators to `SELECT ... FROM x, y WHERE x = y.value`. This doesn't work
+    // for `NOT IN` operators though. We don't support the general case of `NOT IN` operators, but we want to be able to
+    // support `NOT IN` for scalar expression on the right-hand side. We use the scalar `json_contains` function
+    // available when evaluating sync plans for that. This is also how the `IN` operator is implemented with the old
+    // system before sync plans, we use it as a fallback for NOT IN here.
+    const translateRightResult = expand(original.right, type == 'in' && negated);
+    if (translateRightResult.isScalar) {
+      return this.negate(original, {
+        type: 'function',
+        function: 'ps_json_contains',
+        parameters: [translatedLeft, translateRightResult.expr]
+      });
+    } else {
+      translatedRight = translateRightResult.expr;
+    }
 
     let replacement: SqlExpression<ExpressionInput> = {
       type: 'binary',
@@ -444,7 +471,7 @@ export class PostgresToSqlite {
       left: translatedLeft,
       right: translatedRight
     };
-    this.options.locations.sourceForNode.set(replacement, original);
+    this.options.locations.sourceForNode.set(replacement, this.sourceLocation(original));
 
     replacement = additionalFilters.reduce(
       (left, right) => ({ type: 'binary', operator: 'and', left, right }),
@@ -452,7 +479,7 @@ export class PostgresToSqlite {
     );
 
     if (negated) {
-      replacement = { type: 'unary', operator: 'not', operand: replacement };
+      replacement = this.negate(original, replacement);
     }
 
     return replacement;
@@ -460,6 +487,7 @@ export class PostgresToSqlite {
 
   private desugarInValues(
     negated: boolean,
+    source: Expr,
     left: SqlExpression<ExpressionInput>,
     right: Expr[]
   ): SqlExpression<ExpressionInput> {
@@ -468,7 +496,14 @@ export class PostgresToSqlite {
       target: left,
       in: right.map((e) => this.translateNodeWithLocation(e))
     };
-    return negated ? { type: 'unary', operator: 'not', operand: scalarIn } : scalarIn;
+
+    return negated ? this.negate(source, scalarIn) : scalarIn;
+  }
+
+  /// Generates a `NOT` wrapper around the `inner` expression, using `source` as a syntactic location.
+  private negate(source: Expr, inner: SqlExpression<ExpressionInput>): SqlExpression<ExpressionInput> {
+    this.options.locations.sourceForNode.set(inner, this.sourceLocation(source));
+    return { type: 'unary', operator: 'not', operand: inner };
   }
 
   private translateRequestParameter(source: ConnectionParameterSource, expr: ExprCall): SqlExpression<ExpressionInput> {
@@ -477,7 +512,7 @@ export class PostgresToSqlite {
       type: 'data',
       source: parameter
     };
-    this.options.locations.sourceForNode.set(replacement, expr.function);
+    this.options.locations.sourceForNode.set(replacement, this.sourceLocation(expr.function));
 
     switch (expr.function.name.toLowerCase()) {
       case 'parameters':
@@ -507,6 +542,10 @@ export class PostgresToSqlite {
       default:
         return this.invalidExpression(expr.function, 'Unknown request function');
     }
+  }
+
+  private sourceLocation(location: PGNode | NodeLocation): SourceLocation {
+    return { location, errors: this.options.errors };
   }
 }
 

@@ -18,6 +18,7 @@ import {
   BucketDataSource,
   BucketParameterQuerierSource,
   GetQuerierOptions,
+  resolvedBucket,
   ScopedParameterLookup,
   UnscopedEvaluatedParameters,
   UnscopedEvaluatedParametersResult
@@ -42,7 +43,7 @@ import {
   SqliteRow
 } from './types.js';
 import {
-  buildBucketInfo,
+  bucketDescription,
   filterJsonRow,
   isJsonValue,
   isSelectStatement,
@@ -441,11 +442,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
         }
 
         const serializedParameters = serializeBucketParameters(this.bucketParameters, result);
-
-        return {
-          ...buildBucketInfo(bucketScope, serializedParameters),
-          priority: this.priority
-        };
+        return bucketDescription(bucketScope, serializedParameters, this.priority);
       })
       .filter((lookup) => lookup != null);
   }
@@ -548,11 +545,9 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
       hasDynamicBuckets: true,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
         const bucketParameters = await source.getParameterSets(lookups);
-        return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => ({
-          ...bucket,
-          definition: this.descriptorName,
-          inclusion_reasons: reasons
-        }));
+        return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => {
+          return resolvedBucket(bucket, { definition: this.descriptorName, inclusion_reasons: reasons });
+        });
       }
     };
   }

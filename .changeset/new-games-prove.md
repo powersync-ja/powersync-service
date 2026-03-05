@@ -8,7 +8,6 @@
 '@powersync/service-module-mssql': minor
 '@powersync/service-module-mysql': minor
 '@powersync/service-sync-rules': minor
-'@powersync/service-errors': patch
 ---
 
-Introduce storage versions.
+[Internal] Track and propagate source on buckets and parameter indexes to storage APIs.

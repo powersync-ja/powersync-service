@@ -10,10 +10,13 @@ import {
   ProtocolOpId,
   ReplicationCheckpoint,
   settledPromise,
+  storage,
   STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   TestStorageOptions,
-  unsettledPromise
+  unsettledPromise,
+  updateSyncRulesFromYaml,
+  utils
 } from '@powersync/service-core';
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
@@ -29,6 +32,9 @@ export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
+  private streamPromise?: Promise<PromiseSettledResult<void>>;
+  private syncRulesId?: number;
+  private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -101,11 +107,11 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({
-      content: content,
-      validate: true,
-      storageVersion: this.storageVersion
-    });
+    const syncRules = await this.factory.updateSyncRules(
+      updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
+    );
+    this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -116,8 +122,17 @@ export class ChangeStreamTestContext {
       throw new Error(`Next sync rules not available`);
     }
 
+    this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
+  }
+
+  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+    if (this.syncRulesContent == null) {
+      throw new Error('Sync rules not configured - call updateSyncRules() first');
+    }
+    return this.syncRulesContent;
   }
 
   get streamer() {
@@ -197,7 +212,7 @@ export class ChangeStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const syncRules = this.getSyncRulesContent();
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
@@ -207,7 +222,7 @@ export class ChangeStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const syncRules = this.getSyncRulesContent();
     const checkpoint = await this.getCheckpoint(options);
     let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
@@ -226,8 +241,15 @@ export class ChangeStreamTestContext {
 
   async getChecksum(request: BucketChecksumRequest, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = await this.storage!.getChecksums(checkpoint, [request]);
-    return map.get(request.bucket);
+    const syncRules = this.getSyncRulesContent();
+    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
+    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
+
+    const unversioned: utils.ChecksumMap = new Map();
+    for (let i = 0; i < buckets.length; i++) {
+      unversioned.set(buckets[i], checksums.get(versionedBuckets[i].bucket)!);
+    }
+    return unversioned;
   }
 }
 

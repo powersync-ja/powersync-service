@@ -1,21 +1,22 @@
-import { storage } from '@powersync/service-core';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { parameterLookupScope } from './util.js';
 
 export function registerParameterCompactTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
 
   test('compacting parameters', async () => {
     await using factory = await generateStorageFactory();
-    const syncRules = await factory.updateSyncRules({
-      content: `
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
 bucket_definitions:
   test:
     parameters: select id from test where id = request.user_id()
     data: []
-    `
-    });
+    `)
+    );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -90,14 +91,14 @@ bucket_definitions:
   for (let cacheLimit of [1, 10]) {
     test(`compacting deleted parameters with cache size ${cacheLimit}`, async () => {
       await using factory = await generateStorageFactory();
-      const syncRules = await factory.updateSyncRules({
-        content: `
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(`
 bucket_definitions:
   test:
     parameters: select id from test where uid = request.user_id()
     data: []
-    `
-      });
+    `)
+      );
       const bucketStorage = factory.getInstance(syncRules);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);

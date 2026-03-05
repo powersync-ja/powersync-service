@@ -2,21 +2,21 @@
 import { describe, expect, test } from 'vitest';
 import { HydrationState, ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
 import {
+  BucketDataScope,
   BucketParameterQuerier,
   CompatibilityContext,
   CompatibilityEdition,
   CreateSourceParams,
   debugHydratedMergedSource,
   DEFAULT_TAG,
+  EvaluatedParametersResult,
   EvaluationResult,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
-  mergeBucketParameterQueriers,
-  UnscopedParameterLookup,
-  QuerierError,
-  RequestParameters,
-  EvaluatedParametersResult,
   isEvaluatedParameters,
+  mergeBucketParameterQueriers,
+  QuerierError,
+  ScopedParameterLookup,
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
@@ -24,28 +24,20 @@ import {
   StreamParseOptions,
   SyncStream,
   syncStreamFromSql,
-  ScopedParameterLookup
+  UnscopedParameterLookup
 } from '../../src/index.js';
 import {
+  lookupScope,
   normalizeQuerierOptions,
   PARSE_OPTIONS,
   removeSource,
-  removeSourceSymbol,
   requestParameters,
   TestSourceTable
 } from './util.js';
 
 describe('streams', () => {
-  const STREAM_0: ParameterLookupScope = {
-    lookupName: 'stream',
-    queryId: '0',
-    source: {} as any
-  };
-  const STREAM_1: ParameterLookupScope = {
-    lookupName: 'stream',
-    queryId: '1',
-    source: {} as any
-  };
+  const STREAM_0: ParameterLookupScope = lookupScope('stream', '0');
+  const STREAM_1: ParameterLookupScope = lookupScope('stream', '1');
 
   function removeLookupSource(entry: EvaluatedParametersResult) {
     if (!isEvaluatedParameters(entry)) {
@@ -108,7 +100,7 @@ describe('streams', () => {
       normalizeQuerierOptions({ parameters: { test: 'foo' } }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
     );
 
-    expect(mergeBucketParameterQueriers(queriers).staticBuckets.map(removeSourceSymbol)).toEqual([
+    expect(mergeBucketParameterQueriers(queriers).staticBuckets.map(removeSource)).toEqual([
       {
         bucket: '1#stream|0["foo"]',
         definition: 'stream',
@@ -120,6 +112,49 @@ describe('streams', () => {
         priority: 3
       }
     ]);
+  });
+
+  test('tracks source metadata on stream APIs', async () => {
+    const desc = parseStream(
+      "SELECT * FROM comments WHERE issue_id = subscription.parameter('issue') OR issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())"
+    );
+    const source = debugHydratedMergedSource(desc, hydrationParams);
+
+    const rowResults = source.evaluateRow({ sourceTable: COMMENTS, record: { id: 'c1', issue_id: 'i1' } });
+    expect(rowResults).toHaveLength(2);
+
+    const rowSourceByBucket = new Map<string, unknown>();
+    for (const row of rowResults) {
+      if ('error' in row) {
+        throw new Error(`Unexpected error evaluating stream row: ${row.error}`);
+      }
+      rowSourceByBucket.set(row.bucket, row.source);
+    }
+    expect(rowSourceByBucket.get('1#stream|0["i1"]')).toBe(desc.dataSources[0]);
+    expect(rowSourceByBucket.get('1#stream|1["i1"]')).toBe(desc.dataSources[1]);
+
+    const parameterResults = source.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' });
+    expect(parameterResults).toHaveLength(1);
+    if ('error' in parameterResults[0]) {
+      throw new Error(`Unexpected error evaluating stream parameters: ${parameterResults[0].error}`);
+    }
+    expect(parameterResults[0].lookup.source).toBe(desc.parameterIndexLookupCreators[0]);
+
+    const { querier, errors } = await createQueriers(desc, {
+      tokenPayload: { sub: 'u1' },
+      parameters: { issue: 'i1' }
+    });
+    expect(errors).toHaveLength(0);
+    expect(querier.staticBuckets).toHaveLength(1);
+    expect(querier.staticBuckets[0].source).toBe(desc.dataSources[0]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets() {
+        return [{ result: 'i1' }];
+      }
+    });
+    expect(dynamicBuckets).toHaveLength(1);
+    expect(dynamicBuckets[0].source).toBe(desc.dataSources[1]);
   });
 
   describe('or', () => {
@@ -793,11 +828,7 @@ describe('streams', () => {
           tokenPayload: { sub: 'id' },
           parameters: {},
           getParameterSets(lookups) {
-            expect(lookups.map(removeSource)).toStrictEqual([
-              removeSource(
-                ScopedParameterLookup.direct({ lookupName: 'account_member', queryId: '0', source: {} as any }, ['id'])
-              )
-            ]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('account_member', '0'), ['id'])]);
             return [{ result: 'account_id' }];
           }
         })
@@ -1012,10 +1043,10 @@ WHERE
       `);
 
     const hydrationState: HydrationState = {
-      getBucketSourceScope(source) {
+      getBucketSourceScope(source): BucketDataScope {
         return { bucketPrefix: `${source.uniqueName}.test`, source };
       },
-      getParameterIndexLookupScope(source) {
+      getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
           queryId: `${source.defaultLookupScope.queryId}.test`,
@@ -1040,9 +1071,7 @@ WHERE
         .map(removeLookupSource)
     ).toStrictEqual([
       {
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test', source: {} as any }, ['u1'])
-        ),
+        lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '0.test'), ['u1']),
         bucketParameters: [
           {
             result: 'i1'
@@ -1051,9 +1080,7 @@ WHERE
       },
 
       {
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '1.test', source: {} as any }, ['myname'])
-        ),
+        lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '1.test'), ['myname']),
         bucketParameters: [
           {
             result: 'i1'
@@ -1071,9 +1098,7 @@ WHERE
         .map(removeLookupSource)
     ).toStrictEqual([
       {
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test', source: {} as any }, ['u1'])
-        ),
+        lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '0.test'), ['u1']),
         bucketParameters: [
           {
             result: 'i1'

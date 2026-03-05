@@ -1,5 +1,11 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { BucketDescription, BucketPriority, HydratedSyncRules, SqliteJsonValue } from '@powersync/service-sync-rules';
+import {
+  BucketDescription,
+  BucketPriority,
+  HydratedSyncRules,
+  ResolvedBucket,
+  SqliteJsonValue
+} from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 
@@ -179,7 +185,7 @@ async function* streamResponseInner(
       // receive a sync complete message after the synchronization is done (which happens in the last
       // bucketDataInBatches iteration). Without any batch, the line is missing and clients might not complete their
       // sync properly.
-      const priorityBatches: [BucketPriority | null, BucketDescription[]][] = bucketsByPriority;
+      const priorityBatches: [BucketPriority | null, ResolvedBucket[]][] = bucketsByPriority;
       if (priorityBatches.length == 0) {
         priorityBatches.push([null, []]);
       }
@@ -257,7 +263,7 @@ interface BucketDataRequest {
   /** Contains current bucket state. Modified by the request as data is sent. */
   checkpointLine: CheckpointLine;
   /** Subset of checkpointLine.bucketsToFetch, filtered by priority. */
-  bucketsToFetch: BucketDescription[];
+  bucketsToFetch: ResolvedBucket[];
   /** Whether data lines should be encoded in a legacy format where {@link util.OplogEntry.data} is a nested object. */
   legacyDataLines: boolean;
   /** Signals that the connection was aborted and that streaming should stop ASAP. */

@@ -36,7 +36,7 @@ export function castAsBlob(value: SqliteValue): Uint8Array | null {
   if (value == null) {
     return null;
   } else if (value instanceof Uint8Array) {
-    return value!;
+    return value;
   }
 
   if (typeof value != 'string') {

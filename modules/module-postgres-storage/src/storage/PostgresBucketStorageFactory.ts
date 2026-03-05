@@ -1,29 +1,24 @@
-import * as framework from '@powersync/lib-services-framework';
-import { GetIntanceOptions, storage, SyncRulesBucketStorage, UpdateSyncRulesOptions } from '@powersync/service-core';
+import { framework, GetIntanceOptions, storage, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
-import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { models, NormalizedPostgresStorageConfig } from '../types/types.js';
 
+import { getStorageApplicationName } from '../utils/application-name.js';
 import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
-import { notifySyncRulesUpdate, PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
+import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
+import { PostgresBucketDataWriter } from './batch/PostgresBucketDataWriter.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedSyncRulesContent } from './sync-rules/PostgresPersistedSyncRulesContent.js';
-import { getStorageApplicationName } from '../utils/application-name.js';
-import { PostgresBucketDataWriter } from './batch/PostgresBucketDataWriter.js';
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
   slot_name_prefix: string;
 };
 
-export class PostgresBucketStorageFactory
-  extends framework.BaseObserver<storage.BucketStorageFactoryListener>
-  implements storage.BucketStorageFactory
-{
+export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   readonly db: lib_postgres.DatabaseClient;
   public readonly slot_name_prefix: string;
 
@@ -111,15 +106,27 @@ export class PostgresBucketStorageFactory
 
     const sizes = await this.db.sql`
       SELECT
-        pg_total_relation_size('current_data') AS current_size_bytes,
+        COALESCE(
+          pg_total_relation_size(to_regclass('current_data')),
+          0
+        ) AS v1_current_size_bytes,
+        COALESCE(
+          pg_total_relation_size(to_regclass('v3_current_data')),
+          0
+        ) AS v3_current_size_bytes,
         pg_total_relation_size('bucket_parameters') AS parameter_size_bytes,
         pg_total_relation_size('bucket_data') AS operations_size_bytes;
-    `.first<{ current_size_bytes: bigint; parameter_size_bytes: bigint; operations_size_bytes: bigint }>();
+    `.first<{
+      v1_current_size_bytes: bigint;
+      v3_current_size_bytes: bigint;
+      parameter_size_bytes: bigint;
+      operations_size_bytes: bigint;
+    }>();
 
     return {
       operations_size_bytes: Number(sizes!.operations_size_bytes),
       parameters_size_bytes: Number(sizes!.parameter_size_bytes),
-      replication_size_bytes: Number(sizes!.current_size_bytes)
+      replication_size_bytes: Number(sizes!.v1_current_size_bytes) + Number(sizes!.v3_current_size_bytes)
     };
   }
 
@@ -169,43 +176,16 @@ export class PostgresBucketStorageFactory
     };
   }
 
-  // TODO possibly share implementation in abstract class
-  async configureSyncRules(options: UpdateSyncRulesOptions): Promise<{
-    updated: boolean;
-    persisted_sync_rules?: storage.PersistedSyncRulesContent;
-    lock?: storage.ReplicationLock;
-  }> {
-    const next = await this.getNextSyncRulesContent();
-    const active = await this.getActiveSyncRulesContent();
-
-    if (next?.sync_rules_content == options.content) {
-      framework.logger.info('Sync rules from configuration unchanged');
-      return { updated: false };
-    } else if (next == null && active?.sync_rules_content == options.content) {
-      framework.logger.info('Sync rules from configuration unchanged');
-      return { updated: false };
-    } else {
-      framework.logger.info('Sync rules updated from configuration');
-      const persisted_sync_rules = await this.updateSyncRules(options);
-      return { updated: true, persisted_sync_rules, lock: persisted_sync_rules.current_lock ?? undefined };
-    }
-  }
-
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<PostgresPersistedSyncRulesContent> {
-    // TODO some shared implementation for this might be nice
-    if (options.validate) {
-      // Parse and validate before applying any changes
-      sync_rules.SqlSyncRules.fromYaml(options.content, {
-        // No schema-based validation at this point
-        schema: undefined,
-        defaultSchema: 'not_applicable', // Not needed for validation
-        throwOnError: true
-      });
-    } else {
-      // Apply unconditionally. Any errors will be reported via the diagnostics API.
-    }
-
     const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+    const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
+    if (storageConfig == null) {
+      throw new framework.ServiceError(
+        framework.ErrorCode.PSYNC_S1005,
+        `Unsupported storage version ${storageVersion}`
+      );
+    }
+    await this.initializeStorageVersion(storageConfig);
     return this.db.transaction(async (db) => {
       await db.sql`
         UPDATE sync_rules
@@ -222,7 +202,14 @@ export class PostgresBucketStorageFactory
               nextval('sync_rules_id_sequence') AS id
           )
         INSERT INTO
-          sync_rules (id, content, state, slot_name, storage_version)
+          sync_rules (
+            id,
+            content,
+            sync_plan,
+            state,
+            slot_name,
+            storage_version
+          )
         VALUES
           (
             (
@@ -231,7 +218,8 @@ export class PostgresBucketStorageFactory
               FROM
                 next_id
             ),
-            ${{ type: 'varchar', value: options.content }},
+            ${{ type: 'varchar', value: options.config.yaml }},
+            ${{ type: 'json', value: options.config.plan }},
             ${{ type: 'varchar', value: storage.SyncRuleState.PROCESSING }},
             CONCAT(
               ${{ type: 'varchar', value: this.slot_name_prefix }},
@@ -258,6 +246,34 @@ export class PostgresBucketStorageFactory
     });
   }
 
+  /**
+   * Lazy-initializes storage-version-specific structures, if needed.
+   */
+  private async initializeStorageVersion(storageConfig: storage.StorageVersionConfig) {
+    if (!storageConfig.softDeleteCurrentData) {
+      return;
+    }
+
+    await this.db.sql`
+      CREATE TABLE IF NOT EXISTS v3_current_data (
+        group_id integer NOT NULL,
+        source_table TEXT NOT NULL,
+        source_key bytea NOT NULL,
+        CONSTRAINT unique_v3_current_data_id PRIMARY KEY (group_id, source_table, source_key),
+        buckets jsonb NOT NULL,
+        data bytea NOT NULL,
+        lookups bytea[] NOT NULL,
+        pending_delete BIGINT NULL
+      )
+    `.execute();
+
+    await this.db.sql`
+      CREATE INDEX IF NOT EXISTS v3_current_data_pending_deletes ON v3_current_data (group_id, pending_delete)
+      WHERE
+        pending_delete IS NOT NULL
+    `.execute();
+  }
+
   async restartReplication(sync_rules_group_id: number): Promise<void> {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
@@ -266,10 +282,8 @@ export class PostgresBucketStorageFactory
     // The current one will continue serving sync requests until the next one has finished processing.
     if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" sync rules
-      await this.updateSyncRules({
-        content: next.sync_rules_content,
-        validate: false
-      });
+
+      await this.updateSyncRules(next.asUpdateOptions());
       // Pro-actively stop replicating
       await this.db.sql`
         UPDATE sync_rules
@@ -281,10 +295,7 @@ export class PostgresBucketStorageFactory
       `.execute();
     } else if (next == null && active?.id == sync_rules_group_id) {
       // Slot removed for "active" sync rules, while there is no "next" one.
-      await this.updateSyncRules({
-        content: active.sync_rules_content,
-        validate: false
-      });
+      await this.updateSyncRules(active.asUpdateOptions());
 
       // Pro-actively stop replicating, but still serve clients with existing data
       await this.db.sql`
@@ -310,12 +321,6 @@ export class PostgresBucketStorageFactory
     }
   }
 
-  // TODO possibly share via abstract class
-  async getActiveSyncRules(options: storage.ParseSyncRulesOptions): Promise<storage.PersistedSyncRules | null> {
-    const content = await this.getActiveSyncRulesContent();
-    return content?.parsed(options) ?? null;
-  }
-
   async getActiveSyncRulesContent(): Promise<storage.PersistedSyncRulesContent | null> {
     const activeRow = await this.db.sql`
       SELECT
@@ -337,12 +342,6 @@ export class PostgresBucketStorageFactory
     }
 
     return new PostgresPersistedSyncRulesContent(this.db, activeRow);
-  }
-
-  // TODO possibly share via abstract class
-  async getNextSyncRules(options: storage.ParseSyncRulesOptions): Promise<storage.PersistedSyncRules | null> {
-    const content = await this.getNextSyncRulesContent();
-    return content?.parsed(options) ?? null;
   }
 
   async getNextSyncRulesContent(): Promise<storage.PersistedSyncRulesContent | null> {

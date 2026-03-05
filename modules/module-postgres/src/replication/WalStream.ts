@@ -122,6 +122,8 @@ export class WalStream {
    */
   private isStartingReplication = true;
 
+  private initialSnapshotPromise: Promise<void> | null = null;
+
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;

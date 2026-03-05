@@ -21,7 +21,8 @@ import {
   initializeCoreReplicationMetrics,
   reduceBucket,
   settledPromise,
-  unsettledPromise
+  unsettledPromise,
+  updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
@@ -50,7 +51,7 @@ function defineSlowTests({ factory, storageVersion }: StorageVersionTestContext)
     // This cleans up, similar to WalStreamTestContext.dispose().
     // These tests are a little more complex than what is supported by WalStreamTestContext.
     abortController?.abort();
-    await streamPromise;
+    await streamPromise?.catch((_) => {});
     streamPromise = undefined;
     connections?.destroy();
 
@@ -88,7 +89,7 @@ bucket_definitions:
     data:
       - SELECT * FROM "test_data"
 `;
-    const syncRules = await f.updateSyncRules({ content: syncRuleContent, storageVersion });
+    const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
@@ -259,6 +260,7 @@ bucket_definitions:
       } else if (f instanceof postgres_storage.storage.PostgresBucketStorageFactory) {
         const { db } = f;
         // Check that all inserts have been deleted again
+        // FIXME: handle different storage versions
         const docs = await db.sql`
           SELECT
             *
@@ -267,7 +269,7 @@ bucket_definitions:
           WHERE
             pending_delete IS NULL
         `
-          .decoded(postgres_storage.models.CurrentData)
+          .decoded(postgres_storage.models.V1CurrentData)
           .rows();
         const transformed = docs.map((doc) => {
           return bson.deserialize(doc.data) as SqliteRow;
@@ -324,7 +326,8 @@ bucket_definitions:
     data:
       - SELECT id, description FROM "test_data"
 `;
-    const syncRules = await f.updateSyncRules({ content: syncRuleContent, storageVersion });
+
+    const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
 
     // 1. Setup some base data that will be replicated in initial replication

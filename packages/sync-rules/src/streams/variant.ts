@@ -2,9 +2,15 @@ import { BucketInclusionReason, ResolvedBucket } from '../BucketDescription.js';
 import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQuerier.js';
 import { BucketDataSource, BucketParameterQuerierSource, ParameterIndexLookupCreator } from '../BucketSource.js';
 import { BucketDataScope } from '../HydrationState.js';
-import { CreateSourceParams, GetQuerierOptions, RequestedStream, ScopedParameterLookup } from '../index.js';
+import {
+  CreateSourceParams,
+  GetQuerierOptions,
+  RequestedStream,
+  resolvedBucket,
+  ScopedParameterLookup
+} from '../index.js';
 import { RequestParameters, SqliteJsonValue, TableRow } from '../types.js';
-import { buildBucketInfo, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
+import { bucketDescription, isJsonValue, JSONBucketNameSerialize } from '../utils.js';
 import { BucketParameter, SubqueryEvaluator } from './parameter.js';
 import { SyncStream } from './stream.js';
 import { cartesianProduct } from './utils.js';
@@ -291,12 +297,8 @@ export class StreamVariant {
     reason: BucketInclusionReason,
     bucketScope: BucketDataScope
   ): ResolvedBucket {
-    return {
-      definition: stream.name,
-      inclusion_reasons: [reason],
-      ...buildBucketInfo(bucketScope, this.serializeBucketParameters(instantiation)),
-      priority: stream.priority
-    };
+    const bucketInfo = bucketDescription(bucketScope, this.serializeBucketParameters(instantiation), stream.priority);
+    return resolvedBucket(bucketInfo, { definition: stream.name, inclusion_reasons: [reason] });
   }
 
   createParameterQuerierSource(

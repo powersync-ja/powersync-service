@@ -3,7 +3,6 @@ import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replicati
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   BucketChecksumRequest,
-  BucketRequest,
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
@@ -14,7 +13,8 @@ import {
   storage,
   STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
-  unsettledPromise
+  unsettledPromise,
+  updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
@@ -23,7 +23,7 @@ import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './uti
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
-  private syncRulesId?: number;
+  private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
 
@@ -94,12 +94,11 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({
-      content: content,
-      validate: true,
-      storageVersion: this.storageVersion
-    });
+    const syncRules = await this.factory.updateSyncRules(
+      updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
+    );
     this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -111,6 +110,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -122,8 +122,16 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
+  }
+
+  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+    if (this.syncRulesContent == null) {
+      throw new Error('Sync rules not configured - call updateSyncRules() first');
+    }
+    return this.syncRulesContent;
   }
 
   get walStream() {
@@ -187,7 +195,7 @@ export class WalStreamTestContext implements AsyncDisposable {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const syncRules = this.getSyncRulesContent();
     const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
@@ -200,7 +208,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const syncRules = this.getSyncRulesContent();
     const checkpoint = await this.getCheckpoint(options);
     let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
@@ -223,6 +231,12 @@ export class WalStreamTestContext implements AsyncDisposable {
     return checksums;
   }
 
+  async getChecksum(bucket: string, options?: { timeout?: number }) {
+    const request = bucketRequest(this.getSyncRulesContent(), bucket);
+    const checksums = await this.getChecksums([request], options);
+    return checksums.get(request.bucket);
+  }
+
   /**
    * This does not wait for a client checkpoint.
    */
@@ -231,7 +245,7 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.storage!.getParsedSyncRules({ defaultSchema: 'n/a' });
+    const syncRules = this.getSyncRulesContent();
     const { checkpoint } = await this.storage!.getCheckpoint();
     const map = [bucketRequest(syncRules, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);

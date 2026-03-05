@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { HydrationState } from '../../src/HydrationState.js';
 import {
+  BucketDataScope,
   BucketParameterQuerier,
   GetQuerierOptions,
   mergeParameterIndexLookupCreators,
+  ParameterLookupScope,
   QuerierError,
-  RequestParameters,
   ScopedParameterLookup,
   SourceTableInterface,
   SqlParameterQuery,
@@ -14,11 +15,12 @@ import {
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import {
   BASIC_SCHEMA,
+  bucketDataScope,
   EMPTY_DATA_SOURCE,
   findQuerierLookups,
+  lookupScope,
   PARSE_OPTIONS,
   removeSource,
-  removeSourceSymbol,
   requestParameters
 } from './util.js';
 
@@ -131,21 +133,19 @@ describe('parameter queries', () => {
 
     // We _do_ need to care about the bucket string representation.
     expect(
-      query
-        .resolveBucketDescriptions([{ int1: 314, float1: 3.14, float2: 314 }], requestParameters({}), {
-          bucketPrefix: 'mybucket',
-          source: EMPTY_DATA_SOURCE
-        })
-        .map(removeSourceSymbol)
+      query.resolveBucketDescriptions(
+        [{ int1: 314, float1: 3.14, float2: 314 }],
+        requestParameters({}),
+        bucketDataScope('mybucket')
+      )
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
 
     expect(
-      query
-        .resolveBucketDescriptions([{ int1: 314n, float1: 3.14, float2: 314 }], requestParameters({}), {
-          bucketPrefix: 'mybucket',
-          source: EMPTY_DATA_SOURCE
-        })
-        .map(removeSourceSymbol)
+      query.resolveBucketDescriptions(
+        [{ int1: 314n, float1: 3.14, float2: 314 }],
+        requestParameters({}),
+        bucketDataScope('mybucket')
+      )
     ).toEqual([{ bucket: 'mybucket[314,3.14,314]', priority: 3 }]);
   });
 
@@ -505,13 +505,11 @@ describe('parameter queries', () => {
     ]);
 
     expect(
-      query
-        .resolveBucketDescriptions(
-          [{ user_id: 'user1' }],
-          requestParameters({ sub: 'user1', parameters: { is_admin: true } }),
-          { bucketPrefix: 'mybucket', source: EMPTY_DATA_SOURCE }
-        )
-        .map(removeSourceSymbol)
+      query.resolveBucketDescriptions(
+        [{ user_id: 'user1' }],
+        requestParameters({ sub: 'user1', parameters: { is_admin: true } }),
+        bucketDataScope('mybucket')
+      )
     ).toEqual([{ bucket: 'mybucket["user1",1]', priority: 3 }]);
   });
 
@@ -888,10 +886,10 @@ describe('parameter queries', () => {
 
   describe('custom hydrationState', function () {
     const hydrationState: HydrationState = {
-      getBucketSourceScope(source) {
+      getBucketSourceScope(source): BucketDataScope {
         return { bucketPrefix: `${source.uniqueName}-test`, source };
       },
-      getParameterIndexLookupScope(source) {
+      getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
           queryId: `${source.defaultLookupScope.queryId}.test`,
@@ -925,19 +923,11 @@ describe('parameter queries', () => {
         result.map((entry) => ('lookup' in entry ? { ...entry, lookup: removeSource(entry.lookup) } : entry))
       ).toEqual([
         {
-          lookup: removeSource(
-            ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [
-              'test-user'
-            ])
-          ),
+          lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', 'myquery.test'), ['test-user']),
           bucketParameters: [{ group_id: 'group1' }]
         },
         {
-          lookup: removeSource(
-            ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [
-              'other-user'
-            ])
-          ),
+          lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', 'myquery.test'), ['other-user']),
           bucketParameters: [{ group_id: 'group1' }]
         }
       ]);
@@ -968,12 +958,8 @@ describe('parameter queries', () => {
 
       const querier = queriers[0];
       expect(querier.hasDynamicBuckets).toBeTruthy();
-      expect((await findQuerierLookups(querier)).map(removeSource)).toEqual([
-        removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: 'myquery.test', source: {} as any }, [
-            'test-user'
-          ])
-        )
+      expect(await findQuerierLookups(querier)).toEqual([
+        ScopedParameterLookup.direct(lookupScope('mybucket.test', 'myquery.test'), ['test-user'])
       ]);
     });
   });

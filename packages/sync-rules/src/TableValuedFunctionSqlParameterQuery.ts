@@ -1,5 +1,5 @@
 import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { CreateSourceParams } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
@@ -13,7 +13,6 @@ import {
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
-import { TablePattern } from './TablePattern.js';
 import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
   ParameterValueClause,
@@ -23,7 +22,7 @@ import {
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
-import { buildBucketInfo, isJsonValue, serializeBucketParameters } from './utils.js';
+import { bucketDescription, isJsonValue, resolvedBucket, serializeBucketParameters } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
@@ -237,11 +236,7 @@ export class TableValuedFunctionSqlParameterQuery {
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketScope).map((desc) => {
-          return {
-            ...desc,
-            definition: this.descriptorName,
-            inclusion_reasons: ['default']
-          } satisfies ResolvedBucket;
+          return resolvedBucket(desc, { definition: this.descriptorName, inclusion_reasons: ['default'] });
         });
 
         if (staticBuckets.length == 0) {
@@ -306,11 +301,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     const serializedBucketParameters = serializeBucketParameters(this.bucketParameters, result);
-
-    return {
-      ...buildBucketInfo(bucketScope, serializedBucketParameters),
-      priority: this.priority
-    };
+    return bucketDescription(bucketScope, serializedBucketParameters, this.priority);
   }
 
   private visitParameterExtractorsAndCallClause(): DetectRequestParameters {

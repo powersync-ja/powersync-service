@@ -30,7 +30,7 @@ import {
 import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { PowerSyncMongo } from './db.js';
+import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
 import {
   CurrentBucket,
   CurrentDataDocument,
@@ -60,7 +60,7 @@ const replicationMutex = new utils.Mutex();
 export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
 
 export interface MongoWriterOptions {
-  db: PowerSyncMongo;
+  db: VersionedPowerSyncMongo;
   slotName: string;
   storeCurrentData: boolean;
 
@@ -101,7 +101,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
   write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
 
   private readonly client: mongo.MongoClient;
-  public readonly db: PowerSyncMongo;
+  public readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
   private readonly logger: Logger;
   private readonly slot_name: string;
@@ -575,22 +575,23 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
 
       sizes = new Map<string, number>();
 
-      const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db.current_data.aggregate(
-        [
-          {
-            $match: {
-              _id: { $in: sizeLookups }
+      const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> =
+        this.db.common_current_data.aggregate(
+          [
+            {
+              $match: {
+                _id: { $in: sizeLookups }
+              }
+            },
+            {
+              $project: {
+                _id: 1,
+                size: { $bsonSize: '$$ROOT' }
+              }
             }
-          },
-          {
-            $project: {
-              _id: 1,
-              size: { $bsonSize: '$$ROOT' }
-            }
-          }
-        ],
-        { session }
-      );
+          ],
+          { session }
+        );
       for await (let doc of sizeCursor.stream()) {
         const key = cacheKey(doc._id.t, doc._id.k);
         sizes.set(key, doc.size);
@@ -618,7 +619,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
       let current_data_lookup = new Map<string, CurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
       const projection = this.skipExistingRows ? { _id: 1 } : undefined;
-      const cursor = this.db.current_data.find(
+      const cursor = this.db.common_current_data.find(
         {
           _id: { $in: lookups }
         },
@@ -653,7 +654,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
         if (persistedBatch!.shouldFlushTransaction()) {
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
-          const { flushedAny } = await persistedBatch!.flush(this.db, this.session, options);
+          const { flushedAny } = await persistedBatch!.flush(this.session, options);
           didFlush ||= flushedAny;
           persistedBatch = null;
           // Computing our current progress is a little tricky here, since
@@ -665,7 +666,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
 
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
-        const { flushedAny } = await persistedBatch.flush(this.db, this.session, options);
+        const { flushedAny } = await persistedBatch.flush(this.session, options);
         didFlush ||= flushedAny;
       }
     }
@@ -1115,10 +1116,11 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
         const current_data_filter: mongo.Filter<CurrentDataDocument> = {
           _id: idPrefixFilter<SourceKey>({ g: 0, t: mongoTableId(sourceTable.id) }, ['k']),
           // Skip soft-deleted data
+          // Works for both v1 and v3 current_data schemas
           pending_delete: { $exists: false }
         };
 
-        const cursor = this.db.current_data.find(current_data_filter, {
+        const cursor = this.db.common_current_data.find(current_data_filter, {
           projection: {
             _id: 1,
             buckets: 1,
@@ -1149,7 +1151,7 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
           // Since this is not from streaming replication, we can do a hard delete
           persistedBatch.hardDeleteCurrentData(value._id);
         }
-        await persistedBatch.flush(this.db, session);
+        await persistedBatch.flush(session);
         lastBatchCount = batch.length;
 
         last_op = opSeq.last();
@@ -1481,7 +1483,7 @@ export class MongoBucketBatch
       this.last_checkpoint_lsn = lsn;
       await this.cleanupCurrentData(updateResult.last_checkpoint!);
     }
-    return { checkpointBlocked };
+    return { checkpointBlocked, checkpointCreated };
   }
 
   private async cleanupCurrentData(lastCheckpoint: bigint) {

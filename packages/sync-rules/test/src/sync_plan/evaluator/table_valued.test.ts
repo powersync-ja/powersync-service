@@ -1,7 +1,16 @@
 import { describe, expect } from 'vitest';
+import {
+  deserializeSyncPlan,
+  ImplicitSchemaTablePattern,
+  ScopedParameterLookup,
+  serializeSyncPlan,
+  SqliteJsonRow,
+  StreamDataSource,
+  TableProcessorTableValuedFunction
+} from '../../../../src/index.js';
+import { PreparedStreamBucketDataSource } from '../../../../src/sync_plan/evaluator/bucket_data_source.js';
+import { lookupScope, removeSource, requestParameters, TestSourceTable } from '../../util.js';
 import { syncTest } from './utils.js';
-import { removeSource, requestParameters, TestSourceTable } from '../../util.js';
-import { ScopedParameterLookup, SqliteJsonRow } from '../../../../src/index.js';
 
 function removeLookupSource<T extends { lookup: ScopedParameterLookup }>(row: T): Omit<T, 'lookup'> & { lookup: any } {
   return { ...row, lookup: removeSource(row.lookup) };
@@ -11,11 +20,11 @@ describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
+      accept_potentially_dangerous_queries: true
       query: SELECT s.id AS id FROM stores s INNER JOIN json_each(s.tags) as tags WHERE tags.value = subscription.parameter('tag')
 `);
 
@@ -28,11 +37,11 @@ streams:
   syncTest('as parameter output', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
+      accept_potentially_dangerous_queries: true
       query: |
         SELECT users.* FROM users
           INNER JOIN conversations
@@ -52,9 +61,7 @@ streams:
         .map(removeLookupSource)
     ).toStrictEqual([
       {
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat'])
-        ),
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
         bucketParameters: [
           {
             '0': 'user'
@@ -62,9 +69,7 @@ streams:
         ]
       },
       {
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['chat'])
-        ),
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
         bucketParameters: [
           {
             '0': 'another'
@@ -88,18 +93,7 @@ streams:
 
     const buckets = await querier.queryDynamicBucketDescriptions({
       getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-        expect(lookups.map(removeSource)).toStrictEqual([
-          removeSource(
-            ScopedParameterLookup.direct(
-              {
-                lookupName: 'lookup',
-                queryId: '0',
-                source: {} as any
-              },
-              ['chat']
-            )
-          )
-        ]);
+        expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat'])]);
 
         return [{ '0': 'user' }, { '0': 'another' }];
       }
@@ -111,8 +105,7 @@ streams:
   syncTest('filter on function output', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -127,5 +120,104 @@ streams:
     });
 
     expect(rows).toMatchObject([{ bucket: 'stream|0[]', data: { id: 'c1' }, id: 'c1', table: 'customers' }]);
+  });
+
+  syncTest('table-valued output in oplog data', ({ sync }) => {
+    // The compiler currently doesn't support this, but the sync plan format can represent queries like
+    // `SELECT products.id, expanded.value as region FROM products, json_each(region.regions) AS expanded`.
+    const jsonEach: TableProcessorTableValuedFunction = {
+      functionName: 'json_each',
+      functionInputs: [{ type: 'data', source: { column: 'regions' } }]
+    };
+    const source: StreamDataSource = {
+      outputTableName: 'products',
+      hashCode: 0,
+      sourceTable: new ImplicitSchemaTablePattern(null, 'products'),
+      columns: [
+        { alias: 'id', expr: { type: 'data', source: { column: 'id' } } },
+        { alias: 'region', expr: { type: 'data', source: { function: jsonEach, outputName: 'value' } } }
+      ],
+      filters: [],
+      parameters: [],
+      tableValuedFunctions: [jsonEach]
+    };
+    const plan = deserializeSyncPlan(
+      serializeSyncPlan({
+        dataSources: [source],
+        buckets: [{ hashCode: 0, uniqueName: 'a', sources: [source] }],
+        parameterIndexes: [],
+        streams: []
+      })
+    );
+
+    const evaluator = new PreparedStreamBucketDataSource(plan.buckets[0], {
+      defaultSchema: 'test_schema',
+      engine: sync.engine,
+      sourceText: ''
+    });
+    const products = new TestSourceTable('products');
+
+    expect(
+      evaluator.evaluateRow({
+        sourceTable: products,
+        record: {
+          id: 'id',
+          regions: '[]'
+        }
+      })
+    ).toHaveLength(0);
+    expect(
+      evaluator.evaluateRow({
+        sourceTable: products,
+        record: {
+          id: 'id',
+          regions: '["foo", "bar"]'
+        }
+      })
+    ).toEqual([
+      expect.objectContaining({ data: { id: 'id', region: 'foo' } }),
+      expect.objectContaining({ data: { id: 'id', region: 'bar' } })
+    ]);
+  });
+
+  syncTest('filter on function output and source row', ({ sync }) => {
+    const whereIn = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM tasks WHERE status IN '["active", "pending"]'
+`);
+
+    const tasks = new TestSourceTable('tasks');
+    function expectResult(status: string, shouldMatch: boolean) {
+      const row = {
+        sourceTable: tasks,
+        record: { id: 'id', status }
+      };
+      const inResult = whereIn.evaluateRow(row);
+      const expectedRow = [
+        {
+          bucket: 'stream|0[]',
+          data: {
+            id: 'id',
+            status
+          },
+          id: 'id',
+          table: 'tasks'
+        }
+      ];
+
+      if (shouldMatch) {
+        expect(inResult).toStrictEqual(expectedRow);
+      } else {
+        expect(inResult).toStrictEqual([]);
+      }
+    }
+
+    expectResult('active', true);
+    expectResult('pending', true);
+    expectResult('archived', false);
   });
 });

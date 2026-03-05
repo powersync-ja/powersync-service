@@ -8,18 +8,13 @@ import {
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
-import { removeSource, requestParameters, TestSourceTable } from '../../util.js';
-
-function removeLookupSource<T extends { lookup: ScopedParameterLookup }>(row: T): Omit<T, 'lookup'> & { lookup: any } {
-  return { ...row, lookup: removeSource(row.lookup) };
-}
+import { lookupScope, removeSource, requestParameters, TestSourceTable } from '../../util.js';
 
 describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -50,11 +45,26 @@ streams:
     ]);
   });
 
+  syncTest('NOT IN', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM notes WHERE state NOT IN '["deleted", "archived"]'
+`);
+
+    const notes = new TestSourceTable('notes');
+    expect(desc.evaluateRow({ sourceTable: notes, record: { id: 'id', state: 'public' } })).toHaveLength(1);
+    expect(desc.evaluateRow({ sourceTable: notes, record: { id: 'id', state: 'deleted' } })).toHaveLength(0);
+  });
+
   syncTest('debugWriteOutputTables', ({ sync }) => {
     const desc = sync.prepareWithoutHydration(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -74,11 +84,11 @@ streams:
   syncTest('forwards parameters', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
+      accept_potentially_dangerous_queries: true
       query: SELECT * FROM users WHERE value = subscription.parameter('p')
 `);
 
@@ -106,8 +116,7 @@ streams:
   syncTest('output table name', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -135,8 +144,7 @@ streams:
   syncTest('wildcard with alias', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -164,8 +172,7 @@ streams:
   syncTest('wildcard without alias', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -193,8 +200,7 @@ streams:
   syncTest('multiple tables in bucket', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -211,8 +217,7 @@ describe('evaluating parameters', () => {
   syncTest('emits parameters', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -223,13 +228,9 @@ streams:
     expect(desc.tableSyncsData(ISSUES)).toBeFalsy();
     expect(desc.tableSyncsParameters(ISSUES)).toBeTruthy();
 
-    expect(
-      desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' }).map(removeLookupSource)
-    ).toStrictEqual([
+    expect(desc.evaluateParameterRow(ISSUES, { id: 'issue_id', owner_id: 'user1', name: 'name' })).toStrictEqual([
       {
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: {} as any }, ['user1'])
-        ),
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user1']),
         bucketParameters: [
           {
             '0': 'issue_id'
@@ -242,8 +243,7 @@ streams:
   syncTest('skips null and binary values', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -263,12 +263,12 @@ streams:
   syncTest('respects filters', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
       auto_subscribe: true
+      accept_potentially_dangerous_queries: true
       query: SELECT users.* FROM users, orgs WHERE users.org_id = orgs.id AND orgs.name = subscription.parameter('org') AND orgs.is_active = 1
 `);
     const orgs = new TestSourceTable('orgs');
@@ -282,11 +282,55 @@ streams:
 });
 
 describe('querier', () => {
+  syncTest('tracks source metadata on stream APIs', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      accept_potentially_dangerous_queries: true
+      queries:
+        - SELECT * FROM comments WHERE issue_id = subscription.parameter('issue')
+        - SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+`);
+    const streamSource = desc.definition.bucketSources[0];
+    expect(streamSource.dataSources).toHaveLength(2);
+
+    const rowResults = desc.evaluateRow({ sourceTable: COMMENTS, record: { id: 'c1', issue_id: 'i1' } });
+    expect(rowResults).toHaveLength(1);
+    expect(rowResults[0].bucket).toBe('stream|0["i1"]');
+    expect(rowResults[0].source).toBe(streamSource.dataSources[0]);
+
+    expect(desc.definition.bucketParameterLookupSources).toHaveLength(1);
+    const parameterResults = desc.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' });
+    expect(parameterResults).toHaveLength(1);
+    expect(parameterResults[0].lookup.source).toBe(desc.definition.bucketParameterLookupSources[0]);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'u1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ opaque_id: 0, parameters: { issue: 'i1' } }]
+      }
+    });
+    expect(errors).toHaveLength(0);
+    expect(querier.staticBuckets).toHaveLength(1);
+    expect(querier.staticBuckets[0].source).toBe(streamSource.dataSources[0]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets() {
+        return [{ '0': 'i1' }];
+      }
+    });
+    expect(dynamicBuckets).toHaveLength(1);
+    expect(dynamicBuckets[0].source).toBe(streamSource.dataSources[1]);
+  });
+
   syncTest('static', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -311,8 +355,7 @@ streams:
   syncTest('request data', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -333,8 +376,7 @@ streams:
   syncTest('parameter lookups', async ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
   
 streams:
   stream:
@@ -360,34 +402,12 @@ streams:
         if (call == 0) {
           // First call. Lookup from users.id => users.name
           call++;
-          expect(lookups.map(removeSource)).toStrictEqual([
-            removeSource(
-              ScopedParameterLookup.direct(
-                {
-                  lookupName: 'lookup',
-                  queryId: '0',
-                  source: {} as any
-                },
-                ['user']
-              )
-            )
-          ]);
+          expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
           return [{ '0': 'name' }];
         } else if (call == 1) {
           // Second call. Lookup from issues.owned_by => issues.id
           call++;
-          expect(lookups.map(removeSource)).toStrictEqual([
-            removeSource(
-              ScopedParameterLookup.direct(
-                {
-                  lookupName: 'lookup',
-                  queryId: '1',
-                  source: {} as any
-                },
-                ['name']
-              )
-            )
-          ]);
+          expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '1'), ['name'])]);
           return [{ '0': 'issue' }];
         }
 
@@ -400,8 +420,7 @@ streams:
   syncTest('multiple IN operators', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:

@@ -10,11 +10,11 @@ import {
   utils
 } from '@powersync/service-core';
 
-import { PowerSyncMongo } from './db.js';
+import { BucketDataSource, SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
+import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
-import { BucketDataSource, SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
 
 interface CurrentBucketState {
   def: number;
@@ -66,6 +66,8 @@ const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
+const DEFAULT_MIN_CHANGE_RATIO = 0.1;
+const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
 
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
@@ -79,23 +81,25 @@ export class MongoCompactor {
   private moveBatchQueryLimit: number;
   private clearBatchLimit: number;
   private minBucketChanges: number;
+  private minChangeRatio: number;
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
 
   constructor(
     private storage: MongoSyncBucketStorage,
-    private db: PowerSyncMongo,
-    options?: MongoCompactOptions
+    private db: VersionedPowerSyncMongo,
+    options: MongoCompactOptions
   ) {
-    this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
-    this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
-    this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
-    this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
-    this.minBucketChanges = options?.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
-    this.maxOpId = options?.maxOpId ?? 0n;
-    this.buckets = options?.compactBuckets;
-    this.signal = options?.signal;
+    this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
+    this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
+    this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
+    this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
+    this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
+    this.maxOpId = options.maxOpId ?? 0n;
+    this.buckets = options.compactBuckets;
+    this.signal = options.signal;
   }
 
   /**
@@ -549,6 +553,80 @@ export class MongoCompactor {
     for (let source of options.sqlSyncRules.bucketDataSources) {
       const id = mapping.bucketSourceId(source);
       definitions.set(id, source);
+    }
+    let lastId = { g: this.group_id, b: new mongo.MinKey() as any };
+    const maxId = { g: this.group_id, b: new mongo.MaxKey() as any };
+    while (true) {
+      // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, we use an aggregation pipeline
+      // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria, rather than limiting
+      // on the output number.
+      const [result] = await this.db.bucket_state
+        .aggregate<{
+          buckets: Pick<BucketStateDocument, '_id' | 'estimate_since_compact' | 'compacted_state'>[];
+          cursor: Pick<BucketStateDocument, '_id'>[];
+        }>(
+          [
+            {
+              $match: {
+                _id: { $gt: lastId, $lt: maxId }
+              }
+            },
+            {
+              $sort: { _id: 1 }
+            },
+            {
+              // Scan a fixed number of docs each query so sparse matches don't block progress.
+              $limit: DIRTY_BUCKET_SCAN_BATCH_SIZE
+            },
+            {
+              $facet: {
+                // This is the results for the batch
+                buckets: [
+                  {
+                    $match: {
+                      'estimate_since_compact.count': { $gte: options.minBucketChanges }
+                    }
+                  },
+                  {
+                    $project: {
+                      _id: 1,
+                      estimate_since_compact: 1,
+                      compacted_state: 1
+                    }
+                  }
+                ],
+                // This is used for the next query.
+                cursor: [{ $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }]
+              }
+            }
+          ],
+          { maxTimeMS: MONGO_OPERATION_TIMEOUT_MS }
+        )
+        .toArray();
+
+      const cursor = result?.cursor?.[0];
+      if (cursor == null) {
+        break;
+      }
+      lastId = cursor._id;
+
+      const mapped = (result?.buckets ?? []).map((b) => {
+        const updatedCount = b.estimate_since_compact?.count ?? 0;
+        const totalCount = (b.compacted_state?.count ?? 0) + updatedCount;
+        const updatedBytes = b.estimate_since_compact?.bytes ?? 0;
+        const totalBytes = (b.compacted_state?.bytes ?? 0) + updatedBytes;
+        const dirtyChangeNumber = totalCount > 0 ? updatedCount / totalCount : 0;
+        const dirtyChangeBytes = totalBytes > 0 ? updatedBytes / totalBytes : 0;
+        return {
+          bucket: b._id.b,
+          estimatedCount: totalCount,
+          dirtyRatio: Math.max(dirtyChangeNumber, dirtyChangeBytes)
+        };
+      });
+      const filtered = mapped.filter(
+        (b) => b.estimatedCount >= options.minBucketChanges && b.dirtyRatio >= options.minChangeRatio
+      );
+      yield filtered;
     }
 
     // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}

@@ -5,6 +5,7 @@ import {
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
   sync,
+  updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
@@ -13,7 +14,7 @@ import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
+import { bucketRequest, METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -52,14 +53,13 @@ export function registerSyncTests(
     maxDataFetchConcurrency: 2
   });
 
-  const updateSyncRules = (
-    bucketStorageFactory: storage.BucketStorageFactory,
-    updateOptions: storage.UpdateSyncRulesOptions
-  ) => {
-    return bucketStorageFactory.updateSyncRules({
-      ...updateOptions,
-      storageVersion: updateOptions.storageVersion ?? options.storageVersion
-    });
+  const updateSyncRules = (bucketStorageFactory: storage.BucketStorageFactory, updateOptions: { content: string }) => {
+    return bucketStorageFactory.updateSyncRules(
+      updateSyncRulesFromYaml(updateOptions.content, {
+        validate: true,
+        storageVersion: options.storageVersion
+      })
+    );
   };
 
   test('sync global data', async () => {
@@ -873,9 +873,9 @@ bucket_definitions:
       iter.return?.();
     });
 
+    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint1 = await getCheckpointLines(iter);
 
-    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
     expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([bucket]);
     expect(checkpoint1).toMatchSnapshot();
 

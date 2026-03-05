@@ -1,6 +1,8 @@
 import { SyncConfig } from '../SyncConfig.js';
-import { ColumnDefinition, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
+import { ColumnDefinition, ColumnType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
 import { SourceSchema } from '../types.js';
+import { PrecompiledSyncConfig } from '../sync_plan/evaluator/index.js';
+import { SyncPlanSchemaAnalyzer } from '../sync_plan/schema_inference.js';
 
 export interface GenerateSchemaOptions {
   includeTypeComments?: boolean;
@@ -20,6 +22,27 @@ export abstract class SchemaGenerator {
         columns: Object.values(columns)
       };
     });
+  }
+
+  protected getOptionalStreams(source: SyncConfig, schema: SourceSchema): OptionalStream[] {
+    const streams: OptionalStream[] = [];
+    if (source instanceof PrecompiledSyncConfig) {
+      const analyzer = new SyncPlanSchemaAnalyzer(source.defaultSchema, schema);
+
+      for (const { stream, queriers } of source.plan.streams) {
+        if (stream.isSubscribedByDefault) {
+          // Not an optional stream
+          continue;
+        }
+
+        streams.push({
+          name: stream.name,
+          parameters: analyzer.resolveReferencedParameters(queriers)
+        });
+      }
+    }
+
+    return streams;
   }
 
   abstract readonly key: string;
@@ -53,4 +76,26 @@ export function sqlTypeName(def: ColumnDefinition): 'text' | 'real' | 'integer' 
   } else {
     return 'text';
   }
+}
+
+export interface OptionalStream {
+  name: string;
+  parameters: Record<string, ColumnType>;
+}
+
+export function toCamelCase(source: string, initialUpper: boolean = false): string {
+  let result = '';
+  for (const chunk of source.split(/[_-]/)) {
+    if (chunk.length == 0) continue;
+
+    const firstCharUpper = result.length > 0 || initialUpper;
+    if (firstCharUpper) {
+      result += chunk.charAt(0).toUpperCase();
+      result += chunk.substring(1);
+    } else {
+      result += chunk;
+    }
+  }
+
+  return result;
 }

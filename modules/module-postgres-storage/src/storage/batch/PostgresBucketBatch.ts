@@ -20,15 +20,16 @@ import {
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
-import { CurrentBucket, CurrentData, CurrentDataDecoded } from '../../types/models/CurrentData.js';
+import { bigint } from '../../types/codecs.js';
+import { CurrentBucket, V3CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
-import { NOTIFICATION_CHANNEL, sql } from '../../utils/db.js';
+import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
+import { PostgresCurrentDataStore } from '../current-data-store.js';
+import { PostgresSyncRulesStorage } from '../PostgresSyncRulesStorage.js';
 import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PostgresPersistedBatch, postgresTableId } from './PostgresPersistedBatch.js';
-import { bigint } from '../../types/codecs.js';
-import { PostgresSyncRulesStorage } from '../PostgresSyncRulesStorage.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;
@@ -48,6 +49,7 @@ export interface PostgresBucketBatchOptions {
   batch_limits: RequiredOperationBatchLimits;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  storageConfig: storage.StorageVersionConfig;
 }
 
 /**
@@ -67,6 +69,7 @@ const CheckpointWithStatus = StatefulCheckpoint.and(
     created_checkpoint: t.boolean
   })
 );
+type CheckpointWithStatusDecoded = t.Decoded<typeof CheckpointWithStatus>;
 
 /**
  * 15MB. Currently matches MongoDB.
@@ -98,6 +101,8 @@ export class PostgresBucketBatch
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private needsActivation = true;
   private clearedError = false;
+  private readonly storageConfig: storage.StorageVersionConfig;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -112,6 +117,8 @@ export class PostgresBucketBatch
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.batch = null;
     this.persisted_op = null;
+    this.storageConfig = options.storageConfig;
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
     if (options.keep_alive_op) {
       this.persisted_op = options.keep_alive_op;
     }
@@ -194,35 +201,24 @@ export class PostgresBucketBatch
     const BATCH_LIMIT = 2000;
     let lastBatchCount = BATCH_LIMIT;
     let processedCount = 0;
-    const codec = pick(models.CurrentData, ['buckets', 'lookups', 'source_key']);
-
     while (lastBatchCount == BATCH_LIMIT) {
       lastBatchCount = 0;
       await this.withReplicationTransaction(async (db) => {
         const persistedBatch = new PostgresPersistedBatch({
           group_id: this.group_id,
+          storageConfig: this.storageConfig,
           ...this.options.batch_limits
         });
 
-        for await (const rows of db.streamRows<t.Encoded<typeof codec>>(sql`
-          SELECT
-            buckets,
-            lookups,
-            source_key
-          FROM
-            current_data
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND source_table = ${{ type: 'varchar', value: sourceTable.id }}
-            AND pending_delete IS NULL
-          LIMIT
-            ${{ type: 'int4', value: BATCH_LIMIT }}
-          FOR NO KEY UPDATE
-        `)) {
+        for await (const rows of this.currentDataStore.streamTruncateRows(db, {
+          groupId: this.group_id,
+          sourceTableId: postgresTableId(sourceTable.id),
+          limit: BATCH_LIMIT
+        })) {
           lastBatchCount += rows.length;
           processedCount += rows.length;
 
-          const decodedRows = rows.map((row) => codec.decode(row));
+          const decodedRows = rows.map((row) => this.currentDataStore.decodeTruncateRow(row));
           for (const value of decodedRows) {
             const source_key = deserializeReplicaId(value.source_key);
             persistedBatch.saveBucketData({
@@ -479,19 +475,18 @@ export class PostgresBucketBatch
         );
         this.lastWaitingLogThrottled = Date.now();
       }
-      return { checkpointBlocked: true };
+      return { checkpointBlocked: true, checkpointCreated: false };
     }
 
     if (result.created_checkpoint) {
       this.logger.debug(`Created checkpoint at ${lsn}. Last op: ${result.last_checkpoint}`);
 
-      await this.db.sql`
-        DELETE FROM current_data
-        WHERE
-          group_id = ${{ type: 'int4', value: this.group_id }}
-          AND pending_delete IS NOT NULL
-          AND pending_delete <= ${{ type: 'int8', value: result.last_checkpoint }}
-      `.execute();
+      if (result.last_checkpoint != null) {
+        await this.currentDataStore.cleanupPendingDeletes(this.db, {
+          groupId: this.group_id,
+          lastCheckpoint: result.last_checkpoint
+        });
+      }
     }
     await this.autoActivate(lsn);
     await notifySyncRulesUpdate(this.db, {
@@ -505,7 +500,7 @@ export class PostgresBucketBatch
     this.last_checkpoint_lsn = lsn;
 
     // Even if created_checkpoint is false, if can_checkpoint is true, we need to return not blocked.
-    return { checkpointBlocked: false };
+    return { checkpointBlocked: false, checkpointCreated: result.created_checkpoint };
   }
 
   async keepalive(lsn: string): Promise<CheckpointResult> {
@@ -656,31 +651,10 @@ export class PostgresBucketBatch
 
       sizes = new Map<string, number>();
 
-      for await (const rows of db.streamRows<{
-        source_table: string;
-        source_key: storage.ReplicaId;
-        data_size: number;
-      }>(lib_postgres.sql`
-        WITH
-          filter_data AS (
-            SELECT
-              decode(FILTER ->> 'source_key', 'hex') AS source_key, -- Decoding from hex to bytea
-              (FILTER ->> 'source_table') AS source_table_id
-            FROM
-              jsonb_array_elements(${{ type: 'jsonb', value: sizeLookups }}::jsonb) AS FILTER
-          )
-        SELECT
-          octet_length(c.data) AS data_size,
-          c.source_table,
-          c.source_key
-        FROM
-          current_data c
-          JOIN filter_data f ON c.source_table = f.source_table_id
-          AND c.source_key = f.source_key
-        WHERE
-          c.group_id = ${{ type: 'int4', value: this.group_id }}
-        FOR NO KEY UPDATE
-      `)) {
+      for await (const rows of this.currentDataStore.streamSizeRows(db, {
+        groupId: this.group_id,
+        lookups: sizeLookups
+      })) {
         for (const row of rows) {
           const key = cacheKey(row.source_table, row.source_key);
           sizes.set(key, row.data_size);
@@ -705,54 +679,29 @@ export class PostgresBucketBatch
 
       const lookups = b.map((r) => {
         return {
-          source_table: r.record.sourceTable.id,
+          source_table: postgresTableId(r.record.sourceTable.id),
           source_key: storage.serializeReplicaId(r.beforeId).toString('hex')
         };
       });
 
-      const current_data_lookup = new Map<string, CurrentDataDecoded>();
-      for await (const currentDataRows of db.streamRows<CurrentData>({
-        statement: /* sql */ `
-          SELECT
-            ${this.options.skip_existing_rows ? `c.source_table, c.source_key` : 'c.*'}
-          FROM
-            current_data c
-            JOIN (
-              SELECT
-                decode(FILTER ->> 'source_key', 'hex') AS source_key,
-                FILTER ->> 'source_table' AS source_table_id
-              FROM
-                jsonb_array_elements($1::jsonb) AS FILTER
-            ) f ON c.source_table = f.source_table_id
-            AND c.source_key = f.source_key
-          WHERE
-            c.group_id = $2
-          FOR NO KEY UPDATE;
-        `,
-        params: [
-          {
-            type: 'jsonb',
-            value: lookups
-          },
-          {
-            type: 'int4',
-            value: this.group_id
-          }
-        ]
+      const current_data_lookup = new Map<string, V3CurrentDataDecoded>();
+      for await (const currentDataRows of this.currentDataStore.streamLookupRows(db, {
+        groupId: this.group_id,
+        lookups,
+        skipExistingRows: this.options.skip_existing_rows
       })) {
         for (const row of currentDataRows) {
-          const decoded = this.options.skip_existing_rows
-            ? pick(CurrentData, ['source_key', 'source_table']).decode(row)
-            : CurrentData.decode(row);
+          const decoded = this.currentDataStore.decodeLookupRow(row, this.options.skip_existing_rows);
           current_data_lookup.set(
             encodedCacheKey(decoded.source_table, decoded.source_key),
-            decoded as CurrentDataDecoded
+            decoded as V3CurrentDataDecoded
           );
         }
       }
 
       let persistedBatch: PostgresPersistedBatch | null = new PostgresPersistedBatch({
         group_id: this.group_id,
+        storageConfig: this.storageConfig,
         ...this.options.batch_limits
       });
 
@@ -809,7 +758,7 @@ export class PostgresBucketBatch
   protected async saveOperation(
     persistedBatch: PostgresPersistedBatch,
     operation: RecordOperation,
-    currentData?: CurrentDataDecoded | null
+    currentData?: V3CurrentDataDecoded | null
   ) {
     const record = operation.record;
     // We store bytea colums for source keys
@@ -1025,7 +974,7 @@ export class PostgresBucketBatch
       }
     }
 
-    let result: CurrentDataDecoded | null = null;
+    let result: V3CurrentDataDecoded | null = null;
 
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {

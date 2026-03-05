@@ -3,6 +3,7 @@ import { BucketDataSource, ParameterIndexLookupCreator } from './BucketSource.js
 export interface BucketDataScope {
   /** The prefix is the bucket name before the parameters. */
   bucketPrefix: string;
+  /** Source used to generate buckets. */
   source: BucketDataSource;
 }
 
@@ -10,6 +11,7 @@ export interface ParameterLookupScope {
   /** The lookup name + queryid is used to reference the parameter lookup record. */
   lookupName: string;
   queryId: string;
+  /** Source used to generate parameter lookups. */
   source: ParameterIndexLookupCreator;
 }
 

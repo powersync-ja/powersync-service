@@ -1,20 +1,25 @@
 import { describe, expect, test } from 'vitest';
 import { CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
 
-import { DEFAULT_HYDRATION_STATE, HydrationState } from '../../src/HydrationState.js';
+import {
+  BucketDataScope,
+  DEFAULT_HYDRATION_STATE,
+  HydrationState,
+  ParameterLookupScope
+} from '../../src/HydrationState.js';
 import { SqlBucketDescriptor } from '../../src/SqlBucketDescriptor.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import {
   ASSETS,
   BASIC_SCHEMA,
-  PARSE_OPTIONS,
-  TestSourceTable,
-  USERS,
   findQuerierLookups,
+  lookupScope,
   normalizeQuerierOptions,
+  PARSE_OPTIONS,
   removeSource,
-  removeSourceSymbol,
-  requestParameters
+  requestParameters,
+  TestSourceTable,
+  USERS
 } from './util.js';
 
 function evaluateRows(hydrated: any, options: { sourceTable: any; record: any }) {
@@ -75,6 +80,38 @@ bucket_definitions:
     });
   });
 
+  test('tracks source metadata on rows, lookups and bucket descriptions', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+bucket_definitions:
+  mybucket:
+    parameters:
+      - SELECT token_parameters.user_id as user_id
+      - SELECT users.id as user_id FROM users WHERE users.id = token_parameters.user_id
+    data:
+      - SELECT id FROM assets WHERE assets.user_id = bucket.user_id
+    `,
+      PARSE_OPTIONS
+    );
+    const hydrated = rules.hydrate(hydrationParams);
+
+    const staticBuckets = hydrated.getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' })).querier
+      .staticBuckets;
+    expect(staticBuckets).toHaveLength(1);
+    expect(staticBuckets[0].source).toBe(rules.bucketDataSources[0]);
+
+    const dataResults = hydrated.evaluateRow({
+      sourceTable: ASSETS,
+      record: { id: 'asset1', user_id: 'user1' }
+    });
+    expect(dataResults).toHaveLength(1);
+    expect(dataResults[0].source).toBe(rules.bucketDataSources[0]);
+
+    const parameterResults = hydrated.evaluateParameterRow(USERS, { id: 'user1' });
+    expect(parameterResults).toHaveLength(1);
+    expect(parameterResults[0].lookup.source).toBe(rules.bucketParameterLookupSources[0]);
+  });
+
   test('parse global sync rules with filter', () => {
     const { config: rules } = SqlSyncRules.fromYaml(
       `
@@ -126,9 +163,7 @@ bucket_definitions:
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 }).map(removeLookupSource)).toEqual([
       {
         bucketParameters: [{}],
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'mybucket', queryId: '1', source: {} as any }, ['user1'])
-        )
+        lookup: ScopedParameterLookup.direct(lookupScope('mybucket', '1'), ['user1'])
       }
     ]);
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 0 })).toEqual([]);
@@ -151,7 +186,7 @@ bucket_definitions:
     expect(
       hydrated
         .getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' }, { device_id: 'device1' }))
-        .querier.staticBuckets.map(removeSourceSymbol)
+        .querier.staticBuckets.map(removeSource)
     ).toEqual([
       { bucket: 'mybucket["user1","device1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }
     ]);
@@ -198,10 +233,10 @@ bucket_definitions:
       PARSE_OPTIONS
     );
     const hydrationState: HydrationState = {
-      getBucketSourceScope(source) {
+      getBucketSourceScope(source): BucketDataScope {
         return { bucketPrefix: `${source.uniqueName}-test`, source };
       },
-      getParameterIndexLookupScope(source) {
+      getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
           queryId: `${source.defaultLookupScope.queryId}.test`,
@@ -214,7 +249,7 @@ bucket_definitions:
       normalizeQuerierOptions({ sub: 'user1' }, { device_id: 'device1' })
     );
     expect(errors).toEqual([]);
-    expect(querier.staticBuckets.map(removeSourceSymbol)).toEqual([
+    expect(querier.staticBuckets.map(removeSource)).toEqual([
       {
         bucket: 'mybucket-test["user1"]',
         definition: 'mybucket',
@@ -222,18 +257,14 @@ bucket_definitions:
         priority: 3
       }
     ]);
-    expect((await findQuerierLookups(querier)).map(removeSource)).toEqual([
-      removeSource(
-        ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test', source: {} as any }, ['user1'])
-      )
+    expect(await findQuerierLookups(querier)).toEqual([
+      ScopedParameterLookup.direct(lookupScope('mybucket.test', '2.test'), ['user1'])
     ]);
 
     expect(hydrated.evaluateParameterRow(USERS, { id: 'user1', is_admin: 1 }).map(removeLookupSource)).toEqual([
       {
         bucketParameters: [{ user_id: 'user1' }],
-        lookup: removeSource(
-          ScopedParameterLookup.direct({ lookupName: 'mybucket.test', queryId: '2.test', source: {} as any }, ['user1'])
-        )
+        lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', '2.test'), ['user1'])
       }
     ]);
 
@@ -272,7 +303,7 @@ bucket_definitions:
     expect(
       hydrated
         .getBucketParameterQuerier(normalizeQuerierOptions({ sub: 'user1' }))
-        .querier.staticBuckets.map(removeSourceSymbol)
+        .querier.staticBuckets.map(removeSource)
     ).toEqual([{ bucket: 'mybucket["user1"]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }]);
 
     expect(
@@ -627,7 +658,7 @@ bucket_definitions:
     expect(
       hydrated
         .getBucketParameterQuerier(normalizeQuerierOptions({ parameters: { is_admin: true } }))
-        .querier.staticBuckets.map(removeSourceSymbol)
+        .querier.staticBuckets.map(removeSource)
     ).toEqual([{ bucket: 'mybucket[1]', definition: 'mybucket', inclusion_reasons: ['default'], priority: 3 }]);
   });
 
@@ -1066,8 +1097,8 @@ bucket_definitions:
       ]
     });
 
-    expect((await findQuerierLookups(hydratedQuerier)).map(removeSource)).toEqual([
-      removeSource(ScopedParameterLookup.direct({ lookupName: 'admin_only', queryId: '1', source: {} as any }, [1]))
+    expect(await findQuerierLookups(hydratedQuerier)).toEqual([
+      ScopedParameterLookup.direct(lookupScope('admin_only', '1'), [1])
     ]);
   });
 
@@ -1090,6 +1121,27 @@ event_definitions:
     expect(rules.eventDescriptors).toHaveLength(1);
   });
 
+  test('suggests upgrading for streams on edition 2', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 2
+
+streams:
+  a:
+    query: SELECT * FROM users
+    `,
+      {
+        ...PARSE_OPTIONS,
+        // Should not throw, this is a suggestion.
+        throwOnError: true
+      }
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('This is using an alpha version of Sync Streams. We recommend upgrading');
+  });
+
   test('does not support CTEs', () => {
     const { config: rules, errors } = SqlSyncRules.fromYaml(
       `
@@ -1107,7 +1159,6 @@ streams:
         throwOnError: false
       }
     );
-    expect(errors).toHaveLength(1);
-    expect(errors[0].message).toContain('Common table expressions are not supported');
+    expect(errors[1].message).toContain('Common table expressions are not supported');
   });
 });

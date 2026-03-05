@@ -14,7 +14,7 @@ import {
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { PowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 
 /**
@@ -51,7 +51,7 @@ export class MongoChecksums {
   private readonly storageConfig: StorageConfig;
 
   constructor(
-    private db: PowerSyncMongo,
+    private db: VersionedPowerSyncMongo,
     private group_id: number,
     private mapping: BucketDefinitionMapping,
     private options: MongoChecksumOptions
@@ -304,9 +304,9 @@ export class MongoChecksums {
           const req = requests.get(bucket);
           requests.set(bucket, {
             bucket,
+            source: req!.source,
             start: doc.last_op,
-            end: req!.end,
-            source: req!.source
+            end: req!.end
           });
         } else {
           // All done for this bucket

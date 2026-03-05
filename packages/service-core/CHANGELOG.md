@@ -1,5 +1,39 @@
 # @powersync/service-core
 
+## 1.20.0
+
+### Minor Changes
+
+- 0998251: For errors related to a sync configuration, report a source offset.
+- 8a4c34e: Refactor `BucketStorageFactory` and `PersistedSyncRulesContent` to be abstract classes instead of interfaces.
+- c683322: Renamed `sync_rules` to `sync_config` in the PowerSync service configuration. The old `sync_rules` field is deprecated but still supported for backwards compatibility.
+- 8bd83e8: Introduce storage versions.
+- 83989b2: Store compiled sync plans in bucket storage.
+
+### Patch Changes
+
+- 65f3c89: Improve Postgres compaction performance by replacing bucket range filtering with incremental discovery and per-bucket exact-match queries, eliminating `COLLATE "C"` and `U+FFFF` sentinel usage.
+
+  - The compactor logic is an internal refactor that improves query performance (no API change)
+  - The CLI change adds validation but is a correction (prefix matching was broken/unused anyway)
+  - The `CompactOptions.compactBuckets` JSDoc is a documentation-only update
+
+  Resolves #400.
+
+- b440093: Add detailed logging for parameter query results to improve debugging when limits are exceeded. Checkpoint logs now include the total number of parameter query results (before deduplication), and error messages show a breakdown of the top 10 sync stream definitions contributing to the count.
+- Updated dependencies [0998251]
+- Updated dependencies [1c45667]
+- Updated dependencies [8785a3f]
+- Updated dependencies [d7ff4ad]
+- Updated dependencies [c683322]
+- Updated dependencies [8bd83e8]
+- Updated dependencies [79a9729]
+- Updated dependencies [5edd95f]
+  - @powersync/service-types@0.15.0
+  - @powersync/service-sync-rules@0.32.0
+  - @powersync/lib-services-framework@0.8.3
+  - @powersync/service-rsocket-router@0.2.15
+
 ## 1.19.2
 
 ### Patch Changes

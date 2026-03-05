@@ -21,7 +21,7 @@ import {
   UnscopedEvaluatedParametersResult,
   UnscopedEvaluationResult
 } from './types.js';
-import { buildBucketInfo, SOURCE } from './utils.js';
+import { withBucketSource } from './utils.js';
 
 export interface CreateSourceParams {
   hydrationState: HydrationState;
@@ -171,14 +171,16 @@ export function hydrateEvaluateRow(hydrationState: HydrationState, source: Bucke
       if (isEvaluationError(result)) {
         return result;
       }
-      const info = buildBucketInfo(scope, result.serializedBucketParameters);
-      return {
-        bucket: info.bucket,
-        id: result.id,
-        table: result.table,
-        data: result.data,
-        source: info[SOURCE]
-      } satisfies EvaluatedRow;
+      const evaluated: EvaluatedRow = withBucketSource(
+        {
+          bucket: scope.bucketPrefix + result.serializedBucketParameters,
+          id: result.id,
+          table: result.table,
+          data: result.data
+        },
+        scope.source
+      );
+      return evaluated;
     });
   };
 }

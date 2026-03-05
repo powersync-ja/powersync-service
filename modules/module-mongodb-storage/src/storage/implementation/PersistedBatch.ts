@@ -1,14 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketDataSource, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
+import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 
-import { Logger, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { Logger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketDataWriter.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
-import { PowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
@@ -18,7 +18,6 @@ import {
   RecordedLookup,
   SourceKey
 } from './models.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -65,7 +64,11 @@ export class PersistedBatch {
    */
   currentSize = 0;
 
-  constructor(writtenSize: number, options: { logger: Logger; mapping: BucketDefinitionMapping }) {
+  constructor(
+    private db: VersionedPowerSyncMongo,
+    writtenSize: number,
+    options: { logger: Logger; mapping: BucketDefinitionMapping }
+  ) {
     this.currentSize = writtenSize;
     this.logger = options.logger;
     this.mapping = options.mapping;
@@ -279,7 +282,16 @@ export class PersistedBatch {
     this.currentSize += 50;
   }
 
+  /**
+   * Mark a current_data document as soft deleted, to delete on the next commit.
+   *
+   * If softDeleteCurrentData is not enabled, this falls back to a hard delete.
+   */
   softDeleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint) {
+    if (!this.db.storageConfig.softDeleteCurrentData) {
+      this.hardDeleteCurrentData(id);
+      return;
+    }
     const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
       updateOne: {
         filter: { _id: id },
@@ -322,7 +334,8 @@ export class PersistedBatch {
     );
   }
 
-  async flush(db: PowerSyncMongo, session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+    const db = this.db;
     const startAt = performance.now();
     let flushedSomething = false;
     if (this.bucketData.length > 0) {
@@ -343,7 +356,7 @@ export class PersistedBatch {
     }
     if (this.currentData.length > 0) {
       flushedSomething = true;
-      await db.current_data.bulkWrite(this.currentData, {
+      await db.common_current_data.bulkWrite(this.currentData, {
         session,
         // may update and delete data within the same batch - order matters
         ordered: true

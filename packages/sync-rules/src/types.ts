@@ -60,9 +60,7 @@ export interface EvaluatedRow {
   /** Must be JSON-serializable. */
   data: SqliteJsonRow;
 
-  /**
-   * Source for the evaluated row.
-   */
+  /** Source for the evaluated row. */
   source: BucketDataSource;
 }
 

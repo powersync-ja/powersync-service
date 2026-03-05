@@ -7,6 +7,7 @@ import {
   BSON_DESERIALIZE_DATA_OPTIONS,
   CURRENT_STORAGE_VERSION,
   LEGACY_STORAGE_VERSION,
+  SUPPORTED_STORAGE_VERSIONS,
   TestStorageConfig,
   TestStorageFactory
 } from '@powersync/service-core';
@@ -29,7 +30,7 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
   url: env.PG_STORAGE_TEST_URL
 });
 
-export const TEST_STORAGE_VERSIONS = [LEGACY_STORAGE_VERSION, CURRENT_STORAGE_VERSION];
+export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
 
 export interface StorageVersionTestContext {
   factory: TestStorageFactory;

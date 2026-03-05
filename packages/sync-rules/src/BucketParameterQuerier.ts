@@ -1,10 +1,10 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ResolvedBucket } from './BucketDescription.js';
+import { ParameterIndexLookupCreator } from './BucketSource.js';
 import { ParameterLookupScope } from './HydrationState.js';
 import { RequestedStream } from './SqlSyncRules.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
 import { normalizeParameterValue } from './utils.js';
-import { ParameterIndexLookupCreator } from './index.js';
 
 /**
  * Represents a set of parameter queries for a specific request.
@@ -107,7 +107,7 @@ export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[])
 export class ScopedParameterLookup {
   // bucket definition name, parameter query index, ...lookup values
   readonly values: readonly SqliteJsonValue[];
-  readonly source: ParameterIndexLookupCreator;
+  readonly #source: ParameterIndexLookupCreator;
 
   #cachedSerializedForm?: string;
 
@@ -141,7 +141,14 @@ export class ScopedParameterLookup {
    */
   private constructor(source: ParameterIndexLookupCreator, values: SqliteJsonValue[]) {
     this.values = Object.freeze(values);
-    this.source = source;
+    this.#source = source;
+  }
+
+  /**
+   * Source, not enumerable (not checked in tests).
+   */
+  get source() {
+    return this.#source;
   }
 }
 

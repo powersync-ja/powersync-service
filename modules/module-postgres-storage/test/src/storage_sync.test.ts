@@ -1,4 +1,4 @@
-import { storage } from '@powersync/service-core';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, resolveTestTable, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
@@ -11,6 +11,7 @@ import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 function registerStorageVersionTests(storageVersion: number) {
   describe(`storage v${storageVersion}`, () => {
     const storageFactory = POSTGRES_STORAGE_FACTORY;
+    const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageFactory);
 
     register.registerSyncTests(storageFactory.factory, {
       storageVersion,
@@ -22,15 +23,17 @@ function registerStorageVersionTests(storageVersion: number) {
       // but large enough in size to be split over multiple returned chunks.
       // Similar to the above test, but splits over 1MB chunks.
       await using factory = await storageFactory.factory();
-      const syncRules = await factory.updateSyncRules({
-        content: `
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
     bucket_definitions:
       global:
         data:
           - SELECT id, description FROM "%"
     `,
-        storageVersion
-      });
+          { storageVersion }
+        )
+      );
       const bucketStorage = factory.getInstance(syncRules);
       const globalBucket = bucketRequest(syncRules, 'global[]');
 

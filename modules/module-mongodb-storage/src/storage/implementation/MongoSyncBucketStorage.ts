@@ -8,8 +8,6 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
-  BucketChecksumRequest,
-  BucketDataRequest,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
   deserializeParameterLookup,
@@ -17,6 +15,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   mergeAsyncIterables,
+  PersistedSyncRules,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ProtocolOpId,
@@ -33,9 +32,8 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { MongoPersistedSyncRules } from '../storage-index.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { PowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, StorageConfig } from './models.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
@@ -63,11 +61,11 @@ export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  private readonly db: PowerSyncMongo;
+  private readonly db: VersionedPowerSyncMongo;
   readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache:
-    | { parsed: MongoPersistedSyncRules; hydrated: HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | { parsed: PersistedSyncRules; hydrated: HydratedSyncRules; options: storage.ParseSyncRulesOptions }
     | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   private readonly mapping: BucketDefinitionMapping;
@@ -81,8 +79,9 @@ export class MongoSyncBucketStorage
     options: MongoSyncBucketStorageOptions
   ) {
     super();
-    this.db = factory.db;
     this.mapping = this.sync_rules.mapping;
+    this.db = factory.db.versioned(sync_rules.getStorageConfig());
+
     this.checksums = new MongoChecksums(this.db, this.group_id, this.mapping, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig
@@ -245,14 +244,14 @@ export class MongoSyncBucketStorage
 
   async *getBucketDataBatch(
     checkpoint: utils.InternalOpId,
-    dataBuckets: BucketDataRequest[],
+    dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
     if (dataBuckets.length == 0) {
       return;
     }
     let filters: mongo.Filter<BucketDataDocument>[] = [];
-    const bucketMap = new Map<string, InternalOpId>(dataBuckets.map((d) => [d.bucket, d.start]));
+    const bucketMap = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     if (checkpoint == null) {
       throw new ServiceAssertionError('checkpoint is null');
@@ -394,7 +393,10 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: BucketChecksumRequest[]): Promise<utils.ChecksumMap> {
+  async getChecksums(
+    checkpoint: utils.InternalOpId,
+    buckets: storage.BucketChecksumRequest[]
+  ): Promise<utils.ChecksumMap> {
     return this.checksums.getChecksums(checkpoint, buckets);
   }
 

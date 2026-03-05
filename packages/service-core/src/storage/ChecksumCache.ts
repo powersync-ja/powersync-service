@@ -1,9 +1,9 @@
 import { OrderedSet } from '@js-sdsl/ordered-set';
 import { LRUCache } from 'lru-cache/min';
+import { BucketDataSource } from '@powersync/service-sync-rules';
 import { BucketChecksum } from '../util/protocol-types.js';
 import { addBucketChecksums, ChecksumMap, InternalOpId, PartialChecksum } from '../util/utils.js';
 import { BucketChecksumRequest } from './SyncRulesBucketStorage.js';
-import { BucketDataSource } from '@powersync/service-sync-rules';
 
 interface ChecksumFetchContext {
   fetch(bucket: string): Promise<BucketChecksum>;
@@ -246,8 +246,8 @@ export class ChecksumCache {
             // No partial checksum found - make a new full checksum request
             bucketRequest = {
               bucket,
-              end: checkpoint,
-              source: sourceMap.get(bucket)!
+              source: sourceMap.get(bucket)!,
+              end: checkpoint
             };
             add.set(bucket, {
               bucket,

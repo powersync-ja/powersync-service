@@ -25,6 +25,7 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { HashMap, HashSet, StableHasher } from './equality.js';
 import { ParsedStreamQuery } from './parser.js';
 import { StreamOptions } from '../sync_plan/plan.js';
+import { ColumnInRow } from './expression.js';
 
 /**
  * Builds stream resolvers for a single stream, potentially consisting of multiple queries.
@@ -54,7 +55,9 @@ export class QuerierGraphBuilder {
    * Merges created stream resolvers and adds them to the compiler.
    */
   finish() {
-    this.compiler.output.resolvers.push(...this.mergeBuckets());
+    const buckets = this.mergeBuckets();
+    this.compiler.output.resolvers.push(...buckets);
+    return buckets;
   }
 
   /**
@@ -167,7 +170,7 @@ class PendingQuerierPath {
         if (remaining.resultSet != null) {
           this.errors.report(
             'This filter is unrelated to the request or the table being synced, and not supported.',
-            remaining.expression.location
+            remaining.expression.location.location
           );
         } else {
           requestConditions.push(new RequestExpression(remaining));
@@ -247,6 +250,12 @@ class PendingQuerierPath {
    * Extracts filters, partition keys and partition instantiations for a given source result set.
    */
   private resolveResultSet(source: SourceResultSet): ResolvedResultSet {
+    if (source.evaluationTarget !== source) {
+      throw new Error(
+        'internal error: resolveResultSet should only be called on result sets that are meant to be evaluated.'
+      );
+    }
+
     if (this.resolveStack.indexOf(source) != -1) {
       throw new Error('internal error: circular reference when resolving result set');
     }
@@ -255,18 +264,27 @@ class PendingQuerierPath {
 
     for (const expression of [...this.pendingFactors]) {
       if (expression instanceof SingleDependencyExpression) {
-        const resultSet = expression.resultSet;
+        const resultSet = expression.resultSet?.evaluationTarget;
 
         if (resultSet === source) {
           // This expression only depends on the table, so we add it as a filter for the row or parameter evaluator.
           state.filters.push(new RowExpression(expression));
           this.removePendingExpression(expression);
-        }
 
-        if (resultSet instanceof TableValuedResultSet && resultSet.inputResultSet == source) {
-          const resolvedFunction = state.getOrAddTableValuedFunction(resultSet);
-          resolvedFunction.filters.push(new RowExpression(expression));
-          this.removePendingExpression(expression);
+          // A subexpression might reference a table-valued function that has been attached to this source result set.
+          // We need to explicitly add those functions to the context.
+          for (const instantiation of expression.expression.instantiation) {
+            if (instantiation instanceof ColumnInRow && instantiation.resultSet !== source) {
+              // The only way for this to be a different result set (in a single-dependency expression!) is for it to be
+              // a table-valued function on the source.
+              const rs = instantiation.resultSet;
+              if (!(rs instanceof TableValuedResultSet) || rs.inputResultSet !== source) {
+                throw new Error('internal error, unexpected subexpression dependency');
+              }
+
+              state.getOrAddTableValuedFunction(rs);
+            }
+          }
         }
       } else {
         // Must be a match term.
@@ -417,8 +435,7 @@ class ResolvedResultSet {
       const pendingFunction = new SourceRowProcessorAddedTableValuedFunction(
         source,
         source.tableValuedFunctionName,
-        source.parameters.map((e) => new RowExpression(e)),
-        []
+        source.parameters.map((e) => new RowExpression(e))
       );
       this.addedFunctions.set(source, pendingFunction);
       return pendingFunction;

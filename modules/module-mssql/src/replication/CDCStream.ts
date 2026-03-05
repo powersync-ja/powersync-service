@@ -1,27 +1,24 @@
 import {
   container,
   DatabaseConnectionError,
+  logger as defaultLogger,
   ErrorCode,
   Logger,
-  logger as defaultLogger,
   ReplicationAbortedError,
   ReplicationAssertionError,
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
 import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
 
-import {
-  SqliteInputRow,
-  SqliteRow,
-  SqlSyncRules,
-  HydratedSyncRules,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { HydratedSyncRules, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
-import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
-import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
-import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
+import sql from 'mssql';
+import { LSN } from '../common/LSN.js';
+import { CDCToSqliteRow, toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
+import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
+import { MSSQLSourceTableCache } from '../common/MSSQLSourceTableCache.js';
+import { AdditionalConfig } from '../types/types.js';
 import {
   checkSourceConfiguration,
   createCheckpoint,
@@ -33,13 +30,10 @@ import {
   isWithinRetentionThreshold,
   toQualifiedTableName
 } from '../utils/mssql.js';
-import sql from 'mssql';
-import { CDCToSqliteRow, toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
-import { LSN } from '../common/LSN.js';
-import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
-import { MSSQLSourceTableCache } from '../common/MSSQLSourceTableCache.js';
+import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
 import { CDCEventHandler, CDCPoller } from './CDCPoller.js';
-import { AdditionalConfig } from '../types/types.js';
+import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
+import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
 
 export interface CDCStreamOptions {
   connections: MSSQLConnectionManager;

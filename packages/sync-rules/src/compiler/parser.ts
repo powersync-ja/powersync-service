@@ -364,7 +364,10 @@ export class StreamQueryParser {
             referencedResultSet = parsed.resultSet;
           } else {
             // Table-valued functions may not be based on other table-valued functions, we only allow a single layer.
-            this.errors.report('Table-valued functions must depend on source tables.', parsed.expression.location);
+            this.errors.report(
+              'Table-valued functions must depend on source tables.',
+              parsed.expression.location.location
+            );
             validArgs = false;
           }
         }
@@ -583,7 +586,10 @@ export class StreamQueryParser {
             dependency.syntacticOrigin
           );
           hadError = true;
-        } else if (referencingResultSet != null && referencingResultSet[0] != dependency.resultSet) {
+        } else if (
+          referencingResultSet != null &&
+          !BaseSourceResultSet.areCompatible(referencingResultSet[0], dependency.resultSet)
+        ) {
           const name = referencingResultSet[0].description;
           this.errors.report(
             `This expression already references '${name}', so it can't also reference data from this row unless the two are compared with an equals operator.`,

@@ -8,7 +8,7 @@ import {
   RequestedStream,
   RequestParameters,
   ResolvedBucket,
-  SOURCE
+  mergeBuckets
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -119,7 +119,7 @@ export class BucketChecksumState {
     const storage = this.bucketStorage;
 
     const update = await this.parameterState.getCheckpointUpdate(next);
-    const { buckets: allBuckets, updatedBuckets } = update;
+    const { buckets: allBuckets, updatedBuckets, parameterQueryResultsByDefinition } = update;
 
     /** Set of all buckets in this checkpoint. */
     const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
@@ -146,15 +146,12 @@ export class BucketChecksumState {
           const existing = this.lastChecksums.get(desc.bucket);
           if (existing == null) {
             // If this happens, it means updatedBuckets did not correctly include all new buckets
-            throw new ServiceAssertionError(`Existing checksum not found for bucket ${desc}`);
+            throw new ServiceAssertionError(`Existing checksum not found for bucket ${desc.bucket}`);
           }
           // Bucket is not specifically updated, and we have a previous checksum
           newChecksums.set(desc.bucket, existing);
         } else {
-          checksumLookups.push({
-            bucket: desc.bucket,
-            source: desc[SOURCE]
-          });
+          checksumLookups.push({ bucket: desc.bucket, source: desc.source });
         }
       }
 
@@ -167,12 +164,12 @@ export class BucketChecksumState {
       checksumMap = newChecksums;
     } else {
       // Re-check all buckets
-      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b[SOURCE] }));
+      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b.source }));
       checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
     }
 
     // Subset of buckets for which there may be new data in this batch.
-    let bucketsToFetch: BucketDescription[];
+    let bucketsToFetch: ResolvedBucket[];
 
     let checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
 
@@ -211,27 +208,31 @@ export class BucketChecksumState {
         ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
-        const description = bucketDescriptionMap.get(b);
-        return {
-          priority: description!.priority,
-          [SOURCE]: description![SOURCE],
-          bucket: b
-        };
+        return bucketDescriptionMap.get(b)!;
       });
 
       deferredLog = () => {
+        const totalParamResults = computeTotalParamResults(parameterQueryResultsByDefinition);
         let message = `Updated checkpoint: ${base.checkpoint} | `;
         message += `write: ${writeCheckpoint} | `;
         message += `buckets: ${allBuckets.length} | `;
+        if (totalParamResults !== undefined) {
+          message += `param_results: ${totalParamResults} | `;
+        }
         message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
         message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
-        this.logger.info(message, {
-          checkpoint: base.checkpoint,
-          user_id: userIdForLogs,
-          buckets: allBuckets.length,
-          updated: diff.updatedBuckets.length,
-          removed: diff.removedBuckets.length
-        });
+        logCheckpoint(
+          this.logger,
+          message,
+          {
+            checkpoint: base.checkpoint,
+            user_id: userIdForLogs,
+            buckets: allBuckets.length,
+            updated: diff.updatedBuckets.length,
+            removed: diff.removedBuckets.length
+          },
+          totalParamResults
+        );
       };
 
       checkpointLine = {
@@ -244,11 +245,25 @@ export class BucketChecksumState {
       } satisfies util.StreamingSyncCheckpointDiff;
     } else {
       deferredLog = () => {
+        const totalParamResults = computeTotalParamResults(parameterQueryResultsByDefinition);
         let message = `New checkpoint: ${base.checkpoint} | write: ${writeCheckpoint} | `;
-        message += `buckets: ${allBuckets.length} ${limitedBuckets(allBuckets, 20)}`;
-        this.logger.info(message, { checkpoint: base.checkpoint, user_id: userIdForLogs, buckets: allBuckets.length });
+        message += `buckets: ${allBuckets.length}`;
+        if (totalParamResults !== undefined) {
+          message += ` | param_results: ${totalParamResults}`;
+        }
+        message += ` ${limitedBuckets(allBuckets, 20)}`;
+        logCheckpoint(
+          this.logger,
+          message,
+          {
+            checkpoint: base.checkpoint,
+            user_id: userIdForLogs,
+            buckets: allBuckets.length
+          },
+          totalParamResults
+        );
       };
-      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority, [SOURCE]: b[SOURCE] }));
+      bucketsToFetch = allBuckets;
 
       const subscriptions: util.StreamDescription[] = [];
       const streamNameToIndex = new Map<string, number>();
@@ -325,7 +340,7 @@ export class BucketChecksumState {
         deferredLog();
       },
 
-      getFilteredBucketPositions: (buckets?: BucketDescription[]): storage.BucketDataRequest[] => {
+      getFilteredBucketPositions: (buckets?: ResolvedBucket[]): storage.BucketDataRequest[] => {
         if (!hasAdvanced) {
           throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
         }
@@ -335,11 +350,7 @@ export class BucketChecksumState {
         for (let bucket of buckets) {
           const state = this.bucketDataPositions.get(bucket.bucket);
           if (state) {
-            filtered.push({
-              bucket: bucket.bucket,
-              start: state.start_op_id,
-              source: bucket[SOURCE]
-            });
+            filtered.push({ bucket: bucket.bucket, start: state.start_op_id, source: bucket.source });
           }
         }
         return filtered;
@@ -381,6 +392,12 @@ export interface CheckpointUpdate {
    * If null, assume that any bucket in `buckets` may have been updated.
    */
   updatedBuckets: Set<string> | typeof INVALIDATE_ALL_BUCKETS;
+
+  /**
+   * Number of parameter query results per sync stream definition (before deduplication).
+   * Map from definition name to count.
+   */
+  parameterQueryResultsByDefinition?: Map<string, number>;
 }
 
 export class BucketParameterState {
@@ -513,11 +530,21 @@ export class BucketParameterState {
         ErrorCode.PSYNC_S2305,
         `Too many parameter query results: ${update.buckets.length} (limit of ${this.context.maxParameterQueryResults})`
       );
-      this.logger.error(error.message, {
+
+      let errorMessage = error.message;
+      const logData: any = {
         checkpoint: checkpoint,
         user_id: this.syncParams.userId,
-        buckets: update.buckets.length
-      });
+        parameter_query_results: update.buckets.length
+      };
+
+      if (update.parameterQueryResultsByDefinition && update.parameterQueryResultsByDefinition.size > 0) {
+        const breakdown = formatParameterQueryBreakdown(update.parameterQueryResultsByDefinition);
+        errorMessage += breakdown.message;
+        logData.parameter_query_results_by_definition = breakdown.countsByDefinition;
+      }
+
+      this.logger.error(errorMessage, logData);
 
       throw error;
     }
@@ -573,6 +600,7 @@ export class BucketParameterState {
     }
 
     let dynamicBuckets: ResolvedBucket[];
+    let parameterQueryResultsByDefinition: Map<string, number> | undefined;
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       const recordedLookups = new Set<string>();
 
@@ -585,6 +613,14 @@ export class BucketParameterState {
           return checkpoint.base.getParameterSets(lookups);
         }
       });
+
+      // Count parameter query results per definition (before deduplication)
+      parameterQueryResultsByDefinition = new Map<string, number>();
+      for (const bucket of dynamicBuckets) {
+        const count = parameterQueryResultsByDefinition.get(bucket.definition) ?? 0;
+        parameterQueryResultsByDefinition.set(bucket.definition, count + 1);
+      }
+
       this.cachedDynamicBuckets = dynamicBuckets;
       this.cachedDynamicBucketSet = new Set<string>(dynamicBuckets.map((b) => b.bucket));
       this.lookupsFromPreviousCheckpoint = recordedLookups;
@@ -607,12 +643,14 @@ export class BucketParameterState {
       return {
         buckets: allBuckets,
         // We cannot track individual bucket updates for dynamic lookups yet
-        updatedBuckets: INVALIDATE_ALL_BUCKETS
+        updatedBuckets: INVALIDATE_ALL_BUCKETS,
+        parameterQueryResultsByDefinition
       };
     } else {
       return {
         buckets: allBuckets,
-        updatedBuckets: updatedBuckets
+        updatedBuckets: updatedBuckets,
+        parameterQueryResultsByDefinition
       };
     }
   }
@@ -620,7 +658,7 @@ export class BucketParameterState {
 
 export interface CheckpointLine {
   checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
-  bucketsToFetch: BucketDescription[];
+  bucketsToFetch: ResolvedBucket[];
 
   /**
    * Call when a checkpoint line is being sent to a client, to update the internal state.
@@ -632,7 +670,7 @@ export interface CheckpointLine {
    *
    * @param bucketsToFetch List of buckets to fetch - either this.bucketsToFetch, or a subset of it. Defaults to this.bucketsToFetch.
    */
-  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): storage.BucketDataRequest[];
+  getFilteredBucketPositions(bucketsToFetch?: ResolvedBucket[]): storage.BucketDataRequest[];
 
   /**
    * Update the position of bucket data the client has, after it was sent to the client.
@@ -645,6 +683,68 @@ export interface CheckpointLine {
 
 // Use a more specific type to simplify testing
 export type BucketChecksumStateStorage = Pick<storage.SyncRulesBucketStorage, 'getChecksums'>;
+
+/**
+ * Compute the total number of parameter query results across all definitions.
+ */
+function computeTotalParamResults(
+  parameterQueryResultsByDefinition: Map<string, number> | undefined
+): number | undefined {
+  if (!parameterQueryResultsByDefinition) {
+    return undefined;
+  }
+  return Array.from(parameterQueryResultsByDefinition.values()).reduce((sum, count) => sum + count, 0);
+}
+
+/**
+ * Log a checkpoint message, enriching it with parameter query result counts if available.
+ *
+ * @param logger The logger instance to use
+ * @param message The base message string (param_results will NOT be appended — caller includes it if needed)
+ * @param logData The base log data object
+ * @param totalParamResults The total parameter query results count, or undefined if not applicable
+ */
+function logCheckpoint(
+  logger: Logger,
+  message: string,
+  logData: Record<string, any>,
+  totalParamResults: number | undefined
+): void {
+  if (totalParamResults !== undefined) {
+    logData.parameter_query_results = totalParamResults;
+  }
+  logger.info(message, logData);
+}
+
+/**
+ * Format a breakdown of parameter query results by sync rule definition.
+ *
+ * Sorts definitions by count (descending), includes the top 10, and returns both the
+ * formatted message string and the counts record suitable for structured log data.
+ */
+function formatParameterQueryBreakdown(parameterQueryResultsByDefinition: Map<string, number>): {
+  message: string;
+  countsByDefinition: Record<string, number>;
+} {
+  // Sort definitions by count (descending) and take top 10
+  const allSorted = Array.from(parameterQueryResultsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
+  const sortedDefinitions = allSorted.slice(0, 10);
+
+  let message = '\nParameter query results by definition:';
+  const countsByDefinition: Record<string, number> = {};
+  for (const [definition, count] of sortedDefinitions) {
+    message += `\n  ${definition}: ${count}`;
+    countsByDefinition[definition] = count;
+  }
+
+  if (allSorted.length > 10) {
+    const remainingResults = allSorted.slice(10).reduce((sum, [, count]) => sum + count, 0);
+    const remainingDefinitions = allSorted.length - 10;
+    message += `\n  ... and ${remainingResults} more results from ${remainingDefinitions} definitions`;
+  }
+
+  return { message, countsByDefinition };
+}
 
 function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number) {
   buckets = buckets.map((b) => {
@@ -659,35 +759,4 @@ function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number)
   }
   const limited = buckets.slice(0, limit);
   return `${JSON.stringify(limited)}...`;
-}
-
-/**
- * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
- *
- * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
- *
- * ```
- * sync_streams:
- *  assets_by_category:
- *    query: select * from assets where category in (request.parameters() -> 'categories')
- * ```
- *
- * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
- * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
- * bucket.
- */
-function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
-  const byBucketId: Record<string, ResolvedBucket> = {};
-
-  for (const bucket of buckets) {
-    if (Object.hasOwn(byBucketId, bucket.bucket)) {
-      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
-    } else {
-      let clone = structuredClone(bucket);
-      clone[SOURCE] = bucket[SOURCE]; // structuredClone does not clone symbol-keyed properties
-      byBucketId[bucket.bucket] = clone;
-    }
-  }
-
-  return Object.values(byBucketId);
 }

@@ -1,10 +1,12 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { bson, InternalOpId, storage, utils } from '@powersync/service-core';
+import { logger } from '@powersync/lib-services-framework';
+import { bson, storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
 import { replicaIdToSubkey } from '../../utils/bson.js';
+import { PostgresCurrentDataStore } from '../current-data-store.js';
+import { postgresTableId } from '../table-id.js';
 
 export type SaveBucketDataOptions = {
   /**
@@ -43,12 +45,15 @@ export type DeleteCurrentDataOptions = {
 
 export type PostgresPersistedBatchOptions = RequiredOperationBatchLimits & {
   group_id: number;
+  storageConfig: storage.StorageVersionConfig;
 };
 
 const EMPTY_DATA = Buffer.from(bson.serialize({}));
 
 export class PostgresPersistedBatch {
   group_id: number;
+  private readonly storageConfig: storage.StorageVersionConfig;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   /**
    * Very rough estimate of current operations size in bytes
@@ -68,11 +73,13 @@ export class PostgresPersistedBatch {
    *
    * Each key may only occur in one of these two maps.
    */
-  protected currentDataInserts: Map<string, models.CurrentData>;
+  protected currentDataInserts: Map<string, models.V3CurrentData>;
   protected currentDataDeletes: Map<string, { source_key_hex: string; source_table: string }>;
 
   constructor(options: PostgresPersistedBatchOptions) {
     this.group_id = options.group_id;
+    this.storageConfig = options.storageConfig;
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
 
     this.maxTransactionBatchSize = options.max_estimated_size;
     this.maxTransactionDocCount = options.max_record_count;
@@ -189,7 +196,7 @@ export class PostgresPersistedBatch {
   }
 
   deleteCurrentData(options: DeleteCurrentDataOptions) {
-    if (options.soft) {
+    if (options.soft && this.storageConfig.softDeleteCurrentData) {
       return this.upsertCurrentData(
         {
           group_id: this.group_id,
@@ -212,10 +219,11 @@ export class PostgresPersistedBatch {
         source_key_hex: hexReplicaId,
         source_table: source_table
       });
+      this.currentSize += serializedReplicaId.byteLength + 100;
     }
   }
 
-  upsertCurrentData(options: models.CurrentDataDecoded, serialized_source_key?: Buffer) {
+  upsertCurrentData(options: models.V3CurrentDataDecoded, serialized_source_key?: Buffer) {
     const { source_table, source_key, buckets } = options;
 
     const serializedReplicaId = serialized_source_key ?? storage.serializeReplicaId(source_key);
@@ -258,6 +266,7 @@ export class PostgresPersistedBatch {
       this.currentSize >= this.maxTransactionBatchSize ||
       this.bucketDataInserts.length >= this.maxTransactionDocCount ||
       this.currentDataInserts.size >= this.maxTransactionDocCount ||
+      this.currentDataDeletes.size >= this.maxTransactionDocCount ||
       this.parameterDataInserts.length >= this.maxTransactionDocCount
     );
   }
@@ -383,50 +392,7 @@ export class PostgresPersistedBatch {
         return 0;
       });
 
-      await db.sql`
-        INSERT INTO
-          current_data (
-            group_id,
-            source_table,
-            source_key,
-            buckets,
-            data,
-            lookups,
-            pending_delete
-          )
-        SELECT
-          group_id,
-          source_table,
-          decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
-          buckets::jsonb AS buckets,
-          decode(data, 'hex') AS data, -- Decode hex to bytea
-          array(
-            SELECT
-              decode(element, 'hex')
-            FROM
-              unnest(lookups) AS element
-          ) AS lookups,
-          CASE
-            WHEN pending_delete IS NOT NULL THEN nextval('op_id_sequence')
-            ELSE NULL
-          END AS pending_delete
-        FROM
-          json_to_recordset(${{ type: 'json', value: updates }}::json) AS t (
-            group_id integer,
-            source_table text,
-            source_key text, -- Input as hex string
-            buckets text,
-            data text, -- Input as hex string
-            lookups TEXT[], -- Input as stringified JSONB array of hex strings
-            pending_delete bigint
-          )
-        ON CONFLICT (group_id, source_table, source_key) DO UPDATE
-        SET
-          buckets = EXCLUDED.buckets,
-          data = EXCLUDED.data,
-          lookups = EXCLUDED.lookups,
-          pending_delete = EXCLUDED.pending_delete;
-      `.execute();
+      await this.currentDataStore.flushUpserts(db, updates);
     }
 
     if (this.currentDataDeletes.size > 0) {
@@ -440,35 +406,14 @@ export class PostgresPersistedBatch {
         return 0;
       });
 
-      await db.sql`
-        WITH
-          conditions AS (
-            SELECT
-              source_table,
-              decode(source_key_hex, 'hex') AS source_key -- Decode hex to bytea
-            FROM
-              jsonb_to_recordset(${{
-          type: 'jsonb',
-          value: deletes
-        }}::jsonb) AS t (source_table text, source_key_hex text)
-          )
-        DELETE FROM current_data USING conditions
-        WHERE
-          current_data.group_id = ${{ type: 'int4', value: this.group_id }}
-          AND current_data.source_table = conditions.source_table
-          AND current_data.source_key = conditions.source_key;
-      `.execute();
+      await this.currentDataStore.flushDeletes(db, {
+        groupId: this.group_id,
+        deletes
+      });
     }
   }
 }
 
 export function currentBucketKey(b: models.CurrentBucket) {
   return `${b.bucket}/${b.table}/${b.id}`;
-}
-
-export function postgresTableId(id: storage.SourceTableId) {
-  if (typeof id == 'string') {
-    return id;
-  }
-  throw new ServiceAssertionError(`Expected string table id, got ObjectId`);
 }

@@ -2,8 +2,6 @@ import { BucketDataRequest, InternalOpId, JwtPayload, storage, utils } from '@po
 import { GetQuerierOptions, RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { SOURCE } from '@powersync/service-sync-rules';
-
 export const ZERO_LSN = '0/0';
 
 export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
@@ -85,6 +83,39 @@ export function getBatchData(
   });
 }
 
+function isParsedSyncRules(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
+): syncRules is storage.PersistedSyncRules {
+  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
+}
+
+/**
+ * Bucket names no longer purely depend on the sync rules.
+ * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
+ */
+export function bucketRequest(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
+  bucket: string,
+  start?: InternalOpId | string | number
+): BucketDataRequest {
+  const parsed = isParsedSyncRules(syncRules) ? syncRules : syncRules.parsed(PARSE_OPTIONS);
+  const hydrationState = parsed.hydrationState;
+  const parameterStart = bucket.indexOf('[');
+  const definitionName = bucket.substring(0, parameterStart);
+  const parameters = bucket.substring(parameterStart);
+  const source = parsed.sync_rules.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
+
+  if (source == null) {
+    throw new Error(`Failed to find global bucket ${bucket}`);
+  }
+  const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
+  return {
+    bucket: bucketName,
+    start: BigInt(start ?? 0n),
+    source: source
+  };
+}
+
 export function getBatchMeta(
   batch: utils.SyncBucketData[] | storage.SyncBucketDataChunk[] | storage.SyncBucketDataChunk
 ) {
@@ -138,39 +169,6 @@ export function requestParameters(
   return new RequestParameters(new JwtPayload(jwtPayload), clientParameters ?? {});
 }
 
-function isParsedSyncRules(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
-): syncRules is storage.PersistedSyncRules {
-  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
-}
-
-/**
- * Bucket names no longer purely depend on the sync rules.
- * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
- */
-export function bucketRequest(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
-  bucket?: string,
-  start?: InternalOpId | string | number
-): BucketDataRequest {
-  const parsed = isParsedSyncRules(syncRules) ? syncRules : syncRules.parsed(PARSE_OPTIONS);
-  const hydrationState = parsed.hydrationState;
-  bucket ??= 'global[]';
-  const definitionName = bucket.substring(0, bucket.indexOf('['));
-  const parameters = bucket.substring(bucket.indexOf('['));
-  const source = parsed.sync_rules.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
-
-  if (source == null) {
-    throw new Error(`Failed to find global bucket ${bucket}`);
-  }
-  const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
-  return {
-    bucket: bucketName,
-    start: BigInt(start ?? 0n),
-    source: source
-  };
-}
-
 /**
  * Removes the source property from an object.
  *
@@ -178,15 +176,5 @@ export function bucketRequest(
  */
 export function removeSource<T extends { source?: any }>(obj: T): Omit<T, 'source'> {
   const { source, ...rest } = obj;
-  return rest;
-}
-
-/**
- * Removes the [SOURCE] symbol property from an object.
- *
- * This is for tests where we don't care about this value, and it adds a lot of noise in the output.
- */
-export function removeSourceSymbol<T extends { [SOURCE]: any }>(obj: T): Omit<T, typeof SOURCE> {
-  const { [SOURCE]: source, ...rest } = obj;
   return rest;
 }

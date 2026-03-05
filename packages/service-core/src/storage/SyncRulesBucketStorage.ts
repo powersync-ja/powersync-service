@@ -1,4 +1,4 @@
-import { Logger, ObserverClient } from '@powersync/lib-services-framework';
+import { ObserverClient } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   HydratedSyncRules,
@@ -6,14 +6,14 @@ import {
   SqliteJsonRow,
   TablePattern
 } from '@powersync/service-sync-rules';
+import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
-import { BucketDataWriter, BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketDataWriter.js';
+import { BucketDataWriter, BucketStorageBatch } from './BucketDataWriter.js';
 import { BucketStorageFactory, CreateWriterOptions } from './BucketStorageFactory.js';
 import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
-import { bson } from '../index.js';
 
 /**
  * Storage for a specific copy of sync rules.
@@ -215,7 +215,8 @@ export interface CompactOptions {
    *
    * If not specified, compacts all buckets.
    *
-   * These can be individual bucket names, or bucket definition names.
+   * These must be full bucket names (e.g., "global[]", "mybucket[\"user1\"]").
+   * Bucket definition names (e.g., "global") are not supported.
    */
   compactBuckets?: string[];
 
