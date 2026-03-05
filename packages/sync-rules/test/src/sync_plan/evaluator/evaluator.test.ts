@@ -274,6 +274,51 @@ streams:
 });
 
 describe('querier', () => {
+  syncTest('tracks source metadata on stream APIs', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      accept_potentially_dangerous_queries: true
+      queries:
+        - SELECT * FROM comments WHERE issue_id = subscription.parameter('issue')
+        - SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+`);
+    const streamSource = desc.definition.bucketSources[0];
+    expect(streamSource.dataSources).toHaveLength(2);
+
+    const rowResults = desc.evaluateRow({ sourceTable: COMMENTS, record: { id: 'c1', issue_id: 'i1' } });
+    expect(rowResults).toHaveLength(1);
+    expect(rowResults[0].bucket).toBe('stream|0["i1"]');
+    expect(rowResults[0].source).toBe(streamSource.dataSources[0]);
+
+    expect(desc.definition.bucketParameterLookupSources).toHaveLength(1);
+    const parameterResults = desc.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' });
+    expect(parameterResults).toHaveLength(1);
+    expect(parameterResults[0].lookup.source).toBe(desc.definition.bucketParameterLookupSources[0]);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'u1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ opaque_id: 0, parameters: { issue: 'i1' } }]
+      }
+    });
+    expect(errors).toHaveLength(0);
+    expect(querier.staticBuckets).toHaveLength(1);
+    expect(querier.staticBuckets[0].source).toBe(streamSource.dataSources[0]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets() {
+        return [{ '0': 'i1' }];
+      }
+    });
+    expect(dynamicBuckets).toHaveLength(1);
+    expect(dynamicBuckets[0].source).toBe(streamSource.dataSources[1]);
+  });
+
   syncTest('static', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
