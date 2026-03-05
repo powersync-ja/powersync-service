@@ -134,7 +134,7 @@ bucket_definitions:
       }
     ]);
     // This is the bucket data to be fetched
-    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 0n]]));
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['global[]', 0n]]));
 
     // This similuates the bucket data being sent
     line.advance();
@@ -163,7 +163,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 1n]]));
+    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['global[]', 1n]]));
   });
 
   test('global bucket with initial state', async () => {
@@ -204,7 +204,7 @@ bucket_definitions:
       }
     ]);
     // This is the main difference between this and the previous test
-    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 1n]]));
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['global[]', 1n]]));
   });
 
   test('multiple static buckets', async () => {
@@ -311,7 +311,7 @@ bucket_definitions:
         priority: 3
       }
     ]);
-    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['1#global[]', 0n]]));
+    expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(new Map([['global[]', 0n]]));
   });
 
   test('invalidating individual bucket', async () => {
@@ -368,7 +368,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toMatchObject([{ bucket: '2#global[1]', priority: 3 }]);
+    expect(line2.bucketsToFetch).toMatchObject([{ bucket: 'global[1]', priority: 3 }]);
   });
 
   test('invalidating all buckets', async () => {
@@ -419,8 +419,8 @@ bucket_definitions:
       }
     });
     expect(line2.bucketsToFetch).toMatchObject([
-      { bucket: '2#global[1]', priority: 3 },
-      { bucket: '2#global[2]', priority: 3 }
+      { bucket: 'global[1]', priority: 3 },
+      { bucket: 'global[2]', priority: 3 }
     ]);
   });
 
@@ -469,8 +469,8 @@ bucket_definitions:
     // This is the bucket data to be fetched
     expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(
       new Map([
-        ['2#global[1]', 0n],
-        ['2#global[2]', 0n]
+        ['global[1]', 0n],
+        ['global[2]', 0n]
       ])
     );
 
@@ -521,8 +521,8 @@ bucket_definitions:
 
     expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(
       new Map([
-        ['2#global[1]', 3n],
-        ['2#global[2]', 1n]
+        ['global[1]', 3n],
+        ['global[2]', 1n]
       ])
     );
   });
@@ -596,8 +596,8 @@ bucket_definitions:
     // This is the bucket data to be fetched
     expect(bucketStarts(line.getFilteredBucketPositions())).toEqual(
       new Map([
-        ['3#by_project[1]', 0n],
-        ['3#by_project[2]', 0n]
+        ['by_project[1]', 0n],
+        ['by_project[2]', 0n]
       ])
     );
 
@@ -636,7 +636,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['3#by_project[3]', 0n]]));
+    expect(bucketStarts(line2.getFilteredBucketPositions())).toEqual(new Map([['by_project[3]', 0n]]));
   });
 
   describe('streams', () => {

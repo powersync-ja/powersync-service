@@ -1,6 +1,5 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { DEFAULT_HYDRATION_STATE, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
-import { SourceSchema, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, SourceSchema, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import * as api from '../../api/api-index.js';

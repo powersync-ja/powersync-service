@@ -52,7 +52,10 @@ export abstract class BucketStorageFactory
    */
   abstract getInstance(syncRules: PersistedSyncRulesContent, options?: GetIntanceOptions): SyncRulesBucketStorage;
 
-  createCombinedWriter(storage: SyncRulesBucketStorage[], options: CreateWriterOptions): Promise<BucketDataWriter>;
+  abstract createCombinedWriter(
+    storage: SyncRulesBucketStorage[],
+    options: CreateWriterOptions
+  ): Promise<BucketDataWriter>;
 
   /**
    * Deploy new sync rules.
