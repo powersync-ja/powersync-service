@@ -138,20 +138,20 @@ export class BucketChecksumState {
       }
 
       // Re-check updated buckets only
-      let checksumLookups: string[] = [];
+      let checksumLookups: storage.BucketChecksumRequest[] = [];
 
       let newChecksums = new Map<string, util.BucketChecksum>();
-      for (let bucket of bucketDescriptionMap.keys()) {
-        if (!updatedBuckets.has(bucket)) {
-          const existing = this.lastChecksums.get(bucket);
+      for (let desc of bucketDescriptionMap.values()) {
+        if (!updatedBuckets.has(desc.bucket)) {
+          const existing = this.lastChecksums.get(desc.bucket);
           if (existing == null) {
             // If this happens, it means updatedBuckets did not correctly include all new buckets
-            throw new ServiceAssertionError(`Existing checksum not found for bucket ${bucket}`);
+            throw new ServiceAssertionError(`Existing checksum not found for bucket ${desc.bucket}`);
           }
           // Bucket is not specifically updated, and we have a previous checksum
-          newChecksums.set(bucket, existing);
+          newChecksums.set(desc.bucket, existing);
         } else {
-          checksumLookups.push(bucket);
+          checksumLookups.push({ bucket: desc.bucket, source: desc.source });
         }
       }
 
@@ -164,7 +164,7 @@ export class BucketChecksumState {
       checksumMap = newChecksums;
     } else {
       // Re-check all buckets
-      const bucketList = [...bucketDescriptionMap.keys()];
+      const bucketList = [...bucketDescriptionMap.values()].map((b) => ({ bucket: b.bucket, source: b.source }));
       checksumMap = await storage.getChecksums(base.checkpoint, bucketList);
     }
 
@@ -340,17 +340,17 @@ export class BucketChecksumState {
         deferredLog();
       },
 
-      getFilteredBucketPositions: (buckets?: ResolvedBucket[]): Map<string, util.InternalOpId> => {
+      getFilteredBucketPositions: (buckets?: ResolvedBucket[]): storage.BucketDataRequest[] => {
         if (!hasAdvanced) {
           throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
         }
         buckets ??= bucketsToFetch;
-        const filtered = new Map<string, util.InternalOpId>();
+        const filtered: storage.BucketDataRequest[] = [];
 
         for (let bucket of buckets) {
           const state = this.bucketDataPositions.get(bucket.bucket);
           if (state) {
-            filtered.set(bucket.bucket, state.start_op_id);
+            filtered.push({ bucket: bucket.bucket, start: state.start_op_id, source: bucket.source });
           }
         }
         return filtered;
@@ -670,7 +670,7 @@ export interface CheckpointLine {
    *
    * @param bucketsToFetch List of buckets to fetch - either this.bucketsToFetch, or a subset of it. Defaults to this.bucketsToFetch.
    */
-  getFilteredBucketPositions(bucketsToFetch?: ResolvedBucket[]): Map<string, util.InternalOpId>;
+  getFilteredBucketPositions(bucketsToFetch?: ResolvedBucket[]): storage.BucketDataRequest[];
 
   /**
    * Update the position of bucket data the client has, after it was sent to the client.

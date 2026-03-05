@@ -120,6 +120,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
       id: this.id,
       slot_name: this.slot_name,
       sync_rules: config,
+      hydrationState,
       hydratedSyncRules: () => {
         return config.config.hydrate({ hydrationState });
       }
@@ -140,6 +141,10 @@ export interface PersistedSyncRules {
   readonly id: number;
   readonly sync_rules: SyncConfigWithErrors;
   readonly slot_name: string;
+  /**
+   * For testing only.
+   */
+  readonly hydrationState: HydrationState;
 
   hydratedSyncRules(): HydratedSyncRules;
 }

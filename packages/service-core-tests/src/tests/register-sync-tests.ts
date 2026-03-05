@@ -14,8 +14,7 @@ import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
-import { bucketRequest } from './util.js';
+import { bucketRequest, METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -836,10 +835,11 @@ bucket_definitions:
       await batch.commit('0/1');
     });
 
+    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual([bucketRequest(syncRules, 'by_user["user1"]')]);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
@@ -893,10 +893,9 @@ bucket_definitions:
       iter.return?.();
     });
 
+    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint1 = await getCheckpointLines(iter);
-    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([
-      bucketRequest(syncRules, 'by_user["user1"]')
-    ]);
+    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([bucket]);
     expect(checkpoint1).toMatchSnapshot();
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -917,7 +916,7 @@ bucket_definitions:
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual([bucketRequest(syncRules, 'by_user["user1"]')]);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
@@ -990,10 +989,11 @@ bucket_definitions:
       await batch.commit('0/1');
     });
 
+    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual([bucketRequest(syncRules, 'by_user["user1"]')]);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 

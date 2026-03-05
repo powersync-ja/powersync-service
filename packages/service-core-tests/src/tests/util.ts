@@ -6,25 +6,23 @@ import {
   TablePattern
 } from '@powersync/service-sync-rules';
 import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
-
-export function bucketRequest(syncRules: storage.PersistedSyncRulesContent, bucketName: string): string {
-  if (/^\d+#/.test(bucketName)) {
-    return bucketName;
-  }
-
-  const versionedBuckets = storage.STORAGE_VERSION_CONFIG[syncRules.storageVersion]?.versionedBuckets ?? false;
-  return versionedBuckets ? `${syncRules.id}#${bucketName}` : bucketName;
-}
-
-export function bucketRequests(syncRules: storage.PersistedSyncRulesContent, bucketNames: string[]): string[] {
-  return bucketNames.map((bucketName) => bucketRequest(syncRules, bucketName));
-}
+import { bucketRequest } from '../test-utils/general-utils.js';
 
 export function bucketRequestMap(
   syncRules: storage.PersistedSyncRulesContent,
   buckets: Iterable<readonly [string, bigint]>
-): Map<string, bigint> {
-  return new Map(Array.from(buckets, ([bucketName, opId]) => [bucketRequest(syncRules, bucketName), opId]));
+): storage.BucketDataRequest[] {
+  return Array.from(buckets, ([bucketName, opId]) => bucketRequest(syncRules, bucketName, opId));
+}
+
+export function bucketRequests(
+  syncRules: storage.PersistedSyncRulesContent,
+  bucketNames: string[]
+): storage.BucketChecksumRequest[] {
+  return bucketNames.map((bucketName) => {
+    const request = bucketRequest(syncRules, bucketName, 0n);
+    return { bucket: request.bucket, source: request.source };
+  });
 }
 
 const EMPTY_LOOKUP_SOURCE: ParameterIndexLookupCreator = {

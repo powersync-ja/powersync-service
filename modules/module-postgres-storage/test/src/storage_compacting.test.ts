@@ -41,7 +41,7 @@ bucket_definitions:
     // Compact with an explicit bucket name — exercises the this.buckets
     // iteration path, NOT the compactAllBuckets discovery path.
     await bucketStorage.compact({
-      compactBuckets: [bucketRequest(syncRules, 'global[]')],
+      compactBuckets: [bucketRequest(syncRules, 'global[]').bucket],
       minBucketChanges: 1
     });
 
@@ -67,7 +67,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const bucket = bucketRequest(syncRules, 'global[]');
+    const request = bucketRequest(syncRules, 'global[]');
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
       await batch.markAllSnapshotDone('1/1');
@@ -99,20 +99,18 @@ bucket_definitions:
     });
 
     const checkpoint = result!.flushed_op;
-    const rowsBefore = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]))
-    );
+    const rowsBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = test_utils.getBatchData(rowsBefore);
     const clearToOpId = BigInt(dataBefore[2].op_id);
 
     const compactor = new PostgresCompactor(factory.db, bucketStorage.group_id, {});
     // Trigger the private method directly
-    await expect(compactor.clearBucketForTests(bucket, clearToOpId)).rejects.toThrow(/Unexpected PUT operation/);
+    await expect(compactor.clearBucketForTests(request.bucket, clearToOpId)).rejects.toThrow(
+      /Unexpected PUT operation/
+    );
 
     // The method wraps in a transaction; on assertion error the bucket must remain unchanged.
-    const rowsAfter = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]))
-    );
+    const rowsAfter = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     expect(test_utils.getBatchData(rowsAfter)).toEqual(dataBefore);
   });
 });
