@@ -344,6 +344,37 @@ streams:
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual(['stream|0[]']);
   });
 
+  syncTest('static request filter', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT * FROM issues WHERE auth.parameter('is_admin')
+`);
+
+    {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user' }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.staticBuckets).toStrictEqual([]);
+    }
+    {
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user', is_admin: true }),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.staticBuckets).toHaveLength(1);
+    }
+  });
+
   syncTest('request data', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
@@ -436,6 +467,134 @@ streams:
       'stream|0["a2","b1"]',
       'stream|0["a2","b2"]'
     ]);
+  });
+
+  describe('expanding request conditions', () => {
+    syncTest('based on parameter', async ({ sync }) => {
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM posts WHERE 'posts' IN (SELECT table_name FROM synced_table WHERE "user" = auth.user_id())
+`);
+
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user' }, {}),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.staticBuckets).toStrictEqual([]);
+
+      // Should not return any streams if the synced_table lookup is empty.
+      expect(
+        await querier.queryDynamicBucketDescriptions({
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
+            return [];
+          }
+        })
+      ).toStrictEqual([]);
+
+      expect(
+        await querier.queryDynamicBucketDescriptions({
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
+            return [{}];
+          }
+        })
+      ).toStrictEqual([
+        {
+          bucket: 'stream|0[]',
+          definition: 'stream',
+          inclusion_reasons: ['default'],
+          priority: 3
+        }
+      ]);
+    });
+
+    syncTest('based on static filter', async ({ sync }) => {
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM posts WHERE 'posts' IN auth.parameter('synced_objects')
+`);
+
+      {
+        const { querier, errors } = desc.getBucketParameterQuerier({
+          globalParameters: requestParameters({ sub: 'user', synced_objects: ['another_table'] }, {}),
+          hasDefaultStreams: true,
+          streams: {}
+        });
+        expect(errors).toStrictEqual([]);
+        expect(querier.staticBuckets).toStrictEqual([]);
+      }
+      {
+        const { querier, errors } = desc.getBucketParameterQuerier({
+          globalParameters: requestParameters({ sub: 'user', synced_objects: ['another_table', 'posts'] }, {}),
+          hasDefaultStreams: true,
+          streams: {}
+        });
+        expect(errors).toStrictEqual([]);
+        expect(querier.staticBuckets).toHaveLength(1);
+      }
+    });
+
+    syncTest('skips dynamic lookup if static lookup makes graph uninstantiable', async ({ sync }) => {
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM posts WHERE id IN (SELECT post FROM owned_posts WHERE owner = auth.user_id()) AND 'posts' IN auth.parameter('synced_objects')
+`);
+
+      {
+        // second AND is known to be false from token parameter, so skip any lookups.
+        const { querier, errors } = desc.getBucketParameterQuerier({
+          globalParameters: requestParameters({ sub: 'user', synced_objects: ['another_table'] }, {}),
+          hasDefaultStreams: true,
+          streams: {}
+        });
+        expect(errors).toStrictEqual([]);
+        expect(querier.staticBuckets).toStrictEqual([]);
+
+        expect(querier.hasDynamicBuckets).toStrictEqual(false);
+      }
+
+      {
+        const { querier, errors } = desc.getBucketParameterQuerier({
+          globalParameters: requestParameters({ sub: 'user', synced_objects: ['another_table', 'posts'] }, {}),
+          hasDefaultStreams: true,
+          streams: {}
+        });
+        expect(errors).toStrictEqual([]);
+        expect(querier.staticBuckets).toHaveLength(0);
+
+        // Should request dynamic lookups to query left side of AND
+        expect(querier.hasDynamicBuckets).toStrictEqual(true);
+
+        for (const hasLookupResult of [false, true]) {
+          expect(
+            await querier.queryDynamicBucketDescriptions({
+              getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+                expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
+                return hasLookupResult ? [{}] : [];
+              }
+            })
+          ).toHaveLength(hasLookupResult ? 1 : 0);
+        }
+      }
+    });
   });
 });
 
