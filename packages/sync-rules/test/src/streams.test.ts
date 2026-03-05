@@ -1062,13 +1062,11 @@ WHERE
     ).toStrictEqual(['stream|0.test["i1"]', 'stream|1.test["i1"]', 'stream|2.test["l1"]', 'stream|3.test[]']);
 
     expect(
-      hydrated
-        .evaluateParameterRow(ISSUES, {
-          id: 'i1',
-          owner_id: 'u1',
-          name: 'myname'
-        })
-        .map(removeLookupSource)
+      hydrated.evaluateParameterRow(ISSUES, {
+        id: 'i1',
+        owner_id: 'u1',
+        name: 'myname'
+      })
     ).toStrictEqual([
       {
         lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '0.test'), ['u1']),
@@ -1090,12 +1088,10 @@ WHERE
     ]);
 
     expect(
-      hydrated
-        .evaluateParameterRow(ISSUES, {
-          id: 'i1',
-          owner_id: 'u1'
-        })
-        .map(removeLookupSource)
+      hydrated.evaluateParameterRow(ISSUES, {
+        id: 'i1',
+        owner_id: 'u1'
+      })
     ).toStrictEqual([
       {
         lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '0.test'), ['u1']),

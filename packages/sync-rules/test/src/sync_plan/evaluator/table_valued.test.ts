@@ -56,9 +56,7 @@ streams:
       'stream|0["user"]'
     ]);
     expect(
-      desc
-        .evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['user', 'another']) })
-        .map(removeLookupSource)
+      desc.evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['user', 'another']) })
     ).toStrictEqual([
       {
         lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),

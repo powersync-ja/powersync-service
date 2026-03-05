@@ -342,7 +342,7 @@ bucket_definitions:
       )
     ).querier;
     const buckets = await querier.queryDynamicBucketDescriptions(checkpoint);
-    expect(buckets.map(test_utils.removeSourceSymbol)).toMatchObject([
+    expect(buckets.map(test_utils.removeSource)).toMatchObject([
       {
         bucket: expect.stringMatching(/"group1"/),
         definition: 'mybucket'

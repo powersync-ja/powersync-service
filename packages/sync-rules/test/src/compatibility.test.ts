@@ -10,7 +10,7 @@ import {
 } from '../../src/index.js';
 
 import { DEFAULT_HYDRATION_STATE, versionedHydrationState } from '../../src/HydrationState.js';
-import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS, removeSource, removeSourceSymbol } from './util.js';
+import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS, removeSource } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
@@ -103,9 +103,7 @@ config:
       ]);
 
       expect(
-        rules
-          .getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {}))
-          .querier.staticBuckets.map(removeSourceSymbol)
+        rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets.map(removeSource)
       ).toStrictEqual([
         {
           bucket: '1#stream|0[]',
@@ -151,9 +149,7 @@ config:
         { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
       expect(
-        rules
-          .getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {}))
-          .querier.staticBuckets.map(removeSourceSymbol)
+        rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets.map(removeSource)
       ).toStrictEqual([
         {
           bucket: 'stream|0[]',
@@ -319,9 +315,7 @@ config:
       ]);
 
       expect(
-        rules
-          .getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {}))
-          .querier.staticBuckets.map(removeSourceSymbol)
+        rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets.map(removeSource)
       ).toStrictEqual([
         {
           bucket: 'mybucket[]',
