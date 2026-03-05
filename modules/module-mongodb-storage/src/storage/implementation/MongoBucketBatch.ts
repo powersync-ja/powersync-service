@@ -284,9 +284,15 @@ export class MongoBucketBatch
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
       }
 
-      let persistedBatch: PersistedBatch | null = new PersistedBatch(this.db, this.group_id, this.mapping, transactionSize, {
-        logger: this.logger
-      });
+      let persistedBatch: PersistedBatch | null = new PersistedBatch(
+        this.db,
+        this.group_id,
+        this.mapping,
+        transactionSize,
+        {
+          logger: this.logger
+        }
+      );
 
       for (let op of b) {
         if (resumeBatch) {
@@ -586,12 +592,45 @@ export class MongoBucketBatch
         buckets: new_buckets,
         lookups: new_lookups
       });
-      result = {
-        _id: after_key,
-        data: afterData!,
-        buckets: new_buckets,
-        lookups: new_lookups
-      };
+      if (this.db.storageConfig.incrementalReprocessing) {
+        const buckets = new_buckets.map((bucket) => {
+          if (!('def' in bucket)) {
+            throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
+          }
+          return bucket;
+        });
+        const lookups = new_lookups.map((lookup) => {
+          if (lookup instanceof bson.Binary) {
+            throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+          }
+          return lookup;
+        });
+        result = {
+          _id: after_key,
+          data: afterData!,
+          buckets,
+          lookups
+        };
+      } else {
+        const buckets = new_buckets.map((bucket) => {
+          if ('def' in bucket) {
+            throw new ReplicationAssertionError('Unexpected v3 bucket when incrementalReprocessing is disabled');
+          }
+          return bucket;
+        });
+        const lookups = new_lookups.map((lookup) => {
+          if (!(lookup instanceof bson.Binary)) {
+            throw new ReplicationAssertionError('Unexpected v3 lookup when incrementalReprocessing is disabled');
+          }
+          return lookup;
+        });
+        result = {
+          _id: after_key,
+          data: afterData!,
+          buckets,
+          lookups
+        };
+      }
     }
 
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
