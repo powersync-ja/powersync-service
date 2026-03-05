@@ -79,7 +79,10 @@ function cloneResolvedBucket(bucket: ResolvedBucket) {
   return withBucketSource(clone, bucket.source);
 }
 
-function withBucketSource<T extends object>(value: T, source: BucketDataSource): T & { source: BucketDataSource } {
+export function withBucketSource<T extends object>(
+  value: T,
+  source: BucketDataSource
+): T & { source: BucketDataSource } {
   Object.defineProperty(value, 'source', {
     value: source,
     // This is important. If the property is enumerable, it may end up in JSON output to the client,

@@ -28,17 +28,15 @@ export const isValidPriority = (i: number): i is BucketPriority => {
  *
  * This is _not_ the same as defining `get source(): BucketDataSource` directly on the interface.
  *
- * We never instantiate this class - we only use the type.
+ * We never instantiate or extend this class directly - we only use the type.
  */
-class NonEnumerableSourceClass {
+abstract class NonEnumerableSourceClass {
   private constructor() {}
 
   /**
    * This is specifically not enumerable - must be excluded from tests and serialization.
    */
-  get source(): BucketDataSource {
-    throw new Error('Do not use');
-  }
+  abstract get source(): BucketDataSource;
 }
 
 export type NonEnumerableBucketDataSource = NonEnumerableSourceClass;
