@@ -985,10 +985,10 @@ function buildFlatMdxContent(opts: FlatMdxOptions): string {
       for (const [, config] of Object.entries(grammar.operatorTableRules)) {
         for (let i = 0; i < config.groups.length; i++) {
           const group = config.groups[i];
-          // Escape | for markdown table, < and > for MDX compatibility
+          // Escape | for markdown table
           const ops = group.operators
             .map((op) => {
-              const escaped = op.replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+              const escaped = op.replace(/\|/g, '\\|');
               return `\`${escaped}\``;
             })
             .join(' ');
