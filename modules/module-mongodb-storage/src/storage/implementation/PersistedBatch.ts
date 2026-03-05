@@ -8,13 +8,13 @@ import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { VersionedPowerSyncMongo } from './db.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import {
   BucketDataDocument,
   BucketStateDocument,
   CommonBucketParameterDocument,
   CommonCurrentBucket,
   CommonCurrentLookup,
-  CommonCurrentDataDocument,
   CurrentDataDocument,
   CurrentDataDocumentV3,
   RecordedLookupV3,
@@ -55,7 +55,8 @@ export class PersistedBatch {
   logger: Logger;
   bucketData: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
   bucketParameters: mongo.AnyBulkWriteOperation<CommonBucketParameterDocument>[] = [];
-  currentData: mongo.AnyBulkWriteOperation<CommonCurrentDataDocument>[] = [];
+  currentDataV1: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
+  currentDataV3: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3>[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
 
   /**
@@ -71,6 +72,7 @@ export class PersistedBatch {
   constructor(
     private db: VersionedPowerSyncMongo,
     private group_id: number,
+    private mapping: BucketDefinitionMapping,
     writtenSize: number,
     options?: { logger?: Logger }
   ) {
@@ -109,10 +111,11 @@ export class PersistedBatch {
     const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
 
     for (const k of options.evaluated) {
+      const sourceDefinitionId = this.mapping.bucketSourceId(k.source);
       const key = currentBucketKey(
         this.db.storageConfig.incrementalReprocessing
           ? {
-              def: getDefinitionIdFromBucketName(k.bucket),
+              def: sourceDefinitionId,
               bucket: k.bucket,
               table: k.table,
               id: k.id
@@ -226,7 +229,7 @@ export class PersistedBatch {
       const binLookup = storage.serializeLookup(result.lookup);
       let sourceDefinitionId: number | undefined = undefined;
       if (this.db.storageConfig.incrementalReprocessing) {
-        sourceDefinitionId = getDefinitionIdFromLookup(result.lookup);
+        sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
         remaining_lookups.delete(`${sourceDefinitionId}.${binLookup.toString('base64')}`);
       } else {
         remaining_lookups.delete(binLookup.toString('base64'));
@@ -311,12 +314,21 @@ export class PersistedBatch {
   }
 
   hardDeleteCurrentData(id: SourceKey) {
-    const op: mongo.AnyBulkWriteOperation<CommonCurrentDataDocument> = {
-      deleteOne: {
-        filter: { _id: id }
-      }
-    };
-    this.currentData.push(op);
+    if (this.db.storageConfig.incrementalReprocessing) {
+      const op: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> = {
+        deleteOne: {
+          filter: { _id: id }
+        }
+      };
+      this.currentDataV3.push(op);
+    } else {
+      const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
+        deleteOne: {
+          filter: { _id: id }
+        }
+      };
+      this.currentDataV1.push(op);
+    }
     this.currentSize += 50;
   }
 
@@ -344,7 +356,7 @@ export class PersistedBatch {
         upsert: true
       }
     };
-    this.currentData.push(op);
+    this.currentDataV3.push(op);
     this.currentSize += 50;
   }
 
@@ -381,7 +393,7 @@ export class PersistedBatch {
           upsert: true
         }
       };
-      this.currentData.push(op);
+      this.currentDataV3.push(op);
     } else {
       const buckets = values.buckets.map((bucket) => ({
         bucket: bucket.bucket,
@@ -408,7 +420,7 @@ export class PersistedBatch {
           upsert: true
         }
       };
-      this.currentData.push(op);
+      this.currentDataV1.push(op);
     }
     this.currentSize += (values.data?.length() ?? 0) + 100;
   }
@@ -417,7 +429,7 @@ export class PersistedBatch {
     return (
       this.currentSize >= MAX_TRANSACTION_BATCH_SIZE ||
       this.bucketData.length >= MAX_TRANSACTION_DOC_COUNT ||
-      this.currentData.length >= MAX_TRANSACTION_DOC_COUNT ||
+      this.currentDataV1.length + this.currentDataV3.length >= MAX_TRANSACTION_DOC_COUNT ||
       this.bucketParameters.length >= MAX_TRANSACTION_DOC_COUNT
     );
   }
@@ -442,13 +454,24 @@ export class PersistedBatch {
         ordered: false
       });
     }
-    if (this.currentData.length > 0) {
-      flushedSomething = true;
-      await db.common_current_data.bulkWrite(this.currentData, {
-        session,
-        // may update and delete data within the same batch - order matters
-        ordered: true
-      });
+    if (this.db.storageConfig.incrementalReprocessing) {
+      if (this.currentDataV3.length > 0) {
+        flushedSomething = true;
+        await db.v3_current_data.bulkWrite(this.currentDataV3, {
+          session,
+          // may update and delete data within the same batch - order matters
+          ordered: true
+        });
+      }
+    } else {
+      if (this.currentDataV1.length > 0) {
+        flushedSomething = true;
+        await db.v1_current_data.bulkWrite(this.currentDataV1, {
+          session,
+          // may update and delete data within the same batch - order matters
+          ordered: true
+        });
+      }
     }
 
     if (this.bucketStates.size > 0) {
@@ -467,7 +490,7 @@ export class PersistedBatch {
 
         this.logger.info(
           `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
-            this.currentData.length
+            this.currentDataV1.length + this.currentDataV3.length
           } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
           {
             flushed: {
@@ -475,7 +498,7 @@ export class PersistedBatch {
               size: this.currentSize,
               bucket_data_count: this.bucketData.length,
               parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentData.length,
+              current_data_count: this.currentDataV1.length + this.currentDataV3.length,
               replication_lag_seconds: replicationLag
             }
           }
@@ -483,7 +506,7 @@ export class PersistedBatch {
       } else {
         this.logger.info(
           `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
-            this.currentData.length
+            this.currentDataV1.length + this.currentDataV3.length
           } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
           {
             flushed: {
@@ -491,7 +514,7 @@ export class PersistedBatch {
               size: this.currentSize,
               bucket_data_count: this.bucketData.length,
               parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentData.length
+              current_data_count: this.currentDataV1.length + this.currentDataV3.length
             }
           }
         );
@@ -501,13 +524,14 @@ export class PersistedBatch {
     const stats = {
       bucketDataCount: this.bucketData.length,
       parameterDataCount: this.bucketParameters.length,
-      currentDataCount: this.currentData.length,
+      currentDataCount: this.currentDataV1.length + this.currentDataV3.length,
       flushedAny: flushedSomething
     };
 
     this.bucketData = [];
     this.bucketParameters = [];
-    this.currentData = [];
+    this.currentDataV1 = [];
+    this.currentDataV3 = [];
     this.bucketStates.clear();
     this.currentSize = 0;
     this.debugLastOpId = null;
