@@ -1485,7 +1485,9 @@ export class MongoBucketBatch
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
-      await this.cleanupCurrentData(updateResult.last_checkpoint!);
+      if (this.db.storageConfig.softDeleteCurrentData) {
+        await this.cleanupCurrentData(updateResult.last_checkpoint!);
+      }
     }
     return { checkpointBlocked, checkpointCreated };
   }
