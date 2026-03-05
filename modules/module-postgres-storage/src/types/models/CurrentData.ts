@@ -16,8 +16,7 @@ export const V1CurrentData = t.object({
   group_id: pgwire_number,
   lookups: t.array(hexBuffer),
   source_key: hexBuffer,
-  source_table: t.string,
-  pending_delete: t.Null.or(bigint)
+  source_table: t.string
 });
 
 export const V3CurrentData = t.object({
