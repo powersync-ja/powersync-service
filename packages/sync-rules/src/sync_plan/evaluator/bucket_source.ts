@@ -121,14 +121,8 @@ class PreparedQuerier {
       }
 
       const subscriptionEvaluators = this.lookupStages.clone();
-
-      subscriptionEvaluators.partiallyInstantiate({ request: params });
-      if (subscriptionEvaluators.isDefinitelyUninstantiable()) {
-        return;
-      }
-
+      const partialInstantiationResult = subscriptionEvaluators.partiallyInstantiate({ request: params });
       const bucketScope = hydration.hydrationState.getBucketSourceScope(this.dataSource);
-
       const parametersToBucket = (instantiation: SqliteParameterValue[]): ResolvedBucket => {
         const desc = bucketDescription(
           bucketScope,
@@ -141,33 +135,35 @@ class PreparedQuerier {
         });
       };
 
-      // Do we need parameter lookups to resolve parameters?
-      const staticInstantiation = subscriptionEvaluators.extractFullInstantiation();
-      if (staticInstantiation) {
-        // We don't! Return static querier.
-        result.queriers.push({
-          staticBuckets: staticInstantiation.map(parametersToBucket),
-          hasDynamicBuckets: false,
-          async queryDynamicBucketDescriptions() {
-            return [];
-          }
-        });
-      } else {
-        result.queriers.push({
-          staticBuckets: [],
-          hasDynamicBuckets: true,
-          async queryDynamicBucketDescriptions(source) {
-            const evaluators = subscriptionEvaluators.clone();
-            const instantiation = await evaluators.instantiate({
-              hydrationState: hydration.hydrationState,
-              source,
-              request: params
-            });
+      if (partialInstantiationResult != null) {
+        // This partial instantiation is enough to resolve parameters.
+        if (partialInstantiationResult.length != 0) {
+          result.queriers.push({
+            staticBuckets: partialInstantiationResult.map(parametersToBucket),
+            hasDynamicBuckets: false,
+            async queryDynamicBucketDescriptions() {
+              return [];
+            }
+          });
+        }
 
-            return [...instantiation].map(parametersToBucket);
-          }
-        });
+        return;
       }
+
+      result.queriers.push({
+        staticBuckets: [],
+        hasDynamicBuckets: true,
+        async queryDynamicBucketDescriptions(source) {
+          const evaluators = subscriptionEvaluators.clone();
+          const instantiation = await evaluators.instantiate({
+            hydrationState: hydration.hydrationState,
+            source,
+            request: params
+          });
+
+          return [...instantiation].map(parametersToBucket);
+        }
+      });
     } catch (e) {
       result.errors.push({
         descriptor: this.stream.name,

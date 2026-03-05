@@ -105,17 +105,19 @@ export class RequestParameterEvaluators {
   /**
    * Evaluates those lookups and parameter values that be evaluated without looking up parameter indexes.
    *
-   * This is also used to determine whether a querier is static - if the partial instantiation depending on request data
-   * fully resolves the stream, we don't need to lookup any parameters.
+   * If this partial instantiation happens to be a total one (i.e. there are no remaining dynamic lookups that could
+   * affect resolved parameters), returns all instantiations as an array.
+   *
+   * If dynamic lookups are required to resolve parameters, returns `undefined`.
    */
-  partiallyInstantiate(input: PartialInstantiationInput) {
+  partiallyInstantiate(input: PartialInstantiationInput): SqliteParameterValue[][] | undefined {
     const helper = new PartialInstantiator(input, this);
 
     this.lookupStages.forEach((stage, stageIndex) => {
       stage.forEach((_, indexInStage) => helper.expandingLookupSync(stageIndex, indexInStage));
     });
 
-    this.parameterValues.forEach((_, i) => helper.parameterSync(this.parameterValues, i));
+    return helper.tryResolveInstantiation(this.parameterValues);
   }
 
   /**
@@ -123,7 +125,7 @@ export class RequestParameterEvaluators {
    *
    * Because this needs to lookup parameter indexes, it is asynchronous.
    */
-  async instantiate(input: InstantiationInput): Promise<Generator<SqliteParameterValue[]>> {
+  async instantiate(input: InstantiationInput): Promise<SqliteParameterValue[][]> {
     const helper = new FullInstantiator(input, this);
 
     for (let i = 0; i < this.lookupStages.length; i++) {
@@ -133,54 +135,7 @@ export class RequestParameterEvaluators {
 
     // At this point, all lookups have been resolved and we can synchronously evaluate parameters which might depend on
     // those lookups.
-    return helper.resolveInputs(this.parameterValues);
-  }
-
-  /**
-   * Whether these evaluators are known to not result in any buckets, for instance because parameters are instanted to
-   * `NULL` values that aren't equal to anything.
-   *
-   * This is fairly efficient to compute and can be used to short-circuit further evaluation.
-   */
-  isDefinitelyUninstantiable() {
-    for (const parameter of this.parameterValues) {
-      if (parameter.type != 'cached') {
-        return false; // Unknown
-      }
-
-      if (parameter.values.length === 0) {
-        // Missing parameter.
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  extractFullInstantiation(): SqliteParameterValue[][] | undefined {
-    // All lookup stages need to be resolved, even if they're not used in a parameter. The reason is that queries like
-    // `WHERE 'static_value' IN (SELECT name FROM users WHERE id = auth.user_id())` are implemented as lookup stages,
-    // so we can't ignore them.
-    for (const stage of this.lookupStages) {
-      for (const element of stage) {
-        if (element.type !== 'cached') {
-          return undefined;
-        }
-      }
-    }
-
-    // Outer array represents parameters, inner array represents values for a given parameter.
-    const parameters: SqliteParameterValue[][] = [];
-    for (const parameter of this.parameterValues) {
-      if (parameter.type !== 'cached') {
-        return undefined;
-      }
-
-      parameters.push(parameter.values);
-    }
-
-    // Transform to array of complete instantiations.
-    return [...cartesianProduct(...parameters)];
+    return helper.resolveInstantiation(this.parameterValues);
   }
 
   /**
@@ -277,6 +232,51 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
     protected readonly evaluators: RequestParameterEvaluators
   ) {}
 
+  tryResolveInstantiation(params: PreparedParameterValue[]): SqliteParameterValue[][] | undefined {
+    const stages = this.evaluators.lookupStages;
+    let hasUninstantiatedStage = false;
+    for (let stageIndex = 0; stageIndex < stages.length; stageIndex++) {
+      const stage = stages[stageIndex];
+      for (let indexInStage = 0; indexInStage < stage.length; indexInStage++) {
+        const resolvedValues = this.expandingLookupSync(stageIndex, indexInStage);
+        if (resolvedValues == null) {
+          // Requires an asynchronous lookup to instantiate.
+          hasUninstantiatedStage = true;
+          continue;
+        }
+
+        if (resolvedValues.length == 0) {
+          // Empty lookup stages make the entire graph uninstantiable, even if they're not used as a parameter. The
+          // reason for that is that queries like `WHERE 'static_value' IN (SELECT name FROM users WHERE id = auth.user_id())`
+          // are implemented as lookup stages, so we can't ignore them.
+          // Note that there is no construct like `OR` in a querier lookup (those always get compiled into separate
+          // queries), so any stage being empty guarantees that everything is uninstantiable.
+          return [];
+        }
+      }
+    }
+
+    if (hasUninstantiatedStage) {
+      return undefined;
+    }
+
+    // If we got to this point, all stages have been resolved. So we can resolve parameters without further async work.
+    return [...this.resolveInputs(params)];
+  }
+
+  protected *resolveInputs(params: PreparedParameterValue[]): Generator<SqliteParameterValue[]> {
+    const parameterValues = params.map((_, index) => {
+      const cached = this.parameterSync(params, index);
+      if (cached == null) {
+        // This method is only called for inputs from an earlier stage, which should have been resolved at this point.
+        throw new Error('Should have been able to resolve parameter from earlier stage synchronously.');
+      }
+      return cached;
+    });
+
+    yield* cartesianProduct(...parameterValues);
+  }
+
   /**
    * If possible, evaluates an element in an array of parameter values and replaces the parameter with a marker
    * indicating it as cached.
@@ -347,17 +347,13 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
 }
 
 class FullInstantiator extends PartialInstantiator<InstantiationInput> {
-  *resolveInputs(params: PreparedParameterValue[]): Generator<SqliteParameterValue[]> {
-    const parameterValues = params.map((_, index) => {
-      const cached = this.parameterSync(params, index);
-      if (cached == null) {
-        // This method is only called for inputs from an earlier stage, which should have been resolved at this point.
-        throw new Error('Should have been able to resolve parameter from earlier stage synchronously.');
-      }
-      return cached;
-    });
+  resolveInstantiation(params: PreparedParameterValue[]): SqliteParameterValue[][] {
+    const resolved = this.tryResolveInstantiation(params);
+    if (resolved == null) {
+      throw new Error('internal error: Should have been able to resolve instantiation after instantiating stages.');
+    }
 
-    yield* cartesianProduct(...parameterValues);
+    return resolved;
   }
 
   async expandingLookup(stage: number, index: number): Promise<SqliteParameterValue[][]> {

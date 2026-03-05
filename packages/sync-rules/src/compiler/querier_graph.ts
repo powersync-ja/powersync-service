@@ -163,17 +163,21 @@ class PendingQuerierPath {
     this.processExistsOperators();
 
     // Resolving a result set removes its conditions from pendingFactors, so remaining conditions must be related to the
-    // request (e.g. where `auth.parameter('is_admin')`).
+    // request (e.g. `WHERE auth.parameter('is_admin')`).
     const requestConditions: RequestExpression[] = [];
     for (const remaining of this.pendingFactors) {
       if (remaining instanceof SingleDependencyExpression) {
-        if (remaining.resultSet != null) {
+        const resultSet = remaining.resultSet;
+        if (resultSet == null) {
+          // Scalar expression depending on request data.
+          requestConditions.push(new RequestExpression(remaining));
+        } else if (resultSet instanceof TableValuedResultSet && resultSet.inputResultSet == null) {
+          this.resolveExpandingLookup(resultSet);
+        } else {
           this.errors.report(
             'This filter is unrelated to the request or the table being synced, and not supported.',
             remaining.expression.location.location
           );
-        } else {
-          requestConditions.push(new RequestExpression(remaining));
         }
       } else {
         this.errors.report('Unable to associate this filter with added tables', remaining.location!);
