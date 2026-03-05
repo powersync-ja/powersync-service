@@ -1,5 +1,105 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`new sync stream features > IN operator with static left clause 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 274764250,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "stream|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 466638588,
+      "outputTableName": "issues",
+      "partitionBy": [],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "issues",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [
+        {
+          "left": {
+            "left": {
+              "type": "lit_string",
+              "value": "static",
+            },
+            "operator": "=",
+            "right": {
+              "source": {
+                "column": "id",
+              },
+              "type": "data",
+            },
+            "type": "binary",
+          },
+          "operator": "and",
+          "right": {
+            "source": {
+              "column": "is_admin",
+            },
+            "type": "data",
+          },
+          "type": "binary",
+        },
+      ],
+      "hash": 467461012,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
+      "output": [],
+      "partitionBy": [],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "users",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "stream",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
 exports[`new sync stream features > in array 1`] = `
 {
   "buckets": [

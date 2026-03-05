@@ -236,4 +236,10 @@ SELECT * FROM notes
       ).toMatchSnapshot();
     });
   });
+
+  test('IN operator with static left clause', () => {
+    expect(
+      compileSingleStreamAndSerialize("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
+    ).toMatchSnapshot();
+  });
 });

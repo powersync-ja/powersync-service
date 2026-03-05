@@ -167,17 +167,13 @@ class PendingQuerierPath {
     const requestConditions: RequestExpression[] = [];
     for (const remaining of this.pendingFactors) {
       if (remaining instanceof SingleDependencyExpression) {
-        const resultSet = remaining.resultSet;
-        if (resultSet == null) {
-          // Scalar expression depending on request data.
-          requestConditions.push(new RequestExpression(remaining));
-        } else if (resultSet instanceof TableValuedResultSet && resultSet.inputResultSet == null) {
-          this.resolveExpandingLookup(resultSet);
-        } else {
+        if (remaining.resultSet != null) {
           this.errors.report(
             'This filter is unrelated to the request or the table being synced, and not supported.',
             remaining.expression.location.location
           );
+        } else {
+          requestConditions.push(new RequestExpression(remaining));
         }
       } else {
         this.errors.report('Unable to associate this filter with added tables', remaining.location!);
@@ -373,6 +369,8 @@ class PendingQuerierPath {
         } else if (expression.right.dependsOnConnection) {
           process(expression.right, expression.left);
         }
+      } else if (expression.resultSet != null) {
+        this.resolveExpandingLookup(expression.resultSet);
       }
     }
   }
