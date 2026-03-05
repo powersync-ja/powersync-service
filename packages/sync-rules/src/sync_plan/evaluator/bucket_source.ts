@@ -1,3 +1,5 @@
+import { BucketInclusionReason, ResolvedBucket } from '../../BucketDescription.js';
+import { PendingQueriers } from '../../BucketParameterQuerier.js';
 import {
   BucketDataSource,
   BucketSource,
@@ -6,16 +8,14 @@ import {
   HydratedBucketSource,
   ParameterIndexLookupCreator
 } from '../../BucketSource.js';
-import { StreamEvaluationContext } from './index.js';
-import * as plan from '../plan.js';
+import { RequestedStream } from '../../SqlSyncRules.js';
+import { RequestParameters, SqliteParameterValue } from '../../types.js';
+import { bucketDescription, JSONBucketNameSerialize, resolvedBucket } from '../../utils.js';
 import { mapExternalDataToInstantiation, ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 import { SqlExpression } from '../expression.js';
-import { RequestParameters, SqliteParameterValue } from '../../types.js';
+import * as plan from '../plan.js';
+import { StreamEvaluationContext } from './index.js';
 import { parametersForRequest, RequestParameterEvaluators } from './parameter_evaluator.js';
-import { PendingQueriers } from '../../BucketParameterQuerier.js';
-import { RequestedStream } from '../../SqlSyncRules.js';
-import { BucketInclusionReason, ResolvedBucket } from '../../BucketDescription.js';
-import { buildBucketName, JSONBucketNameSerialize } from '../../utils.js';
 
 export interface StreamInput extends StreamEvaluationContext {
   preparedBuckets: Map<plan.StreamBucketDataSource, BucketDataSource>;
@@ -130,12 +130,15 @@ class PreparedQuerier {
       const bucketScope = hydration.hydrationState.getBucketSourceScope(this.dataSource);
 
       const parametersToBucket = (instantiation: SqliteParameterValue[]): ResolvedBucket => {
-        return {
+        const desc = bucketDescription(
+          bucketScope,
+          JSONBucketNameSerialize.stringify(instantiation),
+          this.stream.priority
+        );
+        return resolvedBucket(desc, {
           definition: this.stream.name,
-          inclusion_reasons: [reason],
-          bucket: buildBucketName(bucketScope, JSONBucketNameSerialize.stringify(instantiation)),
-          priority: this.stream.priority
-        };
+          inclusion_reasons: [reason]
+        });
       };
 
       // Do we need parameter lookups to resolve parameters?

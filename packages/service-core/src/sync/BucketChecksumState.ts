@@ -7,7 +7,8 @@ import {
   QuerierError,
   RequestedStream,
   RequestParameters,
-  ResolvedBucket
+  ResolvedBucket,
+  mergeBuckets
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';
@@ -168,7 +169,7 @@ export class BucketChecksumState {
     }
 
     // Subset of buckets for which there may be new data in this batch.
-    let bucketsToFetch: BucketDescription[];
+    let bucketsToFetch: ResolvedBucket[];
 
     let checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
 
@@ -207,10 +208,7 @@ export class BucketChecksumState {
         ...this.parameterState.translateResolvedBucket(bucketDescriptionMap.get(e.bucket)!, streamNameToIndex)
       }));
       bucketsToFetch = [...generateBucketsToFetch].map((b) => {
-        return {
-          priority: bucketDescriptionMap.get(b)!.priority,
-          bucket: b
-        };
+        return bucketDescriptionMap.get(b)!;
       });
 
       deferredLog = () => {
@@ -265,7 +263,7 @@ export class BucketChecksumState {
           totalParamResults
         );
       };
-      bucketsToFetch = allBuckets.map((b) => ({ bucket: b.bucket, priority: b.priority }));
+      bucketsToFetch = allBuckets;
 
       const subscriptions: util.StreamDescription[] = [];
       const streamNameToIndex = new Map<string, number>();
@@ -342,7 +340,7 @@ export class BucketChecksumState {
         deferredLog();
       },
 
-      getFilteredBucketPositions: (buckets?: BucketDescription[]): Map<string, util.InternalOpId> => {
+      getFilteredBucketPositions: (buckets?: ResolvedBucket[]): Map<string, util.InternalOpId> => {
         if (!hasAdvanced) {
           throw new ServiceAssertionError('Call line.advance() before getFilteredBucketPositions()');
         }
@@ -660,7 +658,7 @@ export class BucketParameterState {
 
 export interface CheckpointLine {
   checkpointLine: util.StreamingSyncCheckpointDiff | util.StreamingSyncCheckpoint;
-  bucketsToFetch: BucketDescription[];
+  bucketsToFetch: ResolvedBucket[];
 
   /**
    * Call when a checkpoint line is being sent to a client, to update the internal state.
@@ -672,7 +670,7 @@ export interface CheckpointLine {
    *
    * @param bucketsToFetch List of buckets to fetch - either this.bucketsToFetch, or a subset of it. Defaults to this.bucketsToFetch.
    */
-  getFilteredBucketPositions(bucketsToFetch?: BucketDescription[]): Map<string, util.InternalOpId>;
+  getFilteredBucketPositions(bucketsToFetch?: ResolvedBucket[]): Map<string, util.InternalOpId>;
 
   /**
    * Update the position of bucket data the client has, after it was sent to the client.
@@ -761,33 +759,4 @@ function limitedBuckets(buckets: string[] | { bucket: string }[], limit: number)
   }
   const limited = buckets.slice(0, limit);
   return `${JSON.stringify(limited)}...`;
-}
-
-/**
- * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
- *
- * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
- *
- * ```
- * sync_streams:
- *  assets_by_category:
- *    query: select * from assets where category in (request.parameters() -> 'categories')
- * ```
- *
- * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
- * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
- * bucket.
- */
-function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
-  const byBucketId: Record<string, ResolvedBucket> = {};
-
-  for (const bucket of buckets) {
-    if (Object.hasOwn(byBucketId, bucket.bucket)) {
-      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
-    } else {
-      byBucketId[bucket.bucket] = structuredClone(bucket);
-    }
-  }
-
-  return Object.values(byBucketId);
 }

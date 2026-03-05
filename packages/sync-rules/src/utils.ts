@@ -1,5 +1,7 @@
 import { JSONBig, JsonContainer, Replacer, stringifyRaw } from '@powersync/service-jsonbig';
 import { SelectFromStatement, Statement } from 'pgsql-ast-parser';
+import { BucketDescription, BucketInclusionReason, BucketPriority, ResolvedBucket } from './BucketDescription.js';
+import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { SyncRuleProcessingError as SyncRulesProcessingError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
@@ -16,10 +18,78 @@ import {
   SqliteValue
 } from './types.js';
 import { CustomArray, CustomObject, CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { castAsText } from './sql_functions.js';
 
 export function isSelectStatement(q: Statement): q is SelectFromStatement {
   return q.type == 'select';
+}
+
+export function bucketDescription(
+  scope: BucketDataScope,
+  serializedParameters: string,
+  priority: BucketPriority
+): BucketDescription {
+  const info = { bucket: scope.bucketPrefix + serializedParameters, priority };
+  return withBucketSource(info, scope.source);
+}
+
+export function resolvedBucket(
+  description: BucketDescription,
+  options: { definition: string; inclusion_reasons: BucketInclusionReason[] }
+): ResolvedBucket {
+  const result = {
+    ...description,
+    ...options
+  };
+  return withBucketSource(result, description.source);
+}
+
+/**
+ * Resolves duplicate buckets in the given array, merging the inclusion reasons for duplicate.
+ *
+ * It's possible for duplicates to occur when a stream has multiple subscriptions, consider e.g.
+ *
+ * ```
+ * sync_streams:
+ *  assets_by_category:
+ *    query: select * from assets where category in (request.parameters() -> 'categories')
+ * ```
+ *
+ * Here, a client might subscribe once with `{"categories": [1]}` and once with `{"categories": [1, 2]}`. Since each
+ * subscription is evaluated independently, this would lead to three buckets, with a duplicate `assets_by_category[1]`
+ * bucket.
+ */
+export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
+  const byBucketId: Record<string, ResolvedBucket> = {};
+
+  for (const bucket of buckets) {
+    if (Object.hasOwn(byBucketId, bucket.bucket)) {
+      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
+    } else {
+      // Clone so that we can modify the merged value without affecting the input value
+      byBucketId[bucket.bucket] = cloneResolvedBucket(bucket);
+    }
+  }
+
+  return Object.values(byBucketId);
+}
+
+function cloneResolvedBucket(bucket: ResolvedBucket) {
+  let clone = structuredClone(bucket);
+  // The structured clone does not include the non-enumerable source - set it directly.
+  return withBucketSource(clone, bucket.source);
+}
+
+export function withBucketSource<T extends object>(
+  value: T,
+  source: BucketDataSource
+): T & { source: BucketDataSource } {
+  Object.defineProperty(value, 'source', {
+    value: source,
+    // This is important. If the property is enumerable, it may end up in JSON output to the client,
+    // and will pollute tests.
+    enumerable: false
+  });
+  return value as T & { source: BucketDataSource };
 }
 
 export function buildBucketName(scope: BucketDataScope, serializedParameters: string): string {
@@ -238,21 +308,4 @@ export function normalizeParameterValue(value: SqliteJsonValue): SqliteJsonValue
     return BigInt(value);
   }
   return value;
-}
-
-/**
- * Extracts and normalizes the ID column from a row.
- */
-export function idFromData(data: SqliteJsonRow): string {
-  let id = data.id;
-  if (typeof id != 'string') {
-    // While an explicit cast would be better, this covers against very common
-    // issues when initially testing out sync, for example when the id column is an
-    // auto-incrementing integer.
-    // If there is no id column, we use a blank id. This will result in the user syncing
-    // a single arbitrary row for this table - better than just not being able to sync
-    // anything.
-    id = castAsText(id) ?? '';
-  }
-  return id;
 }

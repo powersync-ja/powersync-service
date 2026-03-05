@@ -14,15 +14,43 @@ import {
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
+  ParameterIndexLookupCreator,
   RequestJwtPayload,
   ScopedParameterLookup,
   SqliteJsonRow,
+  SqliteRow,
   SqlSyncRules,
+  TablePattern,
+  SourceTableInterface,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
+import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { beforeEach, describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {
+  const LOOKUP_SOURCE: ParameterIndexLookupCreator = {
+    get defaultLookupScope(): ParameterLookupScope {
+      return {
+        lookupName: 'lookup',
+        queryId: '0',
+        source: LOOKUP_SOURCE
+      };
+    },
+    getSourceTables(): Set<TablePattern> {
+      return new Set();
+    },
+    evaluateParameterRow(_sourceTable: SourceTableInterface, _row: SqliteRow) {
+      return [];
+    },
+    tableSyncsParameters(_table: SourceTableInterface): boolean {
+      return false;
+    }
+  };
+
+  function lookupScope(lookupName: string, queryId: string): ParameterLookupScope {
+    return { lookupName, queryId, source: LOOKUP_SOURCE };
+  }
+
   // Single global[] bucket.
   // We don't care about data in these tests
   const SYNC_RULES_GLOBAL = SqlSyncRules.fromYaml(
@@ -94,7 +122,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '1#global[]',
         priority: 3
@@ -166,7 +194,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '1#global[]',
         priority: 3
@@ -206,7 +234,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '2#global[1]',
         priority: 3
@@ -274,7 +302,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '1#global[]',
         priority: 3
@@ -337,7 +365,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([{ bucket: '2#global[1]', priority: 3 }]);
+    expect(line2.bucketsToFetch).toMatchObject([{ bucket: '2#global[1]', priority: 3 }]);
   });
 
   test('invalidating all buckets', async () => {
@@ -387,7 +415,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line2.bucketsToFetch).toEqual([
+    expect(line2.bucketsToFetch).toMatchObject([
       { bucket: '2#global[1]', priority: 3 },
       { bucket: '2#global[2]', priority: 3 }
     ]);
@@ -424,7 +452,7 @@ bucket_definitions:
         streams: [{ name: 'global', is_default: true, errors: [] }]
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '2#global[1]',
         priority: 3
@@ -477,7 +505,7 @@ bucket_definitions:
       }
     });
     // This should contain both buckets, even though only one changed.
-    expect(line2.bucketsToFetch).toEqual([
+    expect(line2.bucketsToFetch).toMatchObject([
       {
         bucket: '2#global[1]',
         priority: 3
@@ -513,7 +541,7 @@ bucket_definitions:
 
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct(lookupScope('by_project', '1'), ['u1'])]);
         return [{ id: 1 }, { id: 2 }];
       }),
       writeCheckpoint: null,
@@ -548,7 +576,7 @@ bucket_definitions:
         write_checkpoint: undefined
       }
     });
-    expect(line.bucketsToFetch).toEqual([
+    expect(line.bucketsToFetch).toMatchObject([
       {
         bucket: '3#by_project[1]',
         priority: 3
@@ -574,7 +602,7 @@ bucket_definitions:
     // Now we get a new line
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
-        expect(lookups).toEqual([ScopedParameterLookup.direct({ lookupName: 'by_project', queryId: '1' }, ['u1'])]);
+        expect(lookups).toEqual([ScopedParameterLookup.direct(lookupScope('by_project', '1'), ['u1'])]);
         return [{ id: 1 }, { id: 2 }, { id: 3 }];
       }),
       writeCheckpoint: null,
