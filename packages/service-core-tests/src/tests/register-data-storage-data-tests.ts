@@ -381,7 +381,7 @@ bucket_definitions:
 bucket_definitions:
   global:
     data:
-      - SELECT id, description FROM "%"
+      - SELECT client_id as id, description FROM "%"
 `,
         { storageVersion }
       )

@@ -42,7 +42,7 @@ bucket_definitions:
 
     await writer.commit('1/1');
 
-    const lookup = ScopedParameterLookup.direct({ lookupName: '20002', queryId: '', source: null as any }, ['t1']);
+    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup]);

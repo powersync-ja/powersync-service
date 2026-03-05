@@ -624,7 +624,7 @@ bucket_definitions:
         after: { id: 't1' },
         afterReplicaId: test_utils.rid('t1')
       });
-      return writer.flush();
+      return await writer.flush();
     })();
     const checkpoint2 = result2!.flushed_op;
 
