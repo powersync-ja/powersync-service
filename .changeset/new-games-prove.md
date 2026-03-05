@@ -10,4 +10,4 @@
 '@powersync/service-sync-rules': minor
 ---
 
-[Internal] Propagate source definitions to storage APIs.
+[Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
