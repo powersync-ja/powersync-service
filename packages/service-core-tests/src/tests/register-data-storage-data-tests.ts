@@ -1562,7 +1562,7 @@ bucket_definitions:
     expect(cp4.lsn).toEqual('4/1');
   });
 
-  test('deleting while streaming', async () => {
+  test.runIf(storageVersion >= 3)('deleting while streaming', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -1588,6 +1588,7 @@ bucket_definitions:
     // For this test, we assume that we start with a row "test1", which is picked up by a snapshot
     // query, right before the delete is streamed. But the snapshot query is only persisted _after_
     // the delete is streamed, and we need to ensure that the streamed delete takes precedence.
+    // This is only supported when using storage v3+.
     await streamingWriter.save({
       sourceTable: streamingTable,
       tag: storage.SaveOperationTag.DELETE,
