@@ -4,7 +4,7 @@
 '@powersync/service-core-tests': minor
 '@powersync/service-module-postgres': minor
 '@powersync/service-module-mongodb': minor
-'@powersync/service-core': minor
+'@powersync/service-core': patch
 '@powersync/service-module-mssql': minor
 '@powersync/service-module-mysql': minor
 '@powersync/service-sync-rules': minor
