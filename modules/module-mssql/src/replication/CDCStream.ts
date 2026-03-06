@@ -455,18 +455,16 @@ export class CDCStream {
           for (const table of specificTablesToResnapshot!) {
             await batch.drop([table.sourceTable]);
             // Update table in the table cache
-            await this.processTable(batch, table.sourceTable, table.captureInstance, false);
+            //await this.processTable(batch, table.sourceTable, table.captureInstance, false);
           }
-        }
-
-        if (snapshotLSN == null) {
+        } else if (status === SnapshotStatus.IN_PROGRESS) {
+          this.logger.info(`Resuming snapshot at ${snapshotLSN}.`);
+        } else {
           // First replication attempt - set the snapshot LSN to the current LSN before starting
           snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
           await batch.setResumeLsn(snapshotLSN);
           const latestLSN = (await getLatestLSN(this.connections)).toString();
           this.logger.info(`Marking snapshot at ${snapshotLSN}, Latest DB LSN ${latestLSN}.`);
-        } else {
-          this.logger.info(`Resuming snapshot at ${snapshotLSN}.`);
         }
 
         const tablesToSnapshot: MSSQLSourceTable[] = [];
@@ -496,7 +494,7 @@ export class CDCStream {
 
         // This will not create a consistent checkpoint yet, but will persist the op.
         // Actual checkpoint will be created when streaming replication caught up.
-        await batch.commit(snapshotLSN);
+        await batch.commit(snapshotLSN!);
 
         if (tablesToSnapshot.length > 0) {
           this.logger.info(
@@ -532,16 +530,17 @@ export class CDCStream {
     const status = await this.storage.getStatus();
 
     if (status.snapshot_done && status.checkpoint_lsn) {
-      const unSnapshottedTables = this.tableCache.getAll().filter((table) => !table.sourceTable.snapshotComplete);
-      if (unSnapshottedTables.length > 0) {
+      const additionalTablesToSnapshot: MSSQLSourceTable[] = [];
+      const newTables = this.tableCache.getAll().filter((table) => !table.sourceTable.snapshotComplete);
+      if (newTables.length > 0) {
         this.logger.info(
-          `Detected new table(s) [${unSnapshottedTables.map((table) => table.toQualifiedName()).join(', ')}] that have not been snapshotted yet, resuming snapshot.`
+          `Detected new table(s) [${newTables.map((table) => table.toQualifiedName()).join(', ')}] that have not been snapshotted yet.`
         );
-        return { status: SnapshotStatus.IN_PROGRESS, snapshotLSN: null };
+        additionalTablesToSnapshot.push(...newTables);
       }
 
       // Snapshot is done, but we still need to check that the last known checkpoint LSN is still
-      // within the threshold of the CDC tables
+      // within the retention threshold of the CDC tables
 
       const lastCheckpointLSN = LSN.fromString(status.checkpoint_lsn);
       // Check that the CDC tables still have valid data
@@ -554,10 +553,13 @@ export class CDCStream {
         this.logger.warn(
           `Updates from the last checkpoint are no longer available in the CDC instances of the following table(s): ${tablesOutsideRetentionThreshold.map((table) => table.toQualifiedName()).join(', ')}.`
         );
+        additionalTablesToSnapshot.push(...tablesOutsideRetentionThreshold);
+      }
+      if (additionalTablesToSnapshot.length > 0) {
         return {
           status: SnapshotStatus.RESNAPSHOT_REQUIRED,
-          snapshotLSN: null,
-          specificTablesToResnapshot: tablesOutsideRetentionThreshold
+          snapshotLSN: status.checkpoint_lsn,
+          specificTablesToResnapshot: additionalTablesToSnapshot
         };
       } else {
         return {

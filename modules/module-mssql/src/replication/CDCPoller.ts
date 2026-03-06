@@ -312,7 +312,7 @@ export class CDCPoller {
   private async checkForSchemaChanges(): Promise<SchemaChange[]> {
     const schemaChanges: SchemaChange[] = [];
 
-    const newTables = await this.checkForNewTables();
+    const newTables = this.checkForNewTables();
     for (const table of newTables) {
       this.logger.info(
         `New table ${toQualifiedTableName(table.sourceTable.schema, table.sourceTable.name)} matching the sync rules has been created. Handling schema change...`
@@ -396,10 +396,10 @@ export class CDCPoller {
     return schemaChanges;
   }
 
-  private async checkForNewTables(): Promise<CaptureInstanceDetails[]> {
+  private checkForNewTables(): CaptureInstanceDetails[] {
     const newTables: CaptureInstanceDetails[] = [];
     for (const [objectId, captureInstanceDetails] of this.captureInstances.entries()) {
-      // If a source table is not in the replicated tables array, but a capture instance exists for it is potentially a new table to replicate.
+      // If a source table is not in the replicated tables array, but a capture instance exists for it, it is potentially a new table to replicate.
       if (!this.replicatedTables.some((table) => table.objectId === objectId)) {
         // Check if the new table matches any of the sync rules source tables.
         if (
