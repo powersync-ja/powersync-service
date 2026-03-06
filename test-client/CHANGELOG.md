@@ -1,5 +1,14 @@
 # test-client
 
+## 0.1.68
+
+### Patch Changes
+
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e150c5c]
+  - @powersync/service-core@1.20.1
+
 ## 0.1.67
 
 ### Patch Changes

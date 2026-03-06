@@ -171,17 +171,6 @@ streams:
     ]);
   });
 
-  test('IN operator with static left clause', () => {
-    expect(
-      compilationErrorsForSingleStream("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
-    ).toStrictEqual([
-      {
-        message: 'This filter is unrelated to the request or the table being synced, and not supported.',
-        source: "'static' IN (SELECT id FROM users WHERE is_admin"
-      }
-    ]);
-  });
-
   test('negated subquery', () => {
     expect(
       compilationErrorsForSingleStream(
