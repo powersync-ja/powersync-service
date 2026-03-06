@@ -5,6 +5,8 @@ import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as types from '@module/types/types.js';
 import {
   BSON_DESERIALIZE_DATA_OPTIONS,
+  CURRENT_STORAGE_VERSION,
+  LEGACY_STORAGE_VERSION,
   SUPPORTED_STORAGE_VERSIONS,
   TestStorageConfig,
   TestStorageFactory

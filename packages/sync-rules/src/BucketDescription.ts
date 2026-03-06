@@ -1,4 +1,4 @@
-import { BucketDataSource } from './BucketSource.js';
+import { BucketDataSource } from './index.js';
 
 /**
  * The priority in which to synchronize buckets.

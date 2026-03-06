@@ -13,6 +13,7 @@ import {
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
@@ -141,6 +142,7 @@ export interface PersistedSyncRules {
   readonly id: number;
   readonly sync_rules: SyncConfigWithErrors;
   readonly slot_name: string;
+  readonly mapping?: BucketDefinitionMapping;
   /**
    * For testing only.
    */

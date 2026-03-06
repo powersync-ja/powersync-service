@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { HydrationState } from '../../src/HydrationState.js';
 import {
-  BucketParameterQuerier,
   BucketDataScope,
+  BucketParameterQuerier,
   GetQuerierOptions,
   mergeParameterIndexLookupCreators,
   ParameterLookupScope,
   QuerierError,
-  RequestParameters,
   ScopedParameterLookup,
   SourceTableInterface,
   SqlParameterQuery,
@@ -21,6 +20,7 @@ import {
   findQuerierLookups,
   lookupScope,
   PARSE_OPTIONS,
+  removeSource,
   requestParameters
 } from './util.js';
 
@@ -919,7 +919,9 @@ describe('parameter queries', () => {
         id: 'group1',
         user_ids: JSON.stringify(['test-user', 'other-user'])
       });
-      expect(result).toEqual([
+      expect(
+        result.map((entry) => ('lookup' in entry ? { ...entry, lookup: removeSource(entry.lookup) } : entry))
+      ).toEqual([
         {
           lookup: ScopedParameterLookup.direct(lookupScope('mybucket.test', 'myquery.test'), ['test-user']),
           bucketParameters: [{ group_id: 'group1' }]

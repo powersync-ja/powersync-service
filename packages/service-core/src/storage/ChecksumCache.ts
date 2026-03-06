@@ -166,8 +166,7 @@ export class ChecksumCache {
 
     // One promise to await to ensure all fetch requests completed.
     let settledPromise: Promise<PromiseSettledResult<void>[]> | null = null;
-
-    const sourceMap = new Map<string, BucketDataSource>();
+    let sourceMap = new Map<string, BucketDataSource>();
 
     try {
       // Individual cache fetch promises

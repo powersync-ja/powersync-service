@@ -1,17 +1,62 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
-import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
+import {
+  EvaluatedParameters,
+  EvaluatedRow,
+  RowProcessor,
+  SqliteRow,
+  ToastableSqliteRow
+} from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
+import { InternalOpId } from '../util/utils.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
-import { InternalOpId } from '../util/utils.js';
+import {
+  BatchedCustomWriteCheckpointOptions,
+  ResolveTablesOptions,
+  ResolveTablesResult,
+  ResolveTableToDropsOptions
+} from './storage-index.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,
   oldestUncommittedChange: null
 };
 
-export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
+export interface BucketDataWriter extends BucketDataWriterBase, AsyncDisposable {
+  readonly rowProcessor: RowProcessor;
+
+  /**
+   * Perform a keepalive on every replication stream.
+   */
+  keepalive(lsn: string): Promise<CheckpointResult>;
+
+  /**
+   * Performs a commit on every replication stream.
+   */
+  commit(lsn: string, options?: BucketBatchCommitOptions): Promise<CheckpointResult>;
+
+  /**
+   * Set resume LSN on every replication stream.
+   */
+  setResumeLsn(lsn: string): Promise<void>;
+
+  /**
+   * Resolve a table, keeping track of it internally.
+   */
+  resolveTables(options: ResolveTablesOptions): Promise<SourceTable[]>;
+  getTable(ref: SourceTable): Promise<SourceTable | null>;
+
+  /**
+   * Given a replicated table, return a list of tables that should be dropped due to conflicts.
+   *
+   * This can be due to renames, or replica id changes.
+   */
+  resolveTablesToDrop(options: ResolveTableToDropsOptions): Promise<SourceTable[]>;
+}
+
+export interface BucketDataWriterBase {
+  readonly resumeFromLsn: string | null;
+
   /**
    * Save an op, and potentially flush.
    *
@@ -40,6 +85,30 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * @returns null if there are no changes to flush.
    */
   flush(options?: BatchBucketFlushOptions): Promise<FlushedResult | null>;
+
+  markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
+  markTableSnapshotRequired(table: SourceTable): Promise<void>;
+  markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+
+  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
+
+  /**
+   * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.
+   */
+  addCustomWriteCheckpoint(checkpoint: BatchedCustomWriteCheckpointOptions): void;
+}
+
+/**
+ * @deprecated Use BucketDataWriter instead.
+ */
+export interface BucketStorageBatch
+  extends ObserverClient<BucketBatchStorageListener>,
+    AsyncDisposable,
+    BucketDataWriterBase {
+  /**
+   * Alias for [Symbol.asyncDispose]
+   */
+  dispose(): Promise<void>;
 
   /**
    * Flush and commit any saved ops. This creates a new checkpoint by default.
@@ -78,12 +147,6 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    * Not relevant for streams where the source keeps track of replication progress, such as Postgres.
    */
   resumeFromLsn: string | null;
-
-  markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
-  markTableSnapshotRequired(table: SourceTable): Promise<void>;
-  markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
-
-  updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.

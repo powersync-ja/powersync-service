@@ -4,9 +4,7 @@ import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
-  CURRENT_STORAGE_VERSION,
   InternalOpId,
-  LEGACY_STORAGE_VERSION,
   SUPPORTED_STORAGE_VERSIONS,
   TestStorageConfig,
   TestStorageFactory
