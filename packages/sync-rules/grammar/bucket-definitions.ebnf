@@ -12,7 +12,7 @@ ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParam
 
 StaticParameterQuery ::= "SELECT" SelectList ("WHERE" MatchExpr)?
 
-TableParameterQuery ::= "SELECT" SelectList "FROM" TableRef ("WHERE" MatchExpr)?
+TableParameterQuery ::= "SELECT" SelectList "FROM" Reference ("WHERE" MatchExpr)?
 
 /* Only json_each(...) table-valued FROM is supported in this mode. */
 TableValuedParameterQuery ::= "SELECT" SelectList "FROM" JsonEachCall Alias? ("WHERE" MatchExpr)?
@@ -20,19 +20,15 @@ TableValuedParameterQuery ::= "SELECT" SelectList "FROM" JsonEachCall Alias? ("W
 JsonEachCall ::= "JSON_EACH" "(" ScalarExpr ")"
 
 /* Data-query SQL forms used under bucket_definitions.<name>.data[] */
-DataQuery ::= "SELECT" DataSelectList "FROM" TableRef ("WHERE" DataMatchExpr)?
+DataQuery ::= "SELECT" DataSelectList "FROM" Reference ("WHERE" DataMatchExpr)?
 
 SelectList ::= SelectItem ("," SelectItem)*
 
-DataSelectList ::= DataSelectItem ("," DataSelectItem)*
+DataSelectList ::= ( "*" | SelectItem ) ("," SelectItem)*
 
 SelectItem ::= ScalarExpr Alias?
 
-DataSelectItem ::= "*" | ScalarExpr Alias?
-
 Alias ::= "AS" Identifier
-
-TableRef ::= Identifier ("." Identifier)?
 
 DataMatchExpr ::= MatchExpr
 
@@ -52,17 +48,23 @@ Predicate ::= ScalarExpr PredicateTail | ScalarExpr
 PredicateTail ::= "=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL"
 
 /* Scalar expression subset (sql_filters/sql_functions) */
-ScalarExpr ::= ValueTerm (BinaryOp ValueTerm)*
+ScalarExpr ::= ValueTerm ScalarBinaryOp?
 
-ValueTerm ::= PrimaryTerm MemberSuffix*
+ScalarBinaryOp ::= (BinaryOp ValueTerm)+
 
-PrimaryTerm ::= Literal | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+ValueTerm ::= PrimaryTerm MemberSuffix?
 
-MemberSuffix ::= ("->>" | "->") (StringLiteral | IntegerLiteral)
+PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")" 
+
+MemberSuffix ::= (MemberSuffixOp MemberSuffixValue)+
+
+MemberSuffixOp ::= ("->>" | "->")
+
+MemberSuffixValue ::= (StringLiteral | IntegerLiteral)
 
 CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
 
-FunctionCall ::= (Identifier ".")? Identifier "(" ArgList? ")"
+FunctionCall ::= Reference "(" ArgList? ")"
 
 ArgList ::= ScalarExpr ("," ScalarExpr)*
 
@@ -74,8 +76,6 @@ CastType ::= "TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB"
 
 /* Identifiers are matched after SQL normalization to uppercase in tests. */
 Identifier ::= [A-Z_][A-Z_0-9]*
-
-Literal ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL"
 
 StringLiteral ::= "'" ([#x20-#x26] | [#x28-#x7E])* "'"
 

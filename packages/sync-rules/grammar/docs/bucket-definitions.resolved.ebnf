@@ -1,0 +1,29 @@
+ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParameterQuery
+
+TableValuedParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" JsonEachCall ("AS" Identifier)? ("WHERE" MatchExpr)?
+
+TableParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" Reference ("WHERE" MatchExpr)?
+
+StaticParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* ("WHERE" MatchExpr)?
+
+DataQuery ::= "SELECT" ("*" | SelectItem) ("," SelectItem)* "FROM" Reference ("WHERE" MatchExpr)?
+
+SelectItem ::= ScalarExpr ("AS" Identifier)?
+
+JsonEachCall ::= "JSON_EACH" "(" ScalarExpr ")"
+
+MatchExpr ::= "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | "(" MatchExpr ")"))* ("OR" "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | "(" MatchExpr ")"))*)*
+
+Predicate ::= ScalarExpr ("=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL") | ScalarExpr
+
+ScalarExpr ::= PrimaryTerm MemberSuffix? ((«operator» PrimaryTerm MemberSuffix?)+)?
+
+MemberSuffix ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
+
+Reference ::= Identifier ("." Identifier)?
+
+CastExpr ::= "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
+
+FunctionCall ::= Reference "(" (ScalarExpr ("," ScalarExpr)*)? ")"
+
+PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
