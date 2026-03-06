@@ -1,7 +1,7 @@
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
-import { ConvexLSN } from '@module/common/ConvexLSN.js';
+import { toConvexLsn } from '@module/common/ConvexLSN.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
 
 function createAdapter() {
@@ -80,7 +80,7 @@ bucket_definitions:
     (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
 
     const result = await adapter.createReplicationHead(async (head) => head);
-    expect(result).toBe(ConvexLSN.fromCursor('123').comparable);
+    expect(result).toBe(toConvexLsn('123'));
     expect(getHeadCursor).toHaveBeenCalledTimes(1);
     expect(getHeadCursor).toHaveBeenCalledWith();
     expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);

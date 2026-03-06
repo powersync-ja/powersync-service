@@ -1,7 +1,7 @@
 import { api, ParseSyncRulesOptions, ReplicationHeadCallback, ReplicationLagOptions, SourceTable } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
-import { ConvexLSN } from '../common/ConvexLSN.js';
+import { toConvexLsn } from '../common/ConvexLSN.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { ConvexConnectionManager } from '../replication/ConvexConnectionManager.js';
 import * as types from '../types/types.js';
@@ -122,7 +122,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const head = await this.connectionManager.client.getHeadCursor();
     await this.connectionManager.client.createWriteCheckpointMarker();
-    return await callback(ConvexLSN.fromCursor(head).comparable);
+    return await callback(toConvexLsn(head));
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

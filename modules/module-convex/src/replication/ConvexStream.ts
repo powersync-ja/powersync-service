@@ -25,7 +25,7 @@ import {
   isCursorExpiredError
 } from '../client/ConvexApiClient.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
-import { ConvexLSN } from '../common/ConvexLSN.js';
+import { parseConvexLsn, toConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 
 export interface ConvexStreamOptions {
@@ -117,7 +117,7 @@ export class ConvexStream {
     await this.storage.startBatch(
       {
         logger: this.logger,
-        zeroLSN: ConvexLSN.ZERO.comparable,
+        zeroLSN: ZERO_LSN,
         defaultSchema: this.defaultSchema,
         storeCurrentData: false,
         skipExistingRows: false
@@ -131,7 +131,7 @@ export class ConvexStream {
         // Resolve source tables up-front to warm table metadata and sync-rule matching.
         await this.resolveAllSourceTables(batch);
 
-        let cursor = ConvexLSN.fromSerialized(resumeFromLsn).toCursorString();
+        let cursor = parseConvexLsn(resumeFromLsn);
 
         while (!this.abortSignal.aborted) {
           const page = await this.connections.client
@@ -147,7 +147,7 @@ export class ConvexStream {
             });
 
           const nextCursor = page.cursor;
-          const pageLsn = ConvexLSN.fromCursor(nextCursor).comparable;
+          const pageLsn = toConvexLsn(nextCursor);
 
           let changesInPage = 0;
           let sawCheckpointMarker = false;
@@ -251,15 +251,15 @@ export class ConvexStream {
     const flushResult = await this.storage.startBatch(
       {
         logger: this.logger,
-        zeroLSN: ConvexLSN.ZERO.comparable,
+        zeroLSN: ZERO_LSN,
         defaultSchema: this.defaultSchema,
         storeCurrentData: false,
         skipExistingRows: true
       },
       async (batch) => {
         const snapshotCursor = await this.resolveSnapshotBoundary(snapshotLsn);
-        const snapshotComparable = ConvexLSN.fromCursor(snapshotCursor).comparable;
-        await batch.setResumeLsn(snapshotComparable);
+        const snapshotLsnValue = toConvexLsn(snapshotCursor);
+        await batch.setResumeLsn(snapshotLsnValue);
 
         const sourceTables = await this.resolveAllSourceTables(batch);
 
@@ -280,9 +280,9 @@ export class ConvexStream {
           await this.snapshotTable(batch, tableWithProgress, snapshotCursor);
         }
 
-        await batch.commit(snapshotComparable);
+        await batch.commit(snapshotLsnValue);
 
-        this.logger.info(`Snapshot done. Need to replicate from ${snapshotComparable} for consistency.`);
+        this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsnValue} for consistency.`);
       }
     );
 
@@ -369,8 +369,8 @@ export class ConvexStream {
       throw new ReplicationAbortedError('Initial replication interrupted');
     }
 
-    const snapshotComparable = ConvexLSN.fromCursor(snapshotCursor).comparable;
-    const [doneTable] = await batch.markSnapshotDone([latestTable], snapshotComparable);
+    const snapshotLsnValue = toConvexLsn(snapshotCursor);
+    const [doneTable] = await batch.markSnapshotDone([latestTable], snapshotLsnValue);
     this.relationCache.update(doneTable);
 
     return {
@@ -380,7 +380,7 @@ export class ConvexStream {
 
   private async resolveSnapshotBoundary(snapshotLsn: string | null): Promise<string> {
     if (snapshotLsn != null) {
-      const snapshotCursor = ConvexLSN.fromSerialized(snapshotLsn).toCursorString();
+      const snapshotCursor = parseConvexLsn(snapshotLsn);
       this.logger.info(`Using existing global snapshot ${snapshotCursor}`);
       return snapshotCursor;
     }

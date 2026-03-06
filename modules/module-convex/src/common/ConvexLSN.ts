@@ -1,36 +1,16 @@
-export class ConvexLSN {
-  static ZERO = ConvexLSN.fromCursor('0');
+export const ZERO_LSN = '0';
 
-  static fromSerialized(comparable: string): ConvexLSN {
-    return ConvexLSN.fromCursor(comparable);
-  }
-
-  static fromCursor(cursor: string | bigint): ConvexLSN {
-    const asString = `${cursor}`;
-    assertValidCursor(asString);
-    return new ConvexLSN(asString);
-  }
-
-  private constructor(private readonly value: string) {}
-
-  get cursor() {
-    return this.value;
-  }
-
-  get comparable() {
-    return this.value;
-  }
-
-  toString() {
-    return this.comparable;
-  }
-
-  toCursorString() {
-    return this.value;
-  }
+export function parseConvexLsn(lsn: string): string {
+  return toConvexLsn(lsn);
 }
 
-function assertValidCursor(cursor: string) {
+export function toConvexLsn(cursor: string | bigint): string {
+  const asString = `${cursor}`;
+  assertValidConvexLsn(asString);
+  return asString;
+}
+
+function assertValidConvexLsn(cursor: string) {
   if (cursor.length == 0) {
     throw new Error('Convex cursor cannot be empty');
   }

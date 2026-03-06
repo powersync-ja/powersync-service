@@ -1,7 +1,7 @@
 import { SaveOperationTag, SourceTable } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
-import { ConvexLSN } from '@module/common/ConvexLSN.js';
+import { toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { ConvexStream } from '@module/replication/ConvexStream.js';
 
 function createFakeStorage(options?: {
@@ -40,7 +40,7 @@ function createFakeStorage(options?: {
   const batch: any = {
     lastCheckpointLsn: null,
     resumeFromLsn: options?.resumeFromLsn ?? null,
-    noCheckpointBeforeLsn: ConvexLSN.ZERO.comparable,
+    noCheckpointBeforeLsn: ZERO_LSN,
     async save(record: any) {
       saves.push(record);
       return null;
@@ -95,7 +95,7 @@ function createFakeStorage(options?: {
       return {
         active: true,
         snapshot_done: options?.snapshotDone ?? false,
-        checkpoint_lsn: options?.snapshotDone ? ConvexLSN.fromCursor('100').comparable : null,
+        checkpoint_lsn: options?.snapshotDone ? toConvexLsn('100') : null,
         snapshot_lsn: options?.snapshotLsn ?? null
       };
     },
@@ -181,12 +181,12 @@ describe('ConvexStream', () => {
     expect(context.saves.length).toBe(1);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
     expect(context.resumeLsnUpdates.length).toBe(1);
-    expect(context.commits.at(-1)).toBe(ConvexLSN.fromCursor('100').comparable);
+    expect(context.commits.at(-1)).toBe(toConvexLsn('100'));
   });
 
   it('starts each table snapshot from first page, then paginates within the run', async () => {
     const context = createFakeStorage({
-      snapshotLsn: ConvexLSN.fromCursor('200').comparable,
+      snapshotLsn: toConvexLsn('200'),
       tableSnapshotStatus: {
         replicatedCount: 99,
         totalEstimatedCount: -1,
@@ -254,7 +254,7 @@ describe('ConvexStream', () => {
 
   it('fails when table snapshots return a different snapshot boundary', async () => {
     const context = createFakeStorage({
-      snapshotLsn: ConvexLSN.fromCursor('300').comparable
+      snapshotLsn: toConvexLsn('300')
     });
     const abortController = new AbortController();
 
@@ -291,7 +291,7 @@ describe('ConvexStream', () => {
   it('streams deltas and commits checkpoint', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: ConvexLSN.fromCursor('100').comparable
+      resumeFromLsn: toConvexLsn('100')
     });
     const abortController = new AbortController();
 
@@ -337,14 +337,14 @@ describe('ConvexStream', () => {
     expect(context.saves.length).toBe(2);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.UPDATE);
     expect(context.saves[1]?.tag).toBe(SaveOperationTag.DELETE);
-    expect(context.commits.at(-1)).toBe(ConvexLSN.fromCursor('101').comparable);
+    expect(context.commits.at(-1)).toBe(toConvexLsn('101'));
     expect(deltaCalls[0]?.tableName).toBeUndefined();
   });
 
   it('keeps alive immediately when only checkpoint marker rows are streamed', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: ConvexLSN.fromCursor('100').comparable
+      resumeFromLsn: toConvexLsn('100')
     });
     const abortController = new AbortController();
     let calls = 0;
@@ -391,8 +391,8 @@ describe('ConvexStream', () => {
     expect(context.saves.length).toBe(0);
     expect(context.commits.length).toBe(0);
     expect(context.keepalives).toEqual([
-      ConvexLSN.fromCursor('101').comparable,
-      ConvexLSN.fromCursor('102').comparable
+      toConvexLsn('101'),
+      toConvexLsn('102')
     ]);
   });
 });

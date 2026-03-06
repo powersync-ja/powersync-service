@@ -13,7 +13,7 @@ import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import { ConvexConnectionManager } from '@module/replication/ConvexConnectionManager.js';
 import { ConvexStream, ConvexStreamOptions } from '@module/replication/ConvexStream.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
-import { ConvexLSN } from '@module/common/ConvexLSN.js';
+import { ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { env } from './env.js';
 
 export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoTestStorageFactoryGenerator({
@@ -169,7 +169,7 @@ export class ConvexStreamTestContext {
     await this.storage!.startBatch(
       {
         defaultSchema: 'convex',
-        zeroLSN: ConvexLSN.ZERO.comparable,
+        zeroLSN: ZERO_LSN,
         storeCurrentData: false,
         skipExistingRows: false
       },

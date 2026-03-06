@@ -139,10 +139,10 @@ The content below is written in an agents.md style describing the behavior of `m
 
 ## 4) LSN and Cursor Rules
 - Convex snapshot and delta cursors are always `i64` timestamps (serialized as decimal numeric strings in JSON).
-- `ConvexLSN.fromCursor` rejects non-numeric cursors.
+- Convex LSN helpers reject non-numeric cursors.
 - The `list_snapshot` pagination cursor is a separate JSON-serialized `{tablet, id}` string — it is pagination state, not a replication cursor.
 - Persist LSNs as the raw decimal cursor string returned by Convex.
-- `ConvexLSN.fromSerialized` accepts canonical numeric cursor strings only.
+- Persisted Convex LSNs must be canonical numeric cursor strings.
 
 ## 5) API Client Contract
 - Auth header: `Authorization: Convex <deploy_key>`.
@@ -227,7 +227,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - If changing snapshot/delta flow:
   - update `ConvexStream` tests first.
 - If changing cursor/LSN encoding:
-  - update `ConvexLSN` tests and backward-compat coverage.
+  - update the Convex LSN helper tests and any format-compat coverage.
 - If changing API response parsing:
   - include self-host payload fixtures in `ConvexApiClient` tests.
 - If changing public behavior:
