@@ -18,7 +18,6 @@ import { parameterLookupScope } from './util.js';
 export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
   const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
   const MYBUCKET_1 = parameterLookupScope('mybucket', '1');
 
   test('save and load parameters', async () => {
@@ -40,10 +39,11 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 't2',
@@ -55,7 +55,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 't1',
@@ -67,7 +67,6 @@ bucket_definitions:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
@@ -97,9 +96,10 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'user1',
@@ -108,11 +108,9 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('user1')
     });
     await writer.commit('1/1');
-    await writer.flush();
     const checkpoint1 = await bucketStorage.getCheckpoint();
-    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    await writer2.save({
-      sourceTable: TEST_TABLE,
+    await writer.save({
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'user1',
@@ -120,8 +118,7 @@ bucket_definitions:
       },
       afterReplicaId: test_utils.rid('user1')
     });
-    await writer2.commit('1/2');
-    await writer2.flush();
+    await writer.commit('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
 
     const parameters = await checkpoint2.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
@@ -158,9 +155,8 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
 
-    const table = test_utils.makeTestTable('todos', ['id', 'list_id'], config);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const table = await test_utils.resolveTestTable(writer, 'todos', ['id', 'list_id'], config);
     await writer.markAllSnapshotDone('1/1');
     // Create two todos which initially belong to different lists
     await writer.save({
@@ -183,11 +179,9 @@ bucket_definitions:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
-    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     // Update the second todo item to now belong to list 1
-    await writer2.save({
+    await writer.save({
       sourceTable: table,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
@@ -197,8 +191,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('todo2')
     });
 
-    await writer2.commit('1/1');
-    await writer2.flush();
+    await writer.commit('1/1');
 
     // We specifically request the todo_ids for both lists.
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
@@ -238,9 +231,10 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 't1',
@@ -253,7 +247,6 @@ bucket_definitions:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
     const TEST_PARAMS = { group_id: 'group1' };
 
@@ -294,9 +287,10 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 't1',
@@ -307,7 +301,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
         id: 't1',
@@ -320,7 +314,6 @@ bucket_definitions:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
     const TEST_PARAMS = { group_id: 'group1' };
 
@@ -333,8 +326,6 @@ bucket_definitions:
   });
 
   test('save and load parameters with workspaceId', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', ['id'], config);
-
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -355,9 +346,10 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace1',
@@ -366,7 +358,6 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('workspace1')
     });
     await writer.commit('1/1');
-    await writer.flush();
     const checkpoint = await bucketStorage.getCheckpoint();
 
     const parameters = new RequestParameters(new JwtPayload({ sub: 'u1' }), {});
@@ -393,8 +384,6 @@ bucket_definitions:
   });
 
   test('save and load parameters with dynamic global buckets', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
-
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -415,9 +404,10 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace1',
@@ -427,7 +417,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace2',
@@ -437,7 +427,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace3',
@@ -447,7 +437,6 @@ bucket_definitions:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
@@ -483,8 +472,6 @@ bucket_definitions:
   });
 
   test('multiple parameter queries', async () => {
-    const WORKSPACE_TABLE = test_utils.makeTestTable('workspace', undefined, config);
-
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -507,9 +494,10 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const workspaceTable = await test_utils.resolveTestTable(writer, 'workspace', undefined, config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace1',
@@ -519,7 +507,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace2',
@@ -529,7 +517,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace3',
@@ -540,7 +528,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: WORKSPACE_TABLE,
+      sourceTable: workspaceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'workspace4',
@@ -551,7 +539,6 @@ bucket_definitions:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
     const checkpoint = await bucketStorage.getCheckpoint();
 
@@ -606,9 +593,10 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 't2',
@@ -619,7 +607,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('t2')
     });
 
-    await writer.truncate([TEST_TABLE]);
+    await writer.truncate([testTable]);
     await writer.flush();
 
     const checkpoint = await bucketStorage.getCheckpoint();
@@ -685,9 +673,10 @@ streams:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         baz: 'baz',
@@ -697,7 +686,6 @@ streams:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
     const checkpoint = await bucketStorage.getCheckpoint();
     const parameters = await checkpoint.getParameterSets([
