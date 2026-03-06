@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { ConvexLSN } from '@module/common/ConvexLSN.js';
 
 describe('ConvexLSN', () => {
-  it('serializes and deserializes cursor and timestamp', () => {
+  it('serializes and deserializes the numeric cursor', () => {
     const source = ConvexLSN.fromCursor('12345');
     const roundTrip = ConvexLSN.fromSerialized(source.comparable);
 
-    expect(roundTrip.timestamp).toBe(12345n);
+    expect(source.comparable).toBe('00000000000000012345');
     expect(roundTrip.toCursorString()).toBe('12345');
   });
 
@@ -17,10 +17,20 @@ describe('ConvexLSN', () => {
     expect(older < newer).toBe(true);
   });
 
-  it('handles bare numeric cursor string (no delimiter)', () => {
+  it('handles bare numeric cursor string', () => {
     const parsed = ConvexLSN.fromSerialized('42');
-    expect(parsed.timestamp).toBe(42n);
     expect(parsed.toCursorString()).toBe('42');
+  });
+
+  it('normalizes zero-padded serialized values', () => {
+    const parsed = ConvexLSN.fromSerialized('00000000000000012345');
+    expect(parsed.toCursorString()).toBe('12345');
+  });
+
+  it('rejects delimiter-based serialized payloads', () => {
+    expect(() => ConvexLSN.fromSerialized('n00000000000000012345|12345')).toThrow(
+      'Convex cursor is not a valid numeric timestamp'
+    );
   });
 
   it('rejects non-numeric cursors', () => {
