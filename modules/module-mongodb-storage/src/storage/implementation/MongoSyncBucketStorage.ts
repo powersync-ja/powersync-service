@@ -250,7 +250,8 @@ export class MongoSyncBucketStorage
         schema: schema,
         name: name,
         replicaIdColumns: replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true
+        snapshotComplete: doc.snapshot_done ?? true,
+        initialSnapshotFilter: options.sync_rules.definition.getInitialSnapshotFilter(connection_tag, schema, name)
       });
       sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
       sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
