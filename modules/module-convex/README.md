@@ -141,8 +141,8 @@ The content below is written in an agents.md style describing the behavior of `m
 - Convex snapshot and delta cursors are always `i64` timestamps (serialized as decimal numeric strings in JSON).
 - `ConvexLSN.fromCursor` rejects non-numeric cursors.
 - The `list_snapshot` pagination cursor is a separate JSON-serialized `{tablet, id}` string — it is pagination state, not a replication cursor.
-- Persist LSNs as a zero-padded decimal cursor string so lexicographic ordering matches timestamp ordering.
-- `ConvexLSN.fromSerialized` accepts bare numeric cursor strings and zero-padded stored values.
+- Persist LSNs as the raw decimal cursor string returned by Convex.
+- `ConvexLSN.fromSerialized` accepts canonical numeric cursor strings only.
 
 ## 5) API Client Contract
 - Auth header: `Authorization: Convex <deploy_key>`.
