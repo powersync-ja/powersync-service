@@ -230,6 +230,7 @@ export class StreamQueryParser {
     });
 
     this.resultSets.forEach((v, k) => parseInner.resultSets.set(k, v));
+    this.subqueryResultSets.forEach((v, k) => parseInner.subqueryResultSets.set(k, v));
     return parseInner;
   }
 
