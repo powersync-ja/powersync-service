@@ -167,10 +167,7 @@ export class MongoSyncBucketStorage
     });
   }
 
-  async startBatch(
-    options: storage.StartBatchOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
+  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id
@@ -179,7 +176,7 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    await using batch = new MongoBucketBatch({
+    const writer = new MongoBucketBatch({
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
@@ -192,15 +189,21 @@ export class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable
     });
-    this.iterateListeners((cb) => cb.batchStarted?.(batch));
+    this.iterateListeners((cb) => cb.batchStarted?.(writer));
+    return writer;
+  }
 
-    await callback(batch);
-    await batch.flush();
-    if (batch.last_flushed_op != null) {
-      return { flushed_op: batch.last_flushed_op };
-    } else {
-      return null;
-    }
+  /**
+   * @deprecated Use `createWriter()` with `await using` instead.
+   */
+  async startBatch(
+    options: storage.CreateWriterOptions,
+    callback: (batch: storage.BucketStorageBatch) => Promise<void>
+  ): Promise<storage.FlushedResult | null> {
+    await using writer = await this.createWriter(options);
+    await callback(writer);
+    await writer.flush();
+    return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
   }
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {

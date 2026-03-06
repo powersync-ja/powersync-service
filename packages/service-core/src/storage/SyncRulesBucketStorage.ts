@@ -30,10 +30,17 @@ export interface SyncRulesBucketStorage
   resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
 
   /**
-   * Use this to get access to update storage data.
+   * Create a new writer.
+   *
+   * The writer must be flushed and disposed when done.
+   */
+  createWriter(options: CreateWriterOptions): Promise<BucketStorageBatch>;
+
+  /**
+   * @deprecated Use `createWriter()` with `await using` instead.
    */
   startBatch(
-    options: StartBatchOptions,
+    options: CreateWriterOptions,
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
@@ -162,7 +169,7 @@ export interface ResolveTableResult {
   dropTables: SourceTable[];
 }
 
-export interface StartBatchOptions extends ParseSyncRulesOptions {
+export interface CreateWriterOptions extends ParseSyncRulesOptions {
   zeroLSN: string;
   /**
    * Whether or not to store a copy of the current data.
@@ -191,6 +198,11 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
 
   logger?: Logger;
 }
+
+/**
+ * @deprecated Use `CreateWriterOptions`.
+ */
+export interface StartBatchOptions extends CreateWriterOptions {}
 
 export interface CompactOptions {
   /**

@@ -668,6 +668,10 @@ export class MongoBucketBatch
     super.clearListeners();
   }
 
+  async dispose() {
+    await this[Symbol.asyncDispose]();
+  }
+
   private lastWaitingLogThottled = 0;
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {

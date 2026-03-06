@@ -129,6 +129,10 @@ export class PostgresBucketBatch
     super.clearListeners();
   }
 
+  async dispose() {
+    await this[Symbol.asyncDispose]();
+  }
+
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     // TODO maybe share with abstract class
     const { after, before, sourceTable, tag } = record;
