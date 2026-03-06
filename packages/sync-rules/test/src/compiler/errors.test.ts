@@ -45,14 +45,14 @@ config:
 streams:
   stream:
     with:
-      foo: SELECT 1
+      foo: SELECT id FROM users
 `);
 
     expect(errors).toStrictEqual([
       {
         message: 'One of `queries` or `query` must be given.',
         source: `with:
-      foo: SELECT 1
+      foo: SELECT id FROM users
 `
       }
     ]);
@@ -68,10 +68,10 @@ streams:
   });
 
   test('not selecting from anything', () => {
-    expect(compilationErrorsForSingleStream('SELECT 1, 2, 3')).toStrictEqual([
+    expect(compilationErrorsForSingleStream('SELECT 1 AS a, 2 AS b, 3 AS c')).toStrictEqual([
       {
         message: 'Must have a result column selecting from a table',
-        source: 'SELECT 1, 2, 3'
+        source: 'SELECT 1 AS a, 2 AS b, 3 AS c'
       }
     ]);
   });
@@ -112,7 +112,7 @@ streams:
   });
 
   test('selecting connection value', () => {
-    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') FROM users u;")).toStrictEqual([
+    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') AS p FROM users u;")).toStrictEqual([
       {
         message: 'This attempts to sync a connection parameter. Only values from the source database can be synced.',
         source: "auth.parameter('x')"
@@ -262,6 +262,23 @@ streams:
     expect(compilationErrorsForSingleStream('select * from users where id = subscription.whatever()')).toStrictEqual([
       { message: 'Unknown request function', source: 'subscription.whatever' }
     ]);
+  });
+
+  test('warns about missing alias', () => {
+    expect(compilationErrorsForSingleStream('select id, lower(name) from users')).toStrictEqual([
+      {
+        message: 'The name of this column is unspecified, consider adding an alias.',
+        source: 'lower(name)',
+        isWarning: true
+      }
+    ]);
+
+    // Should not warn for subqueries with fixed column names.
+    expect(
+      compilationErrorsForSingleStream(
+        'select id, name from (select id, lower(name) from users) as my_table (id, name)'
+      )
+    ).toStrictEqual([]);
   });
 
   describe('schema errors', () => {
