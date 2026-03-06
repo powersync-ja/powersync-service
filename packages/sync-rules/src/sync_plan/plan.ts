@@ -161,7 +161,7 @@ export interface StreamBucketDataSource {
  */
 export interface StreamParameterIndexLookupCreator extends TableProcessor {
   hashCode: number;
-  defaultLookupScope: ParameterLookupScope;
+  defaultLookupScope: Omit<ParameterLookupScope, 'source'>;
 
   /**
    * Outputs to persist in the lookup.

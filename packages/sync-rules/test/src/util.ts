@@ -2,12 +2,15 @@ import { expect } from 'vitest';
 import {
   BaseJwtPayload,
   BucketDataSource,
+  BucketDataScope,
   BucketParameterQuerier,
   ColumnDefinition,
   CompatibilityContext,
   CreateSourceParams,
   DEFAULT_TAG,
   GetQuerierOptions,
+  ParameterIndexLookupCreator,
+  ParameterLookupScope,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
@@ -109,6 +112,37 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
     throw new Error('Function not implemented.');
   }
 };
+
+export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
+  get defaultLookupScope(): ParameterLookupScope {
+    return {
+      lookupName: 'lookup',
+      queryId: '0',
+      source: EMPTY_PARAMETER_LOOKUP_SOURCE
+    };
+  },
+  getSourceTables(): Set<TablePattern> {
+    return new Set();
+  },
+  evaluateParameterRow() {
+    return [];
+  },
+  tableSyncsParameters() {
+    return false;
+  }
+};
+
+export function bucketDataScope(bucketPrefix: string, source: BucketDataSource = EMPTY_DATA_SOURCE): BucketDataScope {
+  return { bucketPrefix, source };
+}
+
+export function lookupScope(
+  lookupName: string,
+  queryId: string,
+  source: ParameterIndexLookupCreator = EMPTY_PARAMETER_LOOKUP_SOURCE
+): ParameterLookupScope {
+  return { lookupName, queryId, source };
+}
 
 export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {
   expect(querier.hasDynamicBuckets).toBe(true);

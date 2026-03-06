@@ -1,5 +1,27 @@
 # @powersync/service-module-postgres-storage
 
+## 0.13.0
+
+### Minor Changes
+
+- 8c5bb3b: [Internal] Allow using multiple BucketStorageBatch instances concurrently.
+- c15efc7: [Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
+
+### Patch Changes
+
+- 642cb11: [Postgres Storage] Fix concurrency issue in compacting, leading to "[PSYNC_S1101] Unexpected PUT operation".
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [dcddcf1]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e7152ce]
+- Updated dependencies [e150c5c]
+- Updated dependencies [b410924]
+  - @powersync/service-core@1.20.1
+  - @powersync/lib-services-framework@0.9.0
+  - @powersync/service-sync-rules@0.33.0
+  - @powersync/lib-service-postgres@0.4.23
+  - @powersync/service-jpgwire@0.21.14
+
 ## 0.12.0
 
 ### Minor Changes

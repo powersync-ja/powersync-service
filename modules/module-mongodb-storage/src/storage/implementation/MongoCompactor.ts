@@ -86,18 +86,18 @@ export class MongoCompactor {
   constructor(
     private storage: MongoSyncBucketStorage,
     private db: VersionedPowerSyncMongo,
-    options?: MongoCompactOptions
+    options: MongoCompactOptions
   ) {
     this.group_id = storage.group_id;
-    this.idLimitBytes = (options?.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
-    this.moveBatchLimit = options?.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
-    this.moveBatchQueryLimit = options?.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
-    this.clearBatchLimit = options?.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
-    this.minBucketChanges = options?.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
-    this.minChangeRatio = options?.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
-    this.maxOpId = options?.maxOpId ?? 0n;
-    this.buckets = options?.compactBuckets;
-    this.signal = options?.signal;
+    this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
+    this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
+    this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
+    this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
+    this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
+    this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
+    this.maxOpId = options.maxOpId ?? 0n;
+    this.buckets = options.compactBuckets;
+    this.signal = options.signal;
   }
 
   /**
@@ -662,6 +662,7 @@ export class MongoCompactor {
       buckets.map((bucket) => {
         return {
           bucket,
+          source: {} as any,
           end: this.maxOpId
         };
       })

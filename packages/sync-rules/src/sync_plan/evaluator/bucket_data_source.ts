@@ -9,7 +9,8 @@ import {
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
 } from '../../types.js';
-import { filterJsonRow, idFromData, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
+import { idFromData } from '../../cast.js';
+import { filterJsonRow, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
 import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';

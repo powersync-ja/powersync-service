@@ -77,4 +77,44 @@ streams:
       ]);
     });
   });
+
+  test('multiple output references', () => {
+    // Regression test for https://github.com/powersync-ja/powersync-service/issues/546
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  workspaces/role=user/type=individual:
+    auto_subscribe: true
+    with:
+      workspaces_param: |
+        SELECT value ->> 'id' AS id
+        FROM json_each(auth.parameter('workspaces'))
+        WHERE value ->> 'role' = 'user'
+          AND value ->> 'type' = 'individual'
+    queries:
+      - SELECT *
+        FROM workspace
+        WHERE workspace.id IN workspaces_param
+`);
+
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
+  });
+
+  test('can reference quoted names from subqueries', () => {
+    // Regression test for https://discord.com/channels/1138230179878154300/1422138173907144724/1479119316573094042.
+    // We just want this to compile without errors.
+    compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+streams:
+  migrated_to_streams:
+    auto_subscribe: true
+    with:
+      user_items_param: SELECT "orgId" FROM "OrgMember" WHERE "userId" = auth.user_id()
+    queries:
+      - SELECT "Project".* FROM "Project", user_items_param AS bucket WHERE "Project"."orgId" = bucket."orgId"
+`);
+  });
 });

@@ -127,8 +127,18 @@ export class PostgresSyncRulesStorage
     `.execute();
   }
 
-  compact(options?: storage.CompactOptions): Promise<void> {
-    return new PostgresCompactor(this.db, this.group_id, options).compact();
+  async compact(options?: storage.CompactOptions): Promise<void> {
+    let maxOpId = options?.maxOpId;
+    if (maxOpId == null) {
+      const checkpoint = await this.getCheckpoint();
+      // Note: If there is no active checkpoint, this will be 0, in which case no compacting is performed
+      maxOpId = checkpoint.checkpoint;
+    }
+
+    return new PostgresCompactor(this.db, this.group_id, {
+      ...options,
+      maxOpId
+    }).compact();
   }
 
   async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
@@ -422,10 +432,10 @@ export class PostgresSyncRulesStorage
 
   async *getBucketDataBatch(
     checkpoint: InternalOpId,
-    dataBuckets: Map<string, InternalOpId>,
+    dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.size == 0) {
+    if (dataBuckets.length == 0) {
       return;
     }
 
@@ -437,10 +447,8 @@ export class PostgresSyncRulesStorage
     // not match up with chunks.
 
     const end = checkpoint ?? BIGINT_MAX;
-    const filters = Array.from(dataBuckets.entries()).map(([name, start]) => ({
-      bucket_name: name,
-      start: start
-    }));
+    const filters = dataBuckets.map((request) => ({ bucket_name: request.bucket, start: request.start }));
+    const startOpByBucket = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     const batchRowLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
     const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
@@ -540,7 +548,7 @@ export class PostgresSyncRulesStorage
           }
 
           if (start == null) {
-            const startOpId = dataBuckets.get(bucket_name);
+            const startOpId = startOpByBucket.get(bucket_name);
             if (startOpId == null) {
               throw new framework.ServiceAssertionError(`data for unexpected bucket: ${bucket_name}`);
             }
@@ -595,7 +603,10 @@ export class PostgresSyncRulesStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(
+    checkpoint: utils.InternalOpId,
+    buckets: storage.BucketChecksumRequest[]
+  ): Promise<utils.ChecksumMap> {
     return this.checksumCache.getChecksumMap(checkpoint, buckets);
   }
 

@@ -44,12 +44,16 @@ export abstract class BaseSourceResultSet {
   abstract get evaluationTarget(): SourceResultSet;
 
   static areCompatible(a: SourceResultSet, b: SourceResultSet): boolean {
+    if (a === b) {
+      return true;
+    }
+
     if (a instanceof TableValuedResultSet) {
       return a.canAttachTo(b);
     } else if (b instanceof TableValuedResultSet) {
       return b.canAttachTo(a);
     } else {
-      return a === b;
+      return false;
     }
   }
 }

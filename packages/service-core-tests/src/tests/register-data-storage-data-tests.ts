@@ -9,7 +9,8 @@ import {
 } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { bucketRequest, bucketRequestMap, bucketRequests } from './util.js';
+import { bucketRequest } from '../test-utils/test-utils-index.js';
+import { bucketRequestMap, bucketRequests } from './util.js';
 
 /**
  * Normalize data from OplogEntries for comparison in tests.
@@ -100,7 +101,7 @@ bucket_definitions:
     ];
     expect(checksums).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'global[]'),
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: (c1 + c2) & 0xffffffff,
         count: 2
       }
@@ -172,7 +173,7 @@ bucket_definitions:
     ];
     expect(checksums).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'global[]'),
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: c1 & 0xffffffff,
         count: 1
       }
@@ -249,7 +250,7 @@ bucket_definitions:
     ];
     expect(checksums).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'global[]'),
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: c1 & 0xffffffff,
         count: 1
       }
@@ -316,7 +317,7 @@ bucket_definitions:
     ];
     expect(checksums).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'global[]'),
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: c1 & 0xffffffff,
         count: 1
       }
@@ -554,7 +555,7 @@ bucket_definitions:
     ];
     expect(checksums).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'global[]'),
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: (c1 + c2) & 0xffffffff,
         count: 2
       }
@@ -686,7 +687,7 @@ bucket_definitions:
     ];
     expect(checksums).toEqual([
       {
-        bucket: bucketRequest(syncRules, 'global[]'),
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: (c1 + c1 + c1 + c2) & 0xffffffff,
         count: 4
       }
@@ -1343,8 +1344,8 @@ bucket_definitions:
       const { batch, syncRules } = await setup({ limit: 5 });
       expect(batch.length).toEqual(2);
 
-      expect(batch[0].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global1[]'));
-      expect(batch[1].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]'));
+      expect(batch[0].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global1[]').bucket);
+      expect(batch[1].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]').bucket);
 
       expect(test_utils.getBatchData(batch[0])).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
@@ -1374,8 +1375,8 @@ bucket_definitions:
       const { batch, syncRules } = await setup({ limit: 11 });
       expect(batch.length).toEqual(2);
 
-      expect(batch[0].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global1[]'));
-      expect(batch[1].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]'));
+      expect(batch[0].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global1[]').bucket);
+      expect(batch[1].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]').bucket);
 
       expect(test_utils.getBatchData(batch[0])).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
@@ -1411,9 +1412,9 @@ bucket_definitions:
       const { batch, syncRules } = await setup({ limit: 3, chunkLimitBytes: 50 });
 
       expect(batch.length).toEqual(3);
-      expect(batch[0].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global1[]'));
-      expect(batch[1].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]'));
-      expect(batch[2].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]'));
+      expect(batch[0].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global1[]').bucket);
+      expect(batch[1].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]').bucket);
+      expect(batch[2].chunkData.bucket).toEqual(bucketRequest(syncRules, 'global2[]').bucket);
 
       expect(test_utils.getBatchData(batch[0])).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
@@ -1558,11 +1559,15 @@ bucket_definitions:
     const checksums = [
       ...(await bucketStorage.getChecksums(checkpoint, bucketRequests(syncRules, ['global[]']))).values()
     ];
-    expect(checksums).toEqual([{ bucket: bucketRequest(syncRules, 'global[]'), checksum: 1917136889, count: 1 }]);
+    expect(checksums).toEqual([
+      { bucket: bucketRequest(syncRules, 'global[]').bucket, checksum: 1917136889, count: 1 }
+    ]);
     const checksums2 = [
       ...(await bucketStorage.getChecksums(checkpoint + 1n, bucketRequests(syncRules, ['global[]']))).values()
     ];
-    expect(checksums2).toEqual([{ bucket: bucketRequest(syncRules, 'global[]'), checksum: 1917136889, count: 1 }]);
+    expect(checksums2).toEqual([
+      { bucket: bucketRequest(syncRules, 'global[]').bucket, checksum: 1917136889, count: 1 }
+    ]);
   });
 
   testChecksumBatching(config);
@@ -1828,10 +1833,10 @@ bucket_definitions:
     const checksums = [...(await bucketStorage.getChecksums(checkpoint, buckets)).values()];
     checksums.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(checksums).toEqual([
-      { bucket: bucketRequest(syncRules, 'user["u1"]'), count: 4, checksum: 346204588 },
-      { bucket: bucketRequest(syncRules, 'user["u2"]'), count: 4, checksum: 5261081 },
-      { bucket: bucketRequest(syncRules, 'user["u3"]'), count: 4, checksum: 134760718 },
-      { bucket: bucketRequest(syncRules, 'user["u4"]'), count: 4, checksum: -302639724 }
+      { bucket: bucketRequest(syncRules, 'user["u1"]').bucket, count: 4, checksum: 346204588 },
+      { bucket: bucketRequest(syncRules, 'user["u2"]').bucket, count: 4, checksum: 5261081 },
+      { bucket: bucketRequest(syncRules, 'user["u3"]').bucket, count: 4, checksum: 134760718 },
+      { bucket: bucketRequest(syncRules, 'user["u4"]').bucket, count: 4, checksum: -302639724 }
     ]);
   });
 }

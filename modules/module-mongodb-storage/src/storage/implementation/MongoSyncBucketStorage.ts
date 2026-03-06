@@ -373,19 +373,20 @@ export class MongoSyncBucketStorage
 
   async *getBucketDataBatch(
     checkpoint: utils.InternalOpId,
-    dataBuckets: Map<string, InternalOpId>,
+    dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.size == 0) {
+    if (dataBuckets.length == 0) {
       return;
     }
     let filters: mongo.Filter<BucketDataDocument>[] = [];
+    const bucketMap = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     if (checkpoint == null) {
       throw new ServiceAssertionError('checkpoint is null');
     }
     const end = checkpoint;
-    for (let [name, start] of dataBuckets.entries()) {
+    for (let { bucket: name, start } of dataBuckets) {
       filters.push({
         _id: {
           $gt: {
@@ -478,7 +479,7 @@ export class MongoSyncBucketStorage
         }
 
         if (start == null) {
-          const startOpId = dataBuckets.get(bucket);
+          const startOpId = bucketMap.get(bucket);
           if (startOpId == null) {
             throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
           }
@@ -520,7 +521,10 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(
+    checkpoint: utils.InternalOpId,
+    buckets: storage.BucketChecksumRequest[]
+  ): Promise<utils.ChecksumMap> {
     return this.checksums.getChecksums(checkpoint, buckets);
   }
 

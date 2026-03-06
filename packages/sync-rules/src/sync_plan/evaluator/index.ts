@@ -20,6 +20,13 @@ export interface StreamEvaluationContext {
 }
 
 export class PrecompiledSyncConfig extends SyncConfig {
+  /**
+   * The default schema for this sync config.
+   *
+   * This is independent of the loaded {@link plan} (the same sync plan can be loaded with different default schemas).
+   */
+  readonly defaultSchema: string;
+
   constructor(
     readonly plan: plan.SyncPlan,
     compatibility: CompatibilityContext,
@@ -29,6 +36,7 @@ export class PrecompiledSyncConfig extends SyncConfig {
     super(context.sourceText);
     this.compatibility = compatibility;
     this.eventDescriptors = eventDefinitions;
+    this.defaultSchema = context.defaultSchema;
 
     const preparedBuckets = new Map<plan.StreamBucketDataSource, PreparedStreamBucketDataSource>();
     const preparedLookups = new Map<plan.StreamParameterIndexLookupCreator, PreparedParameterIndexLookupCreator>();

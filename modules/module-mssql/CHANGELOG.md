@@ -1,5 +1,24 @@
 # @powersync/service-module-mssql
 
+## 0.5.0
+
+### Minor Changes
+
+- c15efc7: [Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
+
+### Patch Changes
+
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [dcddcf1]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e7152ce]
+- Updated dependencies [e150c5c]
+- Updated dependencies [b410924]
+  - @powersync/service-errors@0.4.0
+  - @powersync/service-core@1.20.1
+  - @powersync/lib-services-framework@0.9.0
+  - @powersync/service-sync-rules@0.33.0
+
 ## 0.4.0
 
 ### Minor Changes

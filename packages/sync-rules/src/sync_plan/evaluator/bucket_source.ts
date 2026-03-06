@@ -1,3 +1,5 @@
+import { BucketInclusionReason, ResolvedBucket } from '../../BucketDescription.js';
+import { PendingQueriers } from '../../BucketParameterQuerier.js';
 import {
   BucketDataSource,
   BucketSource,
@@ -6,16 +8,14 @@ import {
   HydratedBucketSource,
   ParameterIndexLookupCreator
 } from '../../BucketSource.js';
-import { StreamEvaluationContext } from './index.js';
-import * as plan from '../plan.js';
+import { RequestedStream } from '../../SqlSyncRules.js';
+import { RequestParameters, SqliteParameterValue } from '../../types.js';
+import { bucketDescription, JSONBucketNameSerialize, resolvedBucket } from '../../utils.js';
 import { mapExternalDataToInstantiation, ScalarExpressionEngine } from '../engine/scalar_expression_engine.js';
 import { SqlExpression } from '../expression.js';
-import { RequestParameters, SqliteParameterValue } from '../../types.js';
+import * as plan from '../plan.js';
+import { StreamEvaluationContext } from './index.js';
 import { parametersForRequest, RequestParameterEvaluators } from './parameter_evaluator.js';
-import { PendingQueriers } from '../../BucketParameterQuerier.js';
-import { RequestedStream } from '../../SqlSyncRules.js';
-import { BucketInclusionReason, ResolvedBucket } from '../../BucketDescription.js';
-import { buildBucketName, JSONBucketNameSerialize } from '../../utils.js';
 
 export interface StreamInput extends StreamEvaluationContext {
   preparedBuckets: Map<plan.StreamBucketDataSource, BucketDataSource>;
@@ -121,50 +121,49 @@ class PreparedQuerier {
       }
 
       const subscriptionEvaluators = this.lookupStages.clone();
+      const partialInstantiationResult = subscriptionEvaluators.partiallyInstantiate({ request: params });
+      const bucketScope = hydration.hydrationState.getBucketSourceScope(this.dataSource);
+      const parametersToBucket = (instantiation: SqliteParameterValue[]): ResolvedBucket => {
+        const desc = bucketDescription(
+          bucketScope,
+          JSONBucketNameSerialize.stringify(instantiation),
+          this.stream.priority
+        );
+        return resolvedBucket(desc, {
+          definition: this.stream.name,
+          inclusion_reasons: [reason]
+        });
+      };
 
-      subscriptionEvaluators.partiallyInstantiate({ request: params });
-      if (subscriptionEvaluators.isDefinitelyUninstantiable()) {
+      if (partialInstantiationResult != null) {
+        // This partial instantiation is enough to resolve parameters.
+        if (partialInstantiationResult.length != 0) {
+          result.queriers.push({
+            staticBuckets: partialInstantiationResult.map(parametersToBucket),
+            hasDynamicBuckets: false,
+            async queryDynamicBucketDescriptions() {
+              return [];
+            }
+          });
+        }
+
         return;
       }
 
-      const bucketScope = hydration.hydrationState.getBucketSourceScope(this.dataSource);
+      result.queriers.push({
+        staticBuckets: [],
+        hasDynamicBuckets: true,
+        async queryDynamicBucketDescriptions(source) {
+          const evaluators = subscriptionEvaluators.clone();
+          const instantiation = await evaluators.instantiate({
+            hydrationState: hydration.hydrationState,
+            source,
+            request: params
+          });
 
-      const parametersToBucket = (instantiation: SqliteParameterValue[]): ResolvedBucket => {
-        return {
-          definition: this.stream.name,
-          inclusion_reasons: [reason],
-          bucket: buildBucketName(bucketScope, JSONBucketNameSerialize.stringify(instantiation)),
-          priority: this.stream.priority
-        };
-      };
-
-      // Do we need parameter lookups to resolve parameters?
-      const staticInstantiation = subscriptionEvaluators.extractFullInstantiation();
-      if (staticInstantiation) {
-        // We don't! Return static querier.
-        result.queriers.push({
-          staticBuckets: staticInstantiation.map(parametersToBucket),
-          hasDynamicBuckets: false,
-          async queryDynamicBucketDescriptions() {
-            return [];
-          }
-        });
-      } else {
-        result.queriers.push({
-          staticBuckets: [],
-          hasDynamicBuckets: true,
-          async queryDynamicBucketDescriptions(source) {
-            const evaluators = subscriptionEvaluators.clone();
-            const instantiation = await evaluators.instantiate({
-              hydrationState: hydration.hydrationState,
-              source,
-              request: params
-            });
-
-            return [...instantiation].map(parametersToBucket);
-          }
-        });
-      }
+          return [...instantiation].map(parametersToBucket);
+        }
+      });
     } catch (e) {
       result.errors.push({
         descriptor: this.stream.name,

@@ -9,7 +9,7 @@ import {
   PGNode,
   SelectFromStatement
 } from 'pgsql-ast-parser';
-import { CAST_TYPES } from '../sql_functions.js';
+import { CAST_TYPES } from '../cast.js';
 import {
   ColumnInRow,
   ConnectionParameter,

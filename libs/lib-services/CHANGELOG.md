@@ -1,5 +1,21 @@
 # @powersync/lib-services-framework
 
+## 0.9.0
+
+### Minor Changes
+
+- 8c5bb3b: [Internal] Allow using multiple BucketStorageBatch instances concurrently.
+
+### Patch Changes
+
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [dcddcf1]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e7152ce]
+- Updated dependencies [b410924]
+  - @powersync/service-errors@0.4.0
+  - @powersync/service-sync-rules@0.33.0
+
 ## 0.8.3
 
 ### Patch Changes
