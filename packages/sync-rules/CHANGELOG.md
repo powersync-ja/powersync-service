@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.33.1
+
+### Patch Changes
+
+- acf1486: Fix a compiler crash when using a column of a CTE in another subquery.
+- 99de8be: Fix output names of columns in sync streams for quoted identifiers.
+
 ## 0.33.0
 
 ### Minor Changes
