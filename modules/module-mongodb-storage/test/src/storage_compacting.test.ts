@@ -5,16 +5,23 @@ import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
   register.registerCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
   describe('with blank bucket_state', () => {
     // This can happen when migrating from older service versions, that did not populate bucket_state yet.
-    const populate = async (bucketStorage: SyncRulesBucketStorage) => {
+    const populate = async (bucketStorage: SyncRulesBucketStorage, sourceTableIndex: number) => {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+
+      const sourceTable = await test_utils.resolveTestTable(
+        writer,
+        'test',
+        ['id'],
+        INITIALIZED_MONGO_STORAGE_FACTORY,
+        sourceTableIndex
+      );
       await writer.markAllSnapshotDone('1/1');
 
       await writer.save({
-        sourceTable: TEST_TABLE,
+        sourceTable,
         tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
@@ -24,7 +31,7 @@ describe('Mongo Sync Bucket Storage Compact', () => {
       });
 
       await writer.save({
-        sourceTable: TEST_TABLE,
+        sourceTable,
         tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2',
@@ -34,7 +41,6 @@ describe('Mongo Sync Bucket Storage Compact', () => {
       });
 
       await writer.commit('1/1');
-      await writer.flush();
 
       return bucketStorage.getCheckpoint();
     };
@@ -50,7 +56,7 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
-      const { checkpoint } = await populate(bucketStorage);
+      const { checkpoint } = await populate(bucketStorage, 1);
 
       return { bucketStorage, checkpoint, factory, syncRules };
     };
@@ -102,7 +108,7 @@ bucket_definitions:
       );
       const bucketStorage = factory.getInstance(syncRules);
 
-      await populate(bucketStorage);
+      await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
 
       // Default is to small small numbers - should be a no-op

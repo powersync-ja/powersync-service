@@ -249,8 +249,6 @@ bucket_definitions:
           if (sentCheckpoints == 1) {
             // Save new data to interrupt the low-priority sync.
 
-            await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-            const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
             // Add another high-priority row. This should interrupt the long-running low-priority sync.
             await writer.save({
               sourceTable: testTable,
@@ -777,6 +775,7 @@ bucket_definitions:
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const usersTable = await test_utils.resolveTestTable(writer, 'users', ['id'], config, 1);
+
     // Activate
     await writer.markAllSnapshotDone('0/0');
     await writer.keepalive('0/0');
@@ -818,6 +817,7 @@ bucket_definitions:
     await writer.commit('0/1');
 
     const checkpoint2 = await getCheckpointLines(iter);
+
     const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
@@ -875,6 +875,7 @@ bucket_definitions:
 
     const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint1 = await getCheckpointLines(iter);
+
     expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([bucket]);
     expect(checkpoint1).toMatchSnapshot();
 
@@ -964,6 +965,7 @@ bucket_definitions:
     await writer.commit('0/1');
 
     const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
+
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
@@ -1250,6 +1252,7 @@ config:
       });
       const bucketStorage = f.getInstance(syncRules);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+
       const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config, i + 1);
 
       await writer.markAllSnapshotDone('0/1');

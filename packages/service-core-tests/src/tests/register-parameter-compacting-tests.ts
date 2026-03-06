@@ -7,8 +7,6 @@ import { parameterLookupScope } from './util.js';
 export function registerParameterCompactTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
 
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
-
   test('compacting parameters', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
@@ -20,11 +18,12 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 't1'
@@ -33,7 +32,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: TEST_TABLE,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 't2'
@@ -42,17 +41,15 @@ bucket_definitions:
     });
 
     await writer.commit('1/1');
-    await writer.flush();
 
-    const lookup = ScopedParameterLookup.direct(parameterLookupScope('test', '1'), ['t1']);
+    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup]);
     expect(parameters1).toEqual([{ id: 't1' }]);
 
-    await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    await writer2.save({
-      sourceTable: TEST_TABLE,
+    await writer.save({
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.UPDATE,
       before: {
         id: 't1'
@@ -64,16 +61,15 @@ bucket_definitions:
       afterReplicaId: 't1'
     });
 
-    await writer2.save({
-      sourceTable: TEST_TABLE,
+    await writer.save({
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.DELETE,
       before: {
         id: 't1'
       },
       beforeReplicaId: 't1'
     });
-    await writer2.commit('1/2');
-    await writer2.flush();
+    await writer.commit('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
     const parameters2 = await checkpoint2.getParameterSets([lookup]);
     expect(parameters2).toEqual([]);
@@ -104,11 +100,12 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
-
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
       await writer.markAllSnapshotDone('1/1');
       await writer.save({
-        sourceTable: TEST_TABLE,
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't1',
@@ -118,7 +115,7 @@ bucket_definitions:
       });
       // Interleave with another operation, to evict the other cache entry when compacting.
       await writer.save({
-        sourceTable: TEST_TABLE,
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: {
           id: 't2',
@@ -128,11 +125,9 @@ bucket_definitions:
       });
 
       await writer.commit('1/1');
-      await writer.flush();
 
-      await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      await writer2.save({
-        sourceTable: TEST_TABLE,
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.DELETE,
         before: {
           id: 't1',
@@ -140,12 +135,10 @@ bucket_definitions:
         },
         beforeReplicaId: 't1'
       });
-      await writer2.commit('2/1');
-      await writer2.flush();
+      await writer.commit('2/1');
 
-      await using writer3 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      await writer3.save({
-        sourceTable: TEST_TABLE,
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.UPDATE,
         after: {
           id: 't2',
@@ -153,10 +146,9 @@ bucket_definitions:
         },
         afterReplicaId: 't2'
       });
-      await writer3.commit('3/1');
-      await writer3.flush();
+      await writer.commit('3/1');
 
-      const lookup = ScopedParameterLookup.direct(parameterLookupScope('test', '1'), ['u1']);
+      const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['u1']);
 
       const checkpoint1 = await bucketStorage.getCheckpoint();
       const parameters1 = await checkpoint1.getParameterSets([lookup]);

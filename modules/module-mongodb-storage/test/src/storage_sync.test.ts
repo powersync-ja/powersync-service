@@ -8,8 +8,6 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     storageVersion,
     tableIdStrings: storageConfig.tableIdStrings
   });
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageConfig);
-
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,
@@ -28,59 +26,57 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const globalBucket = bucketRequest(syncRules, 'global[]');
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const result = await (async () => {
-      const sourceTable = TEST_TABLE;
 
-      const largeDescription = '0123456789'.repeat(2_000_00);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
-      await writer.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test1',
-          description: 'test1'
-        },
-        afterReplicaId: test_utils.rid('test1')
-      });
+    const largeDescription = '0123456789'.repeat(2_000_00);
 
-      await writer.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large1',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large1')
-      });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test1',
+        description: 'test1'
+      },
+      afterReplicaId: test_utils.rid('test1')
+    });
 
-      // Large enough to split the returned batch
-      await writer.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large2',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large2')
-      });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'large1',
+        description: largeDescription
+      },
+      afterReplicaId: test_utils.rid('large1')
+    });
 
-      await writer.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test3',
-          description: 'test3'
-        },
-        afterReplicaId: test_utils.rid('test3')
-      });
-      await writer.flush();
-      return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
-    })();
+    // Large enough to split the returned batch
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'large2',
+        description: largeDescription
+      },
+      afterReplicaId: test_utils.rid('large2')
+    });
 
-    const checkpoint = result!.flushed_op;
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test3',
+        description: 'test3'
+      },
+      afterReplicaId: test_utils.rid('test3')
+    });
+
+    const flushResult = await writer.flush();
+
+    const checkpoint = flushResult!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
     const batch1 = await test_utils.fromAsync(
