@@ -215,6 +215,63 @@ describe('ConvexStream', () => {
     expect(context.commits.at(-1)).toBe(toConvexLsn('100'));
   });
 
+  it('decodes bytes fields to Uint8Array during snapshot hydration', async () => {
+    const context = createFakeStorage();
+    const abortController = new AbortController();
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: () => ({ add: () => {} })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas: async () => ({
+            tables: [
+              {
+                tableName: 'users',
+                schema: {
+                  properties: {
+                    avatar: { type: 'bytes' }
+                  }
+                }
+              }
+            ],
+            raw: {}
+          }),
+          listSnapshot: async (options: any) => {
+            if (options?.tableName == null) {
+              return {
+                snapshot: '100',
+                cursor: null,
+                hasMore: false,
+                values: []
+              };
+            }
+
+            return {
+              snapshot: '100',
+              cursor: null,
+              hasMore: false,
+              values: [{ _table: 'users', _id: 'u1', avatar: 'AQID' }]
+            };
+          },
+          getGlobalSnapshotCursor: async () => '100'
+        }
+      } as any
+    });
+
+    await stream.initReplication();
+
+    expect(context.saves).toHaveLength(1);
+    expect(context.saves[0]?.after.avatar).toEqual(Uint8Array.of(1, 2, 3));
+  });
+
   it('resumes table snapshots from the persisted page cursor', async () => {
     const context = createFakeStorage({
       snapshotLsn: toConvexLsn('200'),
@@ -407,7 +464,7 @@ describe('ConvexStream', () => {
     expect(deltaCalls[0]?.tableName).toBeUndefined();
   });
 
-  it('snapshots a newly discovered wildcard-matched table inline without refreshing metadata', async () => {
+  it('refreshes metadata before snapshotting a newly discovered wildcard-matched table inline', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
       resumeFromLsn: toConvexLsn('100'),
@@ -457,7 +514,7 @@ describe('ConvexStream', () => {
     await stream.streamChanges();
 
     expect(calls).toBeGreaterThan(0);
-    expect(getJsonSchemas).toHaveBeenCalledTimes(1);
+    expect(getJsonSchemas).toHaveBeenCalledTimes(2);
     expect(listSnapshot).toHaveBeenCalledTimes(1);
     expect(listSnapshot).toHaveBeenCalledWith({
       tableName: 'projects_archive',

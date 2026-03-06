@@ -169,13 +169,15 @@ The content below is written in an agents.md style describing the behavior of `m
 
 ## 8) Datatype Mapping
 - Current runtime mapping in stream writer:
-  - `number` integer -> `BigInt` (SQLite INTEGER),
-  - `number` float -> REAL,
-  - `boolean` -> `1n`/`0n`,
-  - bytes over the JSON API -> base64 `string`,
-  - `object/array` -> JSON TEXT.
+  - `id` / `string` -> TEXT,
+  - `int64` / integer `number` -> `BigInt` (SQLite INTEGER),
+  - `float64` / non-integer `number` -> REAL,
+  - `boolean` -> `1n`/`0n` (SQLite INTEGER),
+  - `bytes` over the JSON API -> base64 `string` on the wire -> `Uint8Array` (SQLite BLOB),
+  - `array` / `object` / `record` -> JSON TEXT.
   NOTE:
   - Convex does not expose a native `Date` wire type here; timestamps arrive as `number` or `string`.
+  - BLOB values are valid row values but are not valid bucket parameter values.
 
 ## 9) Checkpointing and Consistency
 - `createReplicationHead` must:

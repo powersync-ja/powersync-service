@@ -15,7 +15,7 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { HydratedSyncRules, SqliteInputRow, TablePattern } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { setTimeout as delay } from 'timers/promises';
 import {
@@ -26,6 +26,7 @@ import {
 } from '../client/ConvexApiClient.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { parseConvexLsn, toConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
+import { extractProperties, toSqliteInputRow } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 
 export interface ConvexStreamOptions {
@@ -51,6 +52,7 @@ export class ConvexStream {
   private readonly relationCache = new RelationCache(getCacheIdentifier);
 
   private tableSchemaCache: ConvexTableSchema[] | null = null;
+  private tableSchemaPropertiesByName = new Map<string, Record<string, unknown>>();
 
   private oldestUncommittedChange: Date | null = null;
   private lastKeepaliveAt = 0;
@@ -302,6 +304,7 @@ export class ConvexStream {
     table: SourceTable,
     snapshotCursor: string
   ): Promise<{ table: SourceTable }> {
+    const tableProperties = this.getTableSchemaProperties(table.name);
     const snapshotProgress = decodeSnapshotProgressCursor(table.snapshotStatus?.lastKey);
     let pageCursor = snapshotProgress.cursor;
     let replicatedCount = table.snapshotStatus?.replicatedCount ?? 0;
@@ -357,7 +360,7 @@ export class ConvexStream {
           continue;
         }
 
-        const row = this.toSqliteRow(rawDocument);
+        const row = this.toSqliteRow(rawDocument, tableProperties);
         await batch.save({
           tag: SaveOperationTag.INSERT,
           sourceTable: latestTable,
@@ -498,6 +501,8 @@ export class ConvexStream {
       return null;
     }
 
+    await this.getAllTableSchemas({ force: true });
+
     let table = await this.processTable(batch, descriptor);
     if (!table.snapshotComplete && table.syncAny) {
       this.logger.info(`New table discovered while streaming: [${table.qualifiedName}]`);
@@ -580,7 +585,7 @@ export class ConvexStream {
       return true;
     }
 
-    const after = this.toSqliteRow(change);
+    const after = this.toSqliteRow(change, this.getTableSchemaProperties(table.name));
     await batch.save({
       tag: SaveOperationTag.UPDATE,
       sourceTable: table,
@@ -593,17 +598,8 @@ export class ConvexStream {
     return true;
   }
 
-  private toSqliteRow(change: ConvexRawDocument) {
-    const row: SqliteInputRow = {};
-
-    for (const [key, value] of Object.entries(change)) {
-      if (key == '_table' || key == '_deleted') {
-        continue;
-      }
-      row[key] = toConvexSyncValue(value);
-    }
-
-    return this.syncRules.applyRowContext<never>(row);
+  private toSqliteRow(change: ConvexRawDocument, properties?: Record<string, unknown>) {
+    return this.syncRules.applyRowContext<never>(toSqliteInputRow(change, properties));
   }
 
   private async getAllTableSchemas(options?: { force?: boolean }): Promise<ConvexTableSchema[]> {
@@ -613,7 +609,14 @@ export class ConvexStream {
 
     const schema = await this.connections.client.getJsonSchemas({ signal: this.abortSignal });
     this.tableSchemaCache = schema.tables;
+    this.tableSchemaPropertiesByName = new Map(
+      schema.tables.map((table) => [table.tableName, extractProperties(table.schema)])
+    );
     return schema.tables;
+  }
+
+  private getTableSchemaProperties(tableName: string): Record<string, unknown> | undefined {
+    return this.tableSchemaPropertiesByName.get(tableName);
   }
 
   private touch() {
@@ -638,37 +641,6 @@ function readTableName(change: ConvexRawDocument): string | null {
     return null;
   }
   return table;
-}
-
-function toConvexSyncValue(value: unknown): any {
-  if (value == null) {
-    return null;
-  }
-
-  if (typeof value == 'string') {
-    return value;
-  }
-
-  if (typeof value == 'number') {
-    if (Number.isInteger(value)) {
-      return BigInt(value);
-    }
-    return value;
-  }
-
-  if (typeof value == 'bigint') {
-    return value;
-  }
-
-  if (typeof value == 'boolean') {
-    return value ? 1n : 0n;
-  }
-
-  if (Array.isArray(value) || typeof value == 'object') {
-    return JSON.stringify(value);
-  }
-
-  return null;
 }
 
 interface ConvexSnapshotProgressCursor {

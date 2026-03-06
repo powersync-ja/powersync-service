@@ -3,6 +3,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { toConvexLsn } from '../common/ConvexLSN.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
+import { extractProperties, readConvexFieldType, toExpressionTypeFromConvexType } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from '../replication/ConvexConnectionManager.js';
 import * as types from '../types/types.js';
 
@@ -136,13 +137,13 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
           .map((table) => ({
             name: table.tableName,
             columns: Object.entries({
-              _id: { type: 'string' },
-              ...extractProperties(table.schema)
+              ...extractProperties(table.schema),
+              _id: { type: 'id' }
             })
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([columnName, property]) => {
-                const jsonType = readJsonSchemaType(property);
-                const sqliteType = toSqliteType(jsonType);
+                const jsonType = readConvexFieldType(property);
+                const sqliteType = toExpressionTypeFromConvexType(jsonType);
 
                 return {
                   name: columnName,
@@ -211,61 +212,4 @@ function createTableInfo(options: {
     parameter_queries: options.syncRules.tableSyncsParameters(sourceTable),
     errors: options.errors ?? []
   };
-}
-
-function extractProperties(schema: Record<string, any>) {
-  const direct = schema.properties;
-  if (isRecord(direct)) {
-    return direct;
-  }
-
-  const nested = schema.schema?.properties;
-  if (isRecord(nested)) {
-    return nested;
-  }
-
-  return {};
-}
-
-function readJsonSchemaType(value: unknown): string {
-  if (!isRecord(value)) {
-    return 'unknown';
-  }
-
-  const type = value.type;
-  if (typeof type == 'string') {
-    return type;
-  }
-
-  if (Array.isArray(type)) {
-    const firstString = type.find((entry) => typeof entry == 'string');
-    if (firstString) {
-      return firstString;
-    }
-  }
-
-  return 'unknown';
-}
-
-function toSqliteType(type: string): sync_rules.ExpressionType {
-  switch (type) {
-    case 'integer':
-      return sync_rules.ExpressionType.INTEGER;
-    case 'number':
-      return sync_rules.ExpressionType.REAL;
-    case 'boolean':
-      return sync_rules.ExpressionType.INTEGER;
-    case 'null':
-      return sync_rules.ExpressionType.NONE;
-    case 'array':
-    case 'object':
-      return sync_rules.ExpressionType.TEXT;
-    case 'string':
-    default:
-      return sync_rules.ExpressionType.TEXT;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return typeof value == 'object' && value != null && !Array.isArray(value);
 }

@@ -1,4 +1,4 @@
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { ExpressionType, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
 import { toConvexLsn } from '@module/common/ConvexLSN.js';
@@ -26,7 +26,8 @@ function createAdapter() {
           schema: {
             properties: {
               _id: { type: 'string' },
-              age: { type: 'integer' }
+              age: { type: 'integer' },
+              avatar: { type: 'bytes' }
             }
           }
         }
@@ -47,6 +48,10 @@ describe('ConvexRouteAPIAdapter', () => {
     const schema = await adapter.getConnectionSchema();
     expect(schema[0]?.name).toBe('convex');
     expect(schema[0]?.tables[0]?.name).toBe('users');
+    expect(schema[0]?.tables[0]?.columns.find((column) => column.name == '_id')?.type).toBe('id');
+    expect(schema[0]?.tables[0]?.columns.find((column) => column.name == 'avatar')?.sqlite_type).toBe(
+      ExpressionType.BLOB.typeFlags
+    );
 
     await adapter.shutdown();
   });
