@@ -13,7 +13,6 @@ replication:
       deployment_url: https://<your-deployment>.convex.cloud
       deploy_key: <your-deploy-key>
       polling_interval_ms: 1000
-      request_timeout_ms: 30000
 ```
 
 ## Manual smoke test
@@ -27,8 +26,8 @@ replication:
 
 - Initial replication pins a global Convex snapshot boundary using `list_snapshot` without `tableName`.
 - Table hydration then runs per selected sync-rule table using that fixed snapshot boundary.
-- Each table snapshot starts from the first page (cursor omitted on the first call), and only uses cursor pagination within the current run.
-- If initial replication is interrupted, restart resumes from the stored snapshot boundary but restarts table paging from page 1.
+- Each table snapshot starts from the first page when there is no persisted progress, and otherwise resumes from the stored page cursor.
+- If initial replication is interrupted, restart resumes from the stored snapshot boundary and any persisted per-table snapshot progress.
 
 ## Convex Source Setup
 
@@ -131,7 +130,8 @@ The content below is written in an agents.md style describing the behavior of `m
 - All table snapshots in a run must use the same pinned `snapshot`; if response snapshot differs, fail fast.
 - On restart during initial replication:
   - Reuse persisted snapshot LSN boundary.
-  - Restart table page walk from first page (do not resume per-table `lastKey`).
+  - Resume table page walk from the persisted per-table `lastKey` cursor when available.
+  - If the last page was already flushed before interruption, mark the table snapshot done without re-reading rows.
 - Delta streaming starts from resume LSN (snapshot boundary), not from table page cursor.
 - `tablePattern.connectionTag` and schema must match before table selection.
 - Source table replica identity is `_id`.

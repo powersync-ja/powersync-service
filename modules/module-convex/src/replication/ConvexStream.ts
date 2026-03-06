@@ -269,13 +269,15 @@ export class ConvexStream {
             continue;
           }
 
-          const tableWithProgress = await batch.updateTableProgress(sourceTable, {
-            totalEstimatedCount: -1,
-            replicatedCount: 0,
-            lastKey: null
-          });
+          const tableWithProgress =
+            sourceTable.snapshotStatus == null
+              ? await batch.updateTableProgress(sourceTable, {
+                  totalEstimatedCount: -1,
+                  replicatedCount: 0,
+                  lastKey: null
+                })
+              : sourceTable;
           this.relationCache.update(tableWithProgress);
-          this.logger.info(`Starting table snapshot from first page for [${tableWithProgress.qualifiedName}]`);
 
           await this.snapshotTable(batch, tableWithProgress, snapshotCursor);
         }
@@ -296,18 +298,35 @@ export class ConvexStream {
     table: SourceTable,
     snapshotCursor: string
   ): Promise<{ table: SourceTable }> {
-    let pageCursor: string | null = null;
-    let replicatedCount = 0;
+    const snapshotProgress = decodeSnapshotProgressCursor(table.snapshotStatus?.lastKey);
+    let pageCursor = snapshotProgress.cursor;
+    let replicatedCount = table.snapshotStatus?.replicatedCount ?? 0;
     let latestTable = table;
-    let firstPage = true;
+
+    if (snapshotProgress.finished) {
+      this.logger.info(`Finishing table snapshot from persisted progress for [${table.qualifiedName}]`);
+    } else if (pageCursor != null) {
+      this.logger.info(`Resuming table snapshot from persisted cursor for [${table.qualifiedName}]`);
+    } else {
+      this.logger.info(`Starting table snapshot from first page for [${table.qualifiedName}]`);
+    }
+
+    if (this.abortSignal.aborted) {
+      throw new ReplicationAbortedError('Initial replication interrupted');
+    }
+
+    if (snapshotProgress.finished) {
+      return {
+        table: await this.markSnapshotDone(batch, latestTable, snapshotCursor)
+      };
+    }
 
     while (!this.abortSignal.aborted) {
-      const requestCursor: string | undefined = firstPage ? undefined : (pageCursor ?? undefined);
       const page: ConvexListSnapshotResult = await this.connections.client
         .listSnapshot({
           tableName: table.name,
           snapshot: snapshotCursor,
-          cursor: requestCursor,
+          cursor: pageCursor ?? undefined,
           signal: this.abortSignal
         })
         .catch((error) => {
@@ -316,7 +335,6 @@ export class ConvexStream {
           }
           throw error;
         });
-      firstPage = false;
 
       if (snapshotCursor != page.snapshot) {
         throw new ReplicationAssertionError(
@@ -354,7 +372,10 @@ export class ConvexStream {
       latestTable = await batch.updateTableProgress(latestTable, {
         replicatedCount,
         totalEstimatedCount: -1,
-        lastKey: encodeSnapshotProgressCursor(pageCursor)
+        lastKey: encodeSnapshotProgressCursor({
+          cursor: pageCursor,
+          finished: !page.hasMore
+        })
       });
       this.relationCache.update(latestTable);
 
@@ -369,13 +390,20 @@ export class ConvexStream {
       throw new ReplicationAbortedError('Initial replication interrupted');
     }
 
-    const snapshotLsnValue = toConvexLsn(snapshotCursor);
-    const [doneTable] = await batch.markSnapshotDone([latestTable], snapshotLsnValue);
-    this.relationCache.update(doneTable);
-
     return {
-      table: doneTable
+      table: await this.markSnapshotDone(batch, latestTable, snapshotCursor)
     };
+  }
+
+  private async markSnapshotDone(
+    batch: storage.BucketStorageBatch,
+    table: SourceTable,
+    snapshotCursor: string
+  ): Promise<SourceTable> {
+    const snapshotLsnValue = toConvexLsn(snapshotCursor);
+    const [doneTable] = await batch.markSnapshotDone([table], snapshotLsnValue);
+    this.relationCache.update(doneTable);
+    return doneTable;
   }
 
   private async resolveSnapshotBoundary(snapshotLsn: string | null): Promise<string> {
@@ -631,10 +659,66 @@ function toConvexSyncValue(value: unknown): any {
   return null;
 }
 
-function encodeSnapshotProgressCursor(cursor: string | null): Uint8Array | null {
-  if (cursor == null) {
+interface ConvexSnapshotProgressCursor {
+  cursor: string | null;
+  finished: boolean;
+}
+
+const SNAPSHOT_PROGRESS_PREFIX = 'convex-snapshot-progress:';
+
+function encodeSnapshotProgressCursor(progress: ConvexSnapshotProgressCursor): Uint8Array | null {
+  if (!progress.finished && progress.cursor == null) {
     return null;
   }
 
-  return Buffer.from(cursor, 'utf8');
+  if (!progress.finished) {
+    return Buffer.from(progress.cursor!, 'utf8');
+  }
+
+  return Buffer.from(`${SNAPSHOT_PROGRESS_PREFIX}${JSON.stringify(progress)}`, 'utf8');
+}
+
+function decodeSnapshotProgressCursor(value: Uint8Array | null | undefined): ConvexSnapshotProgressCursor {
+  if (value == null) {
+    return {
+      cursor: null,
+      finished: false
+    };
+  }
+
+  const serialized = Buffer.from(value).toString('utf8');
+  if (!serialized.startsWith(SNAPSHOT_PROGRESS_PREFIX)) {
+    return {
+      cursor: serialized,
+      finished: false
+    };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized.slice(SNAPSHOT_PROGRESS_PREFIX.length));
+  } catch (error) {
+    throw new ReplicationAssertionError(
+      `Convex snapshot progress cursor is not valid JSON: ${error instanceof Error ? error.message : `${error}`}`
+    );
+  }
+
+  if (typeof parsed != 'object' || parsed == null || Array.isArray(parsed)) {
+    throw new ReplicationAssertionError('Convex snapshot progress cursor must decode to an object');
+  }
+
+  const parsedProgress = parsed as { cursor?: unknown; finished?: unknown };
+  const cursor = parsedProgress.cursor;
+  const finished = parsedProgress.finished;
+  if (cursor != null && typeof cursor != 'string') {
+    throw new ReplicationAssertionError('Convex snapshot progress cursor must contain a string cursor or null');
+  }
+  if (typeof finished != 'boolean') {
+    throw new ReplicationAssertionError('Convex snapshot progress cursor must contain a boolean finished flag');
+  }
+
+  return {
+    cursor: cursor ?? null,
+    finished
+  };
 }

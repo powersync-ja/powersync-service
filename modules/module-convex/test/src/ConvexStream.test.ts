@@ -184,13 +184,13 @@ describe('ConvexStream', () => {
     expect(context.commits.at(-1)).toBe(toConvexLsn('100'));
   });
 
-  it('starts each table snapshot from first page, then paginates within the run', async () => {
+  it('resumes table snapshots from the persisted page cursor', async () => {
     const context = createFakeStorage({
       snapshotLsn: toConvexLsn('200'),
       tableSnapshotStatus: {
-        replicatedCount: 99,
+        replicatedCount: 1,
         totalEstimatedCount: -1,
-        lastKey: Buffer.from('stale-cursor', 'utf8')
+        lastKey: Buffer.from('page-2', 'utf8')
       }
     });
     const abortController = new AbortController();
@@ -198,14 +198,6 @@ describe('ConvexStream', () => {
     const snapshotCalls: any[] = [];
     const listSnapshot = vi.fn(async (options: any) => {
       snapshotCalls.push(options ?? {});
-      if (snapshotCalls.length == 1) {
-        return {
-          snapshot: '200',
-          cursor: 'page-2',
-          hasMore: true,
-          values: [{ _table: 'users', _id: 'u1', name: 'Alice' }]
-        };
-      }
       return {
         snapshot: '200',
         cursor: null,
@@ -241,15 +233,58 @@ describe('ConvexStream', () => {
     await stream.initReplication();
 
     expect(getGlobalSnapshotCursor).not.toHaveBeenCalled();
-    expect(snapshotCalls.length).toBe(2);
+    expect(snapshotCalls.length).toBe(1);
     expect(snapshotCalls[0]?.snapshot).toBe('200');
-    expect(snapshotCalls[0]?.cursor).toBeUndefined();
-    expect(snapshotCalls[1]?.cursor).toBe('page-2');
-    expect(context.tableProgressUpdates[0]).toMatchObject({
-      replicatedCount: 0,
-      lastKey: null,
-      totalEstimatedCount: -1
+    expect(snapshotCalls[0]?.cursor).toBe('page-2');
+    expect(context.saves.length).toBe(1);
+    expect(context.tableProgressUpdates).toHaveLength(1);
+    expect(context.tableProgressUpdates[0]?.replicatedCount).toBe(2);
+  });
+
+  it('marks snapshot done without re-reading rows when the final page was already flushed', async () => {
+    const context = createFakeStorage({
+      snapshotLsn: toConvexLsn('200'),
+      tableSnapshotStatus: {
+        replicatedCount: 2,
+        totalEstimatedCount: -1,
+        lastKey: Buffer.from('convex-snapshot-progress:{"cursor":null,"finished":true}', 'utf8')
+      }
     });
+    const abortController = new AbortController();
+    const listSnapshot = vi.fn(async () => ({
+      snapshot: '200',
+      cursor: null,
+      hasMore: false,
+      values: []
+    }));
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: () => ({ add: () => {} })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas: async () => ({
+            tables: [{ tableName: 'users', schema: {} }],
+            raw: {}
+          }),
+          listSnapshot,
+          getGlobalSnapshotCursor: async () => 'should-not-be-called'
+        }
+      } as any
+    });
+
+    await stream.initReplication();
+
+    expect(listSnapshot).not.toHaveBeenCalled();
+    expect(context.saves.length).toBe(0);
+    expect(context.table.snapshotComplete).toBe(true);
   });
 
   it('fails when table snapshots return a different snapshot boundary', async () => {
