@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -11,14 +11,18 @@ import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 function registerStorageVersionTests(storageVersion: number) {
   describe(`storage v${storageVersion}`, () => {
     const storageFactory = POSTGRES_STORAGE_FACTORY;
+    const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageFactory);
 
-    register.registerSyncTests(storageFactory, { storageVersion });
+    register.registerSyncTests(storageFactory.factory, {
+      storageVersion,
+      tableIdStrings: storageFactory.tableIdStrings
+    });
 
     test('large batch (2)', async () => {
       // Test syncing a batch of data that is small in count,
       // but large enough in size to be split over multiple returned chunks.
       // Similar to the above test, but splits over 1MB chunks.
-      await using factory = await storageFactory();
+      await using factory = await storageFactory.factory();
       const syncRules = await factory.updateSyncRules(
         updateSyncRulesFromYaml(
           `
@@ -84,9 +88,7 @@ function registerStorageVersionTests(storageVersion: number) {
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(checkpoint, new Map([[globalBucket, 0n]]), options)
-      );
+      const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [globalBucket], options));
       expect(test_utils.getBatchData(batch1)).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
       ]);
@@ -99,7 +101,7 @@ function registerStorageVersionTests(storageVersion: number) {
       const batch2 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
           checkpoint,
-          new Map([[globalBucket, BigInt(batch1[0].chunkData.next_after)]]),
+          [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
           options
         )
       );
@@ -115,7 +117,7 @@ function registerStorageVersionTests(storageVersion: number) {
       const batch3 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
           checkpoint,
-          new Map([[globalBucket, BigInt(batch2[0].chunkData.next_after)]]),
+          [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
           options
         )
       );
@@ -131,7 +133,7 @@ function registerStorageVersionTests(storageVersion: number) {
       const batch4 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
           checkpoint,
-          new Map([[globalBucket, BigInt(batch3[0].chunkData.next_after)]]),
+          [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],
           options
         )
       );

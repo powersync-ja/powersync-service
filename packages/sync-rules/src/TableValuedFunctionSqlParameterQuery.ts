@@ -1,5 +1,5 @@
 import { FromCall, SelectFromStatement } from 'pgsql-ast-parser';
-import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY, ResolvedBucket } from './BucketDescription.js';
+import { BucketDescription, BucketPriority, DEFAULT_BUCKET_PRIORITY } from './BucketDescription.js';
 import { CreateSourceParams } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope } from './HydrationState.js';
@@ -23,7 +23,7 @@ import {
   SqliteJsonValue,
   SqliteRow
 } from './types.js';
-import { buildBucketName, isJsonValue, serializeBucketParameters } from './utils.js';
+import { bucketDescription, isJsonValue, resolvedBucket, serializeBucketParameters } from './utils.js';
 import { DetectRequestParameters } from './validators.js';
 
 export interface TableValuedFunctionSqlParameterQueryOptions {
@@ -237,11 +237,7 @@ export class TableValuedFunctionSqlParameterQuery {
     return {
       pushBucketParameterQueriers: (result: PendingQueriers, options: GetQuerierOptions) => {
         const staticBuckets = this.getStaticBucketDescriptions(options.globalParameters, bucketScope).map((desc) => {
-          return {
-            ...desc,
-            definition: this.descriptorName,
-            inclusion_reasons: ['default']
-          } satisfies ResolvedBucket;
+          return resolvedBucket(desc, { definition: this.descriptorName, inclusion_reasons: ['default'] });
         });
 
         if (staticBuckets.length == 0) {
@@ -306,11 +302,7 @@ export class TableValuedFunctionSqlParameterQuery {
     }
 
     const serializedBucketParameters = serializeBucketParameters(this.bucketParameters, result);
-
-    return {
-      bucket: buildBucketName(bucketScope, serializedBucketParameters),
-      priority: this.priority
-    };
+    return bucketDescription(bucketScope, serializedBucketParameters, this.priority);
   }
 
   private visitParameterExtractorsAndCallClause(): DetectRequestParameters {

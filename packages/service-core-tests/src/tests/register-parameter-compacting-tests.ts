@@ -2,10 +2,13 @@ import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
+import { parameterLookupScope } from './util.js';
 
-const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
+export function registerParameterCompactTests(config: storage.TestStorageConfig) {
+  const generateStorageFactory = config.factory;
 
-export function registerParameterCompactTests(generateStorageFactory: storage.TestStorageFactory) {
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
+
   test('compacting parameters', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
@@ -19,6 +22,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('1/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -40,7 +44,7 @@ bucket_definitions:
       await batch.commit('1/1');
     });
 
-    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1' }, ['t1']);
+    const lookup = ScopedParameterLookup.direct(parameterLookupScope('test', '1'), ['t1']);
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup]);
@@ -102,6 +106,7 @@ bucket_definitions:
       const bucketStorage = factory.getInstance(syncRules);
 
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('1/1');
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,
@@ -151,7 +156,7 @@ bucket_definitions:
         await batch.commit('3/1');
       });
 
-      const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1' }, ['u1']);
+      const lookup = ScopedParameterLookup.direct(parameterLookupScope('test', '1'), ['u1']);
 
       const checkpoint1 = await bucketStorage.getCheckpoint();
       const parameters1 = await checkpoint1.getParameterSets([lookup]);

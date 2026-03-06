@@ -1,12 +1,12 @@
 import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
 import { describe, expect, test } from 'vitest';
 import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext, withMaxWalSize } from './wal_stream_utils.js';
-import { JSONBig } from '@powersync/service-jsonbig';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -105,7 +105,6 @@ bucket_definitions:
     );
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     // Must be > 8kb after compression
     const largeDescription = crypto.randomBytes(20_000).toString('hex');
@@ -212,7 +211,6 @@ bucket_definitions:
     );
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', { id: test_id, description: 'test1' })]);
@@ -243,8 +241,6 @@ bucket_definitions:
       statement: `UPDATE test_data SET description = $1 WHERE id = 't1'`,
       params: [{ type: 'varchar', value: largeDescription }]
     });
-
-    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data.length).toEqual(1);
@@ -297,7 +293,6 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -322,15 +317,12 @@ bucket_definitions:
 
       await context.loadActiveSyncRules();
 
-      // Previously, the `replicateSnapshot` call picked up on this error.
-      // Now, we have removed that check, this only comes up when we start actually streaming.
-      // We don't get the streaming response directly here, but getCheckpoint() checks for that.
-      await context.replicateSnapshot();
-      context.startStreaming();
+      // Note: The actual error may be thrown either in replicateSnapshot(), or in getCheckpoint().
 
       if (serverVersion!.compareMain('18.0.0') >= 0) {
         // No error expected in Postres 18. Replication keeps on working depite the
         // publication being re-created.
+        await context.replicateSnapshot();
         await context.getCheckpoint();
       } else {
         // await context.getCheckpoint();
@@ -338,9 +330,9 @@ bucket_definitions:
         // In the service, this error is handled in WalStreamReplicationJob,
         // creating a new replication slot.
         await expect(async () => {
+          await context.replicateSnapshot();
           await context.getCheckpoint();
         }).rejects.toThrowError(MissingReplicationSlotError);
-        context.clearStreamError();
       }
     }
   });
@@ -362,7 +354,6 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -425,7 +416,6 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -512,7 +502,7 @@ config:
     await context.initializeReplication();
     await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', '2025-09-10 15:17:14+02')`);
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '2025-09-10T13:17:14.000000Z' })]);
   });
 
@@ -544,7 +534,7 @@ config:
       `INSERT INTO test_data(id, description, ts) VALUES ('t2', ROW(TRUE, 2)::composite, '2025-11-17T09:12:00Z')`
     );
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([
       putOp('test_data', { id: 't1', description: '{"foo":1,"bar":1}', ts: '2025-11-17T09:11:00.000000Z' }),
       putOp('test_data', { id: 't2', description: '{"foo":1,"bar":2}', ts: '2025-11-17T09:12:00.000000Z' })
@@ -571,7 +561,7 @@ config:
     await context.initializeReplication();
     await pool.query(`INSERT INTO test_data(id) VALUES ('t1')`);
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([putOp('test_data', { id: 't1' })]);
   });
 
@@ -593,7 +583,6 @@ config:
     );
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`UPDATE test_data SET description = 'test2' WHERE id = '${test_id}'`);
 

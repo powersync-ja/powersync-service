@@ -1,7 +1,9 @@
 import { OrderedSet } from '@js-sdsl/ordered-set';
 import { LRUCache } from 'lru-cache/min';
+import { BucketDataSource } from '@powersync/service-sync-rules';
 import { BucketChecksum } from '../util/protocol-types.js';
 import { addBucketChecksums, ChecksumMap, InternalOpId, PartialChecksum } from '../util/utils.js';
+import { BucketChecksumRequest } from './SyncRulesBucketStorage.js';
 
 interface ChecksumFetchContext {
   fetch(bucket: string): Promise<BucketChecksum>;
@@ -10,6 +12,7 @@ interface ChecksumFetchContext {
 
 export interface FetchPartialBucketChecksum {
   bucket: string;
+  source: BucketDataSource;
   start?: InternalOpId;
   end: InternalOpId;
 }
@@ -113,10 +116,10 @@ export class ChecksumCache {
     this.bucketCheckpoints.clear();
   }
 
-  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<BucketChecksum[]> {
+  async getChecksums(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<BucketChecksum[]> {
     const checksums = await this.getChecksumMap(checkpoint, buckets);
     // Return results in the same order as the request
-    return buckets.map((bucket) => checksums.get(bucket)!);
+    return buckets.map((bucket) => checksums.get(bucket.bucket)!);
   }
 
   /**
@@ -126,7 +129,7 @@ export class ChecksumCache {
    *
    * @returns a Map with exactly one entry for each bucket requested
    */
-  async getChecksumMap(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksumMap(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
     // Buckets that don't have a cached checksum for this checkpoint yet
     let toFetch = new Set<string>();
 
@@ -164,19 +167,21 @@ export class ChecksumCache {
     // One promise to await to ensure all fetch requests completed.
     let settledPromise: Promise<PromiseSettledResult<void>[]> | null = null;
 
+    const sourceMap = new Map<string, BucketDataSource>();
+
     try {
       // Individual cache fetch promises
       let cacheFetchPromises: Promise<void>[] = [];
 
       for (let bucket of buckets) {
-        const cacheKey = makeCacheKey(checkpoint, bucket);
+        const cacheKey = makeCacheKey(checkpoint, bucket.bucket);
         let status: LRUCache.Status<BucketChecksum> = {};
         const p = this.cache.fetch(cacheKey, { context: context, status: status }).then((checksums) => {
           if (checksums == null) {
             // Should never happen
             throw new Error(`Failed to get checksums for ${cacheKey}`);
           }
-          finalResults.set(bucket, checksums);
+          finalResults.set(bucket.bucket, checksums);
         });
         cacheFetchPromises.push(p);
         if (status.fetch == 'hit' || status.fetch == 'inflight') {
@@ -185,7 +190,8 @@ export class ChecksumCache {
           // In either case, we don't need to fetch a new checksum.
         } else {
           // We need a new request for this checksum.
-          toFetch.add(bucket);
+          toFetch.add(bucket.bucket);
+          sourceMap.set(bucket.bucket, bucket.source);
         }
       }
       // We do this directly after creating the promises, otherwise
@@ -220,6 +226,7 @@ export class ChecksumCache {
                 // Partial checksum found - make a partial checksum request
                 bucketRequest = {
                   bucket,
+                  source: sourceMap.get(bucket)!,
                   start: cp,
                   end: checkpoint
                 };
@@ -240,6 +247,7 @@ export class ChecksumCache {
             // No partial checksum found - make a new full checksum request
             bucketRequest = {
               bucket,
+              source: sourceMap.get(bucket)!,
               end: checkpoint
             };
             add.set(bucket, {

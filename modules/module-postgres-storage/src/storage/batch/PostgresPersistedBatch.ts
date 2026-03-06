@@ -1,10 +1,12 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { logger } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { bson, storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
 import { replicaIdToSubkey } from '../../utils/bson.js';
+import { PostgresCurrentDataStore } from '../current-data-store.js';
+import { postgresTableId } from '../table-id.js';
 
 export type SaveBucketDataOptions = {
   /**
@@ -24,7 +26,7 @@ export type SaveParameterDataOptions = {
 };
 
 export type DeleteCurrentDataOptions = {
-  source_table_id: bigint;
+  source_table_id: string;
   /**
    * ReplicaID which needs to be serialized in order to be queried
    * or inserted into the DB
@@ -34,14 +36,24 @@ export type DeleteCurrentDataOptions = {
    * Optionally provide the serialized source key directly
    */
   serialized_source_key?: Buffer;
+
+  /**
+   * Streaming replication needs soft deletes, while truncating tables can use a hard delete directly.
+   */
+  soft: boolean;
 };
 
 export type PostgresPersistedBatchOptions = RequiredOperationBatchLimits & {
   group_id: number;
+  storageConfig: storage.StorageVersionConfig;
 };
+
+const EMPTY_DATA = Buffer.from(bson.serialize({}));
 
 export class PostgresPersistedBatch {
   group_id: number;
+  private readonly storageConfig: storage.StorageVersionConfig;
+  private readonly currentDataStore: PostgresCurrentDataStore;
 
   /**
    * Very rough estimate of current operations size in bytes
@@ -56,22 +68,26 @@ export class PostgresPersistedBatch {
    */
   protected bucketDataInserts: models.BucketData[];
   protected parameterDataInserts: models.BucketParameters[];
-  protected currentDataDeletes: Pick<models.CurrentData, 'group_id' | 'source_key' | 'source_table'>[];
   /**
-   * This is stored as a map to avoid multiple inserts (or conflicts) for the same key
+   * This is stored as a map to avoid multiple inserts (or conflicts) for the same key.
+   *
+   * Each key may only occur in one of these two maps.
    */
-  protected currentDataInserts: Map<string, models.CurrentData>;
+  protected currentDataInserts: Map<string, models.V3CurrentData>;
+  protected currentDataDeletes: Map<string, { source_key_hex: string; source_table: string }>;
 
   constructor(options: PostgresPersistedBatchOptions) {
     this.group_id = options.group_id;
+    this.storageConfig = options.storageConfig;
+    this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
 
     this.maxTransactionBatchSize = options.max_estimated_size;
     this.maxTransactionDocCount = options.max_record_count;
 
     this.bucketDataInserts = [];
     this.parameterDataInserts = [];
-    this.currentDataDeletes = [];
     this.currentDataInserts = new Map();
+    this.currentDataDeletes = new Map();
     this.currentSize = 0;
   }
 
@@ -98,7 +114,7 @@ export class PostgresPersistedBatch {
         group_id: this.group_id,
         bucket_name: k.bucket,
         op: models.OpType.PUT,
-        source_table: options.table.id,
+        source_table: postgresTableId(options.table.id),
         source_key: hexSourceKey,
         table_name: k.table,
         row_id: k.id,
@@ -117,7 +133,7 @@ export class PostgresPersistedBatch {
         group_id: this.group_id,
         bucket_name: bd.bucket,
         op: models.OpType.REMOVE,
-        source_table: options.table.id,
+        source_table: postgresTableId(options.table.id),
         source_key: hexSourceKey,
         table_name: bd.table,
         row_id: bd.id,
@@ -155,7 +171,7 @@ export class PostgresPersistedBatch {
       const serializedBucketParameters = JSONBig.stringify(result.bucketParameters);
       this.parameterDataInserts.push({
         group_id: this.group_id,
-        source_table: table.id,
+        source_table: postgresTableId(table.id),
         source_key: hexSourceKey,
         bucket_parameters: serializedBucketParameters,
         id: 0, // auto incrementing id
@@ -169,7 +185,7 @@ export class PostgresPersistedBatch {
       const hexLookup = lookup.toString('hex');
       this.parameterDataInserts.push({
         group_id: this.group_id,
-        source_table: table.id,
+        source_table: postgresTableId(table.id),
         source_key: hexSourceKey,
         bucket_parameters: JSON.stringify([]),
         id: 0, // auto incrementing id
@@ -180,19 +196,37 @@ export class PostgresPersistedBatch {
   }
 
   deleteCurrentData(options: DeleteCurrentDataOptions) {
-    const serializedReplicaId = options.serialized_source_key ?? storage.serializeReplicaId(options.source_key);
-    this.currentDataDeletes.push({
-      group_id: this.group_id,
-      source_table: options.source_table_id.toString(),
-      source_key: serializedReplicaId.toString('hex')
-    });
-    this.currentSize += serializedReplicaId.byteLength + 100;
+    if (options.soft && this.storageConfig.softDeleteCurrentData) {
+      return this.upsertCurrentData(
+        {
+          group_id: this.group_id,
+          source_table: options.source_table_id,
+          source_key: options.source_key,
+          buckets: [],
+          data: EMPTY_DATA,
+          lookups: [],
+          pending_delete: 1n // converted to nextval('op_id_sequence') in the query
+        },
+        options.serialized_source_key
+      );
+    } else {
+      const serializedReplicaId = options.serialized_source_key ?? storage.serializeReplicaId(options.source_key);
+      const hexReplicaId = serializedReplicaId.toString('hex');
+      const source_table = options.source_table_id;
+      const key = `${this.group_id}-${source_table}-${hexReplicaId}`;
+      this.currentDataInserts.delete(key);
+      this.currentDataDeletes.set(key, {
+        source_key_hex: hexReplicaId,
+        source_table: source_table
+      });
+      this.currentSize += serializedReplicaId.byteLength + 100;
+    }
   }
 
-  upsertCurrentData(options: models.CurrentDataDecoded) {
+  upsertCurrentData(options: models.V3CurrentDataDecoded, serialized_source_key?: Buffer) {
     const { source_table, source_key, buckets } = options;
 
-    const serializedReplicaId = storage.serializeReplicaId(source_key);
+    const serializedReplicaId = serialized_source_key ?? storage.serializeReplicaId(source_key);
     const hexReplicaId = serializedReplicaId.toString('hex');
     const serializedBuckets = JSONBig.stringify(options.buckets);
 
@@ -206,13 +240,15 @@ export class PostgresPersistedBatch {
      */
     const key = `${this.group_id}-${source_table}-${hexReplicaId}`;
 
+    this.currentDataDeletes.delete(key);
     this.currentDataInserts.set(key, {
       group_id: this.group_id,
       source_table: source_table,
       source_key: hexReplicaId,
       buckets: serializedBuckets,
       data: options.data.toString('hex'),
-      lookups: options.lookups.map((l) => l.toString('hex'))
+      lookups: options.lookups.map((l) => l.toString('hex')),
+      pending_delete: options.pending_delete?.toString() ?? null
     });
 
     this.currentSize +=
@@ -230,7 +266,7 @@ export class PostgresPersistedBatch {
       this.currentSize >= this.maxTransactionBatchSize ||
       this.bucketDataInserts.length >= this.maxTransactionDocCount ||
       this.currentDataInserts.size >= this.maxTransactionDocCount ||
-      this.currentDataDeletes.length >= this.maxTransactionDocCount ||
+      this.currentDataDeletes.size >= this.maxTransactionDocCount ||
       this.parameterDataInserts.length >= this.maxTransactionDocCount
     );
   }
@@ -239,24 +275,26 @@ export class PostgresPersistedBatch {
     const stats = {
       bucketDataCount: this.bucketDataInserts.length,
       parameterDataCount: this.parameterDataInserts.length,
-      currentDataCount: this.currentDataInserts.size + this.currentDataDeletes.length
+      currentDataCount: this.currentDataInserts.size + this.currentDataDeletes.size
     };
     const flushedAny = stats.bucketDataCount > 0 || stats.parameterDataCount > 0 || stats.currentDataCount > 0;
 
     logger.info(
       `powersync_${this.group_id} Flushed ${this.bucketDataInserts.length} + ${this.parameterDataInserts.length} + ${
-        this.currentDataInserts.size + this.currentDataDeletes.length
+        this.currentDataInserts.size
       } updates, ${Math.round(this.currentSize / 1024)}kb.`
     );
 
-    await this.flushBucketData(db);
-    await this.flushParameterData(db);
+    // Flush current_data first, since this is where lock errors are most likely to occur, and we
+    // want to detect those as soon as possible.
     await this.flushCurrentData(db);
 
+    await this.flushBucketData(db);
+    await this.flushParameterData(db);
     this.bucketDataInserts = [];
     this.parameterDataInserts = [];
-    this.currentDataDeletes = [];
     this.currentDataInserts = new Map();
+    this.currentDataDeletes = new Map();
     this.currentSize = 0;
 
     return {
@@ -342,66 +380,36 @@ export class PostgresPersistedBatch {
 
   protected async flushCurrentData(db: lib_postgres.WrappedConnection) {
     if (this.currentDataInserts.size > 0) {
-      await db.sql`
-        INSERT INTO
-          current_data (
-            group_id,
-            source_table,
-            source_key,
-            buckets,
-            data,
-            lookups
-          )
-        SELECT
-          group_id,
-          source_table,
-          decode(source_key, 'hex') AS source_key, -- Decode hex to bytea
-          buckets::jsonb AS buckets,
-          decode(data, 'hex') AS data, -- Decode hex to bytea
-          array(
-            SELECT
-              decode(element, 'hex')
-            FROM
-              unnest(lookups) AS element
-          ) AS lookups
-        FROM
-          json_to_recordset(${{ type: 'json', value: Array.from(this.currentDataInserts.values()) }}::json) AS t (
-            group_id integer,
-            source_table text,
-            source_key text, -- Input as hex string
-            buckets text,
-            data text, -- Input as hex string
-            lookups TEXT[] -- Input as stringified JSONB array of hex strings
-          )
-        ON CONFLICT (group_id, source_table, source_key) DO UPDATE
-        SET
-          buckets = EXCLUDED.buckets,
-          data = EXCLUDED.data,
-          lookups = EXCLUDED.lookups;
-      `.execute();
+      const updates = Array.from(this.currentDataInserts.values());
+      // Sort by source_table, source_key to ensure consistent order.
+      // While order of updates don't directly matter, using a consistent order helps to reduce 40P01 deadlock errors.
+      // We may still have deadlocks between deletes and inserts, but those should be less frequent.
+      updates.sort((a, b) => {
+        if (a.source_table < b.source_table) return -1;
+        if (a.source_table > b.source_table) return 1;
+        if (a.source_key < b.source_key) return -1;
+        if (a.source_key > b.source_key) return 1;
+        return 0;
+      });
+
+      await this.currentDataStore.flushUpserts(db, updates);
     }
 
-    if (this.currentDataDeletes.length > 0) {
-      await db.sql`
-        WITH
-          conditions AS (
-            SELECT
-              group_id,
-              source_table,
-              decode(source_key, 'hex') AS source_key -- Decode hex to bytea
-            FROM
-              jsonb_to_recordset(${{ type: 'jsonb', value: this.currentDataDeletes }}::jsonb) AS t (
-                group_id integer,
-                source_table text,
-                source_key text -- Input as hex string
-              )
-          )
-        DELETE FROM current_data USING conditions
-        WHERE
-          current_data.group_id = conditions.group_id
-          AND current_data.source_table = conditions.source_table
-          AND current_data.source_key = conditions.source_key;
-      `.execute();
+    if (this.currentDataDeletes.size > 0) {
+      const deletes = Array.from(this.currentDataDeletes.values());
+      // Same sorting as for inserts
+      deletes.sort((a, b) => {
+        if (a.source_table < b.source_table) return -1;
+        if (a.source_table > b.source_table) return 1;
+        if (a.source_key_hex < b.source_key_hex) return -1;
+        if (a.source_key_hex > b.source_key_hex) return 1;
+        return 0;
+      });
+
+      await this.currentDataStore.flushDeletes(db, {
+        groupId: this.group_id,
+        deletes
+      });
     }
   }
 }

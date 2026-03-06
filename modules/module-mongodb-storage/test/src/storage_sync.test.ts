@@ -1,17 +1,21 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
-function registerSyncStorageTests(storageFactory: storage.TestStorageFactory, storageVersion: number) {
-  register.registerSyncTests(storageFactory, { storageVersion });
+function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
+  register.registerSyncTests(storageConfig.factory, {
+    storageVersion,
+    tableIdStrings: storageConfig.tableIdStrings
+  });
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageConfig);
 
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    await using factory = await storageFactory();
+    await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
@@ -76,9 +80,8 @@ function registerSyncStorageTests(storageFactory: storage.TestStorageFactory, st
     const checkpoint = result!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
-
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([[globalBucket, 0n]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)], options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -93,7 +96,7 @@ function registerSyncStorageTests(storageFactory: storage.TestStorageFactory, st
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([[globalBucket, BigInt(batch1[0].chunkData.next_after)]]),
+        [bucketRequest(syncRules, 'global[]', batch1[0].chunkData.next_after)],
         options
       )
     );
@@ -109,7 +112,7 @@ function registerSyncStorageTests(storageFactory: storage.TestStorageFactory, st
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([[globalBucket, BigInt(batch2[0].chunkData.next_after)]]),
+        [bucketRequest(syncRules, 'global[]', batch2[0].chunkData.next_after)],
         options
       )
     );

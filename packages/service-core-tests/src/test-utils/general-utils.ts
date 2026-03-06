@@ -1,4 +1,4 @@
-import { storage, utils } from '@powersync/service-core';
+import { BucketDataRequest, InternalOpId, storage, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
@@ -14,9 +14,14 @@ export const BATCH_OPTIONS: storage.StartBatchOptions = {
   storeCurrentData: true
 };
 
-export function makeTestTable(name: string, replicaIdColumns?: string[] | undefined) {
+export function makeTestTable(
+  name: string,
+  replicaIdColumns?: string[] | undefined,
+  options?: { tableIdStrings: boolean }
+) {
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  const id = new bson.ObjectId('6544e3899293153fa7b38331');
+  const id =
+    options?.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
   return new storage.SourceTable({
     id: id,
     connectionTag: storage.SourceTable.DEFAULT_TAG,
@@ -43,6 +48,39 @@ export function getBatchData(
       checksum: d.checksum
     };
   });
+}
+
+function isParsedSyncRules(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
+): syncRules is storage.PersistedSyncRules {
+  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
+}
+
+/**
+ * Bucket names no longer purely depend on the sync rules.
+ * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
+ */
+export function bucketRequest(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
+  bucket: string,
+  start?: InternalOpId | string | number
+): BucketDataRequest {
+  const parsed = isParsedSyncRules(syncRules) ? syncRules : syncRules.parsed(PARSE_OPTIONS);
+  const hydrationState = parsed.hydrationState;
+  const parameterStart = bucket.indexOf('[');
+  const definitionName = bucket.substring(0, parameterStart);
+  const parameters = bucket.substring(parameterStart);
+  const source = parsed.sync_rules.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
+
+  if (source == null) {
+    throw new Error(`Failed to find global bucket ${bucket}`);
+  }
+  const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
+  return {
+    bucket: bucketName,
+    start: BigInt(start ?? 0n),
+    source: source
+  };
 }
 
 export function getBatchMeta(

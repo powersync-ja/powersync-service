@@ -1,5 +1,10 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  HydratedSyncRules,
+  ScopedParameterLookup,
+  SqliteJsonRow
+} from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
@@ -103,7 +108,7 @@ export interface SyncRulesBucketStorage
    */
   getBucketDataBatch(
     checkpoint: util.InternalOpId,
-    dataBuckets: Map<string, util.InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk>;
 
@@ -115,7 +120,7 @@ export interface SyncRulesBucketStorage
    * This may be slow, depending on the size of the buckets.
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
-  getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
+  getChecksums(checkpoint: util.InternalOpId, buckets: BucketChecksumRequest[]): Promise<util.ChecksumMap>;
 
   /**
    * Clear checksum cache. Primarily intended for tests.
@@ -125,6 +130,16 @@ export interface SyncRulesBucketStorage
 
 export interface SyncRulesBucketStorageListener {
   batchStarted: (batch: BucketStorageBatch) => void;
+}
+
+export interface BucketDataRequest {
+  bucket: string;
+  start: util.InternalOpId;
+  source: BucketDataSource;
+}
+export interface BucketChecksumRequest {
+  bucket: string;
+  source: BucketDataSource;
 }
 
 export interface SyncRuleStatus {

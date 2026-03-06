@@ -9,32 +9,34 @@ import {
   StaticSchema,
   TablePattern,
   PrecompiledSyncConfig,
-  deserializeSyncPlan
-} from '../../../../src/index.js';
-import { compileSingleStreamAndSerialize } from '../../compiler/utils.js';
+  deserializeSyncPlan,
+  ExpressionType
+} from '../../../src/index.js';
+import { compileSingleStreamAndSerialize } from '../compiler/utils.js';
+import { SyncPlanSchemaAnalyzer } from '../../../src/sync_plan/schema_inference.js';
+
+const assetsTable: SourceTableDefinition = {
+  name: 'assets',
+  columns: [
+    { name: 'id', sqlite_type: 'text', internal_type: 'uuid' },
+    { name: 'name', sqlite_type: 'text', internal_type: 'text' },
+    { name: 'count', sqlite_type: 'integer', internal_type: 'int4' },
+    { name: 'owner_id', sqlite_type: 'text', internal_type: 'uuid' }
+  ]
+};
+const schema = new StaticSchema([
+  {
+    tag: DEFAULT_TAG,
+    schemas: [
+      {
+        name: 'test_schema',
+        tables: [assetsTable]
+      }
+    ]
+  }
+]);
 
 describe('schema inference', () => {
-  const assetsTable: SourceTableDefinition = {
-    name: 'assets',
-    columns: [
-      { name: 'id', sqlite_type: 'text', internal_type: 'uuid' },
-      { name: 'name', sqlite_type: 'text', internal_type: 'text' },
-      { name: 'count', sqlite_type: 'integer', internal_type: 'int4' },
-      { name: 'owner_id', sqlite_type: 'text', internal_type: 'uuid' }
-    ]
-  };
-  const schema = new StaticSchema([
-    {
-      tag: DEFAULT_TAG,
-      schemas: [
-        {
-          name: 'test_schema',
-          tables: [assetsTable]
-        }
-      ]
-    }
-  ]);
-
   function generateSchema(...queries: string[]) {
     const serializedPlan = compileSingleStreamAndSerialize(...queries);
     const plan = deserializeSyncPlan(serializedPlan);
@@ -124,6 +126,75 @@ describe('schema inference', () => {
     const resolvedSchema = generateSchema(`SELECT id, hex(null) h FROM assets`).assets;
     expect(typesOnly(resolvedSchema)).toStrictEqual({
       h: 'text'
+    });
+  });
+});
+
+describe('parameter inference', () => {
+  function inferParameters(...queries: string[]) {
+    const serializedPlan = compileSingleStreamAndSerialize(...queries);
+    const plan = deserializeSyncPlan(serializedPlan);
+
+    const analyzer = new SyncPlanSchemaAnalyzer('test_schema', schema);
+    return analyzer.resolveReferencedParameters(plan.streams[0].queriers);
+  }
+
+  test('group by text', () => {
+    expect(inferParameters(`SELECT * FROM assets WHERE name = subscription.parameter('name')`)).toStrictEqual({
+      name: {
+        originalType: 'text',
+        type: ExpressionType.TEXT
+      }
+    });
+  });
+
+  test('group by int', () => {
+    expect(inferParameters(`SELECT * FROM assets WHERE count = subscription.parameter('count')`)).toStrictEqual({
+      count: {
+        originalType: 'int4',
+        type: ExpressionType.INTEGER
+      }
+    });
+  });
+
+  test('custom filter', () => {
+    // We don't support inferring parameter types of functions at the moment.
+    expect(inferParameters(`SELECT * FROM assets WHERE name = UPPER(subscription.parameter('name'))`)).toStrictEqual({
+      name: {
+        type: ExpressionType.ANY
+      }
+    });
+  });
+
+  test('static filter', () => {
+    // We don't support inferring parameter types of functions at the moment.
+    expect(inferParameters(`SELECT * FROM assets WHERE subscription.parameter('include_assets')`)).toStrictEqual({
+      include_assets: {
+        originalType: 'bool',
+        type: ExpressionType.INTEGER
+      }
+    });
+  });
+
+  test('parameter lookup', () => {
+    // We don't support inferring parameter types of functions at the moment.
+    expect(
+      inferParameters(
+        `SELECT * FROM assets WHERE name IN (SELECT name FROM assets WHERE owner_id = subscription.parameter('owner'))`
+      )
+    ).toStrictEqual({
+      owner: {
+        originalType: 'uuid',
+        type: ExpressionType.TEXT
+      }
+    });
+  });
+
+  test('json_each input', () => {
+    expect(inferParameters(`SELECT * FROM assets WHERE name IN subscription.parameter('names')`)).toStrictEqual({
+      names: {
+        type: ExpressionType.TEXT
+      }
     });
   });
 });

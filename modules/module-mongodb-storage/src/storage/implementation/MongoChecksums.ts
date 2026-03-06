@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import {
   addPartialChecksums,
   bson,
+  BucketChecksumRequest,
   BucketChecksum,
   ChecksumCache,
   ChecksumMap,
@@ -12,7 +13,7 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
-import { PowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
 
 /**
@@ -49,7 +50,7 @@ export class MongoChecksums {
   private readonly storageConfig: StorageConfig;
 
   constructor(
-    private db: PowerSyncMongo,
+    private db: VersionedPowerSyncMongo,
     private group_id: number,
     private options: MongoChecksumOptions
   ) {
@@ -74,7 +75,7 @@ export class MongoChecksums {
    * Calculate checksums, utilizing the cache for partial checkums, and querying the remainder from
    * the database (bucket_state + bucket_data).
    */
-  async getChecksums(checkpoint: InternalOpId, buckets: string[]): Promise<ChecksumMap> {
+  async getChecksums(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
     return this.cache.getChecksumMap(checkpoint, buckets);
   }
 
@@ -298,6 +299,7 @@ export class MongoChecksums {
           const req = requests.get(bucket);
           requests.set(bucket, {
             bucket,
+            source: req!.source,
             start: doc.last_op,
             end: req!.end
           });

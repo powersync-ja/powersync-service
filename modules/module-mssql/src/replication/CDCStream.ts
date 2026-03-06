@@ -292,7 +292,7 @@ export class CDCStream {
       const postSnapshotLSN = await getLatestLSN(this.connections);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
       await transaction.commit();
-      const [updatedSourceTable] = await batch.markSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
+      const [updatedSourceTable] = await batch.markTableSnapshotDone([table.sourceTable], postSnapshotLSN.toString());
       this.logger.info(
         `Snapshot of ${table.toQualifiedName()} completed. Post-snapshot LSN: ${postSnapshotLSN.toString()}`
       );
@@ -494,11 +494,13 @@ export class CDCStream {
 
         // This will not create a consistent checkpoint yet, but will persist the op.
         // Actual checkpoint will be created when streaming replication caught up.
+        const postSnapshotLSN = await getLatestLSN(this.connections);
+        await batch.markAllSnapshotDone(postSnapshotLSN.toString());
         await batch.commit(snapshotLSN!);
 
         if (tablesToSnapshot.length > 0) {
           this.logger.info(
-            `All snapshots done. Need to replicate from ${snapshotLSN} to ${batch.noCheckpointBeforeLsn} to be consistent.`
+            `All snapshots done. Need to replicate from ${snapshotLSN} to ${postSnapshotLSN} to be consistent.`
           );
         } else {
           this.logger.info(`No tables to snapshot. Need to replicate from ${snapshotLSN}.`);
@@ -654,9 +656,11 @@ export class CDCStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
       },
       onCommit: async (lsn: string, transactionCount: number) => {
-        await batch.commit(lsn);
+        const { checkpointBlocked } = await batch.commit(lsn);
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionCount);
-        this.isStartingReplication = false;
+        if (!checkpointBlocked) {
+          this.isStartingReplication = false;
+        }
       },
       onSchemaChange: async (schemaChange: SchemaChange) => {
         await this.handleSchemaChange(batch, schemaChange);

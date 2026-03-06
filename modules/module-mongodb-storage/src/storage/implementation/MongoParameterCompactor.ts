@@ -1,8 +1,8 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
-import { PowerSyncMongo } from './db.js';
-import { mongo } from '@powersync/lib-service-mongodb';
+import { VersionedPowerSyncMongo } from './db.js';
 import { BucketParameterDocument } from './models.js';
 
 /**
@@ -14,7 +14,7 @@ import { BucketParameterDocument } from './models.js';
  */
 export class MongoParameterCompactor {
   constructor(
-    private db: PowerSyncMongo,
+    private db: VersionedPowerSyncMongo,
     private group_id: number,
     private checkpoint: InternalOpId,
     private options: CompactOptions
