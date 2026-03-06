@@ -30,8 +30,7 @@ export function makeConvexConnectionManager() {
     type: 'convex' as const,
     deployment_url: env.CONVEX_URL,
     deploy_key: env.CONVEX_DEPLOY_KEY,
-    polling_interval_ms: 200,
-    request_timeout_ms: 15_000
+    polling_interval_ms: 200
   };
 
   const config = { ...rawConfig, ...normalizeConnectionConfig(rawConfig) };

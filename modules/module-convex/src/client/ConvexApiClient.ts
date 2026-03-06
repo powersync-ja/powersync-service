@@ -3,6 +3,8 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { NormalizedConvexConnectionConfig } from '../types/types.js';
 import { CONVEX_CHECKPOINT_TABLE } from '../common/ConvexCheckpoints.js';
 
+const CONVEX_REQUEST_TIMEOUT_MS = 60_000;
+
 export interface ConvexRawDocument {
   _id?: string;
   _table?: string;
@@ -207,10 +209,10 @@ export class ConvexApiClient {
     }
 
     const timeout = new AbortController();
-    const timeoutPromise = delay(this.config.requestTimeoutMs, undefined, {
+    const timeoutPromise = delay(CONVEX_REQUEST_TIMEOUT_MS, undefined, {
       signal: timeout.signal
     }).then(() => {
-      timeout.abort(new Error(`Convex API request timed out after ${this.config.requestTimeoutMs}ms`));
+      timeout.abort(new Error(`Convex API request timed out after ${CONVEX_REQUEST_TIMEOUT_MS}ms`));
     });
 
     const signals = [timeout.signal];

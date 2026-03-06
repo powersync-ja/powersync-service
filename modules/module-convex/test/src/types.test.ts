@@ -12,7 +12,6 @@ describe('Convex connection config', () => {
     expect(config.id).toBe('default');
     expect(config.tag).toBe('default');
     expect(config.pollingIntervalMs).toBe(1000);
-    expect(config.requestTimeoutMs).toBe(30000);
     expect(config.deploymentUrl).toBe('https://example.convex.cloud');
   });
 

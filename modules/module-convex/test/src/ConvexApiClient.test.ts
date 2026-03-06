@@ -6,8 +6,7 @@ import { normalizeConnectionConfig } from '@module/types/types.js';
 const baseConfig = normalizeConnectionConfig({
   type: 'convex',
   deployment_url: 'https://example.convex.cloud',
-  deploy_key: 'test-key',
-  request_timeout_ms: 5000
+  deploy_key: 'test-key'
 });
 
 describe('ConvexApiClient', () => {

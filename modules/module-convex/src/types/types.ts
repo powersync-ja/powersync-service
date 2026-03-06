@@ -14,7 +14,6 @@ export interface NormalizedConvexConnectionConfig {
 
   debugApi: boolean;
   pollingIntervalMs: number;
-  requestTimeoutMs: number;
 
   lookup?: LookupFunction;
 }
@@ -25,7 +24,6 @@ export const ConvexConnectionConfig = service_types.configFile.DataSourceConfig.
     deployment_url: t.string,
     deploy_key: t.string,
     polling_interval_ms: t.number.optional(),
-    request_timeout_ms: t.number.optional(),
     reject_ip_ranges: t.array(t.string).optional()
   })
 );
@@ -73,7 +71,6 @@ export function normalizeConnectionConfig(options: ConvexConnectionConfig): Norm
 
     debugApi: options.debug_api ?? false,
     pollingIntervalMs: options.polling_interval_ms ?? 1_000,
-    requestTimeoutMs: options.request_timeout_ms ?? 30_000,
 
     lookup
   };
