@@ -151,6 +151,7 @@ export class ConvexStream {
 
           let changesInPage = 0;
           let sawCheckpointMarker = false;
+          const snapshottedTablesInPage = new Set<string>();
           for (const change of page.values) {
             if (this.abortSignal.aborted) {
               throw new ReplicationAbortedError('Replication interrupted');
@@ -166,8 +167,11 @@ export class ConvexStream {
               continue;
             }
 
-            const table = await this.getOrResolveTable(batch, tableName);
+            const table = await this.getOrResolveTable(batch, tableName, nextCursor, snapshottedTablesInPage);
             if (table == null || !table.syncAny) {
+              continue;
+            }
+            if (snapshottedTablesInPage.has(tableName)) {
               continue;
             }
 
@@ -472,7 +476,12 @@ export class ConvexStream {
     return resolved;
   }
 
-  private async getOrResolveTable(batch: storage.BucketStorageBatch, tableName: string): Promise<SourceTable | null> {
+  private async getOrResolveTable(
+    batch: storage.BucketStorageBatch,
+    tableName: string,
+    snapshotCursor: string,
+    snapshottedTablesInPage: Set<string>
+  ): Promise<SourceTable | null> {
     const descriptor: SourceEntityDescriptor = {
       schema: this.defaultSchema,
       name: tableName,
@@ -489,10 +498,21 @@ export class ConvexStream {
       return null;
     }
 
-    // Refresh schema cache when we discover a new table while streaming.
-    await this.getAllTableSchemas({ force: true });
+    let table = await this.processTable(batch, descriptor);
+    if (!table.snapshotComplete && table.syncAny) {
+      this.logger.info(`New table discovered while streaming: [${table.qualifiedName}]`);
+      await batch.truncate([table]);
+      table = await batch.updateTableProgress(table, {
+        totalEstimatedCount: -1,
+        replicatedCount: 0,
+        lastKey: null
+      });
+      this.relationCache.update(table);
+      table = (await this.snapshotTable(batch, table, snapshotCursor)).table;
+      snapshottedTablesInPage.add(tableName);
+    }
 
-    return await this.processTable(batch, descriptor);
+    return table;
   }
 
   private isTableSelectedBySyncRules(tableName: string): boolean {
@@ -642,14 +662,6 @@ function toConvexSyncValue(value: unknown): any {
 
   if (typeof value == 'boolean') {
     return value ? 1n : 0n;
-  }
-
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-
-  if (value instanceof Date) {
-    return value.toISOString();
   }
 
   if (Array.isArray(value) || typeof value == 'object') {

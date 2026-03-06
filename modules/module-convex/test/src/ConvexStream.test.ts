@@ -8,6 +8,7 @@ function createFakeStorage(options?: {
   snapshotDone?: boolean;
   snapshotLsn?: string | null;
   resumeFromLsn?: string | null;
+  sourcePatterns?: TablePattern[];
   tableSnapshotStatus?: {
     totalEstimatedCount?: number;
     replicatedCount?: number;
@@ -20,22 +21,48 @@ function createFakeStorage(options?: {
   const resumeLsnUpdates: string[] = [];
   const tableProgressUpdates: any[] = [];
 
-  const table = new SourceTable({
-    id: 1,
-    connectionTag: 'default',
-    objectId: 'users',
-    schema: 'convex',
-    name: 'users',
-    replicaIdColumns: [{ name: '_id' }],
-    snapshotComplete: false
+  const tables = new Map<string, SourceTable>();
+  let nextTableId = 1;
+  const getOrCreateTable = (
+    name: string,
+    tableOptions?: {
+      snapshotStatus?: {
+        totalEstimatedCount?: number;
+        replicatedCount?: number;
+        lastKey?: Uint8Array | null;
+      };
+      snapshotComplete?: boolean;
+    }
+  ) => {
+    const existing = tables.get(name);
+    if (existing != null) {
+      return existing;
+    }
+
+    const table = new SourceTable({
+      id: nextTableId++,
+      connectionTag: 'default',
+      objectId: name,
+      schema: 'convex',
+      name,
+      replicaIdColumns: [{ name: '_id' }],
+      snapshotComplete: tableOptions?.snapshotComplete ?? false
+    });
+    if (tableOptions?.snapshotStatus) {
+      table.snapshotStatus = {
+        totalEstimatedCount: tableOptions.snapshotStatus.totalEstimatedCount ?? -1,
+        replicatedCount: tableOptions.snapshotStatus.replicatedCount ?? 0,
+        lastKey: tableOptions.snapshotStatus.lastKey ?? null
+      };
+    }
+
+    tables.set(name, table);
+    return table;
+  };
+
+  const table = getOrCreateTable('users', {
+    snapshotStatus: options?.tableSnapshotStatus
   });
-  if (options?.tableSnapshotStatus) {
-    table.snapshotStatus = {
-      totalEstimatedCount: options.tableSnapshotStatus.totalEstimatedCount ?? -1,
-      replicatedCount: options.tableSnapshotStatus.replicatedCount ?? 0,
-      lastKey: options.tableSnapshotStatus.lastKey ?? null
-    };
-  }
 
   const batch: any = {
     lastCheckpointLsn: null,
@@ -75,7 +102,10 @@ function createFakeStorage(options?: {
       return tables;
     },
     async updateTableProgress(sourceTable: SourceTable, progress: any) {
-      tableProgressUpdates.push(progress);
+      tableProgressUpdates.push({
+        tableName: sourceTable.name,
+        ...progress
+      });
       sourceTable.snapshotStatus = {
         totalEstimatedCount: progress.totalEstimatedCount ?? sourceTable.snapshotStatus?.totalEstimatedCount ?? -1,
         replicatedCount: progress.replicatedCount ?? sourceTable.snapshotStatus?.replicatedCount ?? 0,
@@ -88,7 +118,7 @@ function createFakeStorage(options?: {
   const storage = {
     group_id: 1,
     getParsedSyncRules: () => ({
-      getSourceTables: () => [new TablePattern('convex', 'users')],
+      getSourceTables: () => options?.sourcePatterns ?? [new TablePattern('convex', 'users')],
       applyRowContext: (row: Record<string, unknown>) => row
     }),
     async getStatus() {
@@ -101,8 +131,8 @@ function createFakeStorage(options?: {
     },
     clear: vi.fn(async () => undefined),
     populatePersistentChecksumCache: vi.fn(async () => ({ buckets: 0 })),
-    resolveTable: vi.fn(async () => ({
-      table,
+    resolveTable: vi.fn(async ({ entity_descriptor }: any) => ({
+      table: getOrCreateTable(entity_descriptor.name),
       dropTables: []
     })),
     startBatch: vi.fn(async (_options: any, callback: (batch: any) => Promise<void>) => {
@@ -116,6 +146,7 @@ function createFakeStorage(options?: {
     storage,
     batch,
     table,
+    tables,
     saves,
     commits,
     keepalives,
@@ -374,6 +405,70 @@ describe('ConvexStream', () => {
     expect(context.saves[1]?.tag).toBe(SaveOperationTag.DELETE);
     expect(context.commits.at(-1)).toBe(toConvexLsn('101'));
     expect(deltaCalls[0]?.tableName).toBeUndefined();
+  });
+
+  it('snapshots a newly discovered wildcard-matched table inline without refreshing metadata', async () => {
+    const context = createFakeStorage({
+      snapshotDone: true,
+      resumeFromLsn: toConvexLsn('100'),
+      sourcePatterns: [new TablePattern('convex', 'projects%')]
+    });
+    const abortController = new AbortController();
+
+    let calls = 0;
+    const getJsonSchemas = vi.fn(async () => ({
+      tables: [{ tableName: 'users', schema: {} }],
+      raw: {}
+    }));
+    const listSnapshot = vi.fn(async (options: any) => ({
+      snapshot: '101',
+      cursor: null,
+      hasMore: false,
+      values: [{ _table: 'projects_archive', _id: 'p1', name: 'From snapshot' }]
+    }));
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: () => ({ add: () => {} })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas,
+          listSnapshot,
+          documentDeltas: async () => {
+            calls += 1;
+            setTimeout(() => abortController.abort(), 0);
+            return {
+              cursor: '101',
+              hasMore: false,
+              values: [{ _table: 'projects_archive', _id: 'p1', name: 'From delta' }]
+            };
+          }
+        }
+      } as any
+    });
+
+    await stream.streamChanges();
+
+    expect(calls).toBeGreaterThan(0);
+    expect(getJsonSchemas).toHaveBeenCalledTimes(1);
+    expect(listSnapshot).toHaveBeenCalledTimes(1);
+    expect(listSnapshot).toHaveBeenCalledWith({
+      tableName: 'projects_archive',
+      snapshot: '101',
+      cursor: undefined,
+      signal: abortController.signal
+    });
+    expect(context.saves.length).toBe(1);
+    expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
+    expect(context.saves[0]?.sourceTable.name).toBe('projects_archive');
+    expect(context.tables.get('projects_archive')?.snapshotComplete).toBe(true);
   });
 
   it('keeps alive immediately when only checkpoint marker rows are streamed', async () => {

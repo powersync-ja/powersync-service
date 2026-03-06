@@ -124,6 +124,7 @@ The content below is written in an agents.md style describing the behavior of `m
   - Start from persisted resume LSN.
   - Poll `document_deltas`.
   - Always stream globally (no `tableName` filter), then filter locally by selected sync-rules tables.
+  - If a table is first seen in a `document_deltas` page and matches sync rules, snapshot it inline at that page boundary and skip that table's delta rows from the same page, because the snapshot already includes them.
 
 ## 3) Hard Invariants (Do Not Break)
 - `snapshot` is the consistency boundary; page `cursor` is pagination state.
@@ -171,10 +172,10 @@ The content below is written in an agents.md style describing the behavior of `m
   - `number` integer -> `BigInt` (SQLite INTEGER),
   - `number` float -> REAL,
   - `boolean` -> `1n`/`0n`,
-  - `Uint8Array` -> BLOB,
+  - bytes over the JSON API -> base64 `string`,
   - `object/array` -> JSON TEXT.
   NOTE:
-  - Preserve bytes as BLOB in sync rules; use explicit base64 conversion in rules only when needed by consumers.
+  - Convex does not expose a native `Date` wire type here; timestamps arrive as `number` or `string`.
 
 ## 9) Checkpointing and Consistency
 - `createReplicationHead` must:
