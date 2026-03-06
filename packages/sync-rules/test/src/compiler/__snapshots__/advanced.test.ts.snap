@@ -2266,7 +2266,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
           "type": "binary",
         },
       ],
-      "hash": 42419309,
+      "hash": 133462033,
       "lookupScope": {
         "lookupName": "lookup",
         "queryId": "0",
@@ -2281,14 +2281,6 @@ exports[`new sync stream features > json-each of cte 1`] = `
         },
       ],
       "partitionBy": [
-        {
-          "expr": {
-            "source": {
-              "column": "project",
-            },
-            "type": "data",
-          },
-        },
         {
           "expr": {
             "source": {
@@ -2338,48 +2330,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
           "lookupStages": [
             [
               {
-                "filters": [],
-                "functionInputs": [
-                  {
-                    "function": "->>",
-                    "parameters": [
-                      {
-                        "source": {
-                          "request": "connection",
-                        },
-                        "type": "data",
-                      },
-                      {
-                        "type": "lit_string",
-                        "value": "synced_projects",
-                      },
-                    ],
-                    "type": "function",
-                  },
-                ],
-                "functionName": "json_each",
-                "outputs": [
-                  {
-                    "source": {
-                      "column": "value",
-                    },
-                    "type": "data",
-                  },
-                ],
-                "type": "table_valued",
-              },
-            ],
-            [
-              {
                 "instantiation": [
-                  {
-                    "lookup": {
-                      "idInStage": 0,
-                      "stageId": 0,
-                    },
-                    "resultIndex": 0,
-                    "type": "lookup",
-                  },
                   {
                     "expr": {
                       "function": "->>",
@@ -2510,7 +2461,7 @@ exports[`new sync stream features > json-each of cte 1`] = `
             {
               "lookup": {
                 "idInStage": 0,
-                "stageId": 1,
+                "stageId": 0,
               },
               "resultIndex": 0,
               "type": "lookup",

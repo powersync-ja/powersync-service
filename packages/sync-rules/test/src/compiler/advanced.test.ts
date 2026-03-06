@@ -266,7 +266,6 @@ streams:
           WHERE "appliedTo" != ''
           AND (auth.parameters() ->> 'haystack_id') IN "appliedTo"
           AND "status" = 'CLAIMED'
-          AND "project" IN connection.parameter('synced_projects')
           AND connection.parameter('use_streams') != 1
           AND connection.parameter('use_streams') != '1'
           AND 'Scene' IN connection.parameter('synced_objects')
