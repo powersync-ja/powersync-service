@@ -474,31 +474,31 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1'
-        },
-        afterReplicaId: 't1'
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1'
+      },
+      afterReplicaId: 't1'
+    });
 
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't2'
-        },
-        afterReplicaId: 't2'
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't2'
+      },
+      afterReplicaId: 't2'
+    });
 
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.DELETE,
-        before: {
-          id: 't1'
-        },
-        beforeReplicaId: 't1'
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.DELETE,
+      before: {
+        id: 't1'
+      },
+      beforeReplicaId: 't1'
+    });
 
     await writer.commit('1/1');
     await writer.flush();

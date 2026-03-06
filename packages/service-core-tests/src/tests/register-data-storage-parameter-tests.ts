@@ -43,28 +43,28 @@ bucket_definitions:
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't2',
-          id1: 'user3',
-          id2: 'user4',
-          group_id: 'group2a'
-        },
-        afterReplicaId: test_utils.rid('t2')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't2',
+        id1: 'user3',
+        id2: 'user4',
+        group_id: 'group2a'
+      },
+      afterReplicaId: test_utils.rid('t2')
+    });
 
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1',
-          id1: 'user1',
-          id2: 'user2',
-          group_id: 'group1a'
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1',
+        id1: 'user1',
+        id2: 'user2',
+        group_id: 'group1a'
+      },
+      afterReplicaId: test_utils.rid('t1')
+    });
 
     await writer.commit('1/1');
     await writer.flush();
@@ -99,27 +99,27 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'user1',
-          group_id: 'group1'
-        },
-        afterReplicaId: test_utils.rid('user1')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'user1',
+        group_id: 'group1'
+      },
+      afterReplicaId: test_utils.rid('user1')
+    });
     await writer.commit('1/1');
     await writer.flush();
     const checkpoint1 = await bucketStorage.getCheckpoint();
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer2.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'user1',
-          group_id: 'group2'
-        },
-        afterReplicaId: test_utils.rid('user1')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'user1',
+        group_id: 'group2'
+      },
+      afterReplicaId: test_utils.rid('user1')
+    });
     await writer2.commit('1/2');
     await writer2.flush();
     const checkpoint2 = await bucketStorage.getCheckpoint();
@@ -162,40 +162,40 @@ bucket_definitions:
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
-      // Create two todos which initially belong to different lists
+    // Create two todos which initially belong to different lists
     await writer.save({
-        sourceTable: table,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'todo1',
-          list_id: 'list1'
-        },
-        afterReplicaId: test_utils.rid('todo1')
-      });
+      sourceTable: table,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'todo1',
+        list_id: 'list1'
+      },
+      afterReplicaId: test_utils.rid('todo1')
+    });
     await writer.save({
-        sourceTable: table,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'todo2',
-          list_id: 'list2'
-        },
-        afterReplicaId: test_utils.rid('todo2')
-      });
+      sourceTable: table,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'todo2',
+        list_id: 'list2'
+      },
+      afterReplicaId: test_utils.rid('todo2')
+    });
 
     await writer.commit('1/1');
     await writer.flush();
 
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      // Update the second todo item to now belong to list 1
+    // Update the second todo item to now belong to list 1
     await writer2.save({
-        sourceTable: table,
-        tag: storage.SaveOperationTag.UPDATE,
-        after: {
-          id: 'todo2',
-          list_id: 'list1'
-        },
-        afterReplicaId: test_utils.rid('todo2')
-      });
+      sourceTable: table,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 'todo2',
+        list_id: 'list1'
+      },
+      afterReplicaId: test_utils.rid('todo2')
+    });
 
     await writer2.commit('1/1');
     await writer2.flush();
@@ -240,17 +240,17 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1',
-          group_id: 'group1',
-          n1: 314n,
-          f2: 314,
-          f3: 3.14
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1',
+        group_id: 'group1',
+        n1: 314n,
+        f2: 314,
+        f3: 3.14
+      },
+      afterReplicaId: test_utils.rid('t1')
+    });
 
     await writer.commit('1/1');
     await writer.flush();
@@ -296,28 +296,28 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1',
-          group_id: 'group1',
-          n1: 1152921504606846976n // 2^60
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1',
+        group_id: 'group1',
+        n1: 1152921504606846976n // 2^60
+      },
+      afterReplicaId: test_utils.rid('t1')
+    });
 
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.UPDATE,
-        after: {
-          id: 't1',
-          group_id: 'group1',
-          // Simulate a TOAST value, even though it can't happen for values like this
-          // in practice.
-          n1: undefined
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.UPDATE,
+      after: {
+        id: 't1',
+        group_id: 'group1',
+        // Simulate a TOAST value, even though it can't happen for values like this
+        // in practice.
+        n1: undefined
+      },
+      afterReplicaId: test_utils.rid('t1')
+    });
 
     await writer.commit('1/1');
     await writer.flush();
@@ -357,14 +357,14 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace1',
-          userId: 'u1'
-        },
-        afterReplicaId: test_utils.rid('workspace1')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace1',
+        userId: 'u1'
+      },
+      afterReplicaId: test_utils.rid('workspace1')
+    });
     await writer.commit('1/1');
     await writer.flush();
     const checkpoint = await bucketStorage.getCheckpoint();
@@ -417,34 +417,34 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace1',
-          visibility: 'public'
-        },
-        afterReplicaId: test_utils.rid('workspace1')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace1',
+        visibility: 'public'
+      },
+      afterReplicaId: test_utils.rid('workspace1')
+    });
 
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace2',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace2')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace2',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace2')
+    });
 
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace3',
-          visibility: 'public'
-        },
-        afterReplicaId: test_utils.rid('workspace3')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace3',
+        visibility: 'public'
+      },
+      afterReplicaId: test_utils.rid('workspace3')
+    });
 
     await writer.commit('1/1');
     await writer.flush();
@@ -509,46 +509,46 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace1',
-          visibility: 'public'
-        },
-        afterReplicaId: test_utils.rid('workspace1')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace1',
+        visibility: 'public'
+      },
+      afterReplicaId: test_utils.rid('workspace1')
+    });
 
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace2',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace2')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace2',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace2')
+    });
 
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace3',
-          user_id: 'u1',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace3')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace3',
+        user_id: 'u1',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace3')
+    });
 
     await writer.save({
-        sourceTable: WORKSPACE_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'workspace4',
-          user_id: 'u2',
-          visibility: 'private'
-        },
-        afterReplicaId: test_utils.rid('workspace4')
-      });
+      sourceTable: WORKSPACE_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'workspace4',
+        user_id: 'u2',
+        visibility: 'private'
+      },
+      afterReplicaId: test_utils.rid('workspace4')
+    });
 
     await writer.commit('1/1');
     await writer.flush();
@@ -608,16 +608,16 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't2',
-          id1: 'user3',
-          id2: 'user4',
-          group_id: 'group2a'
-        },
-        afterReplicaId: test_utils.rid('t2')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't2',
+        id1: 'user3',
+        id2: 'user4',
+        group_id: 'group2a'
+      },
+      afterReplicaId: test_utils.rid('t2')
+    });
 
     await writer.truncate([TEST_TABLE]);
     await writer.flush();
@@ -687,14 +687,14 @@ streams:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          baz: 'baz',
-          bar: 'bar'
-        },
-        afterReplicaId: test_utils.rid('t1')
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        baz: 'baz',
+        bar: 'bar'
+      },
+      afterReplicaId: test_utils.rid('t1')
+    });
 
     await writer.commit('1/1');
     await writer.flush();

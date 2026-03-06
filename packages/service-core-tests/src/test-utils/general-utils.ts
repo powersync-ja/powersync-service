@@ -33,6 +33,21 @@ export function makeTestTable(
   });
 }
 
+/**
+ * With incremental reprocessing, we need actual test tables, resolved via the writer.
+ *
+ * This prepares for it.
+ */
+export async function resolveTestTable(
+  _writer: storage.BucketStorageBatch,
+  name: string,
+  replicaIdColumns?: string[] | undefined,
+  options?: { tableIdStrings: boolean },
+  _idIndex: number = 1
+) {
+  return makeTestTable(name, replicaIdColumns, options);
+}
+
 export function getBatchData(
   batch: utils.SyncBucketData[] | storage.SyncBucketDataChunk[] | storage.SyncBucketDataChunk
 ) {

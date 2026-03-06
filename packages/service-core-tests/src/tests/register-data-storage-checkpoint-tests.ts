@@ -166,9 +166,9 @@ bucket_definitions:
 
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer2.addCustomWriteCheckpoint({
-        checkpoint: 5n,
-        user_id: 'user1'
-      });
+      checkpoint: 5n,
+      user_id: 'user1'
+    });
     await writer2.flush();
     await writer2.keepalive('5/0');
     await writer2.flush();
@@ -214,13 +214,13 @@ bucket_definitions:
       [Symbol.asyncIterator]();
 
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      // Flush to clear state
+    // Flush to clear state
     await writer2.flush();
 
     await writer2.addCustomWriteCheckpoint({
-        checkpoint: 5n,
-        user_id: 'user1'
-      });
+      checkpoint: 5n,
+      user_id: 'user1'
+    });
     await writer2.flush();
     await writer2.keepalive('5/0');
     await writer2.flush();
@@ -282,9 +282,9 @@ bucket_definitions:
 
     await using writer3 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     writer3.addCustomWriteCheckpoint({
-        checkpoint: 6n,
-        user_id: 'user1'
-      });
+      checkpoint: 6n,
+      user_id: 'user1'
+    });
     await writer3.flush();
     await writer3.keepalive('6/0');
     await writer3.flush();
@@ -303,9 +303,9 @@ bucket_definitions:
 
     await using writer4 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     writer4.addCustomWriteCheckpoint({
-        checkpoint: 7n,
-        user_id: 'user1'
-      });
+      checkpoint: 7n,
+      user_id: 'user1'
+    });
     await writer4.flush();
     await writer4.keepalive('7/0');
     await writer4.flush();

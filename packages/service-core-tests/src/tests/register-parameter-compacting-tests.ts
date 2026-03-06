@@ -24,22 +24,22 @@ bucket_definitions:
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't1'
-        },
-        afterReplicaId: 't1'
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't1'
+      },
+      afterReplicaId: 't1'
+    });
 
     await writer.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 't2'
-        },
-        afterReplicaId: 't2'
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 't2'
+      },
+      afterReplicaId: 't2'
+    });
 
     await writer.commit('1/1');
     await writer.flush();
@@ -52,26 +52,26 @@ bucket_definitions:
 
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await writer2.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.UPDATE,
-        before: {
-          id: 't1'
-        },
-        beforeReplicaId: 't1',
-        after: {
-          id: 't1'
-        },
-        afterReplicaId: 't1'
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.UPDATE,
+      before: {
+        id: 't1'
+      },
+      beforeReplicaId: 't1',
+      after: {
+        id: 't1'
+      },
+      afterReplicaId: 't1'
+    });
 
     await writer2.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.DELETE,
-        before: {
-          id: 't1'
-        },
-        beforeReplicaId: 't1'
-      });
+      sourceTable: TEST_TABLE,
+      tag: storage.SaveOperationTag.DELETE,
+      before: {
+        id: 't1'
+      },
+      beforeReplicaId: 't1'
+    });
     await writer2.commit('1/2');
     await writer2.flush();
     const checkpoint2 = await bucketStorage.getCheckpoint();
@@ -108,51 +108,51 @@ bucket_definitions:
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       await writer.markAllSnapshotDone('1/1');
       await writer.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 't1',
-            uid: 'u1'
-          },
-          afterReplicaId: 't1'
-        });
-        // Interleave with another operation, to evict the other cache entry when compacting.
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't1',
+          uid: 'u1'
+        },
+        afterReplicaId: 't1'
+      });
+      // Interleave with another operation, to evict the other cache entry when compacting.
       await writer.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 't2',
-            uid: 'u1'
-          },
-          afterReplicaId: 't2'
-        });
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't2',
+          uid: 'u1'
+        },
+        afterReplicaId: 't2'
+      });
 
       await writer.commit('1/1');
       await writer.flush();
 
       await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       await writer2.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.DELETE,
-          before: {
-            id: 't1',
-            uid: 'u1'
-          },
-          beforeReplicaId: 't1'
-        });
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.DELETE,
+        before: {
+          id: 't1',
+          uid: 'u1'
+        },
+        beforeReplicaId: 't1'
+      });
       await writer2.commit('2/1');
       await writer2.flush();
 
       await using writer3 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       await writer3.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.UPDATE,
-          after: {
-            id: 't2',
-            uid: 'u2'
-          },
-          afterReplicaId: 't2'
-        });
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.UPDATE,
+        after: {
+          id: 't2',
+          uid: 'u2'
+        },
+        afterReplicaId: 't2'
+      });
       await writer3.commit('3/1');
       await writer3.flush();
 

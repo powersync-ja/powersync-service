@@ -14,24 +14,24 @@ describe('Mongo Sync Bucket Storage Compact', () => {
       await writer.markAllSnapshotDone('1/1');
 
       await writer.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 't1',
-            owner_id: 'u1'
-          },
-          afterReplicaId: test_utils.rid('t1')
-        });
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't1',
+          owner_id: 'u1'
+        },
+        afterReplicaId: test_utils.rid('t1')
+      });
 
       await writer.save({
-          sourceTable: TEST_TABLE,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 't2',
-            owner_id: 'u2'
-          },
-          afterReplicaId: test_utils.rid('t2')
-        });
+        sourceTable: TEST_TABLE,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 't2',
+          owner_id: 'u2'
+        },
+        afterReplicaId: test_utils.rid('t2')
+      });
 
       await writer.commit('1/1');
       await writer.flush();
