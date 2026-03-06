@@ -2146,6 +2146,340 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
 }
 `;
 
+exports[`new sync stream features > json-each of cte 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 385826507,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "manually_converted|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        {
+          "alias": "id",
+          "expr": {
+            "source": {
+              "column": "_id",
+            },
+            "type": "data",
+          },
+        },
+        {
+          "alias": "createdOnSortable",
+          "expr": {
+            "function": "unixepoch",
+            "parameters": [
+              {
+                "source": {
+                  "column": "createdOn",
+                },
+                "type": "data",
+              },
+            ],
+            "type": "function",
+          },
+        },
+        {
+          "alias": "archived",
+          "expr": {
+            "function": "ifnull",
+            "parameters": [
+              {
+                "source": {
+                  "column": "archived",
+                },
+                "type": "data",
+              },
+              {
+                "base10": "0",
+                "type": "lit_int",
+              },
+            ],
+            "type": "function",
+          },
+        },
+        "star",
+      ],
+      "filters": [],
+      "hash": 288003166,
+      "outputTableName": "Scene",
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "project",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "Scene",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [
+        {
+          "left": {
+            "operand": {
+              "left": {
+                "source": {
+                  "column": "appliedTo",
+                },
+                "type": "data",
+              },
+              "operator": "=",
+              "right": {
+                "type": "lit_string",
+                "value": "",
+              },
+              "type": "binary",
+            },
+            "operator": "not",
+            "type": "unary",
+          },
+          "operator": "and",
+          "right": {
+            "left": {
+              "source": {
+                "column": "status",
+              },
+              "type": "data",
+            },
+            "operator": "=",
+            "right": {
+              "type": "lit_string",
+              "value": "CLAIMED",
+            },
+            "type": "binary",
+          },
+          "type": "binary",
+        },
+      ],
+      "hash": 133462033,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
+      "output": [
+        {
+          "source": {
+            "function": 1,
+            "outputName": "value",
+          },
+          "type": "data",
+        },
+      ],
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "function": 0,
+              "outputName": "value",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "ProjectInvitation",
+      },
+      "tableValuedFunctions": [
+        {
+          "functionInputs": [
+            {
+              "source": {
+                "column": "appliedTo",
+              },
+              "type": "data",
+            },
+          ],
+          "functionName": "json_each",
+        },
+        {
+          "functionInputs": [
+            {
+              "source": {
+                "column": "project",
+              },
+              "type": "data",
+            },
+          ],
+          "functionName": "json_each",
+        },
+      ],
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "function": "->>",
+                      "parameters": [
+                        {
+                          "source": {
+                            "request": "auth",
+                          },
+                          "type": "data",
+                        },
+                        {
+                          "type": "lit_string",
+                          "value": "haystack_id",
+                        },
+                      ],
+                      "type": "function",
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+              {
+                "filters": [
+                  {
+                    "left": {
+                      "type": "lit_string",
+                      "value": "Scene",
+                    },
+                    "operator": "=",
+                    "right": {
+                      "source": {
+                        "column": "value",
+                      },
+                      "type": "data",
+                    },
+                    "type": "binary",
+                  },
+                ],
+                "functionInputs": [
+                  {
+                    "function": "->>",
+                    "parameters": [
+                      {
+                        "source": {
+                          "request": "connection",
+                        },
+                        "type": "data",
+                      },
+                      {
+                        "type": "lit_string",
+                        "value": "synced_objects",
+                      },
+                    ],
+                    "type": "function",
+                  },
+                ],
+                "functionName": "json_each",
+                "outputs": [],
+                "type": "table_valued",
+              },
+            ],
+          ],
+          "requestFilters": [
+            {
+              "left": {
+                "operand": {
+                  "left": {
+                    "function": "->>",
+                    "parameters": [
+                      {
+                        "source": {
+                          "request": "connection",
+                        },
+                        "type": "data",
+                      },
+                      {
+                        "type": "lit_string",
+                        "value": "use_streams",
+                      },
+                    ],
+                    "type": "function",
+                  },
+                  "operator": "=",
+                  "right": {
+                    "base10": "1",
+                    "type": "lit_int",
+                  },
+                  "type": "binary",
+                },
+                "operator": "not",
+                "type": "unary",
+              },
+              "operator": "and",
+              "right": {
+                "operand": {
+                  "left": {
+                    "function": "->>",
+                    "parameters": [
+                      {
+                        "source": {
+                          "request": "connection",
+                        },
+                        "type": "data",
+                      },
+                      {
+                        "type": "lit_string",
+                        "value": "use_streams",
+                      },
+                    ],
+                    "type": "function",
+                  },
+                  "operator": "=",
+                  "right": {
+                    "type": "lit_string",
+                    "value": "1",
+                  },
+                  "type": "binary",
+                },
+                "operator": "not",
+                "type": "unary",
+              },
+              "type": "binary",
+            },
+          ],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 0,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": true,
+        "name": "manually_converted",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
 exports[`new sync stream features > not in array 1`] = `
 {
   "buckets": [

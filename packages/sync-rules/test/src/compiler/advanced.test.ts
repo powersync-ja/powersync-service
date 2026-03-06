@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { compileSingleStreamAndSerialize } from './utils.js';
+import { compileSingleStreamAndSerialize, compileToSyncPlanWithoutErrors } from './utils.js';
+import { serializeSyncPlan } from '../../../src/index.js';
 
 describe('new sync stream features', () => {
   test('order-independent parameters', () => {
@@ -247,5 +248,36 @@ SELECT * FROM notes
     expect(
       compileSingleStreamAndSerialize("SELECT * FROM issues WHERE 'issues' IN auth.parameter('synced_tables')")
     ).toMatchSnapshot();
+  });
+
+  test('json-each of cte', () => {
+    // Regression test for https://discord.com/channels/1138230179878154300/1479042473316847746/1479049290830839928.
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  manually_converted:
+    auto_subscribe: true
+    with:
+      available_projects: |
+          SELECT project
+          FROM "ProjectInvitation"
+          WHERE "appliedTo" != ''
+          AND (auth.parameters() ->> 'haystack_id') IN "appliedTo"
+          AND "status" = 'CLAIMED'
+          AND connection.parameter('use_streams') != 1
+          AND connection.parameter('use_streams') != '1'
+          AND 'Scene' IN connection.parameter('synced_objects')
+    queries:
+      - |
+        SELECT "Scene"._id as id,
+        unixepoch("Scene"."createdOn") as "createdOnSortable",
+        IFNULL("Scene".archived, 0) as "archived",
+        "Scene".*
+        FROM "Scene", available_projects
+        WHERE "Scene".project IN available_projects.project
+`);
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
   });
 });
