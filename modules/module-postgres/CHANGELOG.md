@@ -1,5 +1,17 @@
 # @powersync/service-module-postgres
 
+## 0.19.1
+
+### Patch Changes
+
+- Updated dependencies [acf1486]
+- Updated dependencies [99de8be]
+  - @powersync/service-sync-rules@0.33.1
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/service-jpgwire@0.21.15
+  - @powersync/service-core@1.20.2
+  - @powersync/lib-service-postgres@0.4.24
+
 ## 0.19.0
 
 ### Minor Changes
