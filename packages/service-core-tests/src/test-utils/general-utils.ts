@@ -1,4 +1,4 @@
-import { BucketDataRequest, InternalOpId, storage, utils } from '@powersync/service-core';
+import { BucketDataRequest, InternalOpId, JwtPayload, storage, utils } from '@powersync/service-core';
 import { GetQuerierOptions, RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
@@ -8,7 +8,7 @@ export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
   defaultSchema: 'public'
 };
 
-export const BATCH_OPTIONS: storage.StartBatchOptions = {
+export const BATCH_OPTIONS: storage.CreateWriterOptions = {
   ...PARSE_OPTIONS,
   zeroLSN: ZERO_LSN,
   storeCurrentData: true
@@ -32,7 +32,6 @@ export function makeTestTable(
     snapshotComplete: true
   });
 }
-
 /**
  * With incremental reprocessing, we need actual test tables, resolved via the writer.
  *
@@ -41,11 +40,24 @@ export function makeTestTable(
 export async function resolveTestTable(
   _writer: storage.BucketStorageBatch,
   name: string,
-  replicaIdColumns?: string[] | undefined,
-  options?: { tableIdStrings: boolean },
-  _idIndex: number = 1
+  replicaIdColumns: string[] | undefined,
+  options: { tableIdStrings: boolean },
+  idIndex: number = 1
 ) {
-  return makeTestTable(name, replicaIdColumns, options);
+  const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
+  // Generate unique ids per test table (if idIndex is specified), without completely
+  // breaking all the existing tests.
+  const idString = '6544e3899293153fa7b383' + (30 + idIndex).toString().padStart(2, '0');
+  const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;
+  return new storage.SourceTable({
+    id: id,
+    connectionTag: storage.SourceTable.DEFAULT_TAG,
+    objectId: relId,
+    schema: 'public',
+    name: name,
+    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
+    snapshotComplete: true
+  });
 }
 
 export function getBatchData(
@@ -142,4 +154,16 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
     hasDefaultStreams: true,
     streams: {}
   };
+}
+
+export function requestParameters(
+  jwtPayload: Record<string, any>,
+  clientParameters?: Record<string, any>
+): RequestParameters {
+  return new RequestParameters(new JwtPayload(jwtPayload), clientParameters ?? {});
+}
+
+export function removeSource<T extends { source?: any }>(obj: T): Omit<T, 'source'> {
+  const { source, ...rest } = obj;
+  return rest;
 }

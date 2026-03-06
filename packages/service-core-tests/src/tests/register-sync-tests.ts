@@ -53,7 +53,6 @@ export function registerSyncTests(
     maxDataFetchConcurrency: 2
   });
 
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
   const updateSyncRules = (bucketStorageFactory: storage.BucketStorageFactory, updateOptions: { content: string }) => {
     return bucketStorageFactory.updateSyncRules(
       updateSyncRulesFromYaml(updateOptions.content, {
@@ -775,11 +774,9 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id'], config);
-    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
-
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const usersTable = await test_utils.resolveTestTable(writer, 'users', ['id'], config, 1);
     // Activate
     await writer.markAllSnapshotDone('0/0');
     await writer.keepalive('0/0');
@@ -820,8 +817,8 @@ bucket_definitions:
 
     await writer.commit('0/1');
 
-    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint2 = await getCheckpointLines(iter);
+    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
     ).toEqual([bucket]);
@@ -840,11 +837,10 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id'], config);
-    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
-
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const usersTable = await test_utils.resolveTestTable(writer, 'users', ['id'], config, 1);
+    const listsTable = await test_utils.resolveTestTable(writer, 'lists', ['id'], config, 2);
 
     await writer.markAllSnapshotDone('0/1');
     await writer.save({
@@ -914,11 +910,10 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id'], config);
-    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
-
     const bucketStorage = await f.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const usersTable = await test_utils.resolveTestTable(writer, 'users', ['id'], config, 1);
+    const listsTable = await test_utils.resolveTestTable(writer, 'lists', ['id'], config, 2);
     // Activate
     await writer.markAllSnapshotDone('0/0');
     await writer.keepalive('0/0');
@@ -968,7 +963,7 @@ bucket_definitions:
 
     await writer.commit('0/1');
 
-    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
+    const { bucket } = test_utils.bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
@@ -1224,9 +1219,12 @@ bucket_definitions:
     });
   });
 
-  test('encodes sync rules id in buckes for streams', async () => {
+  test('encodes sync rules id in buckets for streams', async () => {
     await using f = await factory();
-    const rules = `
+    // This test relies making an actual update to sync rules to test the different bucket names.
+    // The actual naming scheme may change, as long as the two buckets have different names.
+    const rules = [
+      `
 streams:
   test:
     auto_subscribe: true
@@ -1234,15 +1232,25 @@ streams:
 
 config:
   edition: 2
-`;
+`,
+      `
+streams:
+  test2:
+    auto_subscribe: true
+    query: SELECT * FROM test WHERE 1;
+
+config:
+  edition: 2
+`
+    ];
 
     for (let i = 0; i < 2; i++) {
       const syncRules = await updateSyncRules(f, {
-        content: rules
+        content: rules[i]
       });
       const bucketStorage = f.getInstance(syncRules);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config, i + 1);
 
       await writer.markAllSnapshotDone('0/1');
       await writer.save({
