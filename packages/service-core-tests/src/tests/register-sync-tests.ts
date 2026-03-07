@@ -1,24 +1,23 @@
 import {
   createCoreAPIMetrics,
+  JwtPayload,
   storage,
   StreamingSyncCheckpoint,
   StreamingSyncCheckpointDiff,
   sync,
+  updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { BucketSourceType, RequestParameters } from '@powersync/service-sync-rules';
 import path from 'path';
 import * as timers from 'timers/promises';
 import { fileURLToPath } from 'url';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { METRICS_HELPER } from '../test-utils/test-utils-index.js';
+import { bucketRequest, METRICS_HELPER } from '../test-utils/test-utils-index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const TEST_TABLE = test_utils.makeTestTable('test', ['id']);
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -37,7 +36,15 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  * });
  * ```
  */
-export function registerSyncTests(factory: storage.TestStorageFactory) {
+export function registerSyncTests(
+  configOrFactory: storage.TestStorageConfig | storage.TestStorageFactory,
+  options: { storageVersion?: number; tableIdStrings?: boolean } = {}
+) {
+  const config: storage.TestStorageConfig =
+    typeof configOrFactory == 'function'
+      ? { factory: configOrFactory, tableIdStrings: options.tableIdStrings ?? true }
+      : configOrFactory;
+  const factory = config.factory;
   createCoreAPIMetrics(METRICS_HELPER.metricsEngine);
   const tracker = new sync.RequestTracker(METRICS_HELPER.metricsEngine);
   const syncContext = new sync.SyncContext({
@@ -46,16 +53,28 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
     maxDataFetchConcurrency: 2
   });
 
+  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], config);
+  const updateSyncRules = (bucketStorageFactory: storage.BucketStorageFactory, updateOptions: { content: string }) => {
+    return bucketStorageFactory.updateSyncRules(
+      updateSyncRulesFromYaml(updateOptions.content, {
+        validate: true,
+        storageVersion: options.storageVersion
+      })
+    );
+  };
+
   test('sync global data', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
     const bucketStorage = f.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
+
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -89,7 +108,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -100,7 +119,7 @@ export function registerSyncTests(factory: storage.TestStorageFactory) {
   test('sync buckets in order', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0:
@@ -116,7 +135,8 @@ bucket_definitions:
 
     const bucketStorage = f.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -150,7 +170,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -161,7 +181,7 @@ bucket_definitions:
   test('sync interrupts low-priority buckets on new checkpoints', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0:
@@ -178,6 +198,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // Initial data: Add one priority row and 10k low-priority rows.
       await batch.save({
         sourceTable: TEST_TABLE,
@@ -213,7 +234,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -270,7 +291,7 @@ bucket_definitions:
   test('sync interruptions with unrelated data', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0:
@@ -288,6 +309,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // Initial data: Add one priority row and 10k low-priority rows.
       await batch.save({
         sourceTable: TEST_TABLE,
@@ -323,7 +345,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user_one', exp: Date.now() / 1000 + 100000 } as any,
+      token: new JwtPayload({ sub: 'user_one', exp: Date.now() / 1000 + 100000 }),
       isEncodingAsBson: false
     });
 
@@ -408,7 +430,7 @@ bucket_definitions:
     // then interrupt checkpoint with new data for all buckets
     // -> data for all buckets should be sent in the new checkpoint
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `
 bucket_definitions:
   b0a:
@@ -429,6 +451,7 @@ bucket_definitions:
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // Initial data: Add one priority row and 10k low-priority rows.
       await batch.save({
         sourceTable: TEST_TABLE,
@@ -464,7 +487,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -552,12 +575,13 @@ bucket_definitions:
   test('sends checkpoint complete line for empty checkpoint', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -580,7 +604,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 100000 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 100000 }),
       isEncodingAsBson: false
     });
 
@@ -615,13 +639,14 @@ bucket_definitions:
   test('sync legacy non-raw data', async () => {
     const f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
     const bucketStorage = await f.getInstance(syncRules);
 
     const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -646,7 +671,7 @@ bucket_definitions:
         raw_data: false
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -659,7 +684,7 @@ bucket_definitions:
   test('expired token', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
@@ -675,7 +700,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: 0 } as any,
+      token: new JwtPayload({ sub: '', exp: 0 }),
       isEncodingAsBson: false
     });
 
@@ -686,13 +711,14 @@ bucket_definitions:
   test('sync updates to global data', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -706,7 +732,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -752,7 +778,7 @@ bucket_definitions:
   test('sync updates to parameter query only', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
@@ -761,12 +787,13 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -780,7 +807,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -808,17 +835,18 @@ bucket_definitions:
       await batch.commit('0/1');
     });
 
+    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['by_user["user1"]']);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
   test('sync updates to data query only', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
@@ -827,12 +855,13 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: usersTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -856,7 +885,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -864,10 +893,9 @@ bucket_definitions:
       iter.return?.();
     });
 
+    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint1 = await getCheckpointLines(iter);
-    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([
-      'by_user["user1"]'
-    ]);
+    expect((checkpoint1[0] as StreamingSyncCheckpoint).checkpoint?.buckets?.map((b) => b.bucket)).toEqual([bucket]);
     expect(checkpoint1).toMatchSnapshot();
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
@@ -888,14 +916,14 @@ bucket_definitions:
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['by_user["user1"]']);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
   test('sync updates to parameter query + data', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: `bucket_definitions:
   by_user:
     parameters: select users.id as user_id from users where users.id = request.user_id()
@@ -904,12 +932,13 @@ bucket_definitions:
 `
     });
 
-    const usersTable = test_utils.makeTestTable('users', ['id']);
-    const listsTable = test_utils.makeTestTable('lists', ['id']);
+    const usersTable = test_utils.makeTestTable('users', ['id'], config);
+    const listsTable = test_utils.makeTestTable('lists', ['id'], config);
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -923,7 +952,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'user1', exp: Date.now() / 1000 + 100 } as any,
+      token: new JwtPayload({ sub: 'user1', exp: Date.now() / 1000 + 100 }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -935,6 +964,7 @@ bucket_definitions:
     expect(await getCheckpointLines(iter)).toMatchSnapshot();
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: listsTable,
         tag: storage.SaveOperationTag.INSERT,
@@ -959,23 +989,25 @@ bucket_definitions:
       await batch.commit('0/1');
     });
 
+    const { bucket } = bucketRequest(syncRules, 'by_user["user1"]');
     const checkpoint2 = await getCheckpointLines(iter);
     expect(
       (checkpoint2[0] as StreamingSyncCheckpointDiff).checkpoint_diff?.updated_buckets?.map((b) => b.bucket)
-    ).toEqual(['by_user["user1"]']);
+    ).toEqual([bucket]);
     expect(checkpoint2).toMatchSnapshot();
   });
 
   test('expiring token', async (context) => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
     const bucketStorage = await f.getInstance(syncRules);
     // Activate
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/0');
       await batch.keepalive('0/0');
     });
 
@@ -991,7 +1023,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: exp } as any,
+      token: new JwtPayload({ sub: '', exp: exp }),
       isEncodingAsBson: false
     });
     const iter = stream[Symbol.asyncIterator]();
@@ -1014,13 +1046,14 @@ bucket_definitions:
 
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
     const bucketStorage = await f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.INSERT,
@@ -1054,7 +1087,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     });
 
@@ -1076,6 +1109,7 @@ bucket_definitions:
     // This invalidates the checkpoint we've received above.
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       await batch.save({
         sourceTable: TEST_TABLE,
         tag: storage.SaveOperationTag.UPDATE,
@@ -1100,7 +1134,8 @@ bucket_definitions:
     });
 
     await bucketStorage.compact({
-      minBucketChanges: 1
+      minBucketChanges: 1,
+      minChangeRatio: 0
     });
 
     const lines2 = await getCheckpointLines(iter, { consume: true });
@@ -1156,13 +1191,14 @@ bucket_definitions:
   test('write checkpoint', async () => {
     await using f = await factory();
 
-    const syncRules = await f.updateSyncRules({
+    const syncRules = await updateSyncRules(f, {
       content: BASIC_SYNC_RULES
     });
 
     const bucketStorage = f.getInstance(syncRules);
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // <= the managed write checkpoint LSN below
       await batch.commit('0/1');
     });
@@ -1182,7 +1218,7 @@ bucket_definitions:
         raw_data: true
       },
       tracker,
-      token: { sub: 'test', exp: Date.now() / 1000 + 10 } as any,
+      token: new JwtPayload({ sub: 'test', exp: Date.now() / 1000 + 10 }),
       isEncodingAsBson: false
     };
     const stream1 = sync.streamResponse(params);
@@ -1198,6 +1234,7 @@ bucket_definitions:
     });
 
     await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+      await batch.markAllSnapshotDone('0/1');
       // must be >= the managed write checkpoint LSN
       await batch.commit('1/0');
     });
@@ -1227,12 +1264,13 @@ config:
 `;
 
     for (let i = 0; i < 2; i++) {
-      const syncRules = await f.updateSyncRules({
+      const syncRules = await updateSyncRules(f, {
         content: rules
       });
       const bucketStorage = f.getInstance(syncRules);
 
       await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
+        await batch.markAllSnapshotDone('0/1');
         await batch.save({
           sourceTable: TEST_TABLE,
           tag: storage.SaveOperationTag.INSERT,
@@ -1255,7 +1293,7 @@ config:
           raw_data: true
         },
         tracker,
-        token: { sub: '', exp: Date.now() / 1000 + 10 } as any,
+        token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
         isEncodingAsBson: false
       });
 

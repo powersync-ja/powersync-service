@@ -18,14 +18,14 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
 
       logger.defaultMeta = {
         ...logger.defaultMeta,
-        user_id: context.token_payload?.sub,
+        user_id: context.token_payload!.userIdJson,
         client_id: params.client_id,
         user_agent: context.user_agent
       };
 
       const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
         client_id: params.client_id ?? '',
-        user_id: context.user_id!,
+        user_id: context.token_payload!.userIdString,
         user_agent: context.user_agent,
         // At this point the token_payload is guaranteed to be present
         jwt_exp: new Date(context.token_payload!.exp * 1000),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { compileSingleStreamAndSerialize } from './utils.js';
+import { compileSingleStreamAndSerialize, yamlToSyncPlan } from './utils.js';
 
 describe('old streams test', () => {
   // Testcases ported from streams.test.ts
@@ -162,6 +162,14 @@ describe('old streams test', () => {
     });
   });
 
+  test('overlap', () => {
+    expect(
+      compileSingleStreamAndSerialize(
+        'SELECT * FROM comments WHERE tagged_users && (SELECT user_a FROM friends WHERE user_b = auth.user_id())'
+      )
+    ).toMatchSnapshot();
+  });
+
   test('OR in subquery', () => {
     // This used to be an error with the old sync streams compiler, but is supported now
     expect(
@@ -186,5 +194,29 @@ describe('old streams test', () => {
         'select * from account_member as "outer" where account_id in (select "inner".account_id from account_member as "inner" where "inner".id = auth.user_id())'
       )
     ).toMatchSnapshot();
+  });
+
+  test('output column names', () => {
+    const [errors, plan] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    queries:
+      - SELECT 1, ShouldBeLowerCase, "quotedColumn" FROM users
+`);
+
+    expect(errors).toStrictEqual([
+      {
+        isWarning: true,
+        message: 'The name of this column is unspecified, consider adding an alias.',
+        source: '1'
+      }
+    ]);
+
+    const [source] = plan.dataSources;
+    const aliases = source.columns.map((c) => (typeof c == 'object' ? c.alias : null));
+    expect(aliases).toStrictEqual(['1', 'shouldbelowercase', 'quotedColumn']);
   });
 });

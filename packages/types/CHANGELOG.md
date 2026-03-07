@@ -1,5 +1,12 @@
 # @powersync/service-types
 
+## 0.15.0
+
+### Minor Changes
+
+- 0998251: For errors related to a sync configuration, report a source offset.
+- c683322: Renamed `sync_rules` to `sync_config` in the PowerSync service configuration. The old `sync_rules` field is deprecated but still supported for backwards compatibility.
+
 ## 0.14.0
 
 ### Minor Changes

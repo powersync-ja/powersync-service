@@ -1,6 +1,7 @@
 import { MongoStorageConfig } from '@powersync/service-module-mongodb-storage/types';
 import { MongoConnectionConfig } from '@powersync/service-module-mongodb/types';
 import { ConvexConnectionConfig } from '@powersync/service-module-convex/types';
+import { MSSQLConnectionConfig } from '@powersync/service-module-mssql/types';
 import { MySQLConnectionConfig } from '@powersync/service-module-mysql/types';
 import { PostgresStorageConfig } from '@powersync/service-module-postgres-storage/types';
 import { PostgresConnectionConfig } from '@powersync/service-module-postgres/types';
@@ -9,7 +10,6 @@ import fs from 'fs';
 import path from 'path';
 import * as t from 'ts-codec';
 import { fileURLToPath } from 'url';
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const schemaDir = path.join(__dirname, '../../json-schema');
 
@@ -19,9 +19,10 @@ fs.mkdirSync(schemaDir, { recursive: true });
 const baseShape = configFile.powerSyncConfig.props.shape;
 
 const mergedDataSourceConfig = configFile.genericDataSourceConfig
-  .or(PostgresConnectionConfig)
   .or(MongoConnectionConfig)
+  .or(MSSQLConnectionConfig)
   .or(MySQLConnectionConfig)
+  .or(PostgresConnectionConfig)
   .or(ConvexConnectionConfig);
 
 const mergedStorageConfig = configFile.GenericStorageConfig.or(PostgresStorageConfig).or(MongoStorageConfig);

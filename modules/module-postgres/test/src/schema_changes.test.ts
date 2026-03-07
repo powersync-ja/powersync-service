@@ -2,8 +2,7 @@ import { compareIds, putOp, reduceBucket, removeOp, test_utils } from '@powersyn
 import * as timers from 'timers/promises';
 import { describe, expect, test } from 'vitest';
 
-import { storage } from '@powersync/service-core';
-import { describeWithStorage } from './util.js';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe('schema changes', { timeout: 20_000 }, function () {
@@ -24,9 +23,12 @@ const PUT_T3 = test_utils.putOp('test_data', { id: 't3', description: 'test3' })
 const REMOVE_T1 = test_utils.removeOp('test_data', 't1');
 const REMOVE_T2 = test_utils.removeOp('test_data', 't2');
 
-function defineTests(factory: storage.TestStorageFactory) {
+function defineTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof WalStreamTestContext.open>[1]) => {
+    return WalStreamTestContext.open(factory, { ...options, storageVersion });
+  };
   test('re-create table', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
 
     // Drop a table and re-create it.
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -37,7 +39,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -60,23 +61,26 @@ function defineTests(factory: storage.TestStorageFactory) {
     // Truncate - order doesn't matter
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([REMOVE_T1, REMOVE_T2]);
 
-    expect(data.slice(4)).toMatchObject([
-      // Snapshot insert
-      PUT_T3,
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
+    expect(data.slice(4, 5)).toMatchObject([
+      // Snapshot and/or replication insert
       PUT_T3
     ]);
+
+    if (data.length > 5) {
+      expect(data.slice(5)).toMatchObject([
+        // Replicated insert (optional duplication)
+        PUT_T3
+      ]);
+    }
   });
 
   test('add table', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Add table after initial replication
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { pool } = context;
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`CREATE TABLE test_data(id text primary key, description text)`);
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
@@ -84,21 +88,14 @@ function defineTests(factory: storage.TestStorageFactory) {
     const data = await context.getBucketData('global[]');
 
     // "Reduce" the bucket to get a stable output to test.
+    // The specific operation sequence may vary depending on storage implementation, so just check the end result.
     // slice(1) to skip the CLEAR op.
     const reduced = reduceBucket(data).slice(1);
     expect(reduced.sort(compareIds)).toMatchObject([PUT_T1]);
-
-    expect(data).toMatchObject([
-      // Snapshot insert
-      PUT_T1,
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T1
-    ]);
   });
 
   test('rename table (1)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
 
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -108,7 +105,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data_old(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data_old RENAME TO test_data` },
@@ -128,15 +124,17 @@ function defineTests(factory: storage.TestStorageFactory) {
       PUT_T1,
       PUT_T2
     ]);
-    expect(data.slice(2)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T2
-    ]);
+    if (data.length > 2) {
+      expect(data.slice(2)).toMatchObject([
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T2
+      ]);
+    }
   });
 
   test('rename table (2)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Rename table in sync rules -> in sync rules
     const { pool } = context;
 
@@ -151,7 +149,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data1(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data1 RENAME TO test_data2` },
@@ -181,15 +178,17 @@ function defineTests(factory: storage.TestStorageFactory) {
       putOp('test_data2', { id: 't1', description: 'test1' }),
       putOp('test_data2', { id: 't2', description: 'test2' })
     ]);
-    expect(data.slice(4)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      putOp('test_data2', { id: 't2', description: 'test2' })
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4)).toMatchObject([
+        // Replicated insert
+        // This may be de-duplicated
+        putOp('test_data2', { id: 't2', description: 'test2' })
+      ]);
+    }
   });
 
   test('rename table (3)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Rename table in sync rules -> not in sync rules
 
     const { pool } = context;
@@ -200,7 +199,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data RENAME TO test_data_na` },
@@ -224,7 +222,7 @@ function defineTests(factory: storage.TestStorageFactory) {
   });
 
   test('change replica id', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change replica id from default to full
     // Causes a re-import of the table.
 
@@ -235,7 +233,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data REPLICA IDENTITY FULL` },
@@ -260,15 +257,17 @@ function defineTests(factory: storage.TestStorageFactory) {
     // Snapshot - order doesn't matter
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-    expect(data.slice(4).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T2
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4).sort(compareIds)).toMatchObject([
+        // Replicated insert
+        // This may be de-duplicated
+        PUT_T2
+      ]);
+    }
   });
 
   test('change full replica id by adding column', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change replica id from full by adding column
     // Causes a re-import of the table.
     // Other changes such as renaming column would have the same effect
@@ -281,7 +280,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data ADD COLUMN other TEXT` },
@@ -303,15 +301,17 @@ function defineTests(factory: storage.TestStorageFactory) {
       putOp('test_data', { id: 't2', description: 'test2', other: null })
     ]);
 
-    expect(data.slice(4).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      putOp('test_data', { id: 't2', description: 'test2', other: null })
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4).sort(compareIds)).toMatchObject([
+        // Replicated insert
+        // This may be de-duplicated
+        putOp('test_data', { id: 't2', description: 'test2', other: null })
+      ]);
+    }
   });
 
   test('change default replica id by changing column type', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change default replica id by changing column type
     // Causes a re-import of the table.
     const { pool } = context;
@@ -321,7 +321,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data ALTER COLUMN id TYPE varchar` },
@@ -340,15 +339,17 @@ function defineTests(factory: storage.TestStorageFactory) {
     // Snapshot - order doesn't matter
     expect(data.slice(2, 4).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2]);
 
-    expect(data.slice(4).sort(compareIds)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T2
-    ]);
+    if (data.length > 4) {
+      expect(data.slice(4).sort(compareIds)).toMatchObject([
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T2
+      ]);
+    }
   });
 
   test('change index id by changing column type', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Change index replica id by changing column type
     // Causes a re-import of the table.
     // Secondary functionality tested here is that replica id column order stays
@@ -363,7 +364,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -386,25 +386,11 @@ function defineTests(factory: storage.TestStorageFactory) {
     const reduced = reduceBucket(data).slice(1);
     expect(reduced.sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
 
-    // Previously had more specific tests, but this varies too much based on timing:
-    // expect(data.slice(2, 4).sort(compareIds)).toMatchObject([
-    //   // Truncate - any order
-    //   REMOVE_T1,
-    //   REMOVE_T2
-    // ]);
-
-    // // Snapshot - order doesn't matter
-    // expect(data.slice(4, 7).sort(compareIds)).toMatchObject([PUT_T1, PUT_T2, PUT_T3]);
-
-    // expect(data.slice(7).sort(compareIds)).toMatchObject([
-    //   // Replicated insert
-    //   // We may eventually be able to de-duplicate this
-    //   PUT_T3
-    // ]);
+    // Previously had more specific tests, but this varies too much based on timing.
   });
 
   test('add to publication', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Add table to publication after initial replication
     const { pool } = context;
 
@@ -418,7 +404,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -434,11 +419,13 @@ function defineTests(factory: storage.TestStorageFactory) {
       PUT_T3
     ]);
 
-    expect(data.slice(3)).toMatchObject([
-      // Replicated insert
-      // We may eventually be able to de-duplicate this
-      PUT_T3
-    ]);
+    if (data.length > 3) {
+      expect(data.slice(3)).toMatchObject([
+        // Replicated insert
+        // May be de-duplicated
+        PUT_T3
+      ]);
+    }
 
     // "Reduce" the bucket to get a stable output to test.
     // slice(1) to skip the CLEAR op.
@@ -447,7 +434,7 @@ function defineTests(factory: storage.TestStorageFactory) {
   });
 
   test('add to publication (not in sync rules)', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Add table to publication after initial replication
     // Since the table is not in sync rules, it should not be replicated.
     const { pool } = context;
@@ -462,7 +449,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_other(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_other(id, description) VALUES('t2', 'test2')`);
 
@@ -474,7 +460,7 @@ function defineTests(factory: storage.TestStorageFactory) {
   });
 
   test('replica identity nothing', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Technically not a schema change, but fits here.
     // Replica ID works a little differently here - the table doesn't have
     // one defined, but we generate a unique one for each replicated row.
@@ -487,7 +473,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -521,7 +506,7 @@ function defineTests(factory: storage.TestStorageFactory) {
   });
 
   test('replica identity default without PK', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     // Same as no replica identity
     const { pool } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -530,7 +515,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t1', 'test1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`INSERT INTO test_data(id, description) VALUES('t2', 'test2')`);
 
@@ -573,7 +557,7 @@ function defineTests(factory: storage.TestStorageFactory) {
   //   await new Promise((resolve) => setTimeout(resolve, 100));
   //   await this.snapshotTable(batch, db, result.table);
   test('table snapshot consistency', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
 
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -584,7 +568,6 @@ function defineTests(factory: storage.TestStorageFactory) {
     await pool.query(`INSERT INTO test_data_old(id, num) VALUES('t2', 0)`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `ALTER TABLE test_data_old RENAME TO test_data` },
@@ -640,7 +623,7 @@ function defineTests(factory: storage.TestStorageFactory) {
   });
 
   test('custom types', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
 
     await context.updateSyncRules(`
 streams:
@@ -656,7 +639,6 @@ config:
     await pool.query(`INSERT INTO test_data(id) VALUES ('t1')`);
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(
       { statement: `CREATE TYPE composite AS (foo bool, bar int4);` },
@@ -664,7 +646,7 @@ config:
       { statement: `UPDATE test_data SET other = ROW(TRUE, 2)::composite;` }
     );
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([
       putOp('test_data', { id: 't1' }),
       putOp('test_data', { id: 't1', other: '{"foo":1,"bar":2}' })

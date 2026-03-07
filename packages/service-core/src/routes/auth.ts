@@ -47,17 +47,15 @@ export async function authorizeUser(context: Context, authHeader: string = ''): 
 export async function generateContext(serviceContext: ServiceContext, token: string) {
   const { configuration } = serviceContext;
 
-  let tokenPayload: auth.JwtPayload;
   try {
     const maxAge = configuration.token_max_expiration;
-    tokenPayload = await configuration.client_keystore.verifyJwt(token, {
+    const parsedToken = await configuration.client_keystore.verifyJwt(token, {
       defaultAudiences: configuration.jwt_audiences,
       maxAge: maxAge
     });
     return {
       context: {
-        user_id: tokenPayload.sub,
-        token_payload: tokenPayload
+        token_payload: parsedToken
       }
     };
   } catch (err) {

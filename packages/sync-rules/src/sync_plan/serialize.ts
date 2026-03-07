@@ -1,6 +1,7 @@
 import { ParameterLookupScope } from '../HydrationState.js';
-import { TablePattern } from '../TablePattern.js';
+import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
+import { MapSourceVisitor, visitExpr } from './expression_visitor.js';
 import {
   ColumnSource,
   ColumnSqlParameterValue,
@@ -16,7 +17,11 @@ import {
   StreamOptions,
   StreamParameterIndexLookupCreator,
   StreamQuerier,
-  SyncPlan
+  SyncPlan,
+  TableProcessor,
+  TableProcessorData,
+  TableProcessorTableValuedFunction,
+  TableProcessorTableValuedFunctionOutput
 } from './plan.js';
 
 /**
@@ -26,18 +31,49 @@ import {
  * queriers to bucket creators. To represent this efficiently, we assign numbers to referenced elements while
  * serializing instead of duplicating definitions.
  */
-export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
+export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanV1 {
   const dataSourceIndex = new Map<StreamDataSource, number>();
   const bucketIndex = new Map<StreamBucketDataSource, number>();
   const parameterIndex = new Map<StreamParameterIndexLookupCreator, number>();
   const expandingLookups = new Map<ExpandingLookup, LookupReference>();
+  const addedTableValuedFunctions = new Map<TableProcessorTableValuedFunction, number>();
 
-  function serializeTablePattern(pattern: TablePattern): SerializedTablePattern {
+  const replaceFunctionReferenceWithIndex = new MapSourceVisitor<
+    ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput,
+    ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput
+  >((value) => {
+    if ('function' in value) {
+      return { function: addedTableValuedFunctions.get(value.function)!, outputName: value.outputName };
+    } else {
+      return value;
+    }
+  });
+
+  function serializeTableProcessorDataExpr(
+    expr: SqlExpression<TableProcessorData>
+  ): SqlExpression<SerializedTableProcessorData> {
+    return visitExpr(replaceFunctionReferenceWithIndex, expr, null);
+  }
+
+  function serializeTablePattern(pattern: ImplicitSchemaTablePattern): SerializedTablePattern {
     return {
       connection: pattern.connectionTag,
       schema: pattern.schema,
       table: pattern.tablePattern
     };
+  }
+
+  function serializeTableValued(source: TableProcessor): TableProcessorTableValuedFunction[] {
+    return source.tableValuedFunctions.map((fn, i) => {
+      addedTableValuedFunctions.set(fn, i);
+      return fn;
+    });
+  }
+
+  function translateParameters(source: TableProcessor): SerializedPartitionKey[] {
+    return source.parameters.map((key) => {
+      return { expr: serializeTableProcessorDataExpr(key.expr) };
+    });
   }
 
   function serializeDataSources(): SerializedDataSource[] {
@@ -48,9 +84,16 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
         outputTableName: source.outputTableName,
-        filters: source.filters,
-        partitionBy: source.parameters,
-        columns: source.columns
+        tableValuedFunctions: serializeTableValued(source),
+        filters: source.filters.map(serializeTableProcessorDataExpr),
+        partitionBy: translateParameters(source),
+        columns: source.columns.map((c): SerializedColumnSource => {
+          if (c == 'star') {
+            return 'star';
+          } else {
+            return { expr: serializeTableProcessorDataExpr(c.expr), alias: c.alias };
+          }
+        })
       } satisfies SerializedDataSource;
     });
   }
@@ -62,9 +105,10 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
       return {
         hash: source.hashCode,
         table: serializeTablePattern(source.sourceTable),
-        filters: source.filters,
-        partitionBy: source.parameters,
-        output: source.outputs,
+        tableValuedFunctions: serializeTableValued(source),
+        filters: source.filters.map(serializeTableProcessorDataExpr),
+        partitionBy: translateParameters(source),
+        output: source.outputs.map((out) => visitExpr(replaceFunctionReferenceWithIndex, out, null)),
         lookupScope: source.defaultLookupScope
       } satisfies SerializedParameterIndexLookupCreator;
     });
@@ -123,7 +167,7 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
   }
 
   return {
-    version: 'unstable', // TODO: Mature to 1 before storing in bucket storage
+    version: 1,
     dataSources: serializeDataSources(),
     buckets: plan.buckets.map((bkt, index) => {
       bucketIndex.set(bkt, index);
@@ -142,42 +186,82 @@ export function serializeSyncPlan(plan: SyncPlan): SerializedSyncPlanUnstable {
 }
 
 export function deserializeSyncPlan(serialized: unknown): SyncPlan {
-  // TODO: Mature to version 1
-  if ((serialized as SerializedSyncPlanUnstable).version != 'unstable') {
+  if ((serialized as SerializedSyncPlanV1).version != 1) {
     throw new Error('Unknown sync plan version passed to deserializeSyncPlan()');
   }
 
-  function deserializeTablePattern(pattern: SerializedTablePattern): TablePattern {
-    return new TablePattern(`${pattern.connection}.${pattern.schema}`, pattern.table);
+  function deserializeTablePattern(pattern: SerializedTablePattern): ImplicitSchemaTablePattern {
+    if (pattern.schema) {
+      return new TablePattern(`${pattern.connection}.${pattern.schema}`, pattern.table);
+    } else {
+      return new ImplicitSchemaTablePattern(null, pattern.table);
+    }
   }
 
-  const plan = serialized as SerializedSyncPlanUnstable;
-  const dataSources = plan.dataSources.map((source) => {
+  let tableValuedFunctionsInScope: TableProcessorTableValuedFunction[] = [];
+
+  const replaceFunctionIndexWithReference = new MapSourceVisitor<
+    ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput,
+    ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput
+  >((value) => {
+    if ('function' in value) {
+      return { function: tableValuedFunctionsInScope[value.function], outputName: value.outputName };
+    } else {
+      return value;
+    }
+  });
+
+  function deserializeTableProcessorDataExpr(
+    expr: SqlExpression<SerializedTableProcessorData>
+  ): SqlExpression<TableProcessorData> {
+    return visitExpr(replaceFunctionIndexWithReference, expr, null);
+  }
+
+  function deserializeParameters(source: SerializedPartitionKey[]): PartitionKey[] {
+    return source.map((serializedKey) => {
+      return { expr: deserializeTableProcessorDataExpr(serializedKey.expr) };
+    });
+  }
+
+  const plan = serialized as SerializedSyncPlanV1;
+  const dataSources = plan.dataSources.map((source): StreamDataSource => {
+    const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
+
     return {
       hashCode: source.hash,
       sourceTable: deserializeTablePattern(source.table),
+      tableValuedFunctions: functions,
       outputTableName: source.outputTableName,
-      filters: source.filters,
-      parameters: source.partitionBy,
-      columns: source.columns
-    } satisfies StreamDataSource;
+      filters: source.filters.map(deserializeTableProcessorDataExpr),
+      parameters: deserializeParameters(source.partitionBy),
+      columns: source.columns.map((c): ColumnSource => {
+        if (c == 'star') {
+          return 'star';
+        } else {
+          return { expr: deserializeTableProcessorDataExpr(c.expr), alias: c.alias };
+        }
+      })
+    };
   });
-  const buckets = plan.buckets.map((bkt) => {
+  const buckets = plan.buckets.map((bkt): StreamBucketDataSource => {
     return {
       hashCode: bkt.hash,
       uniqueName: bkt.uniqueName,
       sources: bkt.sources.map((idx) => dataSources[idx])
-    } satisfies StreamBucketDataSource;
+    };
   });
-  const parameterIndexes = plan.parameterIndexes.map((source) => {
+  const parameterIndexes = plan.parameterIndexes.map((source): StreamParameterIndexLookupCreator => {
+    const functions = (tableValuedFunctionsInScope = source.tableValuedFunctions);
+
     return {
       hashCode: source.hash,
       sourceTable: deserializeTablePattern(source.table),
-      filters: source.filters,
-      parameters: source.partitionBy,
-      outputs: source.output,
+      tableValuedFunctions: functions,
+      filters: source.filters.map(deserializeTableProcessorDataExpr),
+      parameters: deserializeParameters(source.partitionBy),
+      outputs: source.output.map((out) => visitExpr(replaceFunctionIndexWithReference, out, null)),
       defaultLookupScope: source.lookupScope
-    } satisfies StreamParameterIndexLookupCreator;
+    };
   });
 
   function deserializeParameterValue(stages: ExpandingLookup[][], value: SerializedParameterValue): ParameterValue {
@@ -210,7 +294,7 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
           functionInputs: source.functionInputs,
           outputs: source.outputs,
           filters: source.filters
-        } satisfies EvaluateTableValuedFunction;
+        } satisfies EvaluateTableValuedFunction<RequestSqlParameterValue>;
     }
   }
 
@@ -248,8 +332,8 @@ export function deserializeSyncPlan(serialized: unknown): SyncPlan {
   };
 }
 
-interface SerializedSyncPlanUnstable {
-  version: 'unstable';
+interface SerializedSyncPlanV1 {
+  version: number;
   dataSources: SerializedDataSource[];
   buckets: SerializedBucketDataSource[];
   parameterIndexes: SerializedParameterIndexLookupCreator[];
@@ -263,27 +347,42 @@ interface SerializedBucketDataSource {
 }
 
 interface SerializedTablePattern {
-  connection: string;
-  schema: string;
+  connection: string | null;
+  schema: string | null;
   table: string;
 }
+
+interface SerializedTableProcessorTableValuedFunctionOutput {
+  function: number;
+  outputName: string;
+}
+
+type SerializedTableProcessorData = ColumnSqlParameterValue | SerializedTableProcessorTableValuedFunctionOutput;
+
+interface SerializedPartitionKey {
+  expr: SqlExpression<SerializedTableProcessorData>;
+}
+
+type SerializedColumnSource = 'star' | { expr: SqlExpression<SerializedTableProcessorData>; alias: string };
 
 interface SerializedDataSource {
   table: SerializedTablePattern;
   outputTableName?: string;
   hash: number;
-  columns: ColumnSource[];
-  filters: SqlExpression<ColumnSqlParameterValue>[];
-  partitionBy: PartitionKey[];
+  columns: SerializedColumnSource[];
+  filters: SqlExpression<SerializedTableProcessorData>[];
+  tableValuedFunctions: TableProcessorTableValuedFunction[];
+  partitionBy: SerializedPartitionKey[];
 }
 
 interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
-  lookupScope: ParameterLookupScope;
-  output: SqlExpression<ColumnSqlParameterValue>[];
-  filters: SqlExpression<ColumnSqlParameterValue>[];
-  partitionBy: PartitionKey[];
+  lookupScope: Omit<ParameterLookupScope, 'source'>;
+  output: SqlExpression<SerializedTableProcessorData>[];
+  filters: SqlExpression<SerializedTableProcessorData>[];
+  tableValuedFunctions: TableProcessorTableValuedFunction[];
+  partitionBy: SerializedPartitionKey[];
 }
 
 interface SerializedStream {

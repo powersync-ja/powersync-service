@@ -1,11 +1,7 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.tests.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "noEmit": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "sourceMap": true
+    "rootDir": "src"
   },
   "include": ["src"],
   "references": [

@@ -29,6 +29,7 @@ docker compose up -d
 ```
 
 This will:
+
 1. Start the MSSQL Server container (`mssql-dev`)
 2. Wait for the database to be healthy
 3. Automatically run the setup container (`mssql-dev-setup`) which executes `init.sql`

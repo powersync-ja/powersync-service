@@ -1,5 +1,5 @@
 import { logger } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
@@ -41,11 +41,11 @@ export async function getSyncRulesStatus(
   const check_connection = options.check_connection ?? false;
   const now = new Date().toISOString();
 
-  let rules: SqlSyncRules;
+  let parsed: SyncConfigWithErrors;
   let persisted: storage.PersistedSyncRules;
   try {
     persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
-    rules = persisted.sync_rules;
+    parsed = persisted.sync_rules;
   } catch (e) {
     return {
       content: include_content ? sync_rules.sync_rules_content : undefined,
@@ -54,6 +54,7 @@ export async function getSyncRulesStatus(
     };
   }
 
+  const { config: rules, errors: syncRuleErrors } = parsed;
   const sourceConfig = await apiHandler.getSourceConfig();
   // This method can run under some situations if no connection is configured yet.
   // It will return a default tag in such a case. This default tag is not module specific.
@@ -131,12 +132,20 @@ export async function getSyncRulesStatus(
     });
   }
   errors.push(
-    ...rules.errors.map((e) => {
-      return {
-        level: e.type,
-        message: e.message,
+    ...syncRuleErrors.map(({ type, message, location }) => {
+      const error: ReplicationError = {
+        level: type,
+        message,
         ts: now
       };
+      if (location != null) {
+        error.location = {
+          start_offset: location.start,
+          end_offset: location.end
+        };
+      }
+
+      return error;
     })
   );
 

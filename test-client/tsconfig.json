@@ -8,5 +8,9 @@
     "sourceMap": true
   },
   "include": ["src"],
-  "references": [{ "path": "../packages/service-core" }]
+  "references": [
+    {
+      "path": "../packages/service-core"
+    }
+  ]
 }

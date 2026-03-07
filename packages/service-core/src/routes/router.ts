@@ -12,8 +12,6 @@ export type RouterServiceContext = ServiceContext;
  * Common context for routes
  */
 export type Context = {
-  user_id?: string;
-
   service_context: RouterServiceContext;
 
   token_payload?: JwtPayload;

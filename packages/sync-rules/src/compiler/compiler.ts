@@ -1,4 +1,4 @@
-import { NodeLocation, parse, PGNode } from 'pgsql-ast-parser';
+import { NodeLocation, parse, PGNode, Statement } from 'pgsql-ast-parser';
 import { HashSet } from './equality.js';
 import { PointLookup, RowEvaluator } from './rows.js';
 import { StreamResolver } from './bucket_resolver.js';
@@ -10,9 +10,16 @@ import { NodeLocations } from './expression.js';
 import { SqlScope } from './scope.js';
 import { PreparedSubquery } from './sqlite.js';
 import { SourceSchema } from '../types.js';
+import { DangerousParameterDetector } from './detect_dangerous_parameters.js';
 
 export interface SyncStreamsCompilerOptions {
-  defaultSchema: string;
+  /**
+   * Used exclusively for linting against the given {@link schema}.
+   *
+   * The default schema must not affect compiled sync plans because sync plans can be loaded with different default
+   * schemas.
+   */
+  defaultSchema?: string;
 
   /**
    * An optional schema, used exclusively for linting table and column references that can't be resolved in it.
@@ -21,6 +28,10 @@ export interface SyncStreamsCompilerOptions {
    * streams across schema changes.
    */
   schema?: SourceSchema;
+}
+
+export interface ParseStreamOptions extends StreamOptions {
+  warnOnDangerousParameter: boolean;
 }
 
 /**
@@ -61,7 +72,10 @@ export class SyncStreamsCompiler {
       errors
     });
 
-    const [stmt] = parse(sql, { locationTracking: true });
+    const stmt = tryParse(sql, errors);
+    if (stmt == null) {
+      return null;
+    }
     return parser.parseAsSubquery(stmt);
   }
 
@@ -70,8 +84,12 @@ export class SyncStreamsCompiler {
    *
    * @param options Name, priority and `auto_subscribe` state for the stream.
    */
-  stream(options: StreamOptions): IndividualSyncStreamCompiler {
-    const builder = new QuerierGraphBuilder(this, options);
+  stream(options: ParseStreamOptions): IndividualSyncStreamCompiler {
+    const builder = new QuerierGraphBuilder(this, {
+      name: options.name,
+      priority: options.priority,
+      isSubscribedByDefault: options.isSubscribedByDefault
+    });
     const rootScope = new SqlScope({});
 
     return {
@@ -79,7 +97,10 @@ export class SyncStreamsCompiler {
         rootScope.registerCommonTableExpression(name, cte);
       },
       addQuery: (sql: string, errors: ParsingErrorListener) => {
-        const [stmt] = parse(sql, { locationTracking: true });
+        const stmt = tryParse(sql, errors);
+        if (stmt == null) {
+          return;
+        }
         const parser = new StreamQueryParser({
           compiler: this,
           originalText: sql,
@@ -92,8 +113,27 @@ export class SyncStreamsCompiler {
           builder.process(query, errors);
         }
       },
-      finish: () => builder.finish()
+      finish: () => {
+        const buckets = builder.finish();
+        if (options.warnOnDangerousParameter) {
+          const detector = new DangerousParameterDetector();
+          for (const bucket of buckets) {
+            detector.processResolver(bucket);
+          }
+        }
+      }
     };
+  }
+}
+
+function tryParse(sql: string, errors: ParsingErrorListener): Statement | null {
+  try {
+    const [stmt] = parse(sql, { locationTracking: true });
+    return stmt;
+  } catch (e: any) {
+    const location: NodeLocation | undefined = e.token?._location;
+    errors.report(e.message, location ?? { start: 0, end: sql.length });
+    return null;
   }
 }
 

@@ -1,11 +1,12 @@
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SqlSyncRules, SyncRulesErrors } from '@powersync/service-sync-rules';
+import { SqlSyncRules, SyncConfigWithErrors, SyncRulesErrors } from '@powersync/service-sync-rules';
 import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
 import { RouteAPI } from '../../api/RouteAPI.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
+import { updateSyncRulesFromConfig, updateSyncRulesFromYaml } from '../../storage/BucketStorageFactory.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -51,10 +52,11 @@ export const deploySyncRules = routeDefinition({
       });
     }
     const content = payload.params.content;
+    let syncConfig: SyncConfigWithErrors;
 
     try {
       const apiHandler = service_context.routerEngine.getAPI();
-      SqlSyncRules.fromYaml(payload.params.content, {
+      syncConfig = SqlSyncRules.fromYaml(payload.params.content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -68,11 +70,9 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules({
-      content: content,
-      // Aready validated above
-      validate: false
-    });
+    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(
+      updateSyncRulesFromConfig(syncConfig.config)
+    );
 
     return {
       slot_name: sync_rules.slot_name
@@ -168,12 +168,13 @@ export const reprocessSyncRules = routeDefinition({
       });
     }
 
-    const new_rules = await activeBucketStorage.updateSyncRules({
-      content: sync_rules.sync_rules.content,
-      // These sync rules already passed validation. But if the rules are not valid anymore due
-      // to a service change, we do want to report the error here.
-      validate: true
-    });
+    const new_rules = await activeBucketStorage.updateSyncRules(
+      updateSyncRulesFromYaml(sync_rules.sync_rules.config.content, {
+        // These sync rules already passed validation. But if the rules are not valid anymore due
+        // to a service change, we do want to report the error here.
+        validate: true
+      })
+    );
     return {
       slot_name: new_rules.slot_name
     };
@@ -197,14 +198,14 @@ async function debugSyncRules(apiHandler: RouteAPI, sync_rules: string) {
       // No schema-based validation at this point
       schema: undefined
     });
-    const source_table_patterns = rules.getSourceTables();
-    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules);
+    const source_table_patterns = rules.config.getSourceTables();
+    const resolved_tables = await apiHandler.getDebugTablesInfo(source_table_patterns, rules.config);
 
     return {
       valid: true,
-      bucket_definitions: rules.debugRepresentation(),
+      bucket_definitions: rules.config.debugRepresentation(),
       source_tables: resolved_tables,
-      data_tables: rules.debugGetOutputTables()
+      data_tables: rules.config.debugGetOutputTables()
     };
   } catch (e) {
     if (e instanceof SyncRulesErrors) {

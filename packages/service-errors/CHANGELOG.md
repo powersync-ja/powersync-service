@@ -1,5 +1,17 @@
 # @powersync/service-errors
 
+## 0.4.0
+
+### Minor Changes
+
+- 8c5bb3b: [Internal] Allow using multiple BucketStorageBatch instances concurrently.
+
+## 0.3.7
+
+### Patch Changes
+
+- 8bd83e8: Introduce storage versions.
+
 ## 0.3.6
 
 ### Patch Changes

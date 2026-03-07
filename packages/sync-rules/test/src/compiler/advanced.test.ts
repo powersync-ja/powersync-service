@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { compileSingleStreamAndSerialize } from './utils.js';
+import { compileSingleStreamAndSerialize, compileToSyncPlanWithoutErrors } from './utils.js';
+import { serializeSyncPlan } from '../../../src/index.js';
 
 describe('new sync stream features', () => {
   test('order-independent parameters', () => {
@@ -143,9 +144,7 @@ FROM ticket t
       expect(compileSingleStreamAndSerialize(stream)).toMatchSnapshot();
     });
 
-    test.skip('response 12', () => {
-      // This is currently unsupported because pr.download_profiles can't be JSON-expanded (we only support that for
-      // request parameters). We can revisit this in the future.
+    test('response 12', () => {
       const stream = `
 SELECT p.* FROM profile p
 WHERE p.id IN (
@@ -181,5 +180,104 @@ where uas.user_id = auth.user_id()
     expect(
       compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state IN ARRAY['public', 'archived']`)
     ).toMatchSnapshot();
+  });
+
+  test('not in array', () => {
+    expect(
+      compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state NOT IN ARRAY['public', 'archived']`)
+    ).toMatchSnapshot();
+  });
+
+  test('in json array', () => {
+    expect(
+      compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state IN '["public", "archived"]'`)
+    ).toMatchSnapshot();
+  });
+
+  test('not in json array', () => {
+    expect(
+      compileSingleStreamAndSerialize(`SELECT * FROM notes WHERE state NOT IN '["public", "archived"]'`)
+    ).toMatchSnapshot();
+  });
+
+  test('in array and additional filter in subquery', () => {
+    expect(
+      compileSingleStreamAndSerialize(`
+SELECT * FROM notes
+  WHERE owner_id IN (
+    SELECT users.id
+    FROM users
+    WHERE users.state IN '["public", "archived"]'
+      AND users.org = auth.parameter('org')
+  )
+`)
+    ).toMatchSnapshot();
+  });
+
+  describe('table-valued functions', () => {
+    test('static filter', () => {
+      expect(
+        compileSingleStreamAndSerialize(`SELECT * FROM posts WHERE 'important' IN posts.descriptions`)
+      ).toMatchSnapshot();
+    });
+
+    test('partition on data', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          `SELECT * FROM posts WHERE subscription.parameter('tag') IN (SELECT value FROM json_each(posts.tags))`
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('partition on parameter lookup', () => {
+      expect(
+        compileSingleStreamAndSerialize(`SELECT 
+            users.* FROM users, orgs, json_each(orgs.members) as members
+          WHERE users.id = members.value AND orgs.id = auth.parameter('org')`)
+      ).toMatchSnapshot();
+    });
+  });
+
+  test('IN operator with static left clause', () => {
+    expect(
+      compileSingleStreamAndSerialize("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
+    ).toMatchSnapshot();
+  });
+
+  test('IN operator with two static clauses', () => {
+    expect(
+      compileSingleStreamAndSerialize("SELECT * FROM issues WHERE 'issues' IN auth.parameter('synced_tables')")
+    ).toMatchSnapshot();
+  });
+
+  test('json-each of cte', () => {
+    // Regression test for https://discord.com/channels/1138230179878154300/1479042473316847746/1479049290830839928.
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  manually_converted:
+    auto_subscribe: true
+    with:
+      available_projects: |
+          SELECT project
+          FROM "ProjectInvitation"
+          WHERE "appliedTo" != ''
+          AND (auth.parameters() ->> 'haystack_id') IN "appliedTo"
+          AND "status" = 'CLAIMED'
+          AND connection.parameter('use_streams') != 1
+          AND connection.parameter('use_streams') != '1'
+          AND 'Scene' IN connection.parameter('synced_objects')
+    queries:
+      - |
+        SELECT "Scene"._id as id,
+        unixepoch("Scene"."createdOn") as "createdOnSortable",
+        IFNULL("Scene".archived, 0) as "archived",
+        "Scene".*
+        FROM "Scene", available_projects
+        WHERE "Scene".project IN available_projects.project
+`);
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
   });
 });

@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'vitest';
-import { DateTimeValue, SqlSyncRules, TimeValuePrecision, toSyncRulesValue } from '../../src/index.js';
+import {
+  CompatibilityContext,
+  CompatibilityOption,
+  DateTimeValue,
+  SerializedCompatibilityContext,
+  SqlSyncRules,
+  TimeValuePrecision,
+  toSyncRulesValue
+} from '../../src/index.js';
 
-import { versionedHydrationState } from '../../src/HydrationState.js';
+import { DEFAULT_HYDRATION_STATE, versionedHydrationState } from '../../src/HydrationState.js';
 import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
@@ -20,7 +28,7 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -47,7 +55,7 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -74,7 +82,7 @@ config:
   edition: 2
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: versionedHydrationState(1) });
+      ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
         rules.evaluateRow({
@@ -112,7 +120,12 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      ).hydrate({ hydrationState: versionedHydrationState(1) });
+      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+
+      expect(rules.compatibility.isEnabled(CompatibilityOption.timestampsIso8601)).toStrictEqual(false);
+      // This does not have a direct effect on the hydration here anymore - we now do that one level higher.
+      // We do still check that the option is parsed correctly.
+      expect(rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)).toStrictEqual(false);
 
       expect(
         rules.evaluateRow({
@@ -136,32 +149,6 @@ config:
     });
   });
 
-  test('can use versioned bucket ids', () => {
-    const rules = SqlSyncRules.fromYaml(
-      `
-bucket_definitions:
-  mybucket:
-    data:
-      - SELECT id, description FROM assets
-
-config:
-  edition: 1
-  versioned_bucket_ids: true
-    `,
-      PARSE_OPTIONS
-    ).hydrate({ hydrationState: versionedHydrationState(1) });
-
-    expect(
-      rules.evaluateRow({
-        sourceTable: ASSETS,
-        record: {
-          id: 'id',
-          description: 'desc'
-        }
-      })
-    ).toStrictEqual([{ bucket: '1#mybucket[]', data: { description: 'desc', id: 'id' }, id: 'id', table: 'assets' }]);
-  });
-
   test('streams use new options by default', () => {
     const rules = SqlSyncRules.fromYaml(
       `
@@ -173,7 +160,7 @@ config:
   edition: 2
     `,
       PARSE_OPTIONS
-    ).hydrate({ hydrationState: versionedHydrationState(1) });
+    ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
       rules.evaluateRow({
@@ -203,7 +190,7 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -227,7 +214,7 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      ).hydrate();
+      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
         rules.evaluateRow({
@@ -282,8 +269,8 @@ config:
         `;
       }
 
-      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).hydrate({
-        hydrationState: versionedHydrationState(1)
+      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).config.hydrate({
+        hydrationState: DEFAULT_HYDRATION_STATE
       });
       expect(
         rules.evaluateRow({
@@ -295,7 +282,7 @@ config:
         })
       ).toStrictEqual([
         {
-          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
+          bucket: 'mybucket[]',
           data: {
             description: withFixedQuirk
               ? '["static value","2025-08-19T09:21:00Z"]'
@@ -309,7 +296,7 @@ config:
 
       expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
         {
-          bucket: withFixedQuirk ? '1#mybucket[]' : 'mybucket[]',
+          bucket: 'mybucket[]',
           definition: 'mybucket',
           inclusion_reasons: ['default'],
           priority: 3
@@ -337,7 +324,7 @@ config:
     });
 
     test('can set max precision', () => {
-      const rules = SqlSyncRules.fromYaml(
+      const { config: rules } = SqlSyncRules.fromYaml(
         `
 bucket_definitions:
   mybucket:
@@ -359,6 +346,57 @@ config:
           })
         })
       ).toStrictEqual({ a: '2025-11-07T10:45:03Z' });
+    });
+  });
+
+  describe('serialization', () => {
+    test('without overrides', () => {
+      expect(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY.serialize()).toStrictEqual({
+        edition: 1,
+        overrides: {}
+      });
+
+      const context = CompatibilityContext.deserialize({
+        edition: 1,
+        overrides: {}
+      });
+      expect(context.edition).toStrictEqual(1);
+      expect(context.overrides).toHaveLength(0);
+    });
+
+    test('with overrides', () => {
+      const expectedOverrides = new Map<CompatibilityOption, boolean>();
+      expectedOverrides.set(CompatibilityOption.fixedJsonExtract, false);
+      expectedOverrides.set(CompatibilityOption.timestampsIso8601, true);
+
+      const originalContext = new CompatibilityContext({
+        edition: 2,
+        overrides: expectedOverrides,
+        maxTimeValuePrecision: TimeValuePrecision.nanoseconds
+      });
+      const serialized: SerializedCompatibilityContext = {
+        edition: 2,
+        overrides: {
+          fixed_json_extract: false,
+          timestamps_iso8601: true
+        },
+        maxTimeValuePrecision: 9
+      };
+
+      expect(originalContext.serialize()).toStrictEqual(serialized);
+      const deserialized = CompatibilityContext.deserialize(serialized);
+      expect(deserialized.edition).toStrictEqual(2);
+      expect(deserialized.overrides).toStrictEqual(expectedOverrides);
+      expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.nanoseconds);
+    });
+
+    test('time precision', () => {
+      const deserialized = CompatibilityContext.deserialize({
+        edition: 2,
+        overrides: {},
+        maxTimeValuePrecision: 0
+      });
+      expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.seconds);
     });
   });
 });

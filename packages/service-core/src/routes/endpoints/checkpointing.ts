@@ -52,18 +52,20 @@ export const writeCheckpoint2 = routeDefinition({
   authorize: authUser,
   validator: schema.createTsCodecValidator(WriteCheckpointRequest, { allowAdditional: true }),
   handler: async (payload) => {
-    const { user_id, service_context } = payload.context;
+    const { token_payload, service_context } = payload.context;
 
     const apiHandler = service_context.routerEngine.getAPI();
 
     const { replicationHead, writeCheckpoint } = await util.createWriteCheckpoint({
-      userId: user_id,
+      userId: token_payload!.userIdString,
       clientId: payload.params.client_id,
       api: apiHandler,
       storage: service_context.storageEngine.activeBucketStorage
     });
 
-    logger.info(`Write checkpoint for ${user_id}/${payload.params.client_id}: ${writeCheckpoint} | ${replicationHead}`);
+    logger.info(
+      `Write checkpoint for ${token_payload!.userIdString}/${payload.params.client_id}: ${writeCheckpoint} | ${replicationHead}`
+    );
 
     return {
       write_checkpoint: String(writeCheckpoint)

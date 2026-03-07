@@ -45,13 +45,28 @@ export async function checkSourceConfiguration(connection: mysqlPromise.Connecti
     errors.push('Binary log index file is not set. Please check your settings.');
   }
 
+  // Ensure ROW format
   const [[binLogFormatResult]] = await mysql_utils.retriedQuery({
     connection,
     query: `SHOW VARIABLES LIKE 'binlog_format';`
   });
 
   if (binLogFormatResult.Value !== 'ROW') {
-    errors.push('Binary log format must be set to "ROW". Please correct your configuration');
+    errors.push('Binary log format must be set to "ROW". Please correct your configuration.');
+  }
+
+  // Ensure full row image for row-based events
+  const [[rowImageResult]] = await mysql_utils.retriedQuery({
+    connection,
+    query: `SHOW GLOBAL VARIABLES LIKE 'binlog_row_image';`
+  });
+
+  if (rowImageResult.Value.toUpperCase() !== 'FULL') {
+    errors.push(
+      `binlog_row_image must be set to "FULL" globally. Current value: ${rowImageResult.Value ?? 'UNKNOWN'}. ` +
+        `Set 'binlog_row_image=FULL' in the MySQL configuration and restart the server. ` +
+        `Note: session-level overrides are possible and not detected by this check.`
+    );
   }
 
   return errors;

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { HydrationState, ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
 import {
   BucketParameterQuerier,
+  BucketDataScope,
   CompatibilityContext,
   CompatibilityEdition,
   CreateSourceParams,
@@ -14,7 +15,6 @@ import {
   mergeBucketParameterQueriers,
   UnscopedParameterLookup,
   QuerierError,
-  RequestParameters,
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
@@ -24,17 +24,11 @@ import {
   syncStreamFromSql,
   ScopedParameterLookup
 } from '../../src/index.js';
-import { normalizeQuerierOptions, PARSE_OPTIONS, TestSourceTable } from './util.js';
+import { lookupScope, normalizeQuerierOptions, PARSE_OPTIONS, requestParameters, TestSourceTable } from './util.js';
 
 describe('streams', () => {
-  const STREAM_0: ParameterLookupScope = {
-    lookupName: 'stream',
-    queryId: '0'
-  };
-  const STREAM_1: ParameterLookupScope = {
-    lookupName: 'stream',
-    queryId: '1'
-  };
+  const STREAM_0: ParameterLookupScope = lookupScope('stream', '0');
+  const STREAM_1: ParameterLookupScope = lookupScope('stream', '1');
 
   test('refuses edition: 1', () => {
     expect(() =>
@@ -87,7 +81,7 @@ describe('streams', () => {
     const pending = { queriers, errors };
     source.pushBucketParameterQueriers(
       pending,
-      normalizeQuerierOptions({ test: 'foo' }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
+      normalizeQuerierOptions({ parameters: { test: 'foo' } }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
     );
 
     expect(mergeBucketParameterQueriers(queriers).staticBuckets).toEqual([
@@ -104,6 +98,49 @@ describe('streams', () => {
     ]);
   });
 
+  test('tracks source metadata on stream APIs', async () => {
+    const desc = parseStream(
+      "SELECT * FROM comments WHERE issue_id = subscription.parameter('issue') OR issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())"
+    );
+    const source = debugHydratedMergedSource(desc, hydrationParams);
+
+    const rowResults = source.evaluateRow({ sourceTable: COMMENTS, record: { id: 'c1', issue_id: 'i1' } });
+    expect(rowResults).toHaveLength(2);
+
+    const rowSourceByBucket = new Map<string, unknown>();
+    for (const row of rowResults) {
+      if ('error' in row) {
+        throw new Error(`Unexpected error evaluating stream row: ${row.error}`);
+      }
+      rowSourceByBucket.set(row.bucket, row.source);
+    }
+    expect(rowSourceByBucket.get('1#stream|0["i1"]')).toBe(desc.dataSources[0]);
+    expect(rowSourceByBucket.get('1#stream|1["i1"]')).toBe(desc.dataSources[1]);
+
+    const parameterResults = source.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' });
+    expect(parameterResults).toHaveLength(1);
+    if ('error' in parameterResults[0]) {
+      throw new Error(`Unexpected error evaluating stream parameters: ${parameterResults[0].error}`);
+    }
+    expect(parameterResults[0].lookup.source).toBe(desc.parameterIndexLookupCreators[0]);
+
+    const { querier, errors } = await createQueriers(desc, {
+      tokenPayload: { sub: 'u1' },
+      parameters: { issue: 'i1' }
+    });
+    expect(errors).toHaveLength(0);
+    expect(querier.staticBuckets).toHaveLength(1);
+    expect(querier.staticBuckets[0].source).toBe(desc.dataSources[0]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets() {
+        return [{ result: 'i1' }];
+      }
+    });
+    expect(dynamicBuckets).toHaveLength(1);
+    expect(dynamicBuckets[0].source).toBe(desc.dataSources[1]);
+  });
+
   describe('or', () => {
     test('parameter match or request condition', async () => {
       const desc = parseStream("SELECT * FROM issues WHERE owner_id = auth.user_id() OR auth.parameter('is_admin')");
@@ -115,7 +152,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: {
+          tokenPayload: {
             sub: 'u1',
             is_admin: false
           }
@@ -124,7 +161,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: {
+          tokenPayload: {
             sub: 'u1',
             is_admin: true
           }
@@ -144,7 +181,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: {
+          tokenPayload: {
             sub: 'u1'
           }
         })
@@ -162,14 +199,14 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: {
+          tokenPayload: {
             is_admin: false
           }
         })
       ).toStrictEqual(['1#stream|0[]']);
       expect(
         await queryBucketIds(desc, {
-          token: {
+          tokenPayload: {
             is_admin: true
           }
         })
@@ -203,7 +240,7 @@ describe('streams', () => {
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'foo', content: 'whatever]' })).toStrictEqual(['1#stream|0[]']);
       expect(
         await queryBucketIds(desc, {
-          token: {
+          tokenPayload: {
             a: false,
             b: false
           }
@@ -211,7 +248,7 @@ describe('streams', () => {
       ).toStrictEqual([]);
       expect(
         await queryBucketIds(desc, {
-          token: {
+          tokenPayload: {
             a: true,
             b: false
           }
@@ -250,13 +287,12 @@ describe('streams', () => {
 
         return [{ result: 'i1' }];
       }
-      expect(await queryBucketIds(desc, { token: { sub: 'u1', is_admin: false }, getParameterSets })).toStrictEqual([
-        '1#stream|0["i1"]'
-      ]);
-      expect(await queryBucketIds(desc, { token: { sub: 'u1', is_admin: true }, getParameterSets })).toStrictEqual([
-        '1#stream|1[]',
-        '1#stream|0["i1"]'
-      ]);
+      expect(
+        await queryBucketIds(desc, { tokenPayload: { sub: 'u1', is_admin: false }, getParameterSets })
+      ).toStrictEqual(['1#stream|0["i1"]']);
+      expect(
+        await queryBucketIds(desc, { tokenPayload: { sub: 'u1', is_admin: true }, getParameterSets })
+      ).toStrictEqual(['1#stream|1[]', '1#stream|0["i1"]']);
     });
   });
 
@@ -284,7 +320,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'user1' },
+          tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
@@ -316,7 +352,7 @@ describe('streams', () => {
       // Should return bucket id for admin users
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'u' },
+          tokenPayload: { sub: 'u' },
           getParameterSets: (lookups: ScopedParameterLookup[]) => {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u'])]);
             return [{ result: 'u' }];
@@ -327,7 +363,7 @@ describe('streams', () => {
       // And not for others
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'u2' },
+          tokenPayload: { sub: 'u2' },
           getParameterSets: (lookups: ScopedParameterLookup[]) => {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u2'])]);
             return [];
@@ -382,7 +418,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'a' },
+          tokenPayload: { sub: 'a' },
           getParameterSets
         })
       ).toStrictEqual(['1#stream|1["b"]']);
@@ -394,7 +430,7 @@ describe('streams', () => {
       expect(evaluateBucketIds(desc, COMMENTS, { id: 'a', issue_id: 'i' })).toStrictEqual(['1#stream|0["i"]']);
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'a' },
+          tokenPayload: { sub: 'a' },
           parameters: { issue_id: ['i1', 'i2'] }
         })
       ).toStrictEqual(['1#stream|0["i1"]', '1#stream|0["i2"]']);
@@ -410,7 +446,7 @@ describe('streams', () => {
       ]);
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'a' },
+          tokenPayload: { sub: 'a' },
           parameters: { labels: ['l1', 'l2'] },
           getParameterSets(lookups) {
             expect(lookups).toHaveLength(1);
@@ -435,13 +471,13 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'a' },
+          tokenPayload: { sub: 'a' },
           parameters: { issue: 'i' }
         })
       ).toStrictEqual([]);
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'a', issues: ['i', 'i2'] },
+          tokenPayload: { sub: 'a', issues: ['i', 'i2'] },
           parameters: { issue: 'i' }
         })
       ).toStrictEqual(['1#stream|0["i","i"]', '1#stream|0["i","i2"]']);
@@ -473,7 +509,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'user1' },
+          tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
@@ -633,7 +669,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'user1' },
+          tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
@@ -688,7 +724,7 @@ describe('streams', () => {
 
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'user1' },
+          tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
@@ -698,7 +734,7 @@ describe('streams', () => {
       ).toStrictEqual(['1#stream|0["issue_id"]']);
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'user1', is_admin: true },
+          tokenPayload: { sub: 'user1', is_admin: true },
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
 
@@ -757,12 +793,10 @@ describe('streams', () => {
       expect(evaluateBucketIds(stream, accountMember, row)).toStrictEqual(['1#account_member|0["account_id"]']);
       expect(
         await queryBucketIds(stream, {
-          token: { sub: 'id' },
+          tokenPayload: { sub: 'id' },
           parameters: {},
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([
-              ScopedParameterLookup.direct({ lookupName: 'account_member', queryId: '0' }, ['id'])
-            ]);
+            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('account_member', '0'), ['id'])]);
             return [{ result: 'account_id' }];
           }
         })
@@ -853,7 +887,7 @@ WHERE
 
       expect(
         await queryBucketIds(desc, {
-          token: { sub: 'user1', haystack_id: 1 },
+          tokenPayload: { sub: 'user1', haystack_id: 1 },
           parameters: { project: 'foo' },
           getParameterSets(lookups) {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, [1n, 'foo'])]);
@@ -973,13 +1007,14 @@ WHERE
       `);
 
     const hydrationState: HydrationState = {
-      getBucketSourceScope(source) {
-        return { bucketPrefix: `${source.uniqueName}.test` };
+      getBucketSourceScope(source): BucketDataScope {
+        return { bucketPrefix: `${source.uniqueName}.test`, source };
       },
-      getParameterIndexLookupScope(source) {
+      getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
           lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`
+          queryId: `${source.defaultLookupScope.queryId}.test`,
+          source
         };
       }
     };
@@ -998,7 +1033,7 @@ WHERE
       })
     ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '0.test'), ['u1']),
         bucketParameters: [
           {
             result: 'i1'
@@ -1007,7 +1042,7 @@ WHERE
       },
 
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '1.test' }, ['myname']),
+        lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '1.test'), ['myname']),
         bucketParameters: [
           {
             result: 'i1'
@@ -1023,7 +1058,7 @@ WHERE
       })
     ).toStrictEqual([
       {
-        lookup: ScopedParameterLookup.direct({ lookupName: 'stream.test', queryId: '0.test' }, ['u1']),
+        lookup: ScopedParameterLookup.direct(lookupScope('stream.test', '0.test'), ['u1']),
         bucketParameters: [
           {
             result: 'i1'
@@ -1049,14 +1084,14 @@ WHERE
     expect(
       await queryBucketIds(desc, {
         hydrationState,
-        token: { sub: 'u1', is_admin: false },
+        tokenPayload: { sub: 'u1', is_admin: false },
         getParameterSets
       })
     ).toStrictEqual(['stream|2.test[null]', 'stream|0.test["i1"]']);
     expect(
       await queryBucketIds(desc, {
         hydrationState,
-        token: { sub: 'u1', is_admin: true },
+        tokenPayload: { sub: 'u1', is_admin: true },
         parameters: { comment_label: 'l1', issue_name: 'myname' },
         getParameterSets
       })
@@ -1139,7 +1174,7 @@ function bucketIds(result: EvaluationResult[]): string[] {
 }
 
 interface TestQuerierOptions {
-  token?: Record<string, any>;
+  tokenPayload?: Record<string, any>;
   globalParameters?: Record<string, any>;
   parameters?: Record<string, any>;
   getParameterSets?: (lookups: ScopedParameterLookup[]) => SqliteJsonRow[];
@@ -1155,13 +1190,7 @@ async function createQueriers(
 
   const querierOptions: GetQuerierOptions = {
     hasDefaultStreams: true,
-    globalParameters: new RequestParameters(
-      {
-        sub: 'test-user',
-        ...options?.token
-      },
-      { ...options?.globalParameters }
-    ),
+    globalParameters: requestParameters(options?.tokenPayload ?? {}, options?.globalParameters ?? {}),
     streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] }
   };
 

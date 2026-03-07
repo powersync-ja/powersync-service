@@ -70,7 +70,7 @@ describe('JWT Auth', () => {
       defaultAudiences: ['tests'],
       maxAge: '6m'
     });
-    expect(verified.sub).toEqual('f1');
+    expect(verified.userIdJson).toEqual('f1');
     await expect(
       store.verifyJwt(signedJwt, {
         defaultAudiences: ['other'],
@@ -124,6 +124,58 @@ describe('JWT Auth', () => {
         maxAge: '5m'
       })
     ).rejects.toThrow('[PSYNC_S2103] JWT has expired');
+  });
+
+  test('KeyStore normalizes sub claim values', async () => {
+    const keys = await StaticKeyCollector.importKeys([sharedKey]);
+    const store = new KeyStore(keys);
+    const signKey = (await jose.importJWK(sharedKey)) as jose.KeyLike;
+
+    const signWithSub = async (sub: any) => {
+      return new jose.SignJWT({ sub })
+        .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
+        .setIssuedAt()
+        .setIssuer('tester')
+        .setAudience('tests')
+        .setExpirationTime('5m')
+        .sign(signKey);
+    };
+
+    const stringToken = await signWithSub('user-1');
+    const stringVerified = await store.verifyJwt(stringToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    expect(stringVerified.userIdJson).toEqual('user-1');
+    expect(stringVerified.userIdString).toEqual('user-1');
+
+    const booleanToken = await signWithSub(true);
+    const booleanVerified = await store.verifyJwt(booleanToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    expect(booleanVerified.userIdJson).toEqual(1n);
+    expect(booleanVerified.userIdString).toEqual('1');
+
+    const objectSub = { id: 1, name: 'test' };
+    const objectToken = await signWithSub(objectSub);
+    const objectVerified = await store.verifyJwt(objectToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    // The exact JSON serialization here may change in the future
+    expect(objectVerified.userIdJson).toEqual(`{"id":1.0,"name":"test"}`);
+    expect(objectVerified.userIdString).toEqual(`{"id":1.0,"name":"test"}`);
+
+    const arraySub = [1, 'a'];
+    const arrayToken = await signWithSub(arraySub);
+    const arrayVerified = await store.verifyJwt(arrayToken, {
+      defaultAudiences: ['tests'],
+      maxAge: '6m'
+    });
+    // The exact JSON serialization here may change in the future
+    expect(arrayVerified.userIdJson).toEqual(`[1.0,"a"]`);
+    expect(arrayVerified.userIdString).toEqual(`[1.0,"a"]`);
   });
 
   test('Algorithm validation', async () => {
@@ -210,12 +262,14 @@ describe('JWT Auth', () => {
       .setExpirationTime('5m')
       .sign(signKey2);
 
-    await expect(
-      store.verifyJwt(signedJwt3, {
-        defaultAudiences: ['tests'],
-        maxAge: '6m'
-      })
-    ).resolves.toMatchObject({ sub: 'f1' });
+    expect(
+      (
+        await store.verifyJwt(signedJwt3, {
+          defaultAudiences: ['tests'],
+          maxAge: '6m'
+        })
+      ).parsedPayload
+    ).toMatchObject({ sub: 'f1' });
 
     // Random kid, matches sharedKey2
     const signedJwt4 = await new jose.SignJWT({})
@@ -227,12 +281,14 @@ describe('JWT Auth', () => {
       .setExpirationTime('5m')
       .sign(signKey2);
 
-    await expect(
-      store.verifyJwt(signedJwt4, {
-        defaultAudiences: ['tests'],
-        maxAge: '6m'
-      })
-    ).resolves.toMatchObject({ sub: 'f1' });
+    expect(
+      (
+        await store.verifyJwt(signedJwt4, {
+          defaultAudiences: ['tests'],
+          maxAge: '6m'
+        })
+      ).parsedPayload
+    ).toMatchObject({ sub: 'f1' });
   });
 
   test('KeyOptions', async () => {
@@ -258,7 +314,7 @@ describe('JWT Auth', () => {
       defaultAudiences: ['tests'],
       maxAge: '6m'
     });
-    expect(verified.sub).toEqual('f1');
+    expect(verified.userIdJson).toEqual('f1');
 
     const signedJwt2 = await new jose.SignJWT({})
       .setProtectedHeader({ alg: 'HS256', kid: 'k1' })
@@ -410,12 +466,12 @@ describe('JWT Auth', () => {
       .setExpirationTime('5m')
       .sign(signKey);
 
-    const verified = (await store.verifyJwt(signedJwt, {
+    const verified = await store.verifyJwt(signedJwt, {
       defaultAudiences: ['tests'],
       maxAge: '6m'
-    })) as JwtPayload & { claim: string };
+    });
 
-    expect(verified.claim).toEqual('test-claim');
+    expect(verified.parsedPayload.claim).toEqual('test-claim');
   });
 
   test('signing with ECDSA', async () => {
@@ -432,12 +488,12 @@ describe('JWT Auth', () => {
       .setExpirationTime('5m')
       .sign(signKey);
 
-    const verified = (await store.verifyJwt(signedJwt, {
+    const verified = await store.verifyJwt(signedJwt, {
       defaultAudiences: ['tests'],
       maxAge: '6m'
-    })) as JwtPayload & { claim: string };
+    });
 
-    expect(verified.claim).toEqual('test-claim-2');
+    expect(verified.parsedPayload.claim).toEqual('test-claim-2');
   });
 
   describe('debugKeyNotFound', () => {

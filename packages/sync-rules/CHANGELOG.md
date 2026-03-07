@@ -1,5 +1,44 @@
 # @powersync/service-sync-rules
 
+## 0.33.0
+
+### Minor Changes
+
+- c15efc7: [Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
+
+### Patch Changes
+
+- dcddcf1: When generating schema code, also generate helpers to subscribe to Sync Streams.
+- e7152ce: Sync Streams beta: Fix compiling filters of the form `$staticExpression IN $requestData`.
+- b410924: Sync Streams: Fix compiler errors when an output value of a table-valued function is used multiple times.
+
+## 0.32.0
+
+### Minor Changes
+
+- 8bd83e8: Introduce storage versions.
+- 5edd95f: Remnoved Flutterflow schema generator.
+
+### Patch Changes
+
+- 1c45667: New compiler: Fix some crashes compiling `NOT IN`, `NOT LIKE` and `NOT BETWEEN` operators.
+- 8785a3f: Warn for dangerous queries in `config.edition: 3`.
+- d7ff4ad: Add `config.edition` version `3` to adopt the new Sync Streams compiler.
+- 79a9729: Updated Dotnet schema generator to support new syntax.
+
+## 0.31.1
+
+### Patch Changes
+
+- a04252d: Support joining table-valued functions in sync streams.
+
+## 0.31.0
+
+### Minor Changes
+
+- 0e99ce0: Add `sync_config_compiler` option to sync configurations, enabling the new compiler with support for JOINs and common table expressions.
+- 479997b: Introduce `BaseSyncConfig` to represent SQL-based sync rules and precompiled sync plans.
+
 ## 0.30.0
 
 ### Minor Changes

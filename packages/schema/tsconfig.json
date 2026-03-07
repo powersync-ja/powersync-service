@@ -28,6 +28,9 @@
     },
     {
       "path": "../../modules/module-convex"
+    },
+    {
+      "path": "../../modules/module-mssql"
     }
   ]
 }

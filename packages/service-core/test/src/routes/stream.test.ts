@@ -1,4 +1,4 @@
-import { BasicRouterRequest, Context, SyncRulesBucketStorage } from '@/index.js';
+import { BasicRouterRequest, Context, JwtPayload, SyncRulesBucketStorage } from '@/index.js';
 import { RouterResponse, ServiceError, logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { Readable, Writable } from 'stream';
@@ -8,6 +8,7 @@ import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../../../src/util/param-logging.js';
 import { mockServiceContext } from './mocks.js';
+import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 
 describe('Stream Route', () => {
   describe('compressed stream', () => {
@@ -15,11 +16,11 @@ describe('Stream Route', () => {
       const context: Context = {
         logger: logger,
         service_context: mockServiceContext(null),
-        token_payload: {
+        token_payload: new JwtPayload({
           sub: '',
           exp: 0,
           iat: 0
-        }
+        })
       };
 
       const request: BasicRouterRequest = {
@@ -45,7 +46,7 @@ describe('Stream Route', () => {
 
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate();
+          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');
@@ -56,11 +57,11 @@ describe('Stream Route', () => {
       const context: Context = {
         logger: logger,
         service_context: serviceContext,
-        token_payload: {
+        token_payload: new JwtPayload({
           exp: new Date().getTime() / 1000 + 10000,
           iat: new Date().getTime() / 1000 - 10000,
           sub: 'test-user'
-        }
+        })
       };
 
       // It may be worth eventually doing this via Fastify to test the full stack
@@ -83,7 +84,7 @@ describe('Stream Route', () => {
     it('logs the application metadata', async () => {
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate();
+          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');
@@ -108,11 +109,11 @@ describe('Stream Route', () => {
       const context: Context = {
         logger: testLogger,
         service_context: serviceContext,
-        token_payload: {
+        token_payload: new JwtPayload({
           exp: new Date().getTime() / 1000 + 10000,
           iat: new Date().getTime() / 1000 - 10000,
           sub: 'test-user'
-        }
+        })
       };
 
       const request: BasicRouterRequest = {

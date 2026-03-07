@@ -1,7 +1,7 @@
-import { ColumnDefinition, ExpressionType } from '../ExpressionType.js';
-import { SqlSyncRules } from '../SqlSyncRules.js';
+import { SyncConfig } from '../SyncConfig.js';
+import { ColumnDefinition, ColumnType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
 import { SourceSchema } from '../types.js';
-import { GenerateSchemaOptions, SchemaGenerator } from './SchemaGenerator.js';
+import { GenerateSchemaOptions, SchemaGenerator, toCamelCase } from './SchemaGenerator.js';
 
 export class DartSchemaGenerator extends SchemaGenerator {
   readonly key = 'dart';
@@ -9,13 +9,38 @@ export class DartSchemaGenerator extends SchemaGenerator {
   readonly mediaType = 'text/x-dart';
   readonly fileName = 'schema.dart';
 
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
+  generate(source: SyncConfig, schema: SourceSchema, options?: GenerateSchemaOptions): string {
     const tables = super.getAllTables(source, schema);
 
-    return `Schema([
+    let generatedCode = `Schema([
   ${tables.map((table) => this.generateTable(table.name, table.columns, options)).join(',\n  ')}
 ]);
 `;
+
+    const optionalSyncStreams = this.getOptionalStreams(source, schema);
+    if (optionalSyncStreams.length) {
+      generatedCode += '\nextension type TypedSyncStreams(PowerSyncDatabase _db) {\n';
+
+      for (const stream of optionalSyncStreams) {
+        let dartParameters = Object.entries(stream.parameters)
+          .map(([parameter, type]) => `required ${this.dartType(type)} ${toCamelCase(parameter)}`)
+          .join(', ');
+        if (dartParameters.length) {
+          dartParameters = `{${dartParameters}}`;
+        }
+
+        const dartMap = Object.keys(stream.parameters)
+          .map((parameter) => `'${parameter}': ${toCamelCase(parameter)},`)
+          .join(', ');
+
+        generatedCode += `  SyncStream ${toCamelCase(stream.name)}(${dartParameters}) => _db.syncStream('${stream.name}', {${dartMap}});\n`;
+      }
+
+      generatedCode += `}
+`;
+    }
+
+    return generatedCode;
   }
 
   private generateTable(name: string, columns: ColumnDefinition[], options?: GenerateSchemaOptions): string {
@@ -43,69 +68,16 @@ ${generated.join('\n')}
   private generateColumn(column: ColumnDefinition) {
     return `Column.${this.columnType(column)}('${column.name}')`;
   }
-}
 
-export class DartFlutterFlowSchemaGenerator extends SchemaGenerator {
-  readonly key = 'dart-flutterflow';
-  readonly label = 'FlutterFlow';
-  readonly mediaType = 'application/json';
-  readonly fileName = 'schema.json';
-
-  generate(source: SqlSyncRules, schema: SourceSchema, options?: GenerateSchemaOptions): string {
-    const serializedTables = this.getAllTables(source, schema).map((e) => this.generateTable(e.name, e.columns));
-    // Not all FlutterFlow apps will use the attachments queue table, but it needs to be part of the app schema if used
-    // and does no harm otherwise. So, we just include it by default.
-    serializedTables.push(
-      this.generateTable(
-        'attachments_queue',
-        [
-          {
-            name: 'filename',
-            type: ExpressionType.TEXT
-          },
-          {
-            name: 'local_uri',
-            type: ExpressionType.TEXT
-          },
-          {
-            name: 'timestamp',
-            type: ExpressionType.INTEGER
-          },
-          {
-            name: 'size',
-            type: ExpressionType.INTEGER
-          },
-          {
-            name: 'media_type',
-            type: ExpressionType.TEXT
-          },
-          {
-            name: 'state',
-            type: ExpressionType.INTEGER
-          }
-        ],
-        true
-      )
-    );
-
-    return JSON.stringify({ tables: serializedTables });
-  }
-
-  private generateTable(name: string, columns: ColumnDefinition[], localOnly = false): object {
-    return {
-      name,
-      view_name: null,
-      local_only: localOnly,
-      insert_only: false,
-      columns: columns.map((c) => this.generateColumn(c)),
-      indexes: []
-    };
-  }
-
-  private generateColumn(definition: ColumnDefinition): object {
-    return {
-      name: definition.name,
-      type: this.columnType(definition)
-    };
+  private dartType({ type }: ColumnType): string {
+    if (type.typeFlags & TYPE_TEXT) {
+      return 'String';
+    } else if (type.typeFlags & TYPE_REAL) {
+      return 'double';
+    } else if (type.typeFlags & TYPE_INTEGER) {
+      return 'int';
+    } else {
+      return 'String';
+    }
   }
 }

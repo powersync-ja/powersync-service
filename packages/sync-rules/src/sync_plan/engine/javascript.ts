@@ -1,13 +1,15 @@
 import {
+  cast,
   compare,
   CompatibilityContext,
+  ExpressionType,
   generateSqlFunctions,
   SQLITE_FALSE,
   SQLITE_TRUE,
   sqliteBool,
   sqliteNot
 } from '../../index.js';
-import { cast, evaluateOperator, SqlFunction } from '../../sql_functions.js';
+import { evaluateOperator, SqlFunction } from '../../sql_functions.js';
 import { cartesianProduct } from '../../streams/utils.js';
 import { generateTableValuedFunctions } from '../../TableValuedFunctions.js';
 import { SqliteRow, SqliteValue } from '../../types.js';
@@ -38,7 +40,18 @@ export function javaScriptExpressionEngine(compatibility: CompatibilityContext):
   const tableValued = generateTableValuedFunctions(compatibility);
   const regularFunctions = generateSqlFunctions(compatibility);
   const compiler = new ExpressionToJavaScriptFunction({
-    named: regularFunctions.named,
+    named: {
+      ...regularFunctions.named,
+      ps_json_contains: {
+        debugName: 'ps_json_contains',
+        call: function (...args: SqliteValue[]): SqliteValue {
+          return evaluateOperator('IN', args[0], args[1]);
+        },
+        getReturnType: function (args: ExpressionType[]): ExpressionType {
+          return ExpressionType.INTEGER;
+        }
+      }
+    },
     jsonExtractJson: regularFunctions.operatorJsonExtractJson,
     jsonExtractSql: regularFunctions.operatorJsonExtractSql
   });

@@ -1,10 +1,7 @@
-import { Scope } from 'ajv/dist/compile/codegen/scope.js';
 import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
-import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
 import {
   ParameterIndexLookupCreator,
   BucketParameterQuerier,
-  buildBucketName,
   CompatibilityContext,
   EvaluatedParameters,
   EvaluatedRow,
@@ -23,7 +20,7 @@ import {
   SqlEventDescriptor,
   SqliteInputValue,
   SqliteValue,
-  SqlSyncRules
+  SyncConfig
 } from './index.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
@@ -37,13 +34,13 @@ export class HydratedSyncRules {
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-  readonly definition: SqlSyncRules;
+  readonly definition: SyncConfig;
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
 
   constructor(params: {
-    definition: SqlSyncRules;
+    definition: SyncConfig;
     createParams: CreateSourceParams;
     bucketDataSources: BucketDataSource[];
     bucketParameterIndexLookupCreators: ParameterIndexLookupCreator[];

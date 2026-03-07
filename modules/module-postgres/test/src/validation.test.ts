@@ -3,9 +3,10 @@ import { expect, test } from 'vitest';
 
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { updateSyncRulesFromYaml } from '@powersync/service-core';
 
 test('validate tables', async () => {
-  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY);
+  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
   const { pool } = context;
 
   await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
@@ -19,15 +20,15 @@ bucket_definitions:
       - SELECT * FROM "other%"
 `;
 
-  const syncRules = await context.factory.updateSyncRules({ content: syncRuleContent });
+  const syncRules = await context.factory.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent));
 
-  const tablePatterns = syncRules.parsed({ defaultSchema: 'public' }).sync_rules.getSourceTables();
+  const tablePatterns = syncRules.parsed({ defaultSchema: 'public' }).sync_rules.config.getSourceTables();
   const tableInfo = await getDebugTablesInfo({
     db: pool,
     publicationName: context.publicationName,
     connectionTag: context.connectionTag,
     tablePatterns: tablePatterns,
-    syncRules: syncRules.parsed({ defaultSchema: 'public' }).sync_rules
+    syncRules: syncRules.parsed({ defaultSchema: 'public' }).sync_rules.config
   });
   expect(tableInfo).toEqual([
     {

@@ -5,9 +5,9 @@ import * as bson from 'bson';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
-import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatch.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
-import { PowerSyncMongo } from './db.js';
+import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
@@ -16,7 +16,7 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { replicaIdToSubkey } from '../../utils/util.js';
+import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -63,6 +63,7 @@ export class PersistedBatch {
   currentSize = 0;
 
   constructor(
+    private db: VersionedPowerSyncMongo,
     private group_id: number,
     writtenSize: number,
     options?: { logger?: Logger }
@@ -132,7 +133,7 @@ export class PersistedBatch {
               o: op_id
             },
             op: 'PUT',
-            source_table: options.table.id,
+            source_table: mongoTableId(options.table.id),
             source_key: options.sourceKey,
             table: k.table,
             row_id: k.id,
@@ -159,7 +160,7 @@ export class PersistedBatch {
               o: op_id
             },
             op: 'REMOVE',
-            source_table: options.table.id,
+            source_table: mongoTableId(options.table.id),
             source_key: options.sourceKey,
             table: bd.table,
             row_id: bd.id,
@@ -208,7 +209,7 @@ export class PersistedBatch {
             _id: op_id,
             key: {
               g: this.group_id,
-              t: sourceTable.id,
+              t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
             lookup: binLookup,
@@ -230,7 +231,7 @@ export class PersistedBatch {
             _id: op_id,
             key: {
               g: this.group_id,
-              t: sourceTable.id,
+              t: mongoTableId(sourceTable.id),
               k: sourceKey
             },
             lookup: lookup,
@@ -243,10 +244,38 @@ export class PersistedBatch {
     }
   }
 
-  deleteCurrentData(id: SourceKey) {
+  hardDeleteCurrentData(id: SourceKey) {
     const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
       deleteOne: {
         filter: { _id: id }
+      }
+    };
+    this.currentData.push(op);
+    this.currentSize += 50;
+  }
+
+  /**
+   * Mark a current_data document as soft deleted, to delete on the next commit.
+   *
+   * If softDeleteCurrentData is not enabled, this falls back to a hard delete.
+   */
+  softDeleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint) {
+    if (!this.db.storageConfig.softDeleteCurrentData) {
+      this.hardDeleteCurrentData(id);
+      return;
+    }
+    const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
+      updateOne: {
+        filter: { _id: id },
+        update: {
+          $set: {
+            data: EMPTY_DATA,
+            buckets: [],
+            lookups: [],
+            pending_delete: checkpointGreaterThan
+          }
+        },
+        upsert: true
       }
     };
     this.currentData.push(op);
@@ -258,7 +287,8 @@ export class PersistedBatch {
       updateOne: {
         filter: { _id: id },
         update: {
-          $set: values
+          $set: values,
+          $unset: { pending_delete: 1 }
         },
         upsert: true
       }
@@ -276,7 +306,8 @@ export class PersistedBatch {
     );
   }
 
-  async flush(db: PowerSyncMongo, session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+  async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
+    const db = this.db;
     const startAt = performance.now();
     let flushedSomething = false;
     if (this.bucketData.length > 0) {
@@ -297,7 +328,7 @@ export class PersistedBatch {
     }
     if (this.currentData.length > 0) {
       flushedSomething = true;
-      await db.current_data.bulkWrite(this.currentData, {
+      await db.common_current_data.bulkWrite(this.currentData, {
         session,
         // may update and delete data within the same batch - order matters
         ordered: true

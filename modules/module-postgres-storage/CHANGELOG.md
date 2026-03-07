@@ -1,5 +1,91 @@
 # @powersync/service-module-postgres-storage
 
+## 0.13.0
+
+### Minor Changes
+
+- 8c5bb3b: [Internal] Allow using multiple BucketStorageBatch instances concurrently.
+- c15efc7: [Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
+
+### Patch Changes
+
+- 642cb11: [Postgres Storage] Fix concurrency issue in compacting, leading to "[PSYNC_S1101] Unexpected PUT operation".
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [dcddcf1]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e7152ce]
+- Updated dependencies [e150c5c]
+- Updated dependencies [b410924]
+  - @powersync/service-core@1.20.1
+  - @powersync/lib-services-framework@0.9.0
+  - @powersync/service-sync-rules@0.33.0
+  - @powersync/lib-service-postgres@0.4.23
+  - @powersync/service-jpgwire@0.21.14
+
+## 0.12.0
+
+### Minor Changes
+
+- 8a4c34e: Refactor `BucketStorageFactory` and `PersistedSyncRulesContent` to be abstract classes instead of interfaces.
+- 8bd83e8: Introduce storage versions.
+- 83989b2: Store compiled sync plans in bucket storage.
+
+### Patch Changes
+
+- 65f3c89: Improve Postgres compaction performance by replacing bucket range filtering with incremental discovery and per-bucket exact-match queries, eliminating `COLLATE "C"` and `U+FFFF` sentinel usage.
+
+  - The compactor logic is an internal refactor that improves query performance (no API change)
+  - The CLI change adds validation but is a correction (prefix matching was broken/unused anyway)
+  - The `CompactOptions.compactBuckets` JSDoc is a documentation-only update
+
+  Resolves #400.
+
+- Updated dependencies [15aea77]
+- Updated dependencies [0998251]
+- Updated dependencies [65f3c89]
+- Updated dependencies [1c45667]
+- Updated dependencies [8785a3f]
+- Updated dependencies [8a4c34e]
+- Updated dependencies [b440093]
+- Updated dependencies [d7ff4ad]
+- Updated dependencies [c683322]
+- Updated dependencies [8bd83e8]
+- Updated dependencies [83989b2]
+- Updated dependencies [79a9729]
+- Updated dependencies [5edd95f]
+  - @powersync/lib-service-postgres@0.4.22
+  - @powersync/service-jpgwire@0.21.13
+  - @powersync/service-core@1.20.0
+  - @powersync/service-types@0.15.0
+  - @powersync/service-sync-rules@0.32.0
+  - @powersync/lib-services-framework@0.8.3
+
+## 0.11.2
+
+### Patch Changes
+
+- Updated dependencies [a04252d]
+  - @powersync/service-sync-rules@0.31.1
+  - @powersync/lib-services-framework@0.8.2
+  - @powersync/service-jpgwire@0.21.12
+  - @powersync/service-core@1.19.2
+  - @powersync/lib-service-postgres@0.4.21
+
+## 0.11.1
+
+### Patch Changes
+
+- 479997b: Introduce `BaseSyncConfig` to represent SQL-based sync rules and precompiled sync plans.
+- Updated dependencies [0e99ce0]
+- Updated dependencies [479997b]
+- Updated dependencies [d1c2228]
+- Updated dependencies [1a1a4cc]
+  - @powersync/service-sync-rules@0.31.0
+  - @powersync/service-core@1.19.1
+  - @powersync/lib-services-framework@0.8.1
+  - @powersync/service-jpgwire@0.21.11
+  - @powersync/lib-service-postgres@0.4.20
+
 ## 0.11.0
 
 ### Minor Changes

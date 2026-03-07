@@ -1,5 +1,5 @@
 import { CompatibilityContext, CompatibilityOption } from '../../compatibility.js';
-import { generateSqlFunctions } from '../../index.js';
+import { evaluateOperator, generateSqlFunctions } from '../../index.js';
 import { SqliteValue } from '../../types.js';
 import { ScalarExpressionEngine, ScalarExpressionEvaluator, scalarStatementToSql } from './scalar_expression_engine.js';
 
@@ -35,6 +35,10 @@ export function nodeSqliteExpressionEngine(
   registerPowerSyncFunction('st_astext');
   registerPowerSyncFunction('st_x');
   registerPowerSyncFunction('st_y');
+
+  db.function('ps_json_contains', { useBigIntArguments: true, deterministic: true }, (a, b) =>
+    evaluateOperator('IN', a, b)
+  );
 
   if (!compatibility.isEnabled(CompatibilityOption.fixedJsonExtract)) {
     // For backwards compatibility, use the old JSON operators which parse the path argument differently.

@@ -1,5 +1,87 @@
 # @powersync/service-image
 
+## 1.20.1
+
+### Patch Changes
+
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [c15efc7]
+- Updated dependencies [642cb11]
+- Updated dependencies [e150c5c]
+  - @powersync/service-module-postgres-storage@0.13.0
+  - @powersync/service-module-mongodb-storage@0.15.0
+  - @powersync/service-module-postgres@0.19.0
+  - @powersync/service-module-mongodb@0.15.0
+  - @powersync/service-core@1.20.1
+  - @powersync/service-module-mysql@0.12.0
+  - @powersync/lib-services-framework@0.9.0
+  - @powersync/service-module-mssql@0.5.0
+  - @powersync/service-module-core@0.2.21
+  - @powersync/service-rsocket-router@0.2.16
+
+## 1.20.0
+
+### Patch Changes
+
+- Updated dependencies [15aea77]
+- Updated dependencies [0998251]
+- Updated dependencies [354dac6]
+- Updated dependencies [65f3c89]
+- Updated dependencies [8a4c34e]
+- Updated dependencies [54bf7f5]
+- Updated dependencies [b440093]
+- Updated dependencies [c683322]
+- Updated dependencies [8bd83e8]
+- Updated dependencies [54bf7f5]
+- Updated dependencies [83989b2]
+  - @powersync/service-module-mongodb@0.14.0
+  - @powersync/service-module-mysql@0.11.0
+  - @powersync/service-core@1.20.0
+  - @powersync/service-module-mongodb-storage@0.14.0
+  - @powersync/service-module-postgres-storage@0.12.0
+  - @powersync/service-module-postgres@0.18.0
+  - @powersync/service-module-mssql@0.4.0
+  - @powersync/service-module-core@0.2.20
+  - @powersync/lib-services-framework@0.8.3
+  - @powersync/service-rsocket-router@0.2.15
+
+## 1.19.2
+
+### Patch Changes
+
+- Updated dependencies [e21db9b]
+  - @powersync/service-module-mongodb-storage@0.13.2
+  - @powersync/service-module-mongodb@0.13.2
+  - @powersync/service-module-mssql@0.3.1
+  - @powersync/service-module-mysql@0.10.2
+  - @powersync/service-module-postgres@0.17.2
+  - @powersync/lib-services-framework@0.8.2
+  - @powersync/service-module-postgres-storage@0.11.2
+  - @powersync/service-core@1.19.2
+  - @powersync/service-module-core@0.2.19
+  - @powersync/service-rsocket-router@0.2.14
+
+## 1.19.1
+
+### Patch Changes
+
+- 433d9fb: Node 24.13.0
+- Updated dependencies [2dc1cae]
+- Updated dependencies [479997b]
+- Updated dependencies [d1c2228]
+- Updated dependencies [e11289d]
+- Updated dependencies [1a1a4cc]
+  - @powersync/service-module-mongodb-storage@0.13.1
+  - @powersync/service-module-postgres-storage@0.11.1
+  - @powersync/service-module-postgres@0.17.1
+  - @powersync/service-module-mongodb@0.13.1
+  - @powersync/service-core@1.19.1
+  - @powersync/service-module-mssql@0.3.0
+  - @powersync/lib-services-framework@0.8.1
+  - @powersync/service-module-mysql@0.10.1
+  - @powersync/service-module-core@0.2.18
+  - @powersync/service-rsocket-router@0.2.13
+
 ## 1.19.0
 
 ### Patch Changes

@@ -6,8 +6,5 @@
     "rootDir": "src"
   },
   "include": ["src"],
-  "references": [
-    { "path": "../../packages/service-errors" },
-    { "path": "../../packages/sync-rules" }
-  ]
+  "references": [{ "path": "../../packages/service-errors" }, { "path": "../../packages/sync-rules" }]
 }

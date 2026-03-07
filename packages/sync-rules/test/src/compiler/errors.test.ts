@@ -1,10 +1,63 @@
 import { describe, expect, test } from 'vitest';
-import { compilationErrorsForSingleStream, compileToSyncPlan } from './utils.js';
+import { compilationErrorsForSingleStream, yamlToSyncPlan } from './utils.js';
 import { SourceSchema } from '../../../src/types.js';
 import { SourceTableDefinition, StaticSchema } from '../../../src/StaticSchema.js';
 import { DEFAULT_TAG } from '../../../src/TablePattern.js';
 
 describe('compilation errors', () => {
+  test('parsing error in query', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    query: invalid syntax
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.source).toStrictEqual('syntax');
+  });
+
+  test('parsing error in CTE', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    with:
+      org_of_user: invalid syntax
+    query: SELECT * FROM projects
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.source).toStrictEqual('syntax');
+  });
+
+  test('missing query', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    with:
+      foo: SELECT id FROM users
+`);
+
+    expect(errors).toStrictEqual([
+      {
+        message: 'One of `queries` or `query` must be given.',
+        source: `with:
+      foo: SELECT id FROM users
+`
+      }
+    ]);
+  });
+
   test('not a select statement', () => {
     expect(compilationErrorsForSingleStream("INSERT INTO users (id) VALUES ('foo')")).toStrictEqual([
       {
@@ -15,10 +68,10 @@ describe('compilation errors', () => {
   });
 
   test('not selecting from anything', () => {
-    expect(compilationErrorsForSingleStream('SELECT 1, 2, 3')).toStrictEqual([
+    expect(compilationErrorsForSingleStream('SELECT 1 AS a, 2 AS b, 3 AS c')).toStrictEqual([
       {
         message: 'Must have a result column selecting from a table',
-        source: 'SELECT 1, 2, 3'
+        source: 'SELECT 1 AS a, 2 AS b, 3 AS c'
       }
     ]);
   });
@@ -36,6 +89,19 @@ describe('compilation errors', () => {
     ]);
   });
 
+  test('selecting column from table-valued function', () => {
+    expect(compilationErrorsForSingleStream("SELECT value FROM json_each(auth.parameter('x'))")).toStrictEqual([
+      {
+        message: 'Sync streams can only select from actual tables',
+        source: 'value'
+      },
+      {
+        message: 'Must have a result column selecting from a table',
+        source: "SELECT value FROM json_each(auth.parameter('x'))"
+      }
+    ]);
+  });
+
   test('join with using', () => {
     expect(compilationErrorsForSingleStream('SELECT u.* FROM users u INNER JOIN orgs USING (org_id)')).toStrictEqual([
       {
@@ -46,7 +112,7 @@ describe('compilation errors', () => {
   });
 
   test('selecting connection value', () => {
-    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') FROM users u;")).toStrictEqual([
+    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') AS p FROM users u;")).toStrictEqual([
       {
         message: 'This attempts to sync a connection parameter. Only values from the source database can be synced.',
         source: "auth.parameter('x')"
@@ -101,17 +167,6 @@ describe('compilation errors', () => {
       {
         message: 'Must have a result column selecting from a table',
         source: 'SELECT users.* FROM orgs'
-      }
-    ]);
-  });
-
-  test('IN operator with static left clause', () => {
-    expect(
-      compilationErrorsForSingleStream("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
-    ).toStrictEqual([
-      {
-        message: 'This filter is unrelated to the request or the table being synced, and not supported.',
-        source: "'static' IN (SELECT id FROM users WHERE is_admin"
       }
     ]);
   });
@@ -209,19 +264,38 @@ describe('compilation errors', () => {
     ]);
   });
 
+  test('warns about missing alias', () => {
+    expect(compilationErrorsForSingleStream('select id, lower(name) from users')).toStrictEqual([
+      {
+        message: 'The name of this column is unspecified, consider adding an alias.',
+        source: 'lower(name)',
+        isWarning: true
+      }
+    ]);
+
+    // Should not warn for subqueries with fixed column names.
+    expect(
+      compilationErrorsForSingleStream(
+        'select id, name from (select id, lower(name) from users) as my_table (id, name)'
+      )
+    ).toStrictEqual([]);
+  });
+
   describe('schema errors', () => {
     function schemaFromTables(...tables: SourceTableDefinition[]): StaticSchema {
       return new StaticSchema([{ tag: DEFAULT_TAG, schemas: [{ name: 'test_schema', tables }] }]);
     }
 
     function compilationErrorsWithSchema(schema: SourceSchema, sql: string) {
-      const [errors] = compileToSyncPlan(
-        [
-          {
-            name: 'stream',
-            queries: [sql]
-          }
-        ],
+      const [errors] = yamlToSyncPlan(
+        `
+config:
+  edition: 3
+
+streams:
+  stream:
+    query: ${sql}
+        `,
         { defaultSchema: 'test_schema', schema }
       );
 
@@ -266,6 +340,94 @@ describe('compilation errors', () => {
           isWarning: true
         }
       ]);
+    });
+  });
+
+  test('does not allow bucket_definitions', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  foo:
+    query: SELECT * FROM users
+
+bucket_definitions:
+  a:
+    data:
+      - SELECT * FROM users
+`);
+
+    expect(errors).toHaveLength(1);
+    const [error] = errors;
+    expect(error.message).toContain("'bucket_definitions' are not supported by the new compiler.");
+    expect(error.source).toStrictEqual(`a:
+    data:
+      - SELECT * FROM users
+`);
+  });
+
+  describe('warns about potentially dangerous queries', () => {
+    function checkDangerousQueryWarning(query: string, expectedError: boolean) {
+      const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  foo:
+    query: ${query}
+`);
+
+      if (expectedError) {
+        expect(errors).toHaveLength(1);
+        const [error] = errors;
+        expect(error.message).toContain('this is unsuitable for authorization');
+        expect(error.isWarning).toBeTruthy();
+
+        // Should not report the dangerous queries warning with the tag applied.
+        const [errorsWithOptIn] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  foo:
+    accept_potentially_dangerous_queries: true
+    query: ${query}
+`);
+        expect(errorsWithOptIn).toStrictEqual([]);
+      } else {
+        expect(errors).toStrictEqual([]);
+      }
+    }
+
+    // These examples are taken from SqlParameterQuery.usesDangerousRequestParameters
+    test('safe', () => {
+      checkDangerousQueryWarning('SELECT * FROM users WHERE user_id = auth.user_id()', false);
+      checkDangerousQueryWarning(
+        `SELECT * FROM notes WHERE org = auth.parameter('org') AND project = subscription.parameter('project')`,
+        false
+      );
+      checkDangerousQueryWarning(
+        `SELECT * FROM notes WHERE org = auth.parameter('org') AND project = connection.parameter('project')`,
+        false
+      );
+      checkDangerousQueryWarning('SELECT * FROM users', false);
+
+      checkDangerousQueryWarning(`SELECT * FROM projects WHERE is_public OR owner = auth.user_id()`, false);
+    });
+
+    test('dangerous', () => {
+      checkDangerousQueryWarning(`SELECT * FROM projects WHERE id = subscription.parameter('project')`, true);
+      checkDangerousQueryWarning(
+        `SELECT * FROM projects WHERE id = subscription.parameter('project') AND auth.parameter('role') = 'authenticated'`,
+        true
+      );
+      checkDangerousQueryWarning(`SELECT * FROM categories WHERE connection.parameters('include_categories')`, true);
+
+      checkDangerousQueryWarning(
+        `SELECT * FROM projects WHERE id = subscription.parameter('id') OR owner = auth.user_id()`,
+        true
+      );
     });
   });
 });

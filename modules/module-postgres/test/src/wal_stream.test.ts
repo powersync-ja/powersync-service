@@ -1,13 +1,12 @@
 import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
-import { storage } from '@powersync/service-core';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as crypto from 'crypto';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { describeWithStorage } from './util.js';
+import { describe, expect, test } from 'vitest';
+import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext, withMaxWalSize } from './wal_stream_utils.js';
-import { JSONBig } from '@powersync/service-jsonbig';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -20,9 +19,12 @@ describe('wal stream', () => {
   describeWithStorage({ timeout: 20_000 }, defineWalStreamTests);
 });
 
-function defineWalStreamTests(factory: storage.TestStorageFactory) {
+function defineWalStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const openContext = (options?: Parameters<typeof WalStreamTestContext.open>[1]) => {
+    return WalStreamTestContext.open(factory, { ...options, storageVersion });
+  };
   test('replicating basic values', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(`
 bucket_definitions:
@@ -57,7 +59,7 @@ bucket_definitions:
   });
 
   test('replicating case sensitive table', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(`
       bucket_definitions:
@@ -88,7 +90,7 @@ bucket_definitions:
   });
 
   test('replicating TOAST values', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(`
       bucket_definitions:
@@ -103,7 +105,6 @@ bucket_definitions:
     );
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     // Must be > 8kb after compression
     const largeDescription = crypto.randomBytes(20_000).toString('hex');
@@ -126,7 +127,7 @@ bucket_definitions:
   });
 
   test('replicating TRUNCATE', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     const syncRuleContent = `
 bucket_definitions:
@@ -157,7 +158,7 @@ bucket_definitions:
   });
 
   test('replicating changing primary key', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
     await pool.query(`DROP TABLE IF EXISTS test_data`);
@@ -198,7 +199,7 @@ bucket_definitions:
   });
 
   test('initial sync', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -210,14 +211,13 @@ bucket_definitions:
     );
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([putOp('test_data', { id: test_id, description: 'test1' })]);
   });
 
   test('record too large', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     await context.updateSyncRules(`bucket_definitions:
       global:
         data:
@@ -242,8 +242,6 @@ bucket_definitions:
       params: [{ type: 'varchar', value: largeDescription }]
     });
 
-    context.startStreaming();
-
     const data = await context.getBucketData('global[]');
     expect(data.length).toEqual(1);
     const row = JSON.parse(data[0].data as string);
@@ -254,7 +252,7 @@ bucket_definitions:
   });
 
   test('table not in sync rules', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -280,7 +278,7 @@ bucket_definitions:
 
   test('reporting slot issues', async () => {
     {
-      await using context = await WalStreamTestContext.open(factory);
+      await using context = await openContext();
       const { pool } = context;
       await context.updateSyncRules(`
 bucket_definitions:
@@ -295,7 +293,6 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -310,7 +307,7 @@ bucket_definitions:
     }
 
     {
-      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      await using context = await openContext({ doNotClear: true });
       const { pool } = context;
       await pool.query('DROP PUBLICATION powersync');
       await pool.query(`UPDATE test_data SET description = 'updated'`);
@@ -320,15 +317,12 @@ bucket_definitions:
 
       await context.loadActiveSyncRules();
 
-      // Previously, the `replicateSnapshot` call picked up on this error.
-      // Now, we have removed that check, this only comes up when we start actually streaming.
-      // We don't get the streaming response directly here, but getCheckpoint() checks for that.
-      await context.replicateSnapshot();
-      context.startStreaming();
+      // Note: The actual error may be thrown either in replicateSnapshot(), or in getCheckpoint().
 
       if (serverVersion!.compareMain('18.0.0') >= 0) {
         // No error expected in Postres 18. Replication keeps on working depite the
         // publication being re-created.
+        await context.replicateSnapshot();
         await context.getCheckpoint();
       } else {
         // await context.getCheckpoint();
@@ -336,16 +330,16 @@ bucket_definitions:
         // In the service, this error is handled in WalStreamReplicationJob,
         // creating a new replication slot.
         await expect(async () => {
+          await context.replicateSnapshot();
           await context.getCheckpoint();
         }).rejects.toThrowError(MissingReplicationSlotError);
-        context.clearStreamError();
       }
     }
   });
 
   test('dropped replication slot', async () => {
     {
-      await using context = await WalStreamTestContext.open(factory);
+      await using context = await openContext();
       const { pool } = context;
       await context.updateSyncRules(`
 bucket_definitions:
@@ -360,7 +354,6 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -375,7 +368,7 @@ bucket_definitions:
     }
 
     {
-      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      await using context = await openContext({ doNotClear: true });
       const { pool } = context;
       const storage = await context.factory.getActiveStorage();
 
@@ -396,7 +389,7 @@ bucket_definitions:
   });
 
   test('replication slot lost', async () => {
-    await using baseContext = await WalStreamTestContext.open(factory, { doNotClear: true });
+    await using baseContext = await openContext({ doNotClear: true });
 
     const serverVersion = await baseContext.connectionManager.getServerVersion();
     if (serverVersion!.compareMain('13.0.0') < 0) {
@@ -408,7 +401,7 @@ bucket_definitions:
     await using s = await withMaxWalSize(baseContext.pool, '100MB');
 
     {
-      await using context = await WalStreamTestContext.open(factory);
+      await using context = await openContext();
       const { pool } = context;
       await context.updateSyncRules(`
 bucket_definitions:
@@ -423,7 +416,6 @@ bucket_definitions:
         `INSERT INTO test_data(id, description) VALUES('8133cd37-903b-4937-a022-7c8294015a3a', 'test1') returning id as test_id`
       );
       await context.replicateSnapshot();
-      context.startStreaming();
 
       const data = await context.getBucketData('global[]');
 
@@ -438,7 +430,7 @@ bucket_definitions:
     }
 
     {
-      await using context = await WalStreamTestContext.open(factory, { doNotClear: true });
+      await using context = await openContext({ doNotClear: true });
       const { pool } = context;
       const storage = await context.factory.getActiveStorage();
       const slotName = storage?.slot_name!;
@@ -479,7 +471,7 @@ bucket_definitions:
   });
 
   test('old date format', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
     const { pool } = context;
@@ -494,7 +486,7 @@ bucket_definitions:
   });
 
   test('new date format', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     await context.updateSyncRules(`
 streams:
   stream:
@@ -510,12 +502,12 @@ config:
     await context.initializeReplication();
     await pool.query(`INSERT INTO test_data(id, description) VALUES ('t1', '2025-09-10 15:17:14+02')`);
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([putOp('test_data', { id: 't1', description: '2025-09-10T13:17:14.000000Z' })]);
   });
 
   test('custom types', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
 
     await context.updateSyncRules(`
 streams:
@@ -542,7 +534,7 @@ config:
       `INSERT INTO test_data(id, description, ts) VALUES ('t2', ROW(TRUE, 2)::composite, '2025-11-17T09:12:00Z')`
     );
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([
       putOp('test_data', { id: 't1', description: '{"foo":1,"bar":1}', ts: '2025-11-17T09:11:00.000000Z' }),
       putOp('test_data', { id: 't2', description: '{"foo":1,"bar":2}', ts: '2025-11-17T09:12:00.000000Z' })
@@ -550,7 +542,7 @@ config:
   });
 
   test('custom types in primary key', async () => {
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
 
     await context.updateSyncRules(`
 streams:
@@ -569,14 +561,14 @@ config:
     await context.initializeReplication();
     await pool.query(`INSERT INTO test_data(id) VALUES ('t1')`);
 
-    const data = await context.getBucketData('1#stream|0[]');
+    const data = await context.getBucketData('stream|0[]');
     expect(data).toMatchObject([putOp('test_data', { id: 't1' })]);
   });
 
   test('replica identity handling', async () => {
     // This specifically test a case of timestamps being used as part of the replica identity.
     // There was a regression in versions 1.15.0-1.15.5, which this tests for.
-    await using context = await WalStreamTestContext.open(factory);
+    await using context = await openContext();
     const { pool } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
@@ -591,7 +583,6 @@ config:
     );
 
     await context.replicateSnapshot();
-    context.startStreaming();
 
     await pool.query(`UPDATE test_data SET description = 'test2' WHERE id = '${test_id}'`);
 

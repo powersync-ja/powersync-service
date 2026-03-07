@@ -42,12 +42,12 @@ export const syncStreamed = routeDefinition({
       ...logger.defaultMeta,
       user_agent: userAgent,
       client_id: clientId,
-      user_id: payload.context.user_id,
+      user_id: payload.context.token_payload!.userIdJson,
       bson: useBson
     };
     const sdkData: event_types.ConnectedUserData & event_types.ClientConnectionEventData = {
       client_id: clientId ?? '',
-      user_id: payload.context.user_id!,
+      user_id: payload.context.token_payload!.userIdString,
       user_agent: userAgent as string,
       // At this point the token_payload is guaranteed to be present
       jwt_exp: new Date(token_payload!.exp * 1000),
@@ -142,7 +142,12 @@ export const syncStreamed = routeDefinition({
         status: 200,
         headers: {
           'Content-Type': useBson ? concatenatedBsonContentType : ndJsonContentType,
-          ...encodingHeaders
+          ...encodingHeaders,
+          // If the service is behind an nginx reverse-proxy with the default configuration, the response we're about to
+          // send would be buffered. This is not what we want for this streaming endpoint, and this behavior keeps
+          // breaking users. Setting this unconditionally isn't great, but we don't have a reliable way of checking
+          // whether we're behind nginx and we just want the default config to work.
+          'X-Accel-Buffering': 'no'
         },
         data: stream,
         afterSend: async (details) => {

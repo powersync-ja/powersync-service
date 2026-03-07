@@ -37,6 +37,10 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     cert: config.client_certificate
   };
   const hasSSLOptions = Object.values(sslOptions).some((v) => !!v);
+
+  // URL connection parameters provide defaults; explicit options take precedence
+  const params = config.connectionParams;
+
   // TODO: Use config.lookup for DNS resolution
   return mysql.createPool({
     host: config.hostname,
@@ -50,6 +54,10 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
     timezone: 'Z', // Ensure no auto timezone manipulation of the dates occur
     jsonStrings: true, // Return JSON columns as strings
     dateStrings: true, // We parse and format them ourselves
+    // Apply URL connection parameters (explicit options override these via spread below)
+    ...(params.connectTimeout != null ? { connectTimeout: params.connectTimeout } : {}),
+    ...(params.connectionLimit != null ? { connectionLimit: params.connectionLimit } : {}),
+    ...(params.queueLimit != null ? { queueLimit: params.queueLimit } : {}),
     ...(options || {})
   });
 }

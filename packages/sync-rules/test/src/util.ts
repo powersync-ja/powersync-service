@@ -1,12 +1,16 @@
 import { expect } from 'vitest';
 import {
+  BaseJwtPayload,
   BucketDataSource,
+  BucketDataScope,
   BucketParameterQuerier,
   ColumnDefinition,
   CompatibilityContext,
   CreateSourceParams,
   DEFAULT_TAG,
   GetQuerierOptions,
+  ParameterIndexLookupCreator,
+  ParameterLookupScope,
   RequestedStream,
   RequestJwtPayload,
   RequestParameters,
@@ -59,26 +63,21 @@ export const BASIC_SCHEMA = new StaticSchema([
 ]);
 
 /**
- * For backwards-compatiblity in tests only.
+ * Shortcut to create RequestParameters from a JWT payload and optional request parameters.
  */
-export function normalizeTokenParameters(
-  token_parameters: Record<string, any>,
-  user_parameters?: Record<string, any>
+export function requestParameters(
+  jwtPayload: Record<string, any>,
+  clientParameters?: Record<string, any>
 ): RequestParameters {
-  const tokenPayload = {
-    sub: token_parameters.user_id ?? '',
-    parameters: { ...token_parameters }
-  } satisfies RequestJwtPayload;
-  delete tokenPayload.parameters.user_id;
-  return new RequestParameters(tokenPayload, user_parameters ?? {});
+  return new RequestParameters(new BaseJwtPayload(jwtPayload), clientParameters ?? {});
 }
 
 export function normalizeQuerierOptions(
-  token_parameters: Record<string, any>,
-  user_parameters?: Record<string, any>,
+  jwtPayload: Record<string, any>,
+  clientParameters?: Record<string, any>,
   streams?: Record<string, RequestedStream[]>
 ): GetQuerierOptions {
-  const globalParameters = normalizeTokenParameters(token_parameters, user_parameters);
+  const globalParameters = requestParameters(jwtPayload, clientParameters);
   return {
     globalParameters,
     hasDefaultStreams: true,
@@ -113,6 +112,37 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
     throw new Error('Function not implemented.');
   }
 };
+
+export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
+  get defaultLookupScope(): ParameterLookupScope {
+    return {
+      lookupName: 'lookup',
+      queryId: '0',
+      source: EMPTY_PARAMETER_LOOKUP_SOURCE
+    };
+  },
+  getSourceTables(): Set<TablePattern> {
+    return new Set();
+  },
+  evaluateParameterRow() {
+    return [];
+  },
+  tableSyncsParameters() {
+    return false;
+  }
+};
+
+export function bucketDataScope(bucketPrefix: string, source: BucketDataSource = EMPTY_DATA_SOURCE): BucketDataScope {
+  return { bucketPrefix, source };
+}
+
+export function lookupScope(
+  lookupName: string,
+  queryId: string,
+  source: ParameterIndexLookupCreator = EMPTY_PARAMETER_LOOKUP_SOURCE
+): ParameterLookupScope {
+  return { lookupName, queryId, source };
+}
 
 export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {
   expect(querier.hasDynamicBuckets).toBe(true);

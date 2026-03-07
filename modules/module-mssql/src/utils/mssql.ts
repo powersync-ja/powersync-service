@@ -19,8 +19,8 @@ export const SUPPORTED_ENGINE_EDITIONS = new Map([
   [8, 'SqlManagedInstance - Azure SQL Managed Instance']
 ]);
 
-// SQL Server 2022 and newer
-export const MINIMUM_SUPPORTED_VERSION = '16.0';
+// SQL Server 2019 and newer
+export const MINIMUM_SUPPORTED_VERSION = '15.0';
 
 export async function checkSourceConfiguration(connectionManager: MSSQLConnectionManager): Promise<string[]> {
   const errors: string[] = [];
@@ -46,7 +46,7 @@ export async function checkSourceConfiguration(connectionManager: MSSQLConnectio
   if (versionResult[0]?.engine == 2 || versionResult[0]?.engine == 3) {
     if (!isVersionAtLeast(versionResult[0]?.version, MINIMUM_SUPPORTED_VERSION)) {
       errors.push(
-        `The SQL Server version '${versionResult[0]?.version}' is not supported. PowerSync requires MSSQL 2022 (v16) or newer.`
+        `The SQL Server version '${versionResult[0]?.version}' is not supported. PowerSync requires MSSQL 2019 (v15) or newer.`
       );
     }
   }

@@ -10,13 +10,16 @@ import {
   CheckpointEventDocument,
   ClientConnectionDocument,
   CurrentDataDocument,
+  CurrentDataDocumentV3,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
   SourceTableDocument,
+  StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
 } from './models.js';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -27,6 +30,7 @@ export interface PowerSyncMongoOptions {
 
 export class PowerSyncMongo {
   readonly current_data: mongo.Collection<CurrentDataDocument>;
+  readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
   readonly bucket_data: mongo.Collection<BucketDataDocument>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
@@ -51,7 +55,8 @@ export class PowerSyncMongo {
     });
     this.db = db;
 
-    this.current_data = db.collection<CurrentDataDocument>('current_data');
+    this.current_data = db.collection('current_data');
+    this.v3_current_data = db.collection('v3_current_data');
     this.bucket_data = db.collection('bucket_data');
     this.bucket_parameters = db.collection('bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
@@ -66,11 +71,16 @@ export class PowerSyncMongo {
     this.connection_report_events = this.db.collection('connection_report_events');
   }
 
+  versioned(storageConfig: StorageConfig) {
+    return new VersionedPowerSyncMongo(this, storageConfig);
+  }
+
   /**
    * Clear all collections.
    */
   async clear() {
     await this.current_data.deleteMany({});
+    await this.v3_current_data.deleteMany({});
     await this.bucket_data.deleteMany({});
     await this.bucket_parameters.deleteMany({});
     await this.op_id_sequence.deleteMany({});
@@ -170,6 +180,124 @@ export class PowerSyncMongo {
       },
       { name: 'dirty_count' }
     );
+  }
+
+  async initializeStorageVersion(storageConfig: StorageConfig) {
+    if (storageConfig.softDeleteCurrentData) {
+      // Initialize the v3_current_data collection, which is used for the new storage version.
+      // No-op if this already exists
+      await this.v3_current_data.createIndex(
+        {
+          '_id.g': 1,
+          pending_delete: 1
+        },
+        {
+          partialFilterExpression: { pending_delete: { $exists: true } },
+          name: 'pending_delete'
+        }
+      );
+    }
+  }
+}
+
+/**
+ * This is similar to PowerSyncMongo, but blocks access to certain collections based on the storage version.
+ */
+export class VersionedPowerSyncMongo {
+  readonly client: mongo.MongoClient;
+  readonly db: mongo.Db;
+
+  readonly storageConfig: StorageConfig;
+  #upstream: PowerSyncMongo;
+
+  constructor(upstream: PowerSyncMongo, storageConfig: StorageConfig) {
+    this.#upstream = upstream;
+    this.client = upstream.client;
+    this.db = upstream.db;
+    this.storageConfig = storageConfig;
+  }
+
+  /**
+   * Uses either `current_data` or `v3_current_data` collection based on the storage version.
+   *
+   * Use in places where it does not matter which version is used.
+   */
+  get common_current_data(): mongo.Collection<CurrentDataDocument> {
+    if (this.storageConfig.softDeleteCurrentData) {
+      return this.#upstream.v3_current_data;
+    } else {
+      return this.#upstream.current_data;
+    }
+  }
+
+  get v1_current_data() {
+    if (this.storageConfig.softDeleteCurrentData) {
+      throw new ServiceAssertionError(
+        'current_data collection should not be used when softDeleteCurrentData is enabled'
+      );
+    }
+    return this.#upstream.current_data;
+  }
+
+  get v3_current_data() {
+    if (!this.storageConfig.softDeleteCurrentData) {
+      throw new ServiceAssertionError(
+        'v3_current_data collection should not be used when softDeleteCurrentData is disabled'
+      );
+    }
+    return this.#upstream.v3_current_data;
+  }
+
+  get bucket_data() {
+    return this.#upstream.bucket_data;
+  }
+
+  get bucket_parameters() {
+    return this.#upstream.bucket_parameters;
+  }
+
+  get op_id_sequence() {
+    return this.#upstream.op_id_sequence;
+  }
+
+  get sync_rules() {
+    return this.#upstream.sync_rules;
+  }
+
+  get source_tables() {
+    return this.#upstream.source_tables;
+  }
+
+  get custom_write_checkpoints() {
+    return this.#upstream.custom_write_checkpoints;
+  }
+
+  get write_checkpoints() {
+    return this.#upstream.write_checkpoints;
+  }
+
+  get instance() {
+    return this.#upstream.instance;
+  }
+
+  get locks() {
+    return this.#upstream.locks;
+  }
+
+  get bucket_state() {
+    return this.#upstream.bucket_state;
+  }
+
+  get checkpoint_events() {
+    return this.#upstream.checkpoint_events;
+  }
+
+  get connection_report_events() {
+    return this.#upstream.connection_report_events;
+  }
+
+  notifyCheckpoint() {
+    return this.#upstream.notifyCheckpoint();
   }
 }
 

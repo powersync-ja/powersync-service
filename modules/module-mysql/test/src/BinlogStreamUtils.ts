@@ -7,13 +7,15 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
-  SyncRulesBucketStorage
+  SyncRulesBucketStorage,
+  updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import timers from 'timers/promises';
@@ -31,6 +33,7 @@ export class BinlogStreamTestContext {
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private replicationDone = false;
+  private syncRulesContent?: storage.PersistedSyncRulesContent;
 
   static async open(factory: storage.TestStorageFactory, options?: { doNotClear?: boolean }) {
     const f = await factory({ doNotClear: options?.doNotClear });
@@ -68,7 +71,10 @@ export class BinlogStreamTestContext {
   }
 
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules(
+      updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })
+    );
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -79,6 +85,7 @@ export class BinlogStreamTestContext {
       throw new Error(`Next sync rules not available`);
     }
 
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -89,9 +96,17 @@ export class BinlogStreamTestContext {
       throw new Error(`Active sync rules not available`);
     }
 
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     this.replicationDone = true;
     return this.storage!;
+  }
+
+  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+    if (this.syncRulesContent == null) {
+      throw new Error('Sync rules not configured - call updateSyncRules() first');
+    }
+    return this.syncRulesContent;
   }
 
   get binlogStream(): BinLogStream {
@@ -150,7 +165,8 @@ export class BinlogStreamTestContext {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
+    const syncRules = this.getSyncRulesContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -163,8 +179,9 @@ export class BinlogStreamTestContext {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.getSyncRulesContent();
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    const map = [bucketRequest(syncRules, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

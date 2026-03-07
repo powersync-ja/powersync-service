@@ -3,11 +3,13 @@ import {
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
   storage,
-  SyncRulesBucketStorage
+  SyncRulesBucketStorage,
+  updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 import { CDCStream, CDCStreamOptions } from '@module/replication/CDCStream.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
@@ -24,6 +26,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
   private _cdcStream?: CDCStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
+  private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
   private snapshotPromise?: Promise<void>;
   private replicationDone = false;
@@ -72,7 +75,10 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules(
+      updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })
+    );
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -83,6 +89,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
       throw new Error(`Next sync rules not available`);
     }
 
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -93,8 +100,16 @@ export class CDCStreamTestContext implements AsyncDisposable {
       throw new Error(`Active sync rules not available`);
     }
 
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
+  }
+
+  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+    if (this.syncRulesContent == null) {
+      throw new Error('Sync rules not configured - call updateSyncRules() first');
+    }
+    return this.syncRulesContent;
   }
 
   get cdcStream() {
@@ -167,7 +182,8 @@ export class CDCStreamTestContext implements AsyncDisposable {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
+    const syncRules = this.getSyncRulesContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -179,8 +195,9 @@ export class CDCStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.getSyncRulesContent();
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -190,7 +207,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
   }
@@ -204,7 +221,8 @@ export class CDCStreamTestContext implements AsyncDisposable {
       start = BigInt(start);
     }
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    const syncRules = this.getSyncRulesContent();
+    const map = [bucketRequest(syncRules, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

@@ -57,7 +57,9 @@ describe('Connection reporting storage', async () => {
       user_agent: userData.user_week.user_agent
     });
 
-    const connection = await factory.db.connection_report_events.find({ user_id: userData.user_week.user_id }).toArray();
+    const connection = await factory.db.connection_report_events
+      .find({ user_id: userData.user_week.user_id })
+      .toArray();
     expect(connection).toHaveLength(2);
     const cleaned = removeVolatileFields(connection);
     expect(cleaned).toMatchSnapshot();
@@ -111,7 +113,9 @@ describe('Connection reporting storage', async () => {
       connected_at: userData.user_three.connected_at
     });
 
-    const connection = await factory.db.connection_report_events.find({ user_id: userData.user_three.user_id }).toArray();
+    const connection = await factory.db.connection_report_events
+      .find({ user_id: userData.user_three.user_id })
+      .toArray();
     expect(connection).toHaveLength(1);
     expect(new Date(connection[0].disconnected_at!)).toEqual(disconnectAt);
     const cleaned = removeVolatileFields(connection);

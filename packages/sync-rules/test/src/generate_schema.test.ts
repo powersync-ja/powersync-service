@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_TAG,
-  DartFlutterFlowSchemaGenerator,
   DartSchemaGenerator,
   DotNetSchemaGenerator,
   JsLegacySchemaGenerator,
@@ -40,19 +39,29 @@ describe('schema generation', () => {
     }
   ]);
 
-  const rules = SqlSyncRules.fromYaml(
+  const { config: rules } = SqlSyncRules.fromYaml(
     `
-bucket_definitions:
-  mybucket:
-    data:
-      - SELECT * FROM assets as assets1
-      - SELECT id, name, count FROM assets as assets2
+config:
+  edition: 3
+
+streams:
+  assets_one:
+    query: SELECT * FROM assets as assets1
+  assets_2:
+    queries:
+      - SELECT id, name, count FROM assets as assets2 WHERE name = subscription.parameter('name')
       - SELECT id, owner_id as other_id, foo FROM assets as ASSETS2
-  `,
+`,
     PARSE_OPTIONS
   );
 
   test('dart', () => {
+    const streams = `
+extension type TypedSyncStreams(PowerSyncDatabase _db) {
+  SyncStream assetsOne() => _db.syncStream('assets_one', {});
+  SyncStream assets2({required String name}) => _db.syncStream('assets_2', {'name': name,});
+}`;
+
     expect(new DartSchemaGenerator().generate(rules, schema)).toEqual(`Schema([
   Table('assets1', [
     Column.text('name'),
@@ -66,6 +75,7 @@ bucket_definitions:
     Column.text('foo')
   ])
 ]);
+${streams}
 `);
 
     expect(new DartSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`Schema([
@@ -81,13 +91,8 @@ bucket_definitions:
     Column.text('foo')
   ])
 ]);
+${streams}
 `);
-  });
-
-  test('flutterflow', () => {
-    expect(new DartFlutterFlowSchemaGenerator().generate(rules, schema)).toEqual(
-      '{"tables":[{"name":"assets1","view_name":null,"local_only":false,"insert_only":false,"columns":[{"name":"name","type":"text"},{"name":"count","type":"integer"},{"name":"owner_id","type":"text"}],"indexes":[]},{"name":"assets2","view_name":null,"local_only":false,"insert_only":false,"columns":[{"name":"name","type":"text"},{"name":"count","type":"integer"},{"name":"other_id","type":"text"},{"name":"foo","type":"text"}],"indexes":[]},{"name":"attachments_queue","view_name":null,"local_only":true,"insert_only":false,"columns":[{"name":"filename","type":"text"},{"name":"local_uri","type":"text"},{"name":"timestamp","type":"integer"},{"name":"size","type":"integer"},{"name":"media_type","type":"text"},{"name":"state","type":"integer"}],"indexes":[]}]}'
-    );
   });
 
   test('js legacy', () => {
@@ -115,8 +120,8 @@ bucket_definitions:
 
   test('ts', () => {
     expect(new TsSchemaGenerator().generate(rules, schema, {})).toEqual(
-      `import { column, Schema, Table } from '@powersync/web';
-// OR: import { column, Schema, Table } from '@powersync/react-native';
+      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -145,12 +150,23 @@ export const AppSchema = new Schema({
 });
 
 export type Database = (typeof AppSchema)['types'];
+
+export function typedStreams(db: PowerSyncDatabase) {
+  return {
+    assetsOne(): SyncStream {
+      return db.syncStream('assets_one', {});
+    },
+    assets2(params: { name: string }): SyncStream {
+      return db.syncStream('assets_2', params);
+    }
+  };
+}
 `
     );
 
     expect(new TsSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(
-      `import { column, Schema, Table } from '@powersync/web';
-// OR: import { column, Schema, Table } from '@powersync/react-native';
+      `import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/web';
+// OR: import { column, Schema, Table, PowerSyncDatabase, SyncStream } from '@powersync/react-native';
 
 const assets1 = new Table(
   {
@@ -179,14 +195,38 @@ export const AppSchema = new Schema({
 });
 
 export type Database = (typeof AppSchema)['types'];
+
+export function typedStreams(db: PowerSyncDatabase) {
+  return {
+    assetsOne(): SyncStream {
+      return db.syncStream('assets_one', {});
+    },
+    assets2(params: { name: string }): SyncStream {
+      return db.syncStream('assets_2', params);
+    }
+  };
+}
 `
     );
   });
 
   test('kotlin', () => {
+    const streams = `
+@JvmInline
+value class TypedSyncStreams(private val db: PowerSyncDatabase) {
+  fun assetsOne(): SyncStream = db.syncStream("assets_one", emptyMap())
+  fun assets2(name: String): SyncStream = db.syncStream("assets_2", buildMap {
+    put("name", JsonParam.String(name))
+  })
+}`;
+
     expect(new KotlinSchemaGenerator().generate(rules, schema)).toEqual(`import com.powersync.db.schema.Column
 import com.powersync.db.schema.Schema
 import com.powersync.db.schema.Table
+import com.powersync.PowerSyncDatabase
+import com.powersync.sync.SyncStream
+import com.powersync.utils.JsonParam
+import kotlin.jvm.JvmInline
 
 val schema = Schema(
   Table(
@@ -206,12 +246,18 @@ val schema = Schema(
         Column.text("foo")
     )
   )
-)`);
+)
+${streams}
+`);
 
     expect(new KotlinSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
       .toEqual(`import com.powersync.db.schema.Column
 import com.powersync.db.schema.Schema
 import com.powersync.db.schema.Table
+import com.powersync.PowerSyncDatabase
+import com.powersync.sync.SyncStream
+import com.powersync.utils.JsonParam
+import kotlin.jvm.JvmInline
 
 val schema = Schema(
   Table(
@@ -231,7 +277,9 @@ val schema = Schema(
         Column.text("foo")
     )
   )
-)`);
+)
+${streams}
+`);
   });
 
   test('room', () => {
@@ -279,7 +327,23 @@ let schema = Schema(
         .text("foo")
     ]
   )
-)`);
+)
+
+struct TypedSyncStreams {
+    private var db: PowerSyncDatabaseProtocol
+    init(_ db: PowerSyncDatabaseProtocol) {
+        self.db = db
+    }
+    func assetsOne() -> SyncStream {
+        return db.syncStream(name: "assets_one", params: [:])
+    }
+    func assets2(name: String) -> SyncStream {
+        return db.syncStream(name: "assets_2", params: [
+            "name": JsonValue.string(name)
+        ])
+    }
+}
+`);
 
     expect(new SwiftSchemaGenerator().generate(rules, schema, { includeTypeComments: true })).toEqual(`import PowerSync
 
@@ -301,7 +365,23 @@ let schema = Schema(
         .text("foo")
     ]
   )
-)`);
+)
+
+struct TypedSyncStreams {
+    private var db: PowerSyncDatabaseProtocol
+    init(_ db: PowerSyncDatabaseProtocol) {
+        self.db = db
+    }
+    func assetsOne() -> SyncStream {
+        return db.syncStream(name: "assets_one", params: [:])
+    }
+    func assets2(name: String) -> SyncStream {
+        return db.syncStream(name: "assets_2", params: [
+            "name": JsonValue.string(name)
+        ])
+    }
+}
+`);
   });
 
   test('dotnet', () => {
@@ -309,54 +389,98 @@ let schema = Schema(
 
 class AppSchema
 {
-  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT },
-      { "count", ColumnType.INTEGER },
-      { "owner_id", ColumnType.TEXT }
-  });
+    public static Table Assets1 = new Table
+    {
+        Name = "assets1",
+        Columns =
+        {
+            ["name"] = ColumnType.Text,
+            ["count"] = ColumnType.Integer,
+            ["owner_id"] = ColumnType.Text,
+        },
+    };
 
-  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT },
-      { "count", ColumnType.INTEGER },
-      { "other_id", ColumnType.TEXT },
-      { "foo", ColumnType.TEXT }
-  });
+    public static Table Assets2 = new Table
+    {
+        Name = "assets2",
+        Columns =
+        {
+            ["name"] = ColumnType.Text,
+            ["count"] = ColumnType.Integer,
+            ["other_id"] = ColumnType.Text,
+            ["foo"] = ColumnType.Text,
+        },
+    };
 
-  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
-  {
-    {"assets1", Assets1},
-    {"assets2", Assets2}
-  });
-}`);
+    public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
+}
+
+public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)
+{
+    private PowerSyncDatabase db { get; } = db;
+    public ISyncStream AssetsOne()
+    {
+        var parameters = new Dictionary<string, object>() {};
+        return db.SyncStream("assets_one", parameters);
+    }
+    public ISyncStream Assets2(string name)
+    {
+        var parameters = new Dictionary<string, object>() {
+            { "name", name }
+        };
+        return db.SyncStream("assets_2", parameters);
+    }
+}
+`);
 
     expect(new DotNetSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
       .toEqual(`using PowerSync.Common.DB.Schema;
 
 class AppSchema
 {
-  public static Table Assets1 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT }, // text
-      { "count", ColumnType.INTEGER }, // int4
-      { "owner_id", ColumnType.TEXT } // uuid
-  });
+    public static Table Assets1 = new Table
+    {
+        Name = "assets1",
+        Columns =
+        {
+            ["name"] = ColumnType.Text, // text
+            ["count"] = ColumnType.Integer, // int4
+            ["owner_id"] = ColumnType.Text, // uuid
+        },
+    };
 
-  public static Table Assets2 = new Table(new Dictionary<string, ColumnType>
-  {
-      { "name", ColumnType.TEXT }, // text
-      { "count", ColumnType.INTEGER }, // int4
-      { "other_id", ColumnType.TEXT }, // uuid
-      { "foo", ColumnType.TEXT }
-  });
+    public static Table Assets2 = new Table
+    {
+        Name = "assets2",
+        Columns =
+        {
+            ["name"] = ColumnType.Text, // text
+            ["count"] = ColumnType.Integer, // int4
+            ["other_id"] = ColumnType.Text, // uuid
+            ["foo"] = ColumnType.Text,
+        },
+    };
 
-  public static Schema PowerSyncSchema = new Schema(new Dictionary<string, Table>
-  {
-    {"assets1", Assets1},
-    {"assets2", Assets2}
-  });
-}`);
+    public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
+}
+
+public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)
+{
+    private PowerSyncDatabase db { get; } = db;
+    public ISyncStream AssetsOne()
+    {
+        var parameters = new Dictionary<string, object>() {};
+        return db.SyncStream("assets_one", parameters);
+    }
+    public ISyncStream Assets2(string name)
+    {
+        var parameters = new Dictionary<string, object>() {
+            { "name", name }
+        };
+        return db.SyncStream("assets_2", parameters);
+    }
+}
+`);
   });
 
   describe('sql', () => {

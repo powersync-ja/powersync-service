@@ -4,9 +4,14 @@ import { compilationErrorsForSingleStream, compileToSyncPlanWithoutErrors } from
 describe('subqueries', () => {
   describe('names', () => {
     test('from inner columns', () => {
-      const plan = compileToSyncPlanWithoutErrors([
-        { name: 'a', queries: ['SELECT * FROM (SELECT id, name FROM users) AS subquery'] }
-      ]);
+      const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT * FROM (SELECT id, name FROM users) AS subquery
+`);
       const sources = plan.dataSources;
       expect(sources).toHaveLength(1);
 
@@ -17,9 +22,14 @@ describe('subqueries', () => {
     });
 
     test('from outer alias', () => {
-      const plan = compileToSyncPlanWithoutErrors([
-        { name: 'a', queries: ['SELECT * FROM (SELECT id, name FROM users) AS subquery (my_id, custom_name)'] }
-      ]);
+      const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: SELECT * FROM (SELECT id, name FROM users) AS subquery (my_id, custom_name)
+`);
       const sources = plan.dataSources;
       expect(sources).toHaveLength(1);
 
@@ -32,14 +42,14 @@ describe('subqueries', () => {
 
   describe('errors', () => {
     test('select star', () => {
-      expect(compilationErrorsForSingleStream('SELECT 1 FROM (SELECT * FROM users) AS u')).toStrictEqual([
+      expect(compilationErrorsForSingleStream('SELECT 1 AS id FROM (SELECT * FROM users) AS u')).toStrictEqual([
         {
           message: '* columns are not allowed in subqueries or common table expressions',
           source: '*'
         },
         {
           message: 'Must have a result column selecting from a table',
-          source: 'SELECT 1 FROM (SELECT * FROM users) AS u'
+          source: 'SELECT 1 AS id FROM (SELECT * FROM users) AS u'
         }
       ]);
     });
