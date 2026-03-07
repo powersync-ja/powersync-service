@@ -205,6 +205,9 @@ importers:
       '@powersync/service-core-tests':
         specifier: workspace:*
         version: link:../../packages/service-core-tests
+      '@powersync/service-module-mongodb-storage':
+        specifier: workspace:*
+        version: link:../module-mongodb-storage
 
   modules/module-core:
     dependencies:
