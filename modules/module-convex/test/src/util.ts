@@ -6,7 +6,8 @@ import {
   InternalOpId,
   OplogEntry,
   storage,
-  SyncRulesBucketStorage
+  SyncRulesBucketStorage,
+  updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 
@@ -42,9 +43,11 @@ export class ConvexStreamTestContext {
   private _stream?: ConvexStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<void>;
+  private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
 
-  static async open(factory: storage.TestStorageFactory) {
+  static async open(factoryOrConfig: storage.TestStorageFactory | storage.TestStorageConfig) {
+    const factory = typeof factoryOrConfig === 'function' ? factoryOrConfig : factoryOrConfig.factory;
     const f = await factory({});
     const connectionManager = makeConvexConnectionManager();
     return new ConvexStreamTestContext(f, connectionManager);
@@ -77,8 +80,16 @@ export class ConvexStreamTestContext {
     return this.connectionManager.client;
   }
 
+  private requireSyncRulesContent(): storage.PersistedSyncRulesContent {
+    if (this.syncRulesContent == null) {
+      throw new Error('Call updateSyncRules() first');
+    }
+    return this.syncRulesContent;
+  }
+
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content, validate: true });
+    const syncRules = await this.factory.updateSyncRules(updateSyncRulesFromYaml(content, { validate: true }));
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -128,17 +139,18 @@ export class ConvexStreamTestContext {
 
   async getBucketData(bucket: string, options?: { timeout?: number }): Promise<OplogEntry[]> {
     const checkpoint = await this.waitForCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, 0n]]);
+    const syncRules = this.requireSyncRulesContent();
+    let request = test_utils.bucketRequest(syncRules, bucket, 0n);
     let data: OplogEntry[] = [];
 
     while (true) {
-      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
+      const batch = this.storage!.getBucketDataBatch(checkpoint, [request]);
       const batches = await test_utils.fromAsync(batch);
       data = data.concat(batches[0]?.chunkData.data ?? []);
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+      request = test_utils.bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after));
     }
 
     return data;
@@ -146,13 +158,25 @@ export class ConvexStreamTestContext {
 
   async getChecksums(buckets: string[], options?: { timeout?: number }) {
     const checkpoint = await this.waitForCheckpoint(options);
-    return this.storage!.getChecksums(checkpoint, buckets);
+    const syncRules = this.requireSyncRulesContent();
+    return this.storage!.getChecksums(
+      checkpoint,
+      buckets.map((bucket) => {
+        const request = test_utils.bucketRequest(syncRules, bucket, 0n);
+        return {
+          bucket: request.bucket,
+          source: request.source
+        };
+      })
+    );
   }
 
   async getChecksum(bucket: string, options?: { timeout?: number }) {
     const checkpoint = await this.waitForCheckpoint(options);
-    const map = await this.storage!.getChecksums(checkpoint, [bucket]);
-    return map.get(bucket);
+    const syncRules = this.requireSyncRulesContent();
+    const request = test_utils.bucketRequest(syncRules, bucket, 0n);
+    const map = await this.storage!.getChecksums(checkpoint, [{ bucket: request.bucket, source: request.source }]);
+    return map.get(request.bucket);
   }
 
   /**

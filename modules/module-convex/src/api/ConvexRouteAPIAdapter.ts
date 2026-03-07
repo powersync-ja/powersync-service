@@ -42,7 +42,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 
   async getDebugTablesInfo(
     tablePatterns: sync_rules.TablePattern[],
-    sqlSyncRules: sync_rules.SqlSyncRules
+    sqlSyncRules: sync_rules.SyncConfig
   ): Promise<api.PatternResult[]> {
     const schema = await this.connectionManager.client.getJsonSchemas();
     const tablesByName = new Map(schema.tables.map((table) => [table.tableName, table]));
@@ -194,7 +194,7 @@ function createTableInfo(options: {
   const tableName =
     options.tableName ?? (options.tablePattern.isWildcard ? options.tablePattern.tablePrefix : options.tablePattern.name);
   const sourceTable = new SourceTable({
-    id: 0,
+    id: tableName,
     connectionTag: options.connectionTag,
     objectId: tableName,
     schema: options.tablePattern.schema,

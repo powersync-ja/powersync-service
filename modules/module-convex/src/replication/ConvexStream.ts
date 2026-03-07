@@ -408,7 +408,7 @@ export class ConvexStream {
     snapshotCursor: string
   ): Promise<SourceTable> {
     const snapshotLsnValue = toConvexLsn(snapshotCursor);
-    const [doneTable] = await batch.markSnapshotDone([table], snapshotLsnValue);
+    const [doneTable] = await batch.markTableSnapshotDone([table], snapshotLsnValue);
     this.relationCache.update(doneTable);
     return doneTable;
   }

@@ -71,7 +71,7 @@ bucket_definitions:
       }
     );
 
-    const result = await adapter.getDebugTablesInfo(syncRules.getSourceTables(), syncRules);
+    const result = await adapter.getDebugTablesInfo(syncRules.config.getSourceTables(), syncRules.config);
     expect(result[0]?.table?.name).toBe('users');
 
     await adapter.shutdown();

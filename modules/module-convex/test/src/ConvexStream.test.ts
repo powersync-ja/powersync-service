@@ -40,7 +40,7 @@ function createFakeStorage(options?: {
     }
 
     const table = new SourceTable({
-      id: nextTableId++,
+      id: `${nextTableId++}`,
       connectionTag: 'default',
       objectId: name,
       schema: 'convex',
@@ -95,7 +95,7 @@ function createFakeStorage(options?: {
       resumeLsnUpdates.push(lsn);
       this.resumeFromLsn = lsn;
     },
-    async markSnapshotDone(tables: SourceTable[], _lsn: string) {
+    async markTableSnapshotDone(tables: SourceTable[], _lsn: string) {
       for (const sourceTable of tables) {
         sourceTable.snapshotComplete = true;
       }
