@@ -61,6 +61,13 @@ export interface WalStreamOptions {
    * Note that queries are streamed, so we don't actually keep that much data in memory.
    */
   snapshotChunkLength?: number;
+
+  /**
+   * Called after each snapshot chunk is flushed, for testing.
+   * This allows tests to perform actions (like generating WAL) synchronously
+   * with the snapshot's chunk processing.
+   */
+  onSnapshotChunkFlushed?: () => Promise<void>;
 }
 
 interface InitResult {
@@ -133,6 +140,7 @@ export class WalStream {
   private startedStreaming = false;
 
   private snapshotChunkLength: number;
+  private onSnapshotChunkFlushed?: () => Promise<void>;
 
   private replicationLag = new ReplicationLagTracker();
 
@@ -147,6 +155,7 @@ export class WalStream {
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
+    this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -597,6 +606,9 @@ WHERE  oid = $1::regclass`,
 
       // Important: flush before marking progress
       await batch.flush();
+      if (this.onSnapshotChunkFlushed) {
+        await this.onSnapshotChunkFlushed();
+      }
       if (limited == null) {
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {

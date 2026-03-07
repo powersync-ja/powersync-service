@@ -470,6 +470,102 @@ bucket_definitions:
     }
   });
 
+  test('slot lost during snapshot aborts early', { timeout: 120_000 }, async () => {
+    await using baseContext = await openContext({ doNotClear: true });
+
+    const serverVersion = await baseContext.connectionManager.getServerVersion();
+    if (serverVersion!.compareMain('13.0.0') < 0) {
+      console.warn(`max_slot_wal_keep_size not supported on postgres ${serverVersion} - skipping test.`);
+      return;
+    }
+
+    await using _walSize = await withMaxWalSize(baseContext.pool, '100MB');
+
+    const walPool = baseContext.pool;
+    await using context = await openContext({
+      walStreamOptions: {
+        snapshotChunkLength: 100,
+        onSnapshotChunkFlushed: async () => {
+          // Generate ~16MB WAL per call. Slot lost after ~7 chunks.
+          await walPool.query(`SELECT pg_logical_emit_message(true, 'test', 'x')`);
+          await walPool.query(`SELECT pg_switch_wal()`);
+          await walPool.query(`CHECKPOINT`);
+        }
+      }
+    });
+    const { pool } = context;
+
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"`);
+
+    await pool.query(
+      `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`
+    );
+    await pool.query(`INSERT INTO test_data(description) SELECT 'row ' || g FROM generate_series(1, 1000) g`);
+
+    // The hook generates WAL synchronously after each chunk flush.
+    // Post-implementation, the WAL check (at the same injection point)
+    // detects slot invalidation and aborts the snapshot.
+    await expect(async () => {
+      await context.replicateSnapshot();
+    }).rejects.toThrowError(MissingReplicationSlotError);
+
+    // Snapshot should NOT be marked as complete
+    const status = await context.storage!.getStatus();
+    expect(status.snapshot_done).toBe(false);
+  });
+
+  test('slot invalidation error carries diagnostic context', { timeout: 120_000 }, async () => {
+    await using baseContext = await openContext({ doNotClear: true });
+
+    const serverVersion = await baseContext.connectionManager.getServerVersion();
+    if (serverVersion!.compareMain('13.0.0') < 0) {
+      console.warn(`max_slot_wal_keep_size not supported on postgres ${serverVersion} - skipping test.`);
+      return;
+    }
+
+    await using _walSize = await withMaxWalSize(baseContext.pool, '100MB');
+
+    const walPool = baseContext.pool;
+    await using context = await openContext({
+      walStreamOptions: {
+        snapshotChunkLength: 100,
+        onSnapshotChunkFlushed: async () => {
+          await walPool.query(`SELECT pg_logical_emit_message(true, 'test', 'x')`);
+          await walPool.query(`SELECT pg_switch_wal()`);
+          await walPool.query(`CHECKPOINT`);
+        }
+      }
+    });
+    const { pool } = context;
+
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"`);
+
+    await pool.query(
+      `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`
+    );
+    await pool.query(`INSERT INTO test_data(description) SELECT 'row ' || g FROM generate_series(1, 1000) g`);
+
+    let caughtError: any;
+    try {
+      await context.replicateSnapshot();
+    } catch (e) {
+      caughtError = e;
+    }
+
+    // Error should be a MissingReplicationSlotError with diagnostic context
+    expect(caughtError).toBeInstanceOf(MissingReplicationSlotError);
+    expect(caughtError.walStatus).toBe('lost');
+    expect(caughtError.phase).toBe('snapshot');
+  });
+
   test('old date format', async () => {
     await using context = await openContext();
     await context.updateSyncRules(BASIC_SYNC_RULES);
