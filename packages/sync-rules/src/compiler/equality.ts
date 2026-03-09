@@ -61,7 +61,7 @@ export class StableHasher {
   /**
    * The default equality for {@link Equatable} types.
    */
-  private static readonly defaultEquality: Equality<Equatable> = {
+  static readonly defaultEquality: Equality<Equatable> = {
     hash(hasher, value) {
       value.buildHash(hasher);
     },
