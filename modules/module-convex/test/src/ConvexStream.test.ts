@@ -18,6 +18,7 @@ function createFakeStorage(options?: {
   const saves: any[] = [];
   const commits: string[] = [];
   const keepalives: string[] = [];
+  const allSnapshotDoneLsns: string[] = [];
   const resumeLsnUpdates: string[] = [];
   const tableProgressUpdates: any[] = [];
 
@@ -95,6 +96,9 @@ function createFakeStorage(options?: {
       resumeLsnUpdates.push(lsn);
       this.resumeFromLsn = lsn;
     },
+    async markAllSnapshotDone(lsn: string) {
+      allSnapshotDoneLsns.push(lsn);
+    },
     async markTableSnapshotDone(tables: SourceTable[], _lsn: string) {
       for (const sourceTable of tables) {
         sourceTable.snapshotComplete = true;
@@ -150,6 +154,7 @@ function createFakeStorage(options?: {
     saves,
     commits,
     keepalives,
+    allSnapshotDoneLsns,
     resumeLsnUpdates,
     tableProgressUpdates
   };
@@ -212,6 +217,7 @@ describe('ConvexStream', () => {
     expect(context.saves.length).toBe(1);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
     expect(context.resumeLsnUpdates.length).toBe(1);
+    expect(context.allSnapshotDoneLsns).toEqual([toConvexLsn('100')]);
     expect(context.commits.at(-1)).toBe(toConvexLsn('100'));
   });
 

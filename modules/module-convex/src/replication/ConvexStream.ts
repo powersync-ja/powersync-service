@@ -288,6 +288,8 @@ export class ConvexStream {
           await this.snapshotTable(batch, tableWithProgress, snapshotCursor);
         }
 
+        await batch.markAllSnapshotDone(snapshotLsnValue);
+
         await batch.commit(snapshotLsnValue);
 
         this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsnValue} for consistency.`);
