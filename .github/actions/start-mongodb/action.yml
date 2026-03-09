@@ -1,0 +1,23 @@
+name: Start MongoDB
+description: Pre-pull and start MongoDB with a replica set for tests
+
+inputs:
+  mongodb-version:
+    description: MongoDB version to start
+    required: false
+    default: '8.0'
+
+runs:
+  using: composite
+  steps:
+    # The mongodb-github-action below doesn't use the Docker credentials for the pull.
+    # We pre-pull, so that the image is cached.
+    - name: Pre-pull Mongo image
+      shell: bash
+      run: docker pull mongo:${{ inputs.mongodb-version }}
+
+    - name: Start MongoDB
+      uses: supercharge/mongodb-github-action@1.12.1
+      with:
+        mongodb-version: ${{ inputs.mongodb-version }}
+        mongodb-replica-set: test-rs
