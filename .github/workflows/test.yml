@@ -110,6 +110,8 @@ jobs:
     name: Postgres Test
     runs-on: ubuntu-latest
     needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
@@ -184,6 +186,8 @@ jobs:
     name: Postgres Storage Test
     runs-on: ubuntu-latest
     needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
@@ -247,6 +251,8 @@ jobs:
     name: MySQL Test
     runs-on: ubuntu-latest
     needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
@@ -321,6 +327,8 @@ jobs:
     name: MongoDB Replication Test
     runs-on: ubuntu-latest
     needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
@@ -433,6 +441,7 @@ jobs:
 
     env:
       MSSQL_SA_PASSWORD: 321strong_ROOT_password
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
