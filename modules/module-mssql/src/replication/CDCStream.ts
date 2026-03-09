@@ -49,8 +49,7 @@ export interface CDCStreamOptions {
   additionalConfig: AdditionalConfig;
 
   /**
-   * Override schema check interval for testing.
-   * Passed through to CDCPoller.
+   * Override schema check interval, defaults is 60 seconds.
    */
   schemaCheckIntervalMs?: number;
 }
