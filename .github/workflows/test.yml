@@ -9,6 +9,9 @@ on:
     tags-ignore:
       - '**'
 
+permissions:
+  contents: read
+
 jobs:
   format-check:
     name: Linting
