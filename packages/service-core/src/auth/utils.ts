@@ -139,7 +139,7 @@ export function getSupabaseJwksUrl(connection: any): SupabaseAuthDetails | null 
     return null;
   }
 
-  const match = /db.(\w+).supabase.co/.exec(hostname);
+  const match = /^db\.(\w+)\.supabase\.co$/.exec(hostname);
   if (match == null) {
     return null;
   }
