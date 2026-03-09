@@ -111,7 +111,7 @@ jobs:
 
   run-postgres-replication-tests:
     name: Postgres Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-xl
     needs: run-core-tests
     env:
       PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
