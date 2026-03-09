@@ -125,7 +125,9 @@ export interface SupabaseAuthDetails {
   hostname: string;
 }
 
-export function getSupabaseJwksUrl(connection: configFile.GenericDataSourceConfig): SupabaseAuthDetails | null {
+export function getSupabaseJwksUrl(
+  connection: configFile.GenericDataSourceConfig | undefined
+): SupabaseAuthDetails | null {
   if (connection == null) {
     return null;
   } else if (connection.type != 'postgresql') {
