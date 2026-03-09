@@ -1,5 +1,17 @@
 # @powersync/service-sync-rules
 
+## 0.33.0
+
+### Minor Changes
+
+- c15efc7: [Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
+
+### Patch Changes
+
+- dcddcf1: When generating schema code, also generate helpers to subscribe to Sync Streams.
+- e7152ce: Sync Streams beta: Fix compiling filters of the form `$staticExpression IN $requestData`.
+- b410924: Sync Streams: Fix compiler errors when an output value of a table-valued function is used multiple times.
+
 ## 0.32.0
 
 ### Minor Changes
