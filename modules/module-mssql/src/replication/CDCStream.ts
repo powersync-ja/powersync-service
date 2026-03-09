@@ -47,12 +47,19 @@ export interface CDCStreamOptions {
   snapshotBatchSize?: number;
 
   additionalConfig: AdditionalConfig;
+
+  /**
+   * Override schema check interval for testing.
+   * Passed through to CDCPoller.
+   */
+  schemaCheckIntervalMs?: number;
 }
 
 export enum SnapshotStatus {
-  IN_PROGRESS = 'in-progress',
+  INITIAL = 'initial',
+  RESUME = 'resume',
   DONE = 'done',
-  RESNAPSHOT_REQUIRED = 'resnapshot-required'
+  LIMITED_RESNAPSHOT = 'limited-resnapshot'
 }
 
 export interface SnapshotStatusResult {
@@ -451,20 +458,26 @@ export class CDCStream {
         skipExistingRows: true
       },
       async (batch) => {
-        if (status === SnapshotStatus.RESNAPSHOT_REQUIRED) {
-          for (const table of specificTablesToResnapshot!) {
-            await batch.drop([table.sourceTable]);
-            // Update table in the table cache
-            //await this.processTable(batch, table.sourceTable, table.captureInstance, false);
-          }
-        } else if (status === SnapshotStatus.IN_PROGRESS) {
-          this.logger.info(`Resuming snapshot at ${snapshotLSN}.`);
-        } else {
-          // First replication attempt - set the snapshot LSN to the current LSN before starting
-          snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
-          await batch.setResumeLsn(snapshotLSN);
-          const latestLSN = (await getLatestLSN(this.connections)).toString();
-          this.logger.info(`Marking snapshot at ${snapshotLSN}, Latest DB LSN ${latestLSN}.`);
+        switch (status) {
+          case SnapshotStatus.INITIAL:
+            // First replication attempt - set the snapshot LSN to the current LSN before starting
+            snapshotLSN = (await getLatestReplicatedLSN(this.connections)).toString();
+            await batch.setResumeLsn(snapshotLSN);
+            const latestLSN = (await getLatestLSN(this.connections)).toString();
+            this.logger.info(`Marking snapshot at ${snapshotLSN}, Latest DB LSN ${latestLSN}.`);
+            break;
+          case SnapshotStatus.RESUME:
+            this.logger.info(`Resuming snapshot at ${snapshotLSN}.`);
+            break;
+          case SnapshotStatus.LIMITED_RESNAPSHOT:
+            for (const table of specificTablesToResnapshot!) {
+              await batch.drop([table.sourceTable]);
+              // Update table in the table cache
+              await this.processTable(batch, table.sourceTable, table.captureInstance, false);
+            }
+            break;
+          default:
+            throw new ReplicationAssertionError(`Unsupported snapshot status: ${status}`);
         }
 
         const tablesToSnapshot: MSSQLSourceTable[] = [];
@@ -532,13 +545,13 @@ export class CDCStream {
     const status = await this.storage.getStatus();
 
     if (status.snapshot_done && status.checkpoint_lsn) {
-      const additionalTablesToSnapshot: MSSQLSourceTable[] = [];
+      const additionalTablesToSnapshot: Set<MSSQLSourceTable> = new Set();
       const newTables = this.tableCache.getAll().filter((table) => !table.sourceTable.snapshotComplete);
       if (newTables.length > 0) {
         this.logger.info(
           `Detected new table(s) [${newTables.map((table) => table.toQualifiedName()).join(', ')}] that have not been snapshotted yet.`
         );
-        additionalTablesToSnapshot.push(...newTables);
+        newTables.forEach((table) => additionalTablesToSnapshot.add(table));
       }
 
       // Snapshot is done, but we still need to check that the last known checkpoint LSN is still
@@ -555,13 +568,13 @@ export class CDCStream {
         this.logger.warn(
           `Updates from the last checkpoint are no longer available in the CDC instances of the following table(s): ${tablesOutsideRetentionThreshold.map((table) => table.toQualifiedName()).join(', ')}.`
         );
-        additionalTablesToSnapshot.push(...tablesOutsideRetentionThreshold);
+        tablesOutsideRetentionThreshold.forEach((table) => additionalTablesToSnapshot.add(table));
       }
-      if (additionalTablesToSnapshot.length > 0) {
+      if (additionalTablesToSnapshot.size > 0) {
         return {
-          status: SnapshotStatus.RESNAPSHOT_REQUIRED,
+          status: SnapshotStatus.LIMITED_RESNAPSHOT,
           snapshotLSN: status.checkpoint_lsn,
-          specificTablesToResnapshot: additionalTablesToSnapshot
+          specificTablesToResnapshot: Array.from(additionalTablesToSnapshot)
         };
       } else {
         return {
@@ -570,7 +583,10 @@ export class CDCStream {
         };
       }
     } else {
-      return { status: SnapshotStatus.IN_PROGRESS, snapshotLSN: status.snapshot_lsn };
+      return {
+        status: status.snapshot_lsn != null ? SnapshotStatus.RESUME : SnapshotStatus.INITIAL,
+        snapshotLSN: status.snapshot_lsn
+      };
     }
   }
 
@@ -597,7 +613,8 @@ export class CDCStream {
           sourceTables: this.syncRules.getSourceTables(),
           startLSN,
           logger: this.logger,
-          additionalConfig: this.options.additionalConfig
+          additionalConfig: this.options.additionalConfig,
+          schemaCheckIntervalMs: this.options.schemaCheckIntervalMs
         });
 
         this.abortSignal.addEventListener(

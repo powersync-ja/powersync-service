@@ -29,7 +29,9 @@ bucket_definitions:
       - SELECT id, description FROM "test_data"
 `;
 
-function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
+function defineSchemaChangesTests(config: storage.TestStorageConfig) {
+  const { factory } = config;
+
   test('Create table: New table in the sync rules', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     const { connectionManager } = context;
@@ -99,7 +101,9 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
   });
 
   test('Drop table: Table in the sync rules', async () => {
-    await using context = await CDCStreamTestContext.open(factory);
+    await using context = await CDCStreamTestContext.open(factory, {
+      cdcStreamOptions: { schemaCheckIntervalMs: 5000 }
+    });
     await context.updateSyncRules(BASIC_SYNC_RULES);
 
     const { connectionManager } = context;
@@ -349,7 +353,9 @@ function defineSchemaChangesTests(factory: storage.TestStorageFactory) {
   });
 
   test('Capture instance removed for an actively replicating table', async () => {
-    await using context = await CDCStreamTestContext.open(factory);
+    await using context = await CDCStreamTestContext.open(factory, {
+      cdcStreamOptions: { schemaCheckIntervalMs: 5000 }
+    });
     await context.updateSyncRules(BASIC_SYNC_RULES);
     const { connectionManager } = context;
 

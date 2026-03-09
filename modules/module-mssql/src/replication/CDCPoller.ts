@@ -56,6 +56,8 @@ export interface CDCEventHandler {
   onSchemaChange: (change: SchemaChange) => Promise<void>;
 }
 
+export const DEFAULT_SCHEMA_CHECK_INTERVAL_MS = 60_000;
+
 export interface CDCPollerOptions {
   connectionManager: MSSQLConnectionManager;
   eventHandler: CDCEventHandler;
@@ -68,6 +70,12 @@ export interface CDCPollerOptions {
   startLSN: LSN;
   logger?: Logger;
   additionalConfig: AdditionalConfig;
+  /**
+   * Interval in milliseconds between schema change checks.
+   * Schema checks also run immediately after a recoverable error during polling
+   * (e.g. a dropped capture instance).
+   */
+  schemaCheckIntervalMs?: number;
 }
 
 /**
@@ -84,6 +92,7 @@ export class CDCPoller {
   private isStopped: boolean = false;
   private isStopping: boolean = false;
   private isPolling: boolean = false;
+  private lastSchemaCheckTime: number = 0;
 
   constructor(public options: CDCPollerOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -100,6 +109,10 @@ export class CDCPoller {
 
   private get pollingIntervalMs(): number {
     return this.options.additionalConfig.pollingIntervalMs;
+  }
+
+  private get schemaCheckIntervalMs(): number {
+    return this.options.schemaCheckIntervalMs ?? DEFAULT_SCHEMA_CHECK_INTERVAL_MS;
   }
 
   private get replicatedTables(): MSSQLSourceTable[] {
@@ -123,17 +136,19 @@ export class CDCPoller {
       }
 
       try {
-        // Refresh capture instance details
-        this.captureInstances = await getCaptureInstances({ connectionManager: this.connectionManager });
-        // Check and handle any schema changes before polling
-        const schemaChanges = await this.checkForSchemaChanges();
-        for (const schemaChange of schemaChanges) {
-          await this.eventHandler.onSchemaChange(schemaChange);
+        if (this.shouldCheckSchema()) {
+          this.captureInstances = await getCaptureInstances({ connectionManager: this.connectionManager });
+          const schemaChanges = await this.checkForSchemaChanges();
+          for (const schemaChange of schemaChanges) {
+            await this.eventHandler.onSchemaChange(schemaChange);
+          }
+          this.lastSchemaCheckTime = Date.now();
+
+          this.logger.debug(
+            `Schema change check complete. Schema changes found: ${schemaChanges.map((c) => c.type).join(', ')}`
+          );
         }
 
-        this.logger.debug(
-          `Schema change check complete. Schema changes found: ${schemaChanges.map((c) => c.type).join(', ')}`
-        );
         const hasChanges = await this.poll();
         if (!hasChanges) {
           // No changes found, wait before polling again
@@ -146,6 +161,8 @@ export class CDCPoller {
           // Recoverable errors
           if (error instanceof DatabaseQueryError) {
             this.logger.warn(error.message);
+            // Force schema check on next iteration to detect breaking changes
+            this.lastSchemaCheckTime = 0;
             continue;
           }
           // Deadlock errors are transient — even if all retries within retryOnDeadlock were
@@ -293,16 +310,20 @@ export class CDCPoller {
 
       return transactionCount;
     } catch (error) {
-      this.logger.error(`Error polling table ${table.toQualifiedName()}:`, error);
-      if (error.message.includes(`Invalid object name '${table.allChangesFunction}'`)) {
+      // This Covers both deleted tables and capture instances
+      if (error.message.includes(`Invalid object name`)) {
         throw new DatabaseQueryError(
           ErrorCode.PSYNC_S1601,
-          `Capture instance for table ${table.toQualifiedName()} has been dropped during a polling cycle.`,
+          `Capture instance for table ${table.toQualifiedName()} is no longer available.`,
           error
         );
       }
       throw error;
     }
+  }
+
+  private shouldCheckSchema(): boolean {
+    return Date.now() - this.lastSchemaCheckTime >= this.schemaCheckIntervalMs;
   }
 
   /**

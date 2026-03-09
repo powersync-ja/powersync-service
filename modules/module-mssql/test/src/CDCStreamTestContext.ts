@@ -129,6 +129,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
         pollingIntervalMs: 1000,
         trustServerCertificate: true
       },
+      schemaCheckIntervalMs: 500,
       ...this.cdcStreamOptions
     };
     this._cdcStream = new CDCStream(options);
