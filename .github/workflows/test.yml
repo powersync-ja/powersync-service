@@ -110,7 +110,7 @@ jobs:
         run: pnpm test:core
 
   run-postgres-replication-tests:
-    name: Postgres Test
+    name: Postgres Replication Test
     runs-on: ubuntu-latest
     needs: run-core-tests
     env:
