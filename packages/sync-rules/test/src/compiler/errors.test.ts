@@ -209,6 +209,23 @@ streams:
     ]);
   });
 
+  test('partitioning table-valued result set', () => {
+    // This is kind of an implementation detail and we could be smarter in querier_graph.ts, but currently we can't have
+    // table-valued functions of request data in the middle of a parameter chain. At least we want a decent error
+    // message.
+    expect(
+      compilationErrorsForSingleStream(
+        `select comments.* from comments, json_each(connection.parameter('items')), user_access WHERE comments.item_id = json_each.value AND user_access.item_id = json_each.value AND user_access.user_id = auth.user_id()`
+      )
+    ).toStrictEqual([
+      {
+        message:
+          "This table-valued function depends on request data and can't be partitioned. If possible, try rewriting the query to not use = operators on this function and multiple other tables.",
+        source: `json_each(connection.parameter('items'))`
+      }
+    ]);
+  });
+
   test('subquery with two columns', () => {
     expect(
       compilationErrorsForSingleStream(

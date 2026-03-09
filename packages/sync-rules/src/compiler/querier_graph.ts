@@ -214,7 +214,10 @@ class PendingQuerierPath {
     if (!resolved.partition.isEmpty) {
       // This function is only called for table-valued result sets operating on request data. Partitions are only
       // supported for buckets and parameter lookups.
-      this.errors.report('Table-valued result sets cannot be partitioned', resultSet.source.origin);
+      this.errors.report(
+        `This table-valued function depends on request data and can't be partitioned. If possible, try rewriting the query to not use = operators on this function and multiple other tables.`,
+        resultSet.source.origin
+      );
     }
 
     return new PendingExpandingLookup({ type: 'table_valued', source: resultSet, filters: resolved.filters });
