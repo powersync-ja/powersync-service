@@ -106,7 +106,7 @@ jobs:
       - name: Test
         run: pnpm test:core
 
-  run-postgres-tests:
+  run-postgres-replication-tests:
     name: Postgres Test
     runs-on: ubuntu-latest
     needs: run-core-tests
@@ -179,6 +179,66 @@ jobs:
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-postgres' test
+
+  run-postgres-storage-tests:
+    name: Postgres Storage Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start PostgreSQL
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_test \
+            -p 5432:5432 \
+            -d postgres:${{ matrix.postgres-version }} \
+            -c wal_level=logical
+
+      - name: Start PostgreSQL (Storage)
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_storage_test \
+            -p 5431:5432 \
+            -d postgres:${{ matrix.postgres-version }}
+
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        shell: bash
+        run: pnpm build
 
       - name: Test Storage
         run: pnpm --filter='./modules/module-postgres-storage' test
@@ -257,8 +317,8 @@ jobs:
       - name: Test Replication
         run: pnpm --filter='./modules/module-mysql' test
 
-  run-mongodb-tests:
-    name: MongoDB Test
+  run-mongodb-replication-tests:
+    name: MongoDB Replication Test
     runs-on: ubuntu-latest
     needs: run-core-tests
 
@@ -318,6 +378,51 @@ jobs:
       - name: Test Replication
         run: pnpm --filter='./modules/module-mongodb' test
 
+  run-mongodb-storage-tests:
+    name: MongoDB Storage Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mongodb-version: ['6.0', '7.0', '8.0']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
+      # We pre-pull, so that the image is cached.
+      - name: Pre-pull Mongo image
+        run: docker pull mongo:${{ matrix.mongodb-version }}
+
+      - name: Start MongoDB
+        uses: supercharge/mongodb-github-action@1.12.1
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
+          mongodb-replica-set: test-rs
+
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        shell: bash
+        run: pnpm build
       - name: Test Storage
         run: pnpm --filter='./modules/module-mongodb-storage' test
 
