@@ -664,6 +664,12 @@ export class MongoBucketBatch
   }
 
   async [Symbol.asyncDispose]() {
+    if (this.batch != null || this.write_checkpoint_batch.length > 0) {
+      // We don't error here, since:
+      // 1. In error states, this is expected (we can't distinguish between disposing after success or error).
+      // 2. SuppressedError is messy to deal with.
+      this.logger.warn('Disposing writer with unflushed changes');
+    }
     await this.session.endSession();
     super.clearListeners();
   }
