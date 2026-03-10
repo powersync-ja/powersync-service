@@ -164,9 +164,9 @@ export class ChangeStreamTestContext {
   async markSnapshotConsistent() {
     const checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
 
-    await this.storage!.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.keepalive(checkpoint);
-    });
+    await using writer = await this.storage!.createWriter(test_utils.BATCH_OPTIONS);
+    await writer.keepalive(checkpoint);
+    await writer.flush();
   }
 
   startStreaming() {
