@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { compileSingleStreamAndSerialize } from './utils.js';
+import { compileSingleStreamAndSerialize, compileToSyncPlanWithoutErrors } from './utils.js';
+import { serializeSyncPlan } from '../../../src/index.js';
 
 describe('new sync stream features', () => {
   test('order-independent parameters', () => {
@@ -247,5 +248,69 @@ SELECT * FROM notes
     expect(
       compileSingleStreamAndSerialize("SELECT * FROM issues WHERE 'issues' IN auth.parameter('synced_tables')")
     ).toMatchSnapshot();
+  });
+
+  test('json-each of cte', () => {
+    // Regression test for https://discord.com/channels/1138230179878154300/1479042473316847746/1479049290830839928.
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  manually_converted:
+    auto_subscribe: true
+    with:
+      available_projects: |
+          SELECT project
+          FROM "ProjectInvitation"
+          WHERE "appliedTo" != ''
+          AND (auth.parameters() ->> 'haystack_id') IN "appliedTo"
+          AND "status" = 'CLAIMED'
+          AND connection.parameter('use_streams') != 1
+          AND connection.parameter('use_streams') != '1'
+          AND 'Scene' IN connection.parameter('synced_objects')
+    queries:
+      - |
+        SELECT "Scene"._id as id,
+        unixepoch("Scene"."createdOn") as "createdOnSortable",
+        IFNULL("Scene".archived, 0) as "archived",
+        "Scene".*
+        FROM "Scene", available_projects
+        WHERE "Scene".project IN available_projects.project
+`);
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
+  });
+
+  test('checking for existence in two CTEs', () => {
+    // Regression test for https://discord.com/channels/1138230179878154300/1480494423417688105/1480494813684961405,
+    // slightly simplified.
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  rbac_stream:
+    accept_potentially_dangerous_queries: true
+    with:
+      user_project_permissions: SELECT perm FROM project_permissions WHERE "user" = auth.user_id()
+      user_global_permissions: SELECT perm FROM global_permissions WHERE "user" = auth.user_id()
+
+    query: |
+      SELECT "Scene".*
+      FROM "Scene"
+      WHERE 
+        "Scene".project = subscription.parameter('project')
+        AND (
+            'a' IN user_global_permissions
+            OR 'b' IN user_project_permissions
+        )
+`);
+
+    // There should only be a single bucket, but two ways to get there (thanks to the OR).
+    expect(plan.buckets).toHaveLength(1);
+    expect(plan.streams).toHaveLength(1);
+    expect(plan.streams[0].queriers).toHaveLength(2);
+
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
   });
 });

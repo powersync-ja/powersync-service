@@ -230,6 +230,7 @@ export class StreamQueryParser {
     });
 
     this.resultSets.forEach((v, k) => parseInner.resultSets.set(k, v));
+    this.subqueryResultSets.forEach((v, k) => parseInner.subqueryResultSets.set(k, v));
     return parseInner;
   }
 
@@ -389,8 +390,19 @@ export class StreamQueryParser {
     );
   }
 
-  private inferColumnName(column: SelectedColumn): string {
-    return column.alias?.name ?? this.originalText.substring(column._location!.start, column._location!.end);
+  private inferColumnName({ alias, expr }: SelectedColumn): string {
+    if (alias?.name) {
+      return alias.name;
+    }
+
+    if (expr.type == 'ref') {
+      return expr.name;
+    }
+
+    // We try to infer the output name of custom expressions by looking at sources, but this is kind of hacky
+    // (SQLite mentions that the name of such columns is unspecified for instance), so we also want to warn about this.
+    this.errors.report('The name of this column is unspecified, consider adding an alias.', expr, { isWarning: true });
+    return this.originalText.substring(expr._location!.start, expr._location!.end);
   }
 
   private processResultColumns(stmt: PGNode, columns: SelectedColumn[]) {
