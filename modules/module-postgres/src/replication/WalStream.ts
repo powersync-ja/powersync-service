@@ -113,6 +113,26 @@ export class MissingReplicationSlotError extends Error {
   }
 }
 
+export interface SlotInvalidationContext {
+  walStatus: string; // 'lost' | 'reserved' | 'extended' | 'missing' | ...
+  phase: 'snapshot' | 'streaming';
+  invalidationReason?: string; // PG 14+: 'wal_removed', 'rows_removed', etc.
+}
+
+/**
+ * Determines whether replication should be retried after a slot invalidation.
+ *
+ * Returns false when retry would be futile (e.g. slot lost during snapshot
+ * due to WAL budget exhaustion — retrying would repeat the same long snapshot
+ * and likely fail again).
+ *
+ * This is a stub that always returns true, preserving existing retry-everything
+ * behavior. The real implementation comes in a later spec.
+ */
+export function shouldRetryReplication(_context: SlotInvalidationContext): boolean {
+  return true;
+}
+
 export class WalStream {
   sync_rules: HydratedSyncRules;
   group_id: number;
