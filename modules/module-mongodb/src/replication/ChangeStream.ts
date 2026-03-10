@@ -264,10 +264,13 @@ export class ChangeStream {
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
-    await using streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 0 });
+    // Start
+    const firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+    await using streamManager = this.openChangeStream({ lsn: firstCheckpointLsn, maxAwaitTimeMs: 0 });
+
     const { stream } = streamManager;
     const startTime = performance.now();
-    let lastCheckpointCreated = -10_000;
+    let lastCheckpointCreated = 0;
     let eventsSeen = 0;
 
     while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {
