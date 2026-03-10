@@ -1,5 +1,5 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.tests.json",
   "compilerOptions": {
     "rootDir": "src",
     "baseUrl": "./",
@@ -20,6 +20,12 @@
     },
     {
       "path": "../../../packages/service-core-tests"
+    },
+    {
+      "path": "../../module-mongodb-storage"
+    },
+    {
+      "path": "../../module-postgres-storage"
     }
   ]
 }
