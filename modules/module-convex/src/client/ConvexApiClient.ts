@@ -52,13 +52,7 @@ export class ConvexApiError extends Error {
   readonly retryable: boolean;
   readonly body?: unknown;
 
-  constructor(options: {
-    message: string;
-    status?: number;
-    retryable: boolean;
-    body?: unknown;
-    cause?: unknown;
-  }) {
+  constructor(options: { message: string; status?: number; retryable: boolean; body?: unknown; cause?: unknown }) {
     super(options.message, options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = 'ConvexApiError';
     this.status = options.status;
@@ -312,8 +306,9 @@ export function isCursorExpiredError(error: unknown): boolean {
   const asString = `${error.message} ${JSON.stringify(error.body ?? {})}`.toLowerCase();
 
   return (
-    asString.includes('cursor') && (asString.includes('expired') || asString.includes('invalid'))
-  ) || (asString.includes('snapshot') && asString.includes('expired'));
+    (asString.includes('cursor') && (asString.includes('expired') || asString.includes('invalid'))) ||
+    (asString.includes('snapshot') && asString.includes('expired'))
+  );
 }
 
 function parseHasMore(payload: Record<string, any>): boolean {

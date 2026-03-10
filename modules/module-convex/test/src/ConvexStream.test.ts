@@ -583,9 +583,6 @@ describe('ConvexStream', () => {
 
     expect(context.saves.length).toBe(0);
     expect(context.commits.length).toBe(0);
-    expect(context.keepalives).toEqual([
-      toConvexLsn('101'),
-      toConvexLsn('102')
-    ]);
+    expect(context.keepalives).toEqual([toConvexLsn('101'), toConvexLsn('102')]);
   });
 });

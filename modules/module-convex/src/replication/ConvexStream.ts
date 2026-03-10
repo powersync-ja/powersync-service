@@ -143,7 +143,10 @@ export class ConvexStream {
             })
             .catch((error) => {
               if (isCursorExpiredError(error)) {
-                throw new ConvexCursorExpiredError('Convex cursor expired; initial replication restart required', error);
+                throw new ConvexCursorExpiredError(
+                  'Convex cursor expired; initial replication restart required',
+                  error
+                );
               }
               throw error;
             });

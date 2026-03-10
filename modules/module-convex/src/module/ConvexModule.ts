@@ -60,9 +60,7 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
     return await ConvexModule.testConnection(normalizedConfig);
   }
 
-  static async testConnection(
-    normalizedConfig: types.ResolvedConvexConnectionConfig
-  ): Promise<ConnectionTestResult> {
+  static async testConnection(normalizedConfig: types.ResolvedConvexConnectionConfig): Promise<ConnectionTestResult> {
     const connectionManager = new ConvexConnectionManager(normalizedConfig);
     try {
       await connectionManager.client.getJsonSchemas();

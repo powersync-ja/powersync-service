@@ -35,8 +35,6 @@ describe('Convex cursor LSN helpers', () => {
   });
 
   it('rejects non-numeric cursors', () => {
-    expect(() => toConvexLsn('{"tablet":"abc","id":"xyz"}')).toThrow(
-      'Convex cursor is not a valid numeric timestamp'
-    );
+    expect(() => toConvexLsn('{"tablet":"abc","id":"xyz"}')).toThrow('Convex cursor is not a valid numeric timestamp');
   });
 });

@@ -38,15 +38,15 @@ PowerSync requires a `powersync_checkpoints` table and a mutation function deplo
 In your Convex project's `convex/schema.ts`, add the `powersync_checkpoints` table:
 
 ```typescript
-import { defineSchema, defineTable } from "convex/server";
-import { v } from "convex/values";
+import { defineSchema, defineTable } from 'convex/server';
+import { v } from 'convex/values';
 
 export default defineSchema({
   // ... your existing tables ...
 
   powersync_checkpoints: defineTable({
-    last_updated: v.float64(),
-  }),
+    last_updated: v.float64()
+  })
 });
 ```
 
@@ -55,19 +55,19 @@ export default defineSchema({
 Create `convex/powersync_checkpoints.ts`:
 
 ```typescript
-import { mutation } from "./_generated/server";
+import { mutation } from './_generated/server';
 
 export const createCheckpoint = mutation({
   args: {},
   handler: async (ctx) => {
-    const existing = await ctx.db.query("powersync_checkpoints").first();
+    const existing = await ctx.db.query('powersync_checkpoints').first();
 
     if (existing) {
       await ctx.db.patch(existing._id, { last_updated: Date.now() });
     } else {
-      await ctx.db.insert("powersync_checkpoints", { last_updated: Date.now() });
+      await ctx.db.insert('powersync_checkpoints', { last_updated: Date.now() });
     }
-  },
+  }
 });
 ```
 
@@ -104,17 +104,18 @@ The mutation upserts a single row (insert on first call, patch thereafter), so t
 - Checkpoint marker tables are always ignored during snapshot and delta replication.
 - Marker-only pages trigger immediate keepalive checkpoint advancement (not minute-throttled), reducing write-checkpoint acknowledgement latency.
 
-
 # Technical notes
 
 The content below is written in an agents.md style describing the behavior of `module-convex`.
 
 ## 1) Scope
+
 - This module replicates Convex data into PowerSync bucket storage.
 - Source API is Convex Streaming Export (`json_schemas`, `list_snapshot`, `document_deltas`).
 - Initial scope is default Convex component only.
 
 ## 2) Canonical Behavior
+
 - Initial replication:
   1. Pin one **global snapshot** via `list_snapshot` **without** `tableName` and `cursor`.
   2. Snapshot each selected sync-rules table with that fixed `snapshot`.
@@ -127,6 +128,7 @@ The content below is written in an agents.md style describing the behavior of `m
   - If a table is first seen in a `document_deltas` page and matches sync rules, snapshot it inline at that page boundary and skip that table's delta rows from the same page, because the snapshot already includes them.
 
 ## 3) Hard Invariants (Do Not Break)
+
 - `snapshot` is the consistency boundary; page `cursor` is pagination state.
 - All table snapshots in a run must use the same pinned `snapshot`; if response snapshot differs, fail fast.
 - On restart during initial replication:
@@ -139,6 +141,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - The overall system must ensure causal consistency of replicated data in bucket storage.
 
 ## 4) LSN and Cursor Rules
+
 - Convex snapshot and delta cursors are always `i64` timestamps (serialized as decimal numeric strings in JSON).
 - Convex LSN helpers reject non-numeric cursors.
 - The `list_snapshot` pagination cursor is a separate JSON-serialized `{tablet, id}` string — it is pagination state, not a replication cursor.
@@ -146,6 +149,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - Persisted Convex LSNs must be canonical numeric cursor strings.
 
 ## 5) API Client Contract
+
 - Auth header: `Authorization: Convex <deploy_key>`.
 - Always request `format=json`.
 - Fallback path support: `/api/streaming_export/...` when `/api/...` returns `404`.
@@ -158,16 +162,19 @@ The content below is written in an agents.md style describing the behavior of `m
   - non-retryable: malformed responses, auth/config issues.
 
 ## 6) Sync Rules and Connection Semantics
+
 - Default schema is `convex`.
 - SQL literal reminder for sync rules: string literals must use single quotes (`'sally'`), not double quotes.
 
 ## 7) Schema Change Caveat
+
 - Convex `json_schemas` does not provide a schema change token or revision cursor that can be checkpointed.
 - Current behavior uses `json_schemas` for discovery/debug, but does not continuously diff source schema versions.
 - Operational caveat: if Convex schema changes (tables or columns), developers must review and redeploy sync rules manually.
 - Future improvement: cache a canonicalized `json_schemas` hash, poll periodically, and raise diagnostics when schema drift is detected.
 
 ## 8) Datatype Mapping
+
 - Current runtime mapping in stream writer:
   - `id` / `string` -> TEXT,
   - `int64` / integer `number` -> `BigInt` (SQLite INTEGER),
@@ -175,11 +182,12 @@ The content below is written in an agents.md style describing the behavior of `m
   - `boolean` -> `1n`/`0n` (SQLite INTEGER),
   - `bytes` over the JSON API -> base64 `string` on the wire -> `Uint8Array` (SQLite BLOB),
   - `array` / `object` / `record` -> JSON TEXT.
-  NOTE:
+    NOTE:
   - Convex does not expose a native `Date` wire type here; timestamps arrive as `number` or `string`.
   - BLOB values are valid row values but are not valid bucket parameter values.
 
 ## 9) Checkpointing and Consistency
+
 - `createReplicationHead` must:
   1. resolve global head cursor,
   2. write a Convex checkpoint marker via `POST /api/mutation` (calls `powersync_checkpoints:createCheckpoint`),
@@ -193,6 +201,7 @@ The content below is written in an agents.md style describing the behavior of `m
   - marker-only delta pages must trigger immediate `keepalive` checkpoint advancement (do not wait for 60s throttle).
 
 ## 10) Logging Policy
+
 - Keep logs high-signal and bounded.
 - Required snapshot logs:
   - pinned or reused global snapshot,
@@ -201,12 +210,14 @@ The content below is written in an agents.md style describing the behavior of `m
 - Avoid noisy per-row debug logs unless behind explicit debug gating.
 
 ## 11) Known Non-Goals (For Now)
+
 - Convex component targeting beyond default component.
 - A true push stream transport (module is polling deltas).
 - Read-only Convex deploy key model (Convex deploy key is full access; use network isolation and secret controls).
 - Cross-source transactional guarantees beyond Convex stream ordering.
 
 ## 12) Conformance Suite (Must Stay Green)
+
 - Unit tests:
   - `test/src/ConvexApiClient.test.ts`
   - `test/src/ConvexCheckpoints.test.ts`
@@ -227,6 +238,7 @@ The content below is written in an agents.md style describing the behavior of `m
   - no table-not-found due to schema/tag mismatch.
 
 ## 13) Change Checklist for Agents
+
 - If changing snapshot/delta flow:
   - update `ConvexStream` tests first.
 - If changing cursor/LSN encoding:

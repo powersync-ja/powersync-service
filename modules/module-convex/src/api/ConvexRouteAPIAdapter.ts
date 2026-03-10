@@ -1,4 +1,10 @@
-import { api, ParseSyncRulesOptions, ReplicationHeadCallback, ReplicationLagOptions, SourceTable } from '@powersync/service-core';
+import {
+  api,
+  ParseSyncRulesOptions,
+  ReplicationHeadCallback,
+  ReplicationLagOptions,
+  SourceTable
+} from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { toConvexLsn } from '../common/ConvexLSN.js';
@@ -192,7 +198,8 @@ function createTableInfo(options: {
   errors?: service_types.ReplicationError[];
 }) {
   const tableName =
-    options.tableName ?? (options.tablePattern.isWildcard ? options.tablePattern.tablePrefix : options.tablePattern.name);
+    options.tableName ??
+    (options.tablePattern.isWildcard ? options.tablePattern.tablePrefix : options.tablePattern.name);
   const sourceTable = new SourceTable({
     id: tableName,
     connectionTag: options.connectionTag,

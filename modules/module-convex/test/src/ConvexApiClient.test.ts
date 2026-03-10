@@ -178,9 +178,9 @@ describe('ConvexApiClient', () => {
   });
 
   it('creates write checkpoint markers via mutation', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ status: 'success' }), { status: 200 })
-    );
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200 }));
 
     const client = new ConvexApiClient(baseConfig);
     await client.createWriteCheckpointMarker();
@@ -199,10 +199,7 @@ describe('ConvexApiClient', () => {
 
   it('propagates checkpoint write errors directly (no fallback)', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ code: 'SomeError' }),
-        { status: 400 }
-      )
+      new Response(JSON.stringify({ code: 'SomeError' }), { status: 400 })
     );
 
     const client = new ConvexApiClient(baseConfig);
