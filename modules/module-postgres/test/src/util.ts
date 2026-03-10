@@ -144,7 +144,7 @@ export async function getClientCheckpoint(
       return cp.checkpoint;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 
   throw new Error('Timeout while waiting for checkpoint');
