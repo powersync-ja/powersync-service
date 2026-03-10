@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, resolveTestTable, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -11,7 +11,6 @@ import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 function registerStorageVersionTests(storageVersion: number) {
   describe(`storage v${storageVersion}`, () => {
     const storageFactory = POSTGRES_STORAGE_FACTORY;
-    const TEST_TABLE = test_utils.makeTestTable('test', ['id'], storageFactory);
 
     register.registerSyncTests(storageFactory.factory, {
       storageVersion,
@@ -37,52 +36,54 @@ function registerStorageVersionTests(storageVersion: number) {
       const bucketStorage = factory.getInstance(syncRules);
       const globalBucket = bucketRequest(syncRules, 'global[]');
 
-      const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-        const sourceTable = TEST_TABLE;
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
-        const largeDescription = '0123456789'.repeat(2_000_00);
+      const sourceTable = await resolveTestTable(writer, 'test', ['id'], storageFactory);
 
-        await batch.save({
-          sourceTable,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 'test1',
-            description: 'test1'
-          },
-          afterReplicaId: test_utils.rid('test1')
-        });
+      const largeDescription = '0123456789'.repeat(2_000_00);
 
-        await batch.save({
-          sourceTable,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 'large1',
-            description: largeDescription
-          },
-          afterReplicaId: test_utils.rid('large1')
-        });
-
-        // Large enough to split the returned batch
-        await batch.save({
-          sourceTable,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 'large2',
-            description: largeDescription
-          },
-          afterReplicaId: test_utils.rid('large2')
-        });
-
-        await batch.save({
-          sourceTable,
-          tag: storage.SaveOperationTag.INSERT,
-          after: {
-            id: 'test3',
-            description: 'test3'
-          },
-          afterReplicaId: test_utils.rid('test3')
-        });
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test1',
+          description: 'test1'
+        },
+        afterReplicaId: test_utils.rid('test1')
       });
+
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'large1',
+          description: largeDescription
+        },
+        afterReplicaId: test_utils.rid('large1')
+      });
+
+      // Large enough to split the returned batch
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'large2',
+          description: largeDescription
+        },
+        afterReplicaId: test_utils.rid('large2')
+      });
+
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'test3',
+          description: 'test3'
+        },
+        afterReplicaId: test_utils.rid('test3')
+      });
+
+      const result = await writer.flush();
 
       const checkpoint = result!.flushed_op;
 

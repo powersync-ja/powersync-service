@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequestMap, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { POSTGRES_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -39,13 +39,15 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
         )
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const globalBucket = bucketRequest(syncRules, 'global[]');
 
-      const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-        const sourceTable = test_utils.makeTestTable('test', ['id'], POSTGRES_STORAGE_FACTORY);
+      const result = await (async () => {
+        await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+        const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], POSTGRES_STORAGE_FACTORY);
 
         const largeDescription = '0123456789'.repeat(2_000_00);
 
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -55,7 +57,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
           afterReplicaId: test_utils.rid('test1')
         });
 
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -66,7 +68,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
         });
 
         // Large enough to split the returned batch
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -76,7 +78,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
           afterReplicaId: test_utils.rid('large2')
         });
 
-        await batch.save({
+        await writer.save({
           sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
@@ -85,15 +87,14 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
           },
           afterReplicaId: test_utils.rid('test3')
         });
-      });
+        return writer.flush();
+      })();
 
       const checkpoint = result!.flushed_op;
 
       const options: storage.BucketDataBatchOptions = {};
 
-      const batch1 = await test_utils.fromAsync(
-        bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]), options)
-      );
+      const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [globalBucket], options));
       expect(test_utils.getBatchData(batch1)).toEqual([
         { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
       ]);
@@ -106,7 +107,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
       const batch2 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
           checkpoint,
-          bucketRequestMap(syncRules, [['global[]', BigInt(batch1[0].chunkData.next_after)]]),
+          [{ ...globalBucket, start: BigInt(batch1[0].chunkData.next_after) }],
           options
         )
       );
@@ -122,7 +123,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
       const batch3 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
           checkpoint,
-          bucketRequestMap(syncRules, [['global[]', BigInt(batch2[0].chunkData.next_after)]]),
+          [{ ...globalBucket, start: BigInt(batch2[0].chunkData.next_after) }],
           options
         )
       );
@@ -138,7 +139,7 @@ for (let storageVersion of TEST_STORAGE_VERSIONS) {
       const batch4 = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(
           checkpoint,
-          bucketRequestMap(syncRules, [['global[]', BigInt(batch3[0].chunkData.next_after)]]),
+          [{ ...globalBucket, start: BigInt(batch3[0].chunkData.next_after) }],
           options
         )
       );

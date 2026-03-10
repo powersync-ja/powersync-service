@@ -3,9 +3,17 @@ import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
+import { CURRENT_STORAGE_VERSION } from '@powersync/service-core';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
-  describeWithStorage({ timeout: 240_000 }, defineBatchTests);
+  describeWithStorage(
+    {
+      timeout: 240_000,
+      // These tests are slow, so only test the current storage version
+      storageVersions: [CURRENT_STORAGE_VERSION]
+    },
+    defineBatchTests
+  );
 });
 
 const BASIC_SYNC_RULES = `bucket_definitions:
