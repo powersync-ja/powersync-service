@@ -1,5 +1,5 @@
 import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { bucketRequest, bucketRequestMap, register, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { PostgresCompactor } from '../../src/storage/PostgresCompactor.js';
 import { POSTGRES_STORAGE_FACTORY } from './util.js';
@@ -7,7 +7,6 @@ import { POSTGRES_STORAGE_FACTORY } from './util.js';
 describe('Postgres Sync Bucket Storage Compact', () => register.registerCompactTests(POSTGRES_STORAGE_FACTORY));
 
 describe('Postgres Compact - explicit bucket name', () => {
-  const TEST_TABLE = test_utils.makeTestTable('test', ['id'], POSTGRES_STORAGE_FACTORY);
   test('compacts a specific bucket by exact name', async () => {
     await using factory = await POSTGRES_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(
@@ -19,22 +18,26 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.save({
-        sourceTable: TEST_TABLE,
+    const result = await (async () => {
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], POSTGRES_STORAGE_FACTORY);
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: { id: 't1' },
         afterReplicaId: test_utils.rid('t1')
       });
-      await batch.save({
-        sourceTable: TEST_TABLE,
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.UPDATE,
         after: { id: 't1' },
         afterReplicaId: test_utils.rid('t1')
       });
-      await batch.markAllSnapshotDone('1/1');
-      await batch.commit('1/1');
-    });
+      await writer.markAllSnapshotDone('1/1');
+      const flushed = await writer.flush();
+      await writer.commit('1/1');
+      return flushed;
+    })();
 
     const checkpoint = result!.flushed_op;
 
@@ -46,7 +49,7 @@ bucket_definitions:
     });
 
     const batch = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, bucketRequestMap(syncRules, [['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)])
     );
 
     expect(batch.chunkData.data).toMatchObject([
@@ -69,34 +72,38 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     const request = bucketRequest(syncRules, 'global[]');
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.markAllSnapshotDone('1/1');
-      await batch.save({
-        sourceTable: TEST_TABLE,
+    const result = await (async () => {
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], POSTGRES_STORAGE_FACTORY);
+      await writer.markAllSnapshotDone('1/1');
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: { id: 't1' },
         afterReplicaId: test_utils.rid('t1')
       });
-      await batch.save({
-        sourceTable: TEST_TABLE,
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.DELETE,
         before: { id: 't1' },
         beforeReplicaId: test_utils.rid('t1')
       });
-      await batch.save({
-        sourceTable: TEST_TABLE,
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.INSERT,
         after: { id: 't2' },
         afterReplicaId: test_utils.rid('t2')
       });
-      await batch.save({
-        sourceTable: TEST_TABLE,
+      await writer.save({
+        sourceTable: testTable,
         tag: storage.SaveOperationTag.DELETE,
         before: { id: 't2' },
         beforeReplicaId: test_utils.rid('t2')
       });
-      await batch.commit('1/1');
-    });
+      const flushed = await writer.flush();
+      await writer.commit('1/1');
+      return flushed;
+    })();
 
     const checkpoint = result!.flushed_op;
     const rowsBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
