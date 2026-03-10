@@ -106,10 +106,16 @@ export const sendKeepAlive = async (db: pgwire.PgClient) => {
 };
 
 export class MissingReplicationSlotError extends Error {
-  constructor(message: string, cause?: any) {
-    super(message);
+  walStatus?: string;
+  phase?: 'snapshot' | 'streaming';
 
-    this.cause = cause;
+  constructor(message: string, options?: { cause?: any; walStatus?: string; phase?: 'snapshot' | 'streaming' }) {
+    super(message);
+    if (options) {
+      this.cause = options.cause;
+      this.walStatus = options.walStatus;
+      this.phase = options.phase;
+    }
   }
 }
 
@@ -384,6 +390,39 @@ export class WalStream {
     }
   }
 
+  /**
+   * Check if the replication slot is still valid. Called after each chunk
+   * flush during snapshot to detect slot invalidation early.
+   *
+   * The query hits pg_replication_slots (shared memory, not a table scan)
+   * and costs ~1-2ms per round-trip — negligible next to the per-chunk
+   * storage flush.
+   */
+  private async checkSlotHealth(): Promise<void> {
+    const rows = pgwire.pgwireRows(
+      await this.connections.pool.query({
+        statement: 'SELECT wal_status FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: this.slot_name }]
+      })
+    );
+
+    if (rows.length === 0) {
+      // Slot disappeared entirely during snapshot
+      throw new MissingReplicationSlotError(`Replication slot ${this.slot_name} disappeared during snapshot`, {
+        walStatus: 'missing',
+        phase: 'snapshot'
+      });
+    }
+
+    const walStatus = rows[0].wal_status;
+    if (walStatus === 'lost') {
+      throw new MissingReplicationSlotError(
+        `Replication slot ${this.slot_name} was invalidated during snapshot (wal_status: lost)`,
+        { walStatus: 'lost', phase: 'snapshot' }
+      );
+    }
+  }
+
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
     const results = await db.query({
       statement: `SELECT reltuples::bigint AS estimate
@@ -637,6 +676,7 @@ WHERE  oid = $1::regclass`,
       if (this.onSnapshotChunkFlushed) {
         await this.onSnapshotChunkFlushed();
       }
+      await this.checkSlotHealth();
       if (limited == null) {
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {
@@ -892,7 +932,7 @@ WHERE  oid = $1::regclass`,
       await this.streamChangesInternal(replicationConnection);
     } catch (e) {
       if (isReplicationSlotInvalidError(e)) {
-        throw new MissingReplicationSlotError(e.message, e);
+        throw new MissingReplicationSlotError(e.message, { cause: e });
       }
       throw e;
     }

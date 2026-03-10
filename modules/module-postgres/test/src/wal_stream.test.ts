@@ -501,9 +501,7 @@ bucket_definitions:
     data:
       - SELECT id, description FROM "test_data"`);
 
-    await pool.query(
-      `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`
-    );
+    await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
     await pool.query(`INSERT INTO test_data(description) SELECT 'row ' || g FROM generate_series(1, 1000) g`);
 
     // The hook generates WAL synchronously after each chunk flush.
@@ -548,9 +546,7 @@ bucket_definitions:
     data:
       - SELECT id, description FROM "test_data"`);
 
-    await pool.query(
-      `CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`
-    );
+    await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
     await pool.query(`INSERT INTO test_data(description) SELECT 'row ' || g FROM generate_series(1, 1000) g`);
 
     let caughtError: any;
