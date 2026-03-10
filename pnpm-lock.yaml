@@ -214,6 +214,9 @@ importers:
       '@powersync/service-module-mongodb-storage':
         specifier: workspace:*
         version: link:../module-mongodb-storage
+      '@powersync/service-module-postgres-storage':
+        specifier: workspace:*
+        version: link:../module-postgres-storage
 
   modules/module-core:
     dependencies:
@@ -8797,14 +8800,6 @@ snapshots:
     optionalDependencies:
       vite: 7.1.5(@types/node@24.10.9)(yaml@2.8.2)
 
-  '@vitest/mocker@4.0.16(vite@7.1.5(@types/node@22.16.2)(yaml@2.4.5))':
-    dependencies:
-      '@vitest/spy': 4.0.16
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.1.5(@types/node@22.16.2)(yaml@2.4.5)
-
   '@vitest/mocker@4.0.16(vite@7.1.5(@types/node@22.16.2)(yaml@2.8.2))':
     dependencies:
       '@vitest/spy': 4.0.16
@@ -8812,14 +8807,6 @@ snapshots:
       magic-string: 0.30.21
     optionalDependencies:
       vite: 7.1.5(@types/node@22.16.2)(yaml@2.8.2)
-
-  '@vitest/mocker@4.0.16(vite@7.1.5(@types/node@24.10.9)(yaml@2.8.2))':
-    dependencies:
-      '@vitest/spy': 4.0.16
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.1.5(@types/node@24.10.9)(yaml@2.8.2)
 
   '@vitest/pretty-format@3.2.4':
     dependencies:
@@ -8867,7 +8854,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(yaml@2.4.5)
+      vitest: 4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(yaml@2.8.2)
 
   '@vitest/utils@3.2.4':
     dependencies:
@@ -12408,7 +12395,7 @@ snapshots:
   vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(yaml@2.4.5):
     dependencies:
       '@vitest/expect': 4.0.16
-      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@22.16.2)(yaml@2.4.5))
+      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@22.16.2)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.16
       '@vitest/runner': 4.0.16
       '@vitest/snapshot': 4.0.16
@@ -12486,7 +12473,7 @@ snapshots:
   vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@vitest/ui@4.0.16)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.16
-      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@24.10.9)(yaml@2.8.2))
+      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@22.16.2)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.16
       '@vitest/runner': 4.0.16
       '@vitest/snapshot': 4.0.16
