@@ -68,6 +68,13 @@ export interface WalStreamOptions {
    * with the snapshot's chunk processing.
    */
   onSnapshotChunkFlushed?: () => Promise<void>;
+
+  /**
+   * Interval for WAL budget log messages during snapshot, in milliseconds.
+   * Set to 0 for every-chunk logging (useful for debugging).
+   * Defaults to 120_000 (2 minutes).
+   */
+  walBudgetLogIntervalMs?: number;
 }
 
 interface InitResult {
@@ -144,6 +151,90 @@ export function shouldRetryReplication(context: SlotInvalidationContext): boolea
   return true;
 }
 
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+  } else if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+  } else if (bytes >= 1024) {
+    return `${(bytes / 1024).toFixed(1)}KB`;
+  }
+  return `${bytes}B`;
+}
+
+export function formatDuration(hours: number): string {
+  if (hours >= 24) {
+    return `${(hours / 24).toFixed(1)} days`;
+  } else if (hours >= 1) {
+    return `${hours.toFixed(1)} hours`;
+  }
+  return `${Math.round(hours * 60)} minutes`;
+}
+
+export interface WalBudgetSample {
+  safeWalSize: number;
+  timestamp: number;
+}
+
+export interface WalBudgetReport {
+  budgetRemainingPct: number;
+  safeWalSize: number;
+  maxSize: number;
+  walStatus: string;
+  ratePerHour: number | null;
+  etaHours: number | null;
+  isWarning: boolean;
+}
+
+export function computeWalBudgetReport(opts: {
+  safeWalSize: number;
+  maxSize: number;
+  walStatus: string;
+  prevSample: WalBudgetSample | null;
+  now: number;
+}): WalBudgetReport {
+  const budgetRemainingPct = Math.round((opts.safeWalSize / opts.maxSize) * 100);
+
+  let ratePerHour: number | null = null;
+  let etaHours: number | null = null;
+
+  if (opts.prevSample != null) {
+    const elapsedMs = opts.now - opts.prevSample.timestamp;
+    const consumed = opts.prevSample.safeWalSize - opts.safeWalSize;
+    if (elapsedMs > 0 && consumed > 0) {
+      ratePerHour = (consumed / elapsedMs) * 3_600_000;
+      const eta = opts.safeWalSize / ratePerHour;
+      etaHours = eta < 48 ? eta : null;
+    }
+  }
+
+  return {
+    budgetRemainingPct,
+    safeWalSize: opts.safeWalSize,
+    maxSize: opts.maxSize,
+    walStatus: opts.walStatus,
+    ratePerHour,
+    etaHours,
+    isWarning: budgetRemainingPct <= 50
+  };
+}
+
+export function formatWalBudgetLine(report: WalBudgetReport): string {
+  let line =
+    `WAL budget: ${formatBytes(report.safeWalSize)} remaining of ` +
+    `${formatBytes(report.maxSize)} limit (${report.budgetRemainingPct}% remaining).`;
+
+  if (report.ratePerHour != null) {
+    line += ` WAL consumption: ~${formatBytes(report.ratePerHour)}/hr.`;
+    if (report.etaHours != null) {
+      line += ` ETA to exhaustion: ~${formatDuration(report.etaHours)}.`;
+    }
+  }
+
+  line += ` Slot status: ${report.walStatus}.`;
+  return line;
+}
+
 export class WalStream {
   sync_rules: HydratedSyncRules;
   group_id: number;
@@ -176,6 +267,19 @@ export class WalStream {
 
   private initialSnapshotPromise: Promise<void> | null = null;
 
+  private walBudgetLogIntervalMs: number;
+
+  /** Cached max_slot_wal_keep_size in bytes. null = not yet queried. */
+  private maxSlotWalKeepSize: number | null = null;
+  /** Whether max_slot_wal_keep_size has been queried (distinguishes "not
+   *  queried" from "queried and found unlimited"). */
+  private maxSlotWalKeepSizeQueried = false;
+
+  /** Previous safe_wal_size sample for rate calculation. */
+  private prevWalBudgetSample: { safeWalSize: number; timestamp: number } | null = null;
+  /** Timestamp of last WAL budget log message. */
+  private lastWalBudgetLogTime = 0;
+
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
     this.storage = options.storage;
@@ -186,6 +290,7 @@ export class WalStream {
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
+    this.walBudgetLogIntervalMs = options.walBudgetLogIntervalMs ?? 120_000;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -386,6 +491,79 @@ export class WalStream {
     }
   }
 
+  private async queryMaxSlotWalKeepSize(): Promise<number | null> {
+    if (this.maxSlotWalKeepSizeQueried) {
+      return this.maxSlotWalKeepSize;
+    }
+    this.maxSlotWalKeepSizeQueried = true;
+
+    try {
+      const rows = pgwire.pgwireRows(
+        await this.connections.pool.query({
+          statement: `SELECT setting, unit FROM pg_settings WHERE name = 'max_slot_wal_keep_size'`
+        })
+      );
+      if (rows.length === 0) {
+        // PG < 13 or setting doesn't exist
+        return null;
+      }
+      const setting = Number(rows[0].setting);
+      if (setting < 0) {
+        // -1 = unlimited
+        this.maxSlotWalKeepSize = null;
+        return null;
+      }
+      // setting is in MB, convert to bytes
+      const unit = rows[0].unit;
+      const multiplier = unit === 'kB' ? 1024 : unit === '8kB' ? 8192 : 1024 * 1024; // default MB
+      this.maxSlotWalKeepSize = setting * multiplier;
+      return this.maxSlotWalKeepSize;
+    } catch (e) {
+      // Non-fatal — budget reporting is best-effort
+      this.logger.warn(`Could not query max_slot_wal_keep_size`, e);
+      return null;
+    }
+  }
+
+  private async logWalBudget(slot: { safe_wal_size?: any; wal_status?: string }, now: number): Promise<void> {
+    const maxSize = await this.queryMaxSlotWalKeepSize();
+
+    // No limit configured
+    if (maxSize == null) {
+      this.logger.info(`WAL budget: no limit configured (max_slot_wal_keep_size is unlimited).`);
+      return;
+    }
+
+    const safeWalSize = slot.safe_wal_size != null ? Number(slot.safe_wal_size) : null;
+    if (safeWalSize == null) {
+      // safe_wal_size is null on PG < 13, or when no limit is set
+      return;
+    }
+
+    const report = computeWalBudgetReport({
+      safeWalSize,
+      maxSize,
+      walStatus: slot.wal_status ?? 'unknown',
+      prevSample: this.prevWalBudgetSample,
+      now
+    });
+
+    // Update sample for next rate calculation
+    this.prevWalBudgetSample = { safeWalSize, timestamp: now };
+
+    const budgetLine = formatWalBudgetLine(report);
+
+    if (report.isWarning) {
+      this.logger.warn(budgetLine);
+      this.logger.warn(
+        `Replication slot may be invalidated before snapshot completes. ` +
+          `Increase max_slot_wal_keep_size on the source database.`
+      );
+    } else {
+      this.logger.info(budgetLine);
+    }
+  }
+
   /**
    * Check if the replication slot is still valid. Called after each chunk
    * flush during snapshot to detect slot invalidation early.
@@ -397,7 +575,7 @@ export class WalStream {
   private async checkSlotHealth(): Promise<void> {
     const rows = pgwire.pgwireRows(
       await this.connections.pool.query({
-        statement: 'SELECT wal_status FROM pg_replication_slots WHERE slot_name = $1',
+        statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
         params: [{ type: 'varchar', value: this.slot_name }]
       })
     );
@@ -422,6 +600,13 @@ export class WalStream {
         `Replication slot ${this.slot_name} was invalidated during snapshot (wal_status: lost)`,
         { walStatus: 'lost', phase: 'snapshot' }
       );
+    }
+
+    // WAL budget reporting (time-throttled)
+    const now = performance.now();
+    if (now - this.lastWalBudgetLogTime >= this.walBudgetLogIntervalMs) {
+      this.lastWalBudgetLogTime = now;
+      await this.logWalBudget(rows[0], now);
     }
   }
 
