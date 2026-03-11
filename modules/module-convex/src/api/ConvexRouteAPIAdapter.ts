@@ -80,7 +80,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 
       const matchedTableNames = [...tablesByName.keys()]
         .filter((name) => {
-          //Convex doesn't support user-defined schemas, so this is more a forwards compatibility check for when multiple connections are supported
+          //Convex doesn't support user-defined schemas, so this is more of a forwards compatibility check for when multiple connections are supported
           if (tablePattern.schema != this.connectionManager.schema) {
             return false;
           }
