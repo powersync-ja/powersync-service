@@ -133,10 +133,14 @@ export interface SlotInvalidationContext {
  * due to WAL budget exhaustion — retrying would repeat the same long snapshot
  * and likely fail again).
  *
- * This is a stub that always returns true, preserving existing retry-everything
- * behavior. The real implementation comes in a later spec.
+ * Blocks retry when walStatus is 'lost' during snapshot phase (unless the
+ * invalidation reason is 'rows_removed', which is not a WAL budget issue).
+ * Allows retry in all other cases.
  */
-export function shouldRetryReplication(_context: SlotInvalidationContext): boolean {
+export function shouldRetryReplication(context: SlotInvalidationContext): boolean {
+  if (context.walStatus === 'lost' && context.phase === 'snapshot' && context.invalidationReason !== 'rows_removed') {
+    return false;
+  }
   return true;
 }
 
@@ -399,7 +403,8 @@ export class WalStream {
     );
 
     if (rows.length === 0) {
-      // Slot disappeared entirely during snapshot
+      // Slot row gone from pg_replication_slots — dropped externally.
+      // Possible causes: pg_drop_replication_slot() call (operator, management tool, cleanup cron)
       throw new MissingReplicationSlotError(`Replication slot ${this.slot_name} disappeared during snapshot`, {
         walStatus: 'missing',
         phase: 'snapshot'
@@ -408,6 +413,11 @@ export class WalStream {
 
     const walStatus = rows[0].wal_status;
     if (walStatus === 'lost') {
+      // Postgres marked the slot invalid. Possible invalidation_reason values (PG 14+):
+      // - wal_removed: WAL growth exceeded max_slot_wal_keep_size (the primary case)
+      // - wal_level_insufficient: wal_level changed away from 'logical'
+      // - idle_timeout (PG 18+): idle_replication_slot_timeout expired
+      // - rows_removed: catalog rows needed by the slot were vacuumed (safe to retry — fresh slot won't need them)
       throw new MissingReplicationSlotError(
         `Replication slot ${this.slot_name} was invalidated during snapshot (wal_status: lost)`,
         { walStatus: 'lost', phase: 'snapshot' }
