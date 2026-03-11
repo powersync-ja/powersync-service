@@ -560,6 +560,9 @@ bucket_definitions:
     expect(caughtError).toBeInstanceOf(MissingReplicationSlotError);
     expect(caughtError.walStatus).toBe('lost');
     expect(caughtError.phase).toBe('snapshot');
+    expect(caughtError.message).toContain('PSYNC_S1146');
+    expect(caughtError.message).toContain('docs.powersync.com');
+    expect(caughtError.message).toContain('limit:');
   });
 
   test('old date format', async () => {

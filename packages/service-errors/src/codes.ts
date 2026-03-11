@@ -186,6 +186,19 @@ export enum ErrorCode {
    */
   PSYNC_S1145 = 'PSYNC_S1145',
 
+  /**
+   * Replication slot invalidated.
+   *
+   * The replication slot was invalidated by PostgreSQL, typically because
+   * WAL retention exceeded max_slot_wal_keep_size during a long-running
+   * snapshot. Increase max_slot_wal_keep_size on the source database and
+   * redeploy sync rules.
+   *
+   * Other causes: rows_removed (catalog rows needed by the slot were
+   * removed), wal_level_insufficient, idle_timeout (PG 18+).
+   */
+  PSYNC_S1146 = 'PSYNC_S1146',
+
   // ## PSYNC_S12xx: MySQL replication issues
 
   // ## PSYNC_S13xx: MongoDB replication issues
