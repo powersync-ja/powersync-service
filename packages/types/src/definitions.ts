@@ -73,6 +73,25 @@ export const SyncRulesStatus = t.object({
       /** Replication lag in bytes. undefined if we cannot calculate this. */
       replication_lag_bytes: t.number.optional(),
 
+      /**
+       * Replication slot WAL status (PG 13+).
+       * Values: 'reserved', 'extended', 'unreserved', 'lost'.
+       * Undefined for non-Postgres sources or PG < 13.
+       */
+      wal_status: t.string.optional(),
+
+      /**
+       * WAL budget remaining in bytes before potential slot invalidation
+       * (PG 13+, only when max_slot_wal_keep_size is set).
+       */
+      safe_wal_size: t.number.optional(),
+
+      /**
+       * Configured max_slot_wal_keep_size in bytes (PG 13+).
+       * Undefined when unlimited (-1) or not available.
+       */
+      max_slot_wal_keep_size: t.number.optional(),
+
       tables: t.array(TableInfo)
     })
   ),
