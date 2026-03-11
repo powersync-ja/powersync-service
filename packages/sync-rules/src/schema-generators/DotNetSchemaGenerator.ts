@@ -23,13 +23,15 @@ ${tables.map((table) => this.generateTable(table.name, table.columns, options)).
 
     const optionalStreams = this.getOptionalStreams(source, schema);
     const streamHelper = generateCSharpStreamHelper(optionalStreams);
-    generated += `\n${streamHelper}\n`;
+    if (streamHelper) {
+      generated += `\n${streamHelper}\n`;
+    }
 
     return generated;
   }
 
   private toUpperCaseFirstLetter(str: string): string {
-    return str.charAt(0).toUpperCase() + (str.length > 1 ? str.slice(1) : '');
+    return str.charAt(0).toUpperCase() + str.slice(1);
   }
 
   private generateTable(name: string, columns: ColumnDefinition[], options?: GenerateSchemaOptions): string {
