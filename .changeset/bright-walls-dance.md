@@ -2,6 +2,7 @@
 '@powersync/service-types': patch
 '@powersync/service-core': patch
 '@powersync/service-module-postgres': patch
+'@powersync/service-errors': patch
 ---
 
-Surface WAL budget fields (wal_status, safe_wal_size, max_slot_wal_keep_size) in the diagnostics API.
+Detect WAL slot invalidation mid-snapshot, warn on WAL budget depletion, block futile retries, and surface WAL budget in the diagnostics API.
