@@ -249,17 +249,17 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.DELETE,
       beforeReplicaId: test_utils.rid('test1')
     });
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -388,11 +388,11 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -402,7 +402,7 @@ bucket_definitions:
       afterReplicaId: test_utils.rid('test1')
     });
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
         id: 'test1',
@@ -413,7 +413,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test2',
@@ -460,12 +460,12 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -476,7 +476,7 @@ bucket_definitions:
     await writer.flush();
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.DELETE,
       beforeReplicaId: test_utils.rid('test1')
     });
@@ -484,7 +484,7 @@ bucket_definitions:
     await writer.commit('1/1');
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.DELETE,
       beforeReplicaId: test_utils.rid('test1')
     });
@@ -513,7 +513,7 @@ bucket_definitions:
     const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
     expect(checksums).toEqual([
       {
-        bucket: request.bucket,
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: (c1 + c2) & 0xffffffff,
         count: 2
       }
@@ -535,12 +535,12 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -553,7 +553,7 @@ bucket_definitions:
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
         id: 'test1',
@@ -563,7 +563,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
         id: 'test1',
@@ -573,7 +573,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.DELETE,
       beforeReplicaId: test_utils.rid('test1')
     });
@@ -583,7 +583,7 @@ bucket_definitions:
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
         id: 'test1',
@@ -593,7 +593,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
         id: 'test1',
@@ -603,7 +603,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.DELETE,
       beforeReplicaId: test_utils.rid('test1')
     });
@@ -636,7 +636,7 @@ bucket_definitions:
     const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
     expect(checksums).toEqual([
       {
-        bucket: request.bucket,
+        bucket: bucketRequest(syncRules, 'global[]').bucket,
         checksum: (c1 + c1 + c1 + c2) & 0xffffffff,
         count: 4
       }
@@ -856,7 +856,7 @@ bucket_definitions:
       },
       afterReplicaId: rid2('test1', 'test1b')
     });
-    await writer.flush();
+    const result2 = await writer.flush();
 
     // Delete
     await writer.save({
@@ -967,7 +967,7 @@ bucket_definitions:
       },
       afterReplicaId: rid2('test1', 'test1a')
     });
-    await writer.flush();
+    const result2 = await writer.flush();
 
     // Delete
     await writer.save({
@@ -1036,13 +1036,13 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
     const largeDescription = '0123456789'.repeat(12_000_00);
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -1052,7 +1052,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'large1',
@@ -1063,7 +1063,7 @@ bucket_definitions:
 
     // Large enough to split the returned batch
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'large2',
@@ -1073,7 +1073,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test3',
@@ -1148,13 +1148,13 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
 
     for (let i = 1; i <= 6; i++) {
       await writer.save({
-        sourceTable: testTable,
+        sourceTable,
         tag: storage.SaveOperationTag.INSERT,
         after: {
           id: `test${i}`,
@@ -1229,13 +1229,13 @@ bucket_definitions:
       );
       const bucketStorage = factory.getInstance(syncRules);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-      const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+      const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
       await writer.markAllSnapshotDone('1/1');
 
       for (let i = 1; i <= 10; i++) {
         await writer.save({
-          sourceTable: testTable,
+          sourceTable,
           tag: storage.SaveOperationTag.INSERT,
           after: {
             id: `test${i}`,
@@ -1452,11 +1452,11 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -1528,7 +1528,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer1 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer2, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer2, 'test', ['id'], config);
 
     // We simulate two concurrent batches, but sequential calls are enough for this test.
     await writer1.markAllSnapshotDone('1/1');
@@ -1539,7 +1539,7 @@ bucket_definitions:
     expect(cp2.lsn).toEqual('1/1'); // checkpoint 2/1 skipped
 
     await writer2.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -1638,7 +1638,6 @@ bucket_definitions:
     // For this test, we assume that we start with a row "test1", which is picked up by a snapshot
     // query, right before the delete is streamed. But the snapshot query is only persisted _after_
     // the delete is streamed, and we need to ensure that the streamed delete takes precedence.
-    // This is only supported when using storage v3+.
     await streamingWriter.save({
       sourceTable: streamingTable,
       tag: storage.SaveOperationTag.DELETE,
@@ -1679,8 +1678,8 @@ bucket_definitions:
  * Exposed as a separate test so we can test with more storage parameters.
  */
 export function testChecksumBatching(config: storage.TestStorageConfig) {
+  const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
   test('checksums for multiple buckets', async () => {
-    const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
     await using factory = await config.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
