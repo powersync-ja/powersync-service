@@ -873,8 +873,6 @@ bucket_definitions:
 
     const checkpoint3 = result3!.flushed_op;
     const request = bucketRequest(syncRules, 'global[]');
-
-    const request = bucketRequest(syncRules, 'global[]');
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, [{ ...request, start: checkpoint1 }])
     );
@@ -985,8 +983,6 @@ bucket_definitions:
     const result3 = await writer.flush();
 
     const checkpoint3 = result3!.flushed_op;
-    const request = bucketRequest(syncRules, 'global[]');
-
     const request = bucketRequest(syncRules, 'global[]');
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, [{ ...request, start: checkpoint1 }])

@@ -404,19 +404,6 @@ export class PostgresSyncRulesStorage
     return writer;
   }
 
-  /**
-   * @deprecated Use `createWriter()` with `await using` instead.
-   */
-  async startBatch(
-    options: storage.CreateWriterOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
-    await using writer = await this.createWriter(options);
-    await callback(writer);
-    await writer.flush();
-    return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
-  }
-
   async getParameterSets(
     checkpoint: ReplicationCheckpoint,
     lookups: sync_rules.ScopedParameterLookup[]

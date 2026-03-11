@@ -4,6 +4,7 @@ import {
   BatchedCustomWriteCheckpointOptions,
   BucketStorageMarkRecordUnavailable,
   CheckpointResult,
+  InternalOpId,
   maxLsn,
   storage
 } from '@powersync/service-core';
@@ -37,6 +38,17 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
 
   addSubWriter(subWriter: PostgresBucketBatch) {
     this.subWriters.push(subWriter);
+  }
+
+  get last_flushed_op(): InternalOpId | null {
+    let lastFlushedOp: InternalOpId | null = null;
+    for (let subWriter of this.subWriters) {
+      const subWriterLastOp = subWriter.last_flushed_op;
+      if (subWriterLastOp != null && (lastFlushedOp == null || subWriterLastOp > lastFlushedOp)) {
+        lastFlushedOp = subWriterLastOp;
+      }
+    }
+    return lastFlushedOp;
   }
 
   get resumeFromLsn(): string | null {
@@ -253,6 +265,10 @@ export class PostgresBucketDataWriter implements storage.BucketDataWriter {
     for (let writer of this.subWriters) {
       await writer[Symbol.asyncDispose]();
     }
+  }
+
+  async dispose(): Promise<void> {
+    await this[Symbol.asyncDispose]();
   }
 }
 

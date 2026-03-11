@@ -147,6 +147,21 @@ export class MongoBucketDataWriter implements storage.BucketDataWriter {
     }
   }
 
+  async dispose(): Promise<void> {
+    await this[Symbol.asyncDispose]();
+  }
+
+  get last_flushed_op(): InternalOpId | null {
+    let lastFlushedOp: InternalOpId | null = null;
+    for (let subWriter of this.subWriters) {
+      const subWriterLastOp = subWriter.last_flushed_op;
+      if (subWriterLastOp != null && (lastFlushedOp == null || subWriterLastOp > lastFlushedOp)) {
+        lastFlushedOp = subWriterLastOp;
+      }
+    }
+    return lastFlushedOp;
+  }
+
   get resumeFromLsn(): string | null {
     // FIXME: check the logic here when there are multiple batches
     let lsn: string | null = null;
