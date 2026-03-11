@@ -155,6 +155,7 @@ describe('Config', () => {
         type: mongodb
     `;
     const yamlSyncConfig = /* yaml */ `
+      # Sync config
       config:
         edition: 2
       streams:
