@@ -116,117 +116,111 @@ export class ConvexStream {
   }
 
   async streamChanges() {
-    await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: ZERO_LSN,
-        defaultSchema: this.defaultSchema,
-        storeCurrentData: false,
-        skipExistingRows: false
-      },
-      async (batch) => {
-        let resumeFromLsn = batch.resumeFromLsn;
-        if (resumeFromLsn == null) {
-          throw new ReplicationAssertionError(`No LSN found to resume replication from.`);
+    await using batch = await this.storage.createWriter({
+      logger: this.logger,
+      zeroLSN: ZERO_LSN,
+      defaultSchema: this.defaultSchema,
+      storeCurrentData: false, //convex currently has a hard document limit of 1MB per document
+      skipExistingRows: false
+    });
+
+    let resumeFromLsn = batch.resumeFromLsn;
+    if (resumeFromLsn == null) {
+      throw new ReplicationAssertionError(`No LSN found to resume replication from.`);
+    }
+
+    // Resolve source tables up-front to warm table metadata and sync-rule matching.
+    await this.resolveAllSourceTables(batch);
+
+    let cursor = parseConvexLsn(resumeFromLsn);
+
+    while (!this.abortSignal.aborted) {
+      const page = await this.connections.client
+        .documentDeltas({
+          cursor,
+          signal: this.abortSignal
+        })
+        .catch((error) => {
+          if (isCursorExpiredError(error)) {
+            throw new ConvexCursorExpiredError('Convex cursor expired; initial replication restart required', error);
+          }
+          throw error;
+        });
+
+      const nextCursor = page.cursor;
+      const pageLsn = toConvexLsn(nextCursor);
+
+      let changesInPage = 0;
+      let sawCheckpointMarker = false;
+      const snapshottedTablesInPage = new Set<string>();
+      for (const change of page.values) {
+        if (this.abortSignal.aborted) {
+          throw new ReplicationAbortedError('Replication interrupted');
         }
 
-        // Resolve source tables up-front to warm table metadata and sync-rule matching.
-        await this.resolveAllSourceTables(batch);
+        const tableName = readTableName(change);
+        if (tableName == null) {
+          continue;
+        }
 
-        let cursor = parseConvexLsn(resumeFromLsn);
+        if (isConvexCheckpointTable(tableName)) {
+          sawCheckpointMarker = true;
+          continue;
+        }
 
-        while (!this.abortSignal.aborted) {
-          const page = await this.connections.client
-            .documentDeltas({
-              cursor,
-              signal: this.abortSignal
-            })
-            .catch((error) => {
-              if (isCursorExpiredError(error)) {
-                throw new ConvexCursorExpiredError(
-                  'Convex cursor expired; initial replication restart required',
-                  error
-                );
-              }
-              throw error;
-            });
+        const table = await this.getOrResolveTable(batch, tableName, nextCursor, snapshottedTablesInPage);
+        if (table == null || !table.syncAny) {
+          continue;
+        }
+        if (snapshottedTablesInPage.has(tableName)) {
+          continue;
+        }
 
-          const nextCursor = page.cursor;
-          const pageLsn = toConvexLsn(nextCursor);
+        const changed = await this.writeChange(batch, table, change);
+        if (!changed) {
+          continue;
+        }
 
-          let changesInPage = 0;
-          let sawCheckpointMarker = false;
-          const snapshottedTablesInPage = new Set<string>();
-          for (const change of page.values) {
-            if (this.abortSignal.aborted) {
-              throw new ReplicationAbortedError('Replication interrupted');
-            }
-
-            const tableName = readTableName(change);
-            if (tableName == null) {
-              continue;
-            }
-
-            if (isConvexCheckpointTable(tableName)) {
-              sawCheckpointMarker = true;
-              continue;
-            }
-
-            const table = await this.getOrResolveTable(batch, tableName, nextCursor, snapshottedTablesInPage);
-            if (table == null || !table.syncAny) {
-              continue;
-            }
-            if (snapshottedTablesInPage.has(tableName)) {
-              continue;
-            }
-
-            const changed = await this.writeChange(batch, table, change);
-            if (!changed) {
-              continue;
-            }
-
-            changesInPage += 1;
-            if (this.oldestUncommittedChange == null) {
-              this.oldestUncommittedChange = new Date();
-            }
-          }
-
-          if (changesInPage > 0) {
-            const didCommit = await batch.commit(pageLsn, {
-              createEmptyCheckpoints: false,
-              oldestUncommittedChange: this.oldestUncommittedChange
-            });
-
-            if (didCommit) {
-              this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-              this.oldestUncommittedChange = null;
-              this.isStartingReplication = false;
-            }
-          } else if (sawCheckpointMarker) {
-            await batch.keepalive(pageLsn);
-            this.lastKeepaliveAt = Date.now();
-            this.isStartingReplication = false;
-          } else if (nextCursor != cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
-            await batch.keepalive(pageLsn);
-            this.lastKeepaliveAt = Date.now();
-            this.isStartingReplication = false;
-          }
-
-          cursor = nextCursor;
-
-          if (!page.hasMore) {
-            await delay(this.pollingIntervalMs, undefined, { signal: this.abortSignal }).catch((error) => {
-              if (this.abortSignal.aborted) {
-                return;
-              }
-              throw error;
-            });
-          }
-
-          this.touch();
+        changesInPage += 1;
+        if (this.oldestUncommittedChange == null) {
+          this.oldestUncommittedChange = new Date();
         }
       }
-    );
+
+      if (changesInPage > 0) {
+        const didCommit = await batch.commit(pageLsn, {
+          createEmptyCheckpoints: false,
+          oldestUncommittedChange: this.oldestUncommittedChange
+        });
+
+        if (didCommit) {
+          this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
+          this.oldestUncommittedChange = null;
+          this.isStartingReplication = false;
+        }
+      } else if (sawCheckpointMarker) {
+        await batch.keepalive(pageLsn);
+        this.lastKeepaliveAt = Date.now();
+        this.isStartingReplication = false;
+      } else if (nextCursor != cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
+        await batch.keepalive(pageLsn);
+        this.lastKeepaliveAt = Date.now();
+        this.isStartingReplication = false;
+      }
+
+      cursor = nextCursor;
+
+      if (!page.hasMore) {
+        await delay(this.pollingIntervalMs, undefined, { signal: this.abortSignal }).catch((error) => {
+          if (this.abortSignal.aborted) {
+            return;
+          }
+          throw error;
+        });
+      }
+
+      this.touch();
+    }
   }
 
   async getReplicationLagMillis(): Promise<number | undefined> {
@@ -257,50 +251,47 @@ export class ConvexStream {
   }
 
   private async initialReplication(snapshotLsn: string | null) {
-    const flushResult = await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: ZERO_LSN,
-        defaultSchema: this.defaultSchema,
-        storeCurrentData: false,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        const snapshotCursor = await this.resolveSnapshotBoundary(snapshotLsn);
-        const snapshotLsnValue = toConvexLsn(snapshotCursor);
-        await batch.setResumeLsn(snapshotLsnValue);
+    await using batch = await this.storage.createWriter({
+      logger: this.logger,
+      zeroLSN: ZERO_LSN,
+      defaultSchema: this.defaultSchema,
+      storeCurrentData: false,
+      skipExistingRows: true
+    });
 
-        const sourceTables = await this.resolveAllSourceTables(batch);
+    const snapshotCursor = await this.resolveSnapshotBoundary(snapshotLsn);
+    const snapshotLsnValue = toConvexLsn(snapshotCursor);
+    await batch.setResumeLsn(snapshotLsnValue);
 
-        for (const sourceTable of sourceTables) {
-          if (sourceTable.snapshotComplete) {
-            this.logger.info(`Skipping table [${sourceTable.qualifiedName}] - snapshot already done.`);
-            continue;
-          }
+    const sourceTables = await this.resolveAllSourceTables(batch);
 
-          const tableWithProgress =
-            sourceTable.snapshotStatus == null
-              ? await batch.updateTableProgress(sourceTable, {
-                  totalEstimatedCount: -1,
-                  replicatedCount: 0,
-                  lastKey: null
-                })
-              : sourceTable;
-          this.relationCache.update(tableWithProgress);
-
-          await this.snapshotTable(batch, tableWithProgress, snapshotCursor);
-        }
-
-        await batch.markAllSnapshotDone(snapshotLsnValue);
-
-        await batch.commit(snapshotLsnValue);
-
-        this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsnValue} for consistency.`);
+    for (const sourceTable of sourceTables) {
+      if (sourceTable.snapshotComplete) {
+        this.logger.info(`Skipping table [${sourceTable.qualifiedName}] - snapshot already done.`);
+        continue;
       }
-    );
+
+      const tableWithProgress =
+        sourceTable.snapshotStatus == null
+          ? await batch.updateTableProgress(sourceTable, {
+              totalEstimatedCount: -1,
+              replicatedCount: 0,
+              lastKey: null
+            })
+          : sourceTable;
+      this.relationCache.update(tableWithProgress);
+
+      await this.snapshotTable(batch, tableWithProgress, snapshotCursor);
+    }
+
+    await batch.markAllSnapshotDone(snapshotLsnValue);
+
+    await batch.commit(snapshotLsnValue);
+
+    this.logger.info(`Snapshot done. Need to replicate from ${snapshotLsnValue} for consistency.`);
 
     return {
-      lastOpId: flushResult?.flushed_op
+      lastOpId: batch.last_flushed_op
     };
   }
 
