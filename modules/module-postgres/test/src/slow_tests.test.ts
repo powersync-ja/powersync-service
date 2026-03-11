@@ -18,6 +18,7 @@ import { PgManager } from '@module/replication/PgManager.js';
 import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   createCoreReplicationMetrics,
+  CURRENT_STORAGE_VERSION,
   initializeCoreReplicationMetrics,
   reduceBucket,
   settledPromise,
@@ -31,9 +32,16 @@ import * as timers from 'node:timers/promises';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('slow tests', function () {
-  describeWithStorage({ timeout: 120_000 }, function ({ factory, storageVersion }) {
-    defineSlowTests({ factory, storageVersion });
-  });
+  describeWithStorage(
+    {
+      timeout: 120_000,
+      // These tests are slow, so only test the current storage version
+      storageVersions: [CURRENT_STORAGE_VERSION]
+    },
+    function ({ factory, storageVersion }) {
+      defineSlowTests({ factory, storageVersion });
+    }
+  );
 });
 
 function defineSlowTests({ factory, storageVersion }: StorageVersionTestContext) {

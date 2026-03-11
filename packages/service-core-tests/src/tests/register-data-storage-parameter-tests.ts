@@ -713,6 +713,8 @@ streams:
     });
     await writer.commit('1/1');
 
+    await writer.commit('1/1');
+
     const checkpoint = await bucketStorage.getCheckpoint();
     const parameters = await checkpoint.getParameterSets([
       ScopedParameterLookup.direct(parameterLookupScope('lookup', '0'), ['baz'])

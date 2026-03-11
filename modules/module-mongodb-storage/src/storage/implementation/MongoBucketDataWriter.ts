@@ -1306,12 +1306,12 @@ export class MongoBucketBatch
   }
 
   async [Symbol.asyncDispose]() {
-    await this.dispose();
-  }
-
-  async dispose(): Promise<void> {
     await this.session.endSession();
     super.clearListeners();
+  }
+
+  async dispose() {
+    await this[Symbol.asyncDispose]();
   }
 
   private lastWaitingLogThottled = 0;

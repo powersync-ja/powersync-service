@@ -874,6 +874,7 @@ bucket_definitions:
     const checkpoint3 = result3!.flushed_op;
     const request = bucketRequest(syncRules, 'global[]');
 
+    const request = bucketRequest(syncRules, 'global[]');
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, [{ ...request, start: checkpoint1 }])
     );
@@ -986,6 +987,7 @@ bucket_definitions:
     const checkpoint3 = result3!.flushed_op;
     const request = bucketRequest(syncRules, 'global[]');
 
+    const request = bucketRequest(syncRules, 'global[]');
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, [{ ...request, start: checkpoint1 }])
     );
@@ -1649,7 +1651,6 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
-
     await writer.markAllSnapshotDone('1/1');
     for (let u of ['u1', 'u2', 'u3', 'u4']) {
       for (let t of ['t1', 't2', 't3', 't4']) {

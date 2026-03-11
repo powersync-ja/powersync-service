@@ -384,7 +384,7 @@ export class PostgresSyncRulesStorage
 
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
 
-    const batch = new PostgresBucketBatch({
+    const writer = new PostgresBucketBatch({
       logger: options.logger ?? framework.logger,
       db: this.db,
       storage: this,
@@ -400,8 +400,21 @@ export class PostgresSyncRulesStorage
       markRecordUnavailable: options.markRecordUnavailable,
       storageConfig: this.storageConfig
     });
-    this.iterateListeners((cb) => cb.batchStarted?.(batch));
-    return batch;
+    this.iterateListeners((cb) => cb.batchStarted?.(writer));
+    return writer;
+  }
+
+  /**
+   * @deprecated Use `createWriter()` with `await using` instead.
+   */
+  async startBatch(
+    options: storage.CreateWriterOptions,
+    callback: (batch: storage.BucketStorageBatch) => Promise<void>
+  ): Promise<storage.FlushedResult | null> {
+    await using writer = await this.createWriter(options);
+    await callback(writer);
+    await writer.flush();
+    return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
   }
 
   async getParameterSets(

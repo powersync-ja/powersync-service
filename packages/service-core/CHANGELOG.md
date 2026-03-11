@@ -1,5 +1,21 @@
 # @powersync/service-core
 
+## 1.20.1
+
+### Patch Changes
+
+- 8c5bb3b: [Internal] Allow using multiple BucketStorageBatch instances concurrently.
+- c15efc7: [Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
+- e150c5c: On the `/sync/stream` endpoint, set `X-Accel-Buffering: no` to prevent nginx from buffering the long-running response.
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [dcddcf1]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e7152ce]
+- Updated dependencies [b410924]
+  - @powersync/lib-services-framework@0.9.0
+  - @powersync/service-sync-rules@0.33.0
+  - @powersync/service-rsocket-router@0.2.16
+
 ## 1.20.0
 
 ### Minor Changes

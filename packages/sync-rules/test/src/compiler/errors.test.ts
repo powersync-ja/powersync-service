@@ -45,14 +45,14 @@ config:
 streams:
   stream:
     with:
-      foo: SELECT 1
+      foo: SELECT id FROM users
 `);
 
     expect(errors).toStrictEqual([
       {
         message: 'One of `queries` or `query` must be given.',
         source: `with:
-      foo: SELECT 1
+      foo: SELECT id FROM users
 `
       }
     ]);
@@ -68,10 +68,10 @@ streams:
   });
 
   test('not selecting from anything', () => {
-    expect(compilationErrorsForSingleStream('SELECT 1, 2, 3')).toStrictEqual([
+    expect(compilationErrorsForSingleStream('SELECT 1 AS a, 2 AS b, 3 AS c')).toStrictEqual([
       {
         message: 'Must have a result column selecting from a table',
-        source: 'SELECT 1, 2, 3'
+        source: 'SELECT 1 AS a, 2 AS b, 3 AS c'
       }
     ]);
   });
@@ -112,7 +112,7 @@ streams:
   });
 
   test('selecting connection value', () => {
-    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') FROM users u;")).toStrictEqual([
+    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') AS p FROM users u;")).toStrictEqual([
       {
         message: 'This attempts to sync a connection parameter. Only values from the source database can be synced.',
         source: "auth.parameter('x')"
@@ -171,17 +171,6 @@ streams:
     ]);
   });
 
-  test('IN operator with static left clause', () => {
-    expect(
-      compilationErrorsForSingleStream("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
-    ).toStrictEqual([
-      {
-        message: 'This filter is unrelated to the request or the table being synced, and not supported.',
-        source: "'static' IN (SELECT id FROM users WHERE is_admin"
-      }
-    ]);
-  });
-
   test('negated subquery', () => {
     expect(
       compilationErrorsForSingleStream(
@@ -216,6 +205,23 @@ streams:
         message:
           "This expression already references row data, so it can't also reference connection parameters unless the two are compared with an equals operator.",
         source: 'auth.user_id()'
+      }
+    ]);
+  });
+
+  test('partitioning table-valued result set', () => {
+    // This is kind of an implementation detail and we could be smarter in querier_graph.ts, but currently we can't have
+    // table-valued functions of request data in the middle of a parameter chain. At least we want a decent error
+    // message.
+    expect(
+      compilationErrorsForSingleStream(
+        `select comments.* from comments, json_each(connection.parameter('items')), user_access WHERE comments.item_id = json_each.value AND user_access.item_id = json_each.value AND user_access.user_id = auth.user_id()`
+      )
+    ).toStrictEqual([
+      {
+        message:
+          "This table-valued function depends on request data and can't be partitioned. If possible, try rewriting the query to not use = operators on this function and multiple other tables.",
+        source: `json_each(connection.parameter('items'))`
       }
     ]);
   });
@@ -273,6 +279,23 @@ streams:
     expect(compilationErrorsForSingleStream('select * from users where id = subscription.whatever()')).toStrictEqual([
       { message: 'Unknown request function', source: 'subscription.whatever' }
     ]);
+  });
+
+  test('warns about missing alias', () => {
+    expect(compilationErrorsForSingleStream('select id, lower(name) from users')).toStrictEqual([
+      {
+        message: 'The name of this column is unspecified, consider adding an alias.',
+        source: 'lower(name)',
+        isWarning: true
+      }
+    ]);
+
+    // Should not warn for subqueries with fixed column names.
+    expect(
+      compilationErrorsForSingleStream(
+        'select id, name from (select id, lower(name) from users) as my_table (id, name)'
+      )
+    ).toStrictEqual([]);
   });
 
   describe('schema errors', () => {

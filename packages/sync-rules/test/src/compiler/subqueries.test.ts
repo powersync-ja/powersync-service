@@ -42,14 +42,14 @@ streams:
 
   describe('errors', () => {
     test('select star', () => {
-      expect(compilationErrorsForSingleStream('SELECT 1 FROM (SELECT * FROM users) AS u')).toStrictEqual([
+      expect(compilationErrorsForSingleStream('SELECT 1 AS id FROM (SELECT * FROM users) AS u')).toStrictEqual([
         {
           message: '* columns are not allowed in subqueries or common table expressions',
           source: '*'
         },
         {
           message: 'Must have a result column selecting from a table',
-          source: 'SELECT 1 FROM (SELECT * FROM users) AS u'
+          source: 'SELECT 1 AS id FROM (SELECT * FROM users) AS u'
         }
       ]);
     });

@@ -195,6 +195,7 @@ export class ChangeStreamTestContext {
     const checkpoint = await createCheckpoint(this.client, this.db, STANDALONE_CHECKPOINT_ID);
     await using writer = await this.storage!.createWriter(test_utils.BATCH_OPTIONS);
     await writer.keepalive(checkpoint);
+    await writer.flush();
   }
 
   async getCheckpoint(options?: { timeout?: number }) {

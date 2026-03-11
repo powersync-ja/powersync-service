@@ -437,6 +437,7 @@ export class ChangeStream {
     } else {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
       // case if we have an old one.
+      // This is also relevant for getSnapshotLSN().
       streamOptions.startAtOperationTime = startAfter;
     }
 

@@ -419,10 +419,13 @@ export class MongoSnapshotter {
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
-    await using streamManager = this.openChangeStream(writer, { lsn: null, maxAwaitTimeMs: 0 });
+    // Create a checkpoint, and open a change stream using startAtOperationTime with the checkpoint's operationTime.
+    const firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+    await using streamManager = this.openChangeStream(writer, { lsn: firstCheckpointLsn, maxAwaitTimeMs: 0 });
+
     const { stream } = streamManager;
     const startTime = performance.now();
-    let lastCheckpointCreated = -10_000;
+    let lastCheckpointCreated = performance.now();
     let eventsSeen = 0;
 
     while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {

@@ -33,10 +33,14 @@ export interface StorageVersionTestContext {
   storageVersion: number;
 }
 
-export function describeWithStorage(options: TestOptions, fn: (context: StorageVersionTestContext) => void) {
+export function describeWithStorage(
+  options: TestOptions & { storageVersions?: number[] },
+  fn: (context: StorageVersionTestContext) => void
+) {
+  const storageVersions = options.storageVersions ?? TEST_STORAGE_VERSIONS;
   const describeFactory = (storageName: string, config: TestStorageConfig) => {
     describe(`${storageName} storage`, options, function () {
-      for (const storageVersion of TEST_STORAGE_VERSIONS) {
+      for (const storageVersion of storageVersions) {
         describe(`storage v${storageVersion}`, function () {
           fn({
             factory: config.factory,
@@ -138,7 +142,7 @@ export async function getClientCheckpoint(
       return cp.checkpoint;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 
   throw new Error('Timeout while waiting for checkpoint');
