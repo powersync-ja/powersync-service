@@ -478,10 +478,14 @@ export class WalStream {
       const lost = slot.wal_status == 'lost';
       if (lost) {
         // Case 1 / 4
+        const fixGuidance =
+          slot.invalidation_reason === 'idle_timeout'
+            ? `Increase idle_replication_slot_timeout on the source database.`
+            : `Increase max_slot_wal_keep_size on the source database.`;
         throw new MissingReplicationSlotError(
           `[PSYNC_S1146] Replication slot ${slotName} was invalidated ` +
             `(reason: ${slot.invalidation_reason ?? 'unknown'}). ` +
-            `Increase max_slot_wal_keep_size on the source database. ` +
+            `${fixGuidance} ` +
             `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`
         );
       }
