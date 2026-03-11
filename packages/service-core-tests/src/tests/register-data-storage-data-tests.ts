@@ -1560,6 +1560,58 @@ bucket_definitions:
     expect(cp4.lsn).toEqual('4/1');
   });
 
+  test('empty checkpoints (sync rule activation)', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "%"
+`,
+        {
+          storageVersion
+        }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const result1 = await writer.commit('1/1', { createEmptyCheckpoints: false });
+    expect(result1).toEqual({ checkpointBlocked: true, checkpointCreated: false });
+    // Snapshot is only valid once we reach 3/1
+    await writer.markAllSnapshotDone('3/1');
+
+    // 2/1 < 3/1 - snapshot not valid yet, block checkpoint
+    const result2 = await writer.commit('2/1', { createEmptyCheckpoints: false });
+    expect(result2).toEqual({ checkpointBlocked: true, checkpointCreated: false });
+
+    // No empty checkpoint should be created by the commit above.
+    const cp1 = await bucketStorage.getCheckpoint();
+    expect(cp1.lsn).toEqual(null);
+
+    // After this commit, the snapshot should be valid.
+    // We specifically check that this is done even if createEmptyCheckpoints: false.
+    const result3 = await writer.commit('3/1', { createEmptyCheckpoints: false });
+    expect(result3).toEqual({ checkpointBlocked: false, checkpointCreated: true });
+
+    // Now, the checkpoint should advance the sync rules active.
+    const cp2 = await bucketStorage.getCheckpoint();
+    expect(cp2.lsn).toEqual('3/1');
+
+    const activeSyncRules = await factory.getActiveSyncRulesContent();
+    expect(activeSyncRules?.id).toEqual(syncRules.id);
+
+    // At this point, it should be a truely empty checkpoint
+    const result4 = await writer.commit('4/1', { createEmptyCheckpoints: false });
+    expect(result4).toEqual({ checkpointBlocked: false, checkpointCreated: false });
+
+    // Unchanged
+    const cp3 = await bucketStorage.getCheckpoint();
+    expect(cp3.lsn).toEqual('3/1');
+  });
+
   test.runIf(storageVersion >= 3)('deleting while streaming', async () => {
     await using factory = await generateStorageFactory();
     const syncRules = await factory.updateSyncRules(
