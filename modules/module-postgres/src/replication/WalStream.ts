@@ -471,7 +471,10 @@ export class WalStream {
       if (lost) {
         // Case 1 / 4
         throw new MissingReplicationSlotError(
-          `Replication slot ${slotName} is not valid anymore. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`
+          `[PSYNC_S1146] Replication slot ${slotName} was invalidated ` +
+            `(reason: ${slot.invalidation_reason ?? 'unknown'}). ` +
+            `Increase max_slot_wal_keep_size on the source database. ` +
+            `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`
         );
       }
       // Case 3 / 6
@@ -573,6 +576,9 @@ export class WalStream {
    * storage flush.
    */
   private async checkSlotHealth(): Promise<void> {
+    // Ensure maxSlotWalKeepSize is populated for diagnostic context in error messages
+    await this.queryMaxSlotWalKeepSize();
+
     const rows = pgwire.pgwireRows(
       await this.connections.pool.query({
         statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
@@ -583,10 +589,11 @@ export class WalStream {
     if (rows.length === 0) {
       // Slot row gone from pg_replication_slots — dropped externally.
       // Possible causes: pg_drop_replication_slot() call (operator, management tool, cleanup cron)
-      throw new MissingReplicationSlotError(`Replication slot ${this.slot_name} disappeared during snapshot`, {
-        walStatus: 'missing',
-        phase: 'snapshot'
-      });
+      throw new MissingReplicationSlotError(
+        `[PSYNC_S1146] Replication slot ${this.slot_name} disappeared during snapshot. ` +
+          `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`,
+        { walStatus: 'missing', phase: 'snapshot' }
+      );
     }
 
     const walStatus = rows[0].wal_status;
@@ -597,7 +604,10 @@ export class WalStream {
       // - idle_timeout (PG 18+): idle_replication_slot_timeout expired
       // - rows_removed: catalog rows needed by the slot were vacuumed (safe to retry — fresh slot won't need them)
       throw new MissingReplicationSlotError(
-        `Replication slot ${this.slot_name} was invalidated during snapshot (wal_status: lost)`,
+        `[PSYNC_S1146] Replication slot ${this.slot_name} was invalidated during snapshot` +
+          `${this.formatWalBudgetContext()}. ` +
+          `Increase max_slot_wal_keep_size on the source database. ` +
+          `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`,
         { walStatus: 'lost', phase: 'snapshot' }
       );
     }
@@ -608,6 +618,26 @@ export class WalStream {
       this.lastWalBudgetLogTime = now;
       await this.logWalBudget(rows[0], now);
     }
+  }
+
+  private formatWalBudgetContext(): string {
+    if (this.maxSlotWalKeepSize == null) {
+      return '';
+    }
+    const parts: string[] = [];
+    parts.push(` (limit: ${formatBytes(this.maxSlotWalKeepSize)})`);
+
+    if (this.prevWalBudgetSample != null) {
+      const elapsed = performance.now() - this.prevWalBudgetSample.timestamp;
+      if (elapsed > 0 && this.prevWalBudgetSample.safeWalSize > 0) {
+        const elapsedHours = elapsed / 3_600_000;
+        if (elapsedHours >= 0.1) {
+          parts.push(`, exhausted in ~${formatDuration(elapsedHours)}`);
+        }
+      }
+    }
+
+    return parts.join('');
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
