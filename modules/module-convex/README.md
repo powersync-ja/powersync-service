@@ -26,7 +26,7 @@ The content below is written in an agents.md style describing the behavior of `m
 ## 1) Scope
 
 - This module replicates Convex data into PowerSync bucket storage.
-- Source APIs used are Convex Streaming Export: (`json_schemas`, `list_snapshot`, `document_deltas`).
+- Source APIs used are Convex [Streaming Export](https://docs.convex.dev/streaming-export-api): (`json_schemas`, `list_snapshot`, `document_deltas`).
 - Initial scope is default Convex component only, but we could consider support for custom components in the future if we can figure out consistency.
 
 ## 2) Canonical Behavior
@@ -38,7 +38,7 @@ The content below is written in an agents.md style describing the behavior of `m
   - Commit snapshot LSN, then switch to deltas.
 - Streaming replication:
   - Start from persisted resume LSN.
-  - Poll `document_deltas` using frequency configured in `polling_interval_ms` 
+  - Poll `document_deltas` using frequency configured in `polling_interval_ms`
   - Always stream globally (no `tableName` filter), then filter locally by selected Sync Streams tables.
   - If a table is first seen in a `document_deltas` page and matches Sync Streams, snapshot it inline at that page boundary and skip that table's delta rows from the same page, because the snapshot already includes them.
 
@@ -74,38 +74,34 @@ The content below is written in an agents.md style describing the behavior of `m
   - retryable: network, timeout, 429, 5xx.
   - non-retryable: malformed responses, auth/config issues.
 
-## 6) Sync Streams and Connection Semantics
-
-- Default schema is `convex`.
-
-## 7) Schema Change Caveat
+## 6) Schema Change Caveat
 
 - Convex `json_schemas` does not provide a schema change token or revision cursor that can be checkpointed.
 - Current behavior uses `json_schemas` for discovery/debug, but does not continuously diff source schema versions.
 - Operational caveat: if Convex schema changes (tables or columns), developers must review and redeploy Sync Streams manually.
 - Future improvement: cache a canonicalized `json_schemas` hash, poll periodically, and raise diagnostics when schema drift is detected.
 
-## 8) Datatype Mapping
+## 7) Datatype Mapping
 
 - Current runtime mapping in stream writer:
 
-| Convex Type | TS/JS Type  | SQLite type                       |
-| ----------- | ----------- | --------------------------------- |
-| Id          | string      | text                              |
-| Null        | null        | null                              |
-| Int64       | bigint      | integer                           |
-| Float64     | number      | real                              |
+| Convex Type | TS/JS Type  | SQLite type                        |
+| ----------- | ----------- | ---------------------------------- |
+| Id          | string      | text                               |
+| Null        | null        | null                               |
+| Int64       | bigint      | integer                            |
+| Float64     | number      | real                               |
 | Boolean     | boolean     | Up to developer - string or number |
-| String      | string      | text                              |
-| Bytes       | ArrayBuffer | text                              |
-| Array       | Array       | text                              |
-| Object      | Object      | text                              |
-| Record      | Record      | text                              |
+| String      | string      | text                               |
+| Bytes       | ArrayBuffer | text                               |
+| Array       | Array       | text                               |
+| Object      | Object      | text                               |
+| Record      | Record      | text                               |
 
-  - Convex does not expose a native `Date` wire type; timestamps arrive as `number` or `string`.
-  - BLOB values are valid row values but are not valid bucket parameter values.
+- Convex does not expose a native `Date` wire type; timestamps arrive as `number` or `string`.
+- BLOB values are valid row values but are not valid bucket parameter values.
 
-## 9) Checkpointing and Consistency
+## 8) Checkpointing and Consistency
 
 - `createReplicationHead` must:
   1. resolve global head cursor,
@@ -118,3 +114,15 @@ The content below is written in an agents.md style describing the behavior of `m
 - Stream handling requirement:
   - checkpoint marker tables must always be excluded from replicated source tables and ignored in delta row application.
   - marker-only delta pages must trigger immediate `keepalive` checkpoint advancement (do not wait for 60s throttle).
+
+## 9) Convex-specific notes
+
+- The default schema is `convex`
+
+- **Mutation Transaction Atomicity in** `document_deltas`
+  - The `cursor` in `/api/document_deltas` is a Convex commit **timestamp** (`i64`), not a per-operation counter.
+  - Every Convex mutation is an ACID transaction that commits with a single timestamp; all writes within that mutation share the same `_ts` value in the delta stream.
+  - Therefore, the cursor advances **once per mutation**, not once per individual CRUD operation inside it.
+  - Example: a mutation that deletes 5 documents and updates 3 produces 8 entries in `document_deltas`, all with identical `_ts`.
+  - The Convex backend enforces this by never splitting a page mid-timestamp: when the row limit is reached mid-transaction, the page extends until all rows at that `_ts` are included before stopping.
+  - Consequence for replication: all writes from a single mutation always appear in the same `document_deltas` page and are committed to bucket storage atomically as one batch.
