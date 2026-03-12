@@ -7,7 +7,7 @@ import { RemoteJWKSCollector } from '../../src/auth/RemoteJWKSCollector.js';
 import { KeyResult } from '../../src/auth/KeyCollector.js';
 import { CachedKeyCollector } from '../../src/auth/CachedKeyCollector.js';
 import { JwtPayload, StaticSupabaseKeyCollector } from '@/index.js';
-import { debugKeyNotFound } from '../../src/auth/utils.js';
+import { debugKeyNotFound, getSupabaseJwksUrl } from '../../src/auth/utils.js';
 
 const publicKeyRSA: jose.JWK = {
   use: 'sig',
@@ -494,6 +494,25 @@ describe('JWT Auth', () => {
     });
 
     expect(verified.parsedPayload.claim).toEqual('test-claim-2');
+  });
+
+  test('Supabase connection parsing', () => {
+    const details = getSupabaseJwksUrl({
+      type: 'postgresql',
+      uri: 'postgresql://db.abc123.supabase.co:5432/postgres'
+    });
+    expect(details).toEqual({
+      hostname: 'db.abc123.supabase.co',
+      projectId: 'abc123',
+      url: 'https://abc123.supabase.co/auth/v1/.well-known/jwks.json'
+    });
+
+    // supabase.com is not a supabase URI
+    const other = getSupabaseJwksUrl({
+      type: 'postgresql',
+      uri: 'postgresql://db.abc123.supabase.com:5432/postgres'
+    });
+    expect(other).toEqual(null);
   });
 
   describe('debugKeyNotFound', () => {
