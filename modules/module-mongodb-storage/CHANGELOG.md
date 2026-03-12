@@ -1,5 +1,22 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.15.1
+
+### Patch Changes
+
+- 4c92c24: [Internal] Add a createWriter() API to replace startBatch().
+- Updated dependencies [acf1486]
+- Updated dependencies [391c5ef]
+- Updated dependencies [99de8be]
+- Updated dependencies [9daf965]
+- Updated dependencies [4c92c24]
+- Updated dependencies [3a0627e]
+- Updated dependencies [275fd5f]
+  - @powersync/service-sync-rules@0.33.1
+  - @powersync/service-core@1.20.2
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/lib-service-mongodb@0.6.22
+
 ## 0.15.0
 
 ### Minor Changes
