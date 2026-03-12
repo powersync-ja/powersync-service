@@ -110,13 +110,14 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`,
+    `,
         { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
@@ -174,13 +175,14 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`,
+    `,
         { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
@@ -207,8 +209,8 @@ bucket_definitions:
     await writer.commit('2/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-
     const request = bucketRequest(syncRules, 'global[]');
+
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const data = batch[0].chunkData.data.map((d) => {
       return {
@@ -241,24 +243,23 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`,
-        {
-          storageVersion
-        }
+    `,
+        { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.DELETE,
       beforeReplicaId: test_utils.rid('test1')
     });
     await writer.save({
-      sourceTable: testTable,
+      sourceTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -269,8 +270,8 @@ bucket_definitions:
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-
     const request = bucketRequest(syncRules, 'global[]');
+
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const data = batch[0].chunkData.data.map((d) => {
       return {
@@ -304,15 +305,14 @@ bucket_definitions:
     data:
       - SELECT id, description FROM "%"
 `,
-        {
-          storageVersion
-        }
+        { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
     {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
       await writer.markAllSnapshotDone('1/1');
 
       await writer.save({
@@ -344,6 +344,7 @@ bucket_definitions:
     {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
       await writer.markAllSnapshotDone('1/1');
 
       await writer.save({
@@ -382,14 +383,13 @@ bucket_definitions:
     data:
       - SELECT client_id as id, description FROM "%"
 `,
-        {
-          storageVersion
-        }
+        { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
       sourceTable,
@@ -461,6 +461,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
@@ -490,8 +491,8 @@ bucket_definitions:
     await writer.flush();
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-
     const request = bucketRequest(syncRules, 'global[]');
+
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const data = batch[0].chunkData.data.map((d) => {
       return {
@@ -535,6 +536,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
 
     await writer.save({
@@ -609,8 +611,8 @@ bucket_definitions:
     await writer.commit('2/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-
     const request = bucketRequest(syncRules, 'global[]');
+
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
 
     const data = batch[0].chunkData.data.map((d) => {
@@ -664,13 +666,12 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
 
     // Pre-setup
     await writer.markAllSnapshotDone('1/1');
-
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -680,7 +681,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test2',
@@ -695,7 +696,7 @@ bucket_definitions:
     // Test batch
     // b
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test1',
@@ -705,7 +706,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.UPDATE,
       before: {
         id: 'test1'
@@ -719,7 +720,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.UPDATE,
       before: {
         id: 'test2'
@@ -735,7 +736,7 @@ bucket_definitions:
 
     // c
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.UPDATE,
       after: {
         id: 'test2',
@@ -746,7 +747,7 @@ bucket_definitions:
 
     // d
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'test4',
@@ -756,7 +757,7 @@ bucket_definitions:
     });
 
     await writer.save({
-      sourceTable,
+      sourceTable: testTable,
       tag: storage.SaveOperationTag.UPDATE,
       before: {
         id: 'test4'
@@ -771,8 +772,8 @@ bucket_definitions:
     const result2 = await writer.flush();
 
     const checkpoint2 = result2!.flushed_op;
-
     const request = bucketRequest(syncRules, 'global[]', checkpoint1);
+
     const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint2, [request]));
 
     const data = batch[0].chunkData.data.map((d) => {
@@ -817,16 +818,13 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "test"
-`,
-        {
-          storageVersion
-        }
+    `,
+        { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const sourceTable = test_utils.makeTestTable('test', ['id', 'description'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
 
     // Pre-setup
     await writer.markAllSnapshotDone('1/1');
@@ -874,7 +872,6 @@ bucket_definitions:
     const result3 = await writer.flush();
 
     const checkpoint3 = result3!.flushed_op;
-
     const request = bucketRequest(syncRules, 'global[]');
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, [{ ...request, start: checkpoint1 }])
@@ -930,16 +927,15 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "test"
-`,
+    `,
         {
           storageVersion
         }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const sourceTable = test_utils.makeTestTable('test', ['id', 'description'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
 
     // Pre-setup
     await writer.markAllSnapshotDone('1/1');
@@ -987,7 +983,6 @@ bucket_definitions:
     const result3 = await writer.flush();
 
     const checkpoint3 = result3!.flushed_op;
-
     const request = bucketRequest(syncRules, 'global[]');
     const batch = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(checkpoint3, [{ ...request, start: checkpoint1 }])
@@ -1042,8 +1037,8 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
-    await writer.markAllSnapshotDone('1/1');
 
+    await writer.markAllSnapshotDone('1/1');
     const largeDescription = '0123456789'.repeat(12_000_00);
 
     await writer.save({
@@ -1090,12 +1085,12 @@ bucket_definitions:
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
+    const request = bucketRequest(syncRules, 'global[]');
 
     const options: storage.BucketDataBatchOptions = {
       chunkLimitBytes: 16 * 1024 * 1024
     };
 
-    const request = bucketRequest(syncRules, 'global[]');
     const batch1 = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request], options));
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -1154,6 +1149,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
 
     for (let i = 1; i <= 6; i++) {
@@ -1171,8 +1167,8 @@ bucket_definitions:
     await writer.commit('1/1');
 
     const { checkpoint } = await bucketStorage.getCheckpoint();
-
     const request = bucketRequest(syncRules, 'global[]');
+
     const batch1 = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request], { limit: 4 }));
 
     expect(test_utils.getBatchData(batch1)).toEqual([
@@ -1234,6 +1230,7 @@ bucket_definitions:
       const bucketStorage = factory.getInstance(syncRules);
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
       const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
       await writer.markAllSnapshotDone('1/1');
 
       for (let i = 1; i <= 10; i++) {
@@ -1257,7 +1254,6 @@ bucket_definitions:
       const batch = await test_utils.fromAsync(
         bucketStorage.getBucketDataBatch(checkpoint, [global1Request, global2Request], options)
       );
-
       return { batch, global1Request, global2Request };
     };
 
@@ -1408,7 +1404,6 @@ bucket_definitions:
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config, 1);
     const sourceTableIgnore = await test_utils.resolveTestTable(writer, 'test_ignore', ['id'], config, 2);
 
@@ -1451,16 +1446,14 @@ bucket_definitions:
   global:
     data:
       - SELECT client_id as id, description FROM "%"
-`,
-        {
-          storageVersion
-        }
+    `,
+        { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
       sourceTable,
@@ -1473,8 +1466,8 @@ bucket_definitions:
     });
     await writer.commit('1/1');
     const { checkpoint } = await bucketStorage.getCheckpoint();
-
     const request = bucketRequest(syncRules, 'global[]');
+
     const checksums = [...(await bucketStorage.getChecksums(checkpoint, [request])).values()];
     expect(checksums).toEqual([{ bucket: request.bucket, checksum: 1917136889, count: 1 }]);
     const checksums2 = [...(await bucketStorage.getChecksums(checkpoint + 1n, [request])).values()];
@@ -1492,7 +1485,7 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`,
+    `,
         { storageVersion }
       )
     );
@@ -1529,9 +1522,7 @@ bucket_definitions:
     data:
       - SELECT id, description FROM "%"
 `,
-        {
-          storageVersion
-        }
+        { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
@@ -1630,10 +1621,8 @@ bucket_definitions:
   global:
     data:
       - SELECT id, description FROM "%"
-`,
-        {
-          storageVersion
-        }
+    `,
+        { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);

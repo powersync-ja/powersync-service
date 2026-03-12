@@ -53,10 +53,10 @@ export class SqlEventDescriptor {
     return matchingQuery.evaluateRowWithErrors(options.sourceTable, options.record);
   }
 
-  getSourceTables(): Set<TablePattern> {
-    let result = new Set<TablePattern>();
+  getSourceTables(): TablePattern[] {
+    let result: TablePattern[] = [];
     for (let query of this.sourceQueries) {
-      result.add(query.sourceTable!);
+      result.push(query.sourceTable!);
     }
     return result;
   }

@@ -2,6 +2,7 @@ import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongod
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   addChecksums,
+  BucketChecksumRequest,
   InternalOpId,
   isPartialChecksum,
   PopulateChecksumCacheResults,
@@ -9,12 +10,15 @@ import {
   utils
 } from '@powersync/service-core';
 
+import { BucketDataSource, SqlSyncRules, SyncConfig } from '@powersync/service-sync-rules';
 import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 
 interface CurrentBucketState {
+  def: number;
+
   /** Bucket name */
   bucket: string;
 
@@ -63,8 +67,6 @@ const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
 const DEFAULT_MIN_CHANGE_RATIO = 0.1;
-const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
-
 /** This default is primarily for tests. */
 const DEFAULT_MEMORY_LIMIT_MB = 64;
 
@@ -81,14 +83,12 @@ export class MongoCompactor {
   private maxOpId: bigint;
   private buckets: string[] | undefined;
   private signal?: AbortSignal;
-  private group_id: number;
 
   constructor(
     private storage: MongoSyncBucketStorage,
     private db: VersionedPowerSyncMongo,
     options: MongoCompactOptions
   ) {
-    this.group_id = storage.group_id;
     this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
@@ -107,39 +107,55 @@ export class MongoCompactor {
    */
   async compact() {
     if (this.buckets) {
-      for (let bucket of this.buckets) {
-        // We can make this more efficient later on by iterating
-        // through the buckets in a single query.
-        // That makes batching more tricky, so we leave for later.
-        await this.compactSingleBucket(bucket);
-      }
+      throw new Error('Compacting specific buckets is not implemented currently');
+      // for (let bucket of this.buckets) {
+      //   // We can make this more efficient later on by iterating
+      //   // through the buckets in a single query.
+      //   // That makes batching more tricky, so we leave for later.
+      //   await this.compactSingleBucket(bucket);
+      // }
     } else {
       await this.compactDirtyBuckets();
     }
   }
 
   private async compactDirtyBuckets() {
-    for await (let buckets of this.dirtyBucketBatches({
-      minBucketChanges: this.minBucketChanges,
-      minChangeRatio: this.minChangeRatio
-    })) {
-      if (this.signal?.aborted) {
+    const persistedSyncRules = this.storage.sync_rules.parsed({ defaultSchema: 'n/a' });
+    const hydrated = persistedSyncRules.hydratedSyncRules();
+    const sqlSyncRules = hydrated.definition;
+
+    while (!this.signal?.aborted) {
+      // Process all buckets with 10 or more changes since last time.
+      // We exclude the last 100 compacted buckets, to avoid repeatedly re-compacting the same buckets over and over
+      // if they are modified while compacting.
+      const TRACK_RECENTLY_COMPACTED_NUMBER = 100;
+
+      let recentlyCompacted: string[] = [];
+      const buckets = await this.dirtyBucketBatch({
+        sqlSyncRules,
+        minBucketChanges: this.minBucketChanges,
+        minChangeRatio: this.minChangeRatio,
+        exclude: recentlyCompacted
+      });
+      if (buckets.length == 0) {
+        // All done
         break;
       }
-      if (buckets.length == 0) {
-        continue;
+      for (let { bucket, def } of buckets) {
+        await this.compactSingleBucket(def, bucket);
+        recentlyCompacted.push(bucket);
       }
-
-      for (let { bucket } of buckets) {
-        await this.compactSingleBucket(bucket);
+      if (recentlyCompacted.length > TRACK_RECENTLY_COMPACTED_NUMBER) {
+        recentlyCompacted = recentlyCompacted.slice(-TRACK_RECENTLY_COMPACTED_NUMBER);
       }
     }
   }
 
-  private async compactSingleBucket(bucket: string) {
+  private async compactSingleBucket(def: number, bucket: string) {
     const idLimitBytes = this.idLimitBytes;
 
     let currentState: CurrentBucketState = {
+      def,
       bucket,
       seen: new Map(),
       trackingSize: 0,
@@ -153,14 +169,14 @@ export class MongoCompactor {
 
     // Constant lower bound
     const lowerBound: BucketDataKey = {
-      g: this.group_id,
+      g: def,
       b: bucket,
       o: new mongo.MinKey() as any
     };
 
     // Upper bound is adjusted for each batch
     let upperBound: BucketDataKey = {
-      g: this.group_id,
+      g: def,
       b: bucket,
       o: new mongo.MaxKey() as any
     };
@@ -288,7 +304,7 @@ export class MongoCompactor {
     currentState.seen.clear();
     if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
       logger.info(
-        `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
+        `Inserting CLEAR at ${currentState.def}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
       );
       // Need flush() before clear()
       await this.flush();
@@ -315,7 +331,7 @@ export class MongoCompactor {
       updateOne: {
         filter: {
           _id: {
-            g: this.group_id,
+            g: state.def,
             b: state.bucket
           }
         },
@@ -378,12 +394,12 @@ export class MongoCompactor {
     const opFilter = {
       _id: {
         $gte: {
-          g: this.group_id,
+          g: currentState.def,
           b: bucket,
           o: new mongo.MinKey() as any
         },
         $lte: {
-          g: this.group_id,
+          g: currentState.def,
           b: bucket,
           o: clearOp
         }
@@ -445,7 +461,7 @@ export class MongoCompactor {
               {
                 _id: {
                   $gte: {
-                    g: this.group_id,
+                    g: currentState.def,
                     b: bucket,
                     o: new mongo.MinKey() as any
                   },
@@ -485,9 +501,10 @@ export class MongoCompactor {
    * Subset of compact, only populating checksums where relevant.
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
+    const syncConfig = this.storage.sync_rules.parsed({ defaultSchema: 'n/a' }).hydratedSyncRules().definition;
     let count = 0;
     while (!this.signal?.aborted) {
-      const buckets = await this.dirtyBucketBatchForChecksums(options);
+      const buckets = await this.dirtyBucketBatchForChecksums({ ...options, syncConfig: syncConfig });
       if (buckets.length == 0 || this.signal?.aborted) {
         // All done
         break;
@@ -508,7 +525,7 @@ export class MongoCompactor {
       logger.info(
         `Calculating checksums for batch of ${buckets.length} buckets, estimated count of ${totalCountEstimate}`
       );
-      await this.updateChecksumsBatch(checkBuckets.map((b) => b.bucket));
+      await this.updateChecksumsBatch(checkBuckets);
       logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
       count += checkBuckets.length;
     }
@@ -516,100 +533,70 @@ export class MongoCompactor {
   }
 
   /**
-   * Return batches of dirty buckets.
+   * Returns a batch of dirty buckets - buckets with most changes first.
    *
-   * Can be used to iterate through all buckets.
-   *
-   * minBucketChanges: minimum number of changes for a bucket to be included in the results.
-   * minChangeRatio: minimum ratio of changes to total ops for a bucket to be included in the results, number between 0 and 1.
+   * This cannot be used to iterate on its own - the client is expected to process these buckets and
+   * set estimate_since_compact.count: 0 when done, before fetching the next batch.
    */
-  private async *dirtyBucketBatches(options: {
+  private async dirtyBucketBatch(options: {
+    sqlSyncRules: SqlSyncRules;
     minBucketChanges: number;
     minChangeRatio: number;
-  }): AsyncGenerator<{ bucket: string; estimatedCount: number }[]> {
-    // Previously, we used an index on {_id.g: 1, estimate_since_compact.count: 1} to only buckets with changes.
-    // This works well if there are only a small number of buckets with changes.
-    // However, if buckets are continuosly modified while we are compacting, we get the same buckets over and over again.
-    // This has caused the compact process to re-read the same collection around 5x times in total, which is very inefficient.
-    // To solve this, we now just iterate through all buckets, and filter out the ones with low changes.
-
+    exclude?: string[];
+  }): Promise<{ def: number; bucket: string; estimatedCount: number; source: BucketDataSource }[]> {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
-    let lastId = { g: this.group_id, b: new mongo.MinKey() as any };
-    const maxId = { g: this.group_id, b: new mongo.MaxKey() as any };
-    while (true) {
-      // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, we use an aggregation pipeline
-      // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria, rather than limiting
-      // on the output number.
-      const [result] = await this.db.bucket_state
-        .aggregate<{
-          buckets: Pick<BucketStateDocument, '_id' | 'estimate_since_compact' | 'compacted_state'>[];
-          cursor: Pick<BucketStateDocument, '_id'>[];
-        }>(
-          [
-            {
-              $match: {
-                _id: { $gt: lastId, $lt: maxId }
-              }
-            },
-            {
-              $sort: { _id: 1 }
-            },
-            {
-              // Scan a fixed number of docs each query so sparse matches don't block progress.
-              $limit: DIRTY_BUCKET_SCAN_BATCH_SIZE
-            },
-            {
-              $facet: {
-                // This is the results for the batch
-                buckets: [
-                  {
-                    $match: {
-                      'estimate_since_compact.count': { $gte: options.minBucketChanges }
-                    }
-                  },
-                  {
-                    $project: {
-                      _id: 1,
-                      estimate_since_compact: 1,
-                      compacted_state: 1
-                    }
-                  }
-                ],
-                // This is used for the next query.
-                cursor: [{ $sort: { _id: -1 } }, { $limit: 1 }, { $project: { _id: 1 } }]
-              }
-            }
-          ],
-          { maxTimeMS: MONGO_OPERATION_TIMEOUT_MS }
-        )
-        .toArray();
 
-      const cursor = result?.cursor?.[0];
-      if (cursor == null) {
-        break;
-      }
-      lastId = cursor._id;
+    const mapping = this.storage.sync_rules.mapping;
+    let definitions = new Map<number, BucketDataSource>();
+    for (let source of options.sqlSyncRules.bucketDataSources) {
+      const id = mapping.bucketSourceId(source);
+      definitions.set(id, source);
+    }
+    // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
+    const dirtyBuckets = await this.db.bucket_state
+      .find(
+        {
+          '_id.g': { $in: [...definitions.keys()] },
+          'estimate_since_compact.count': { $gte: options.minBucketChanges },
+          '_id.b': { $nin: options.exclude ?? [] }
+        },
+        {
+          projection: {
+            _id: 1,
+            estimate_since_compact: 1,
+            compacted_state: 1
+          },
+          sort: {
+            'estimate_since_compact.count': -1
+          },
+          limit: 200,
+          maxTimeMS: MONGO_OPERATION_TIMEOUT_MS
+        }
+      )
+      .toArray();
 
-      const mapped = (result?.buckets ?? []).map((b) => {
-        const updatedCount = b.estimate_since_compact?.count ?? 0;
-        const totalCount = (b.compacted_state?.count ?? 0) + updatedCount;
-        const updatedBytes = b.estimate_since_compact?.bytes ?? 0;
-        const totalBytes = (b.compacted_state?.bytes ?? 0) + updatedBytes;
+    return dirtyBuckets
+      .map((bucket) => {
+        const updatedCount = bucket.estimate_since_compact?.count ?? 0;
+        const totalCount = updatedCount + (bucket.compacted_state?.count ?? 0);
+        const updatedBytes = bucket.estimate_since_compact?.bytes ?? 0;
+        const totalBytes = updatedBytes + (bucket.compacted_state?.bytes ?? 0);
         const dirtyChangeNumber = totalCount > 0 ? updatedCount / totalCount : 0;
         const dirtyChangeBytes = totalBytes > 0 ? updatedBytes / totalBytes : 0;
         return {
-          bucket: b._id.b,
+          def: bucket._id.g,
+          bucket: bucket._id.b,
           estimatedCount: totalCount,
-          dirtyRatio: Math.max(dirtyChangeNumber, dirtyChangeBytes)
+          dirtyRatio: Math.max(dirtyChangeNumber, dirtyChangeBytes),
+          source: definitions.get(bucket._id.g)!
         };
-      });
-      const filtered = mapped.filter(
-        (b) => b.estimatedCount >= options.minBucketChanges && b.dirtyRatio >= options.minChangeRatio
-      );
-      yield filtered;
-    }
+      })
+      .filter(
+        (bucket) => bucket.estimatedCount >= options.minBucketChanges && bucket.dirtyRatio >= options.minChangeRatio
+      )
+      .map(({ dirtyRatio: _dirtyRatio, ...bucket }) => bucket);
   }
 
   /**
@@ -625,15 +612,24 @@ export class MongoCompactor {
    */
   private async dirtyBucketBatchForChecksums(options: {
     minBucketChanges: number;
-  }): Promise<{ bucket: string; estimatedCount: number }[]> {
+    syncConfig: SyncConfig;
+  }): Promise<{ bucket: string; estimatedCount: number; def: number; source: BucketDataSource }[]> {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
+
+    const mapping = this.storage.sync_rules.mapping;
+    let definitions = new Map<number, BucketDataSource>();
+    for (let source of options.syncConfig.bucketDataSources) {
+      const id = mapping.bucketSourceId(source);
+      definitions.set(id, source);
+    }
+
     // We make use of an index on {_id.g: 1, 'estimate_since_compact.count': -1}
     const dirtyBuckets = await this.db.bucket_state
       .find(
         {
-          '_id.g': this.group_id,
+          '_id.g': { $in: [...definitions.keys()] },
           'estimate_since_compact.count': { $gte: options.minBucketChanges }
         },
         {
@@ -653,22 +649,31 @@ export class MongoCompactor {
 
     return dirtyBuckets.map((bucket) => ({
       bucket: bucket._id.b,
-      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0)
+      estimatedCount: bucket.estimate_since_compact!.count + (bucket.compacted_state?.count ?? 0),
+      def: bucket._id.g,
+      source: definitions.get(bucket._id.g)!
     }));
   }
 
-  private async updateChecksumsBatch(buckets: string[]) {
+  private async updateChecksumsBatch(buckets: BucketChecksumRequest[]) {
+    const sourceMap = new Map<string, BucketDataSource>(buckets.map((b) => [b.bucket, b.source]));
+
     const checksums = await this.storage.checksums.computePartialChecksumsDirect(
       buckets.map((bucket) => {
         return {
-          bucket,
-          source: {} as any,
+          bucket: bucket.bucket,
+          source: bucket.source,
           end: this.maxOpId
         };
       })
     );
 
     for (let bucketChecksum of checksums.values()) {
+      const source = sourceMap.get(bucketChecksum.bucket);
+      if (!source) {
+        throw new ServiceAssertionError(`Unknown source for bucket ${bucketChecksum.bucket}`);
+      }
+      const sourceId = this.storage.sync_rules.mapping.bucketSourceId(source);
       if (isPartialChecksum(bucketChecksum)) {
         // Should never happen since we don't specify `start`
         throw new ServiceAssertionError(`Full checksum expected, got ${JSON.stringify(bucketChecksum)}`);
@@ -678,7 +683,7 @@ export class MongoCompactor {
         updateOne: {
           filter: {
             _id: {
-              g: this.group_id,
+              g: sourceId,
               b: bucketChecksum.bucket
             }
           },

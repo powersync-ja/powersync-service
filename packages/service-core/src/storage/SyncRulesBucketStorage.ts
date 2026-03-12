@@ -1,14 +1,16 @@
-import { Logger, ObserverClient } from '@powersync/lib-services-framework';
+import { ObserverClient } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   HydratedSyncRules,
   ScopedParameterLookup,
-  SqliteJsonRow
+  SqliteJsonRow,
+  TablePattern
 } from '@powersync/service-sync-rules';
+import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
-import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
-import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
+import { BucketDataWriter, BucketStorageBatch } from './BucketDataWriter.js';
+import { BucketStorageFactory, CreateWriterOptions } from './BucketStorageFactory.js';
+import { ParseSyncRulesOptions, PersistedSyncRules } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
@@ -25,26 +27,21 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
 
   /**
-   * Resolve a table, keeping track of it internally.
-   */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
-
-  /**
    * Create a new writer.
+   *
+   * The writer is stateful. It is not safe to use the same writer concurrently from multiple places,
+   * but different writers can be used concurrently.
    *
    * The writer must be flushed and disposed when done.
    */
-  createWriter(options: CreateWriterOptions): Promise<BucketStorageBatch>;
+  createWriter(options: CreateWriterOptions): Promise<BucketDataWriter>;
+
+  getHydratedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
 
   /**
-   * @deprecated Use `createWriter()` with `await using` instead.
+   * For tests only.
    */
-  startBatch(
-    options: CreateWriterOptions,
-    callback: (batch: BucketStorageBatch) => Promise<void>
-  ): Promise<FlushedResult | null>;
-
-  getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
+  getParsedSyncRules(options: ParseSyncRulesOptions): PersistedSyncRules;
 
   /**
    * Terminate the sync rules.
@@ -155,54 +152,43 @@ export interface SyncRuleStatus {
   snapshot_done: boolean;
   snapshot_lsn: string | null;
 }
-export interface ResolveTableOptions {
-  group_id: number;
+export interface ResolveTablesOptions {
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
+  pattern: TablePattern;
+  /**
+   * For tests only - custom id generator for stable ids.
+   */
+  idGenerator?: () => string | bson.ObjectId;
+}
 
+export interface ResolveTableToDropsOptions {
+  connection_id: number;
+  connection_tag: string;
+  entity_descriptor: SourceEntityDescriptor;
+}
+
+export interface ResolveTableOptions {
+  connection_id: number;
+  connection_tag: string;
+  entity_descriptor: SourceEntityDescriptor;
   sync_rules: HydratedSyncRules;
+  /**
+   * For tests only - custom id generator for stable ids.
+   */
+  idGenerator?: () => string | bson.ObjectId;
+}
+
+export interface ResolveTablesResult {
+  tables: SourceTable[];
+  dropTables: SourceTable[];
 }
 
 export interface ResolveTableResult {
   table: SourceTable;
   dropTables: SourceTable[];
 }
-
-export interface CreateWriterOptions extends ParseSyncRulesOptions {
-  zeroLSN: string;
-  /**
-   * Whether or not to store a copy of the current data.
-   *
-   * This is needed if we need to apply partial updates, for example
-   * when we get TOAST values from Postgres.
-   *
-   * This is not needed when we get the full document from the source
-   * database, for example from MongoDB.
-   */
-  storeCurrentData: boolean;
-
-  /**
-   * Set to true for initial replication.
-   *
-   * This will avoid creating new operations for rows previously replicated.
-   */
-  skipExistingRows?: boolean;
-
-  /**
-   * Callback called if we streamed an update to a record that we don't have yet.
-   *
-   * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
-   */
-  markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
-
-  logger?: Logger;
-}
-
-/**
- * @deprecated Use `CreateWriterOptions`.
- */
-export interface StartBatchOptions extends CreateWriterOptions {}
 
 export interface CompactOptions {
   /**
@@ -365,5 +351,3 @@ export const CHECKPOINT_INVALIDATE_ALL: CheckpointChanges = {
   updatedParameterLookups: new Set<string>(),
   invalidateParameterBuckets: true
 };
-
-export type BucketStorageMarkRecordUnavailable = (record: SaveUpdate) => void;

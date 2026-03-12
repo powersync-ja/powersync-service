@@ -1,5 +1,6 @@
 import { framework, GetIntanceOptions, storage, SyncRulesBucketStorage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
+import * as sync_rules from '@powersync/service-sync-rules';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
 
@@ -9,6 +10,7 @@ import { models, NormalizedPostgresStorageConfig } from '../types/types.js';
 import { getStorageApplicationName } from '../utils/application-name.js';
 import { NOTIFICATION_CHANNEL, STORAGE_SCHEMA_NAME } from '../utils/db.js';
 import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
+import { PostgresBucketDataWriter } from './batch/PostgresBucketDataWriter.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import { PostgresPersistedSyncRulesContent } from './sync-rules/PostgresPersistedSyncRulesContent.js';
 
@@ -36,6 +38,29 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     this.db.registerListener({
       connectionCreated: async (connection) => this.prepareStatements(connection)
     });
+  }
+
+  async createCombinedWriter(
+    storages: SyncRulesBucketStorage[],
+    options: storage.CreateWriterOptions
+  ): Promise<storage.BucketDataWriter> {
+    const syncRules = storages.map((s) => s.getHydratedSyncRules(options));
+
+    const rowProcessor = new sync_rules.MultiSyncRules(syncRules);
+    const writer = new PostgresBucketDataWriter({
+      ...options,
+      db: this.db,
+      rowProcessor,
+      storeCurrentData: options.storeCurrentData ?? true,
+      skipExistingRows: options.skipExistingRows ?? false
+    });
+
+    for (let storage of storages) {
+      const bucketBatch = await (storage as PostgresSyncRulesStorage).createBucketBatch(options);
+      writer.addSubWriter(bucketBatch);
+    }
+
+    return writer;
   }
 
   async [Symbol.asyncDispose]() {

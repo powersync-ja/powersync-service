@@ -13,7 +13,6 @@ import {
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
-import { TablePattern } from './TablePattern.js';
 import { generateTableValuedFunctions, TableValuedFunction } from './TableValuedFunctions.js';
 import {
   ParameterValueClause,
@@ -224,7 +223,7 @@ export class TableValuedFunctionSqlParameterQuery {
   }
 
   getSourceTables() {
-    return new Set<TablePattern>();
+    return [];
   }
 
   tableSyncsParameters(_table: SourceTableInterface): boolean {

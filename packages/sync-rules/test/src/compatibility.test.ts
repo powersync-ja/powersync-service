@@ -10,7 +10,7 @@ import {
 } from '../../src/index.js';
 
 import { DEFAULT_HYDRATION_STATE, versionedHydrationState } from '../../src/HydrationState.js';
-import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
+import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS, removeSource } from './util.js';
 
 describe('compatibility options', () => {
   describe('timestamps', () => {
@@ -31,13 +31,15 @@ bucket_definitions:
       ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: rules.applyRowContext<never>({
-            id: 'id',
-            description: value
+        rules
+          .evaluateRow({
+            sourceTable: ASSETS,
+            record: rules.applyRowContext<never>({
+              id: 'id',
+              description: value
+            })
           })
-        })
+          .map(removeSource)
       ).toStrictEqual([
         { bucket: 'mybucket[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
@@ -58,13 +60,15 @@ config:
       ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: rules.applyRowContext<never>({
-            id: 'id',
-            description: value
+        rules
+          .evaluateRow({
+            sourceTable: ASSETS,
+            record: rules.applyRowContext<never>({
+              id: 'id',
+              description: value
+            })
           })
-        })
+          .map(removeSource)
       ).toStrictEqual([
         { bucket: 'mybucket[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
@@ -85,18 +89,22 @@ config:
       ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
       expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: rules.applyRowContext<never>({
-            id: 'id',
-            description: value
+        rules
+          .evaluateRow({
+            sourceTable: ASSETS,
+            record: rules.applyRowContext<never>({
+              id: 'id',
+              description: value
+            })
           })
-        })
+          .map(removeSource)
       ).toStrictEqual([
         { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
 
-      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
+      expect(
+        rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets.map(removeSource)
+      ).toStrictEqual([
         {
           bucket: '1#stream|0[]',
           definition: 'stream',
@@ -128,17 +136,21 @@ config:
       expect(rules.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)).toStrictEqual(false);
 
       expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: rules.applyRowContext<never>({
-            id: 'id',
-            description: value
+        rules
+          .evaluateRow({
+            sourceTable: ASSETS,
+            record: rules.applyRowContext<never>({
+              id: 'id',
+              description: value
+            })
           })
-        })
+          .map(removeSource)
       ).toStrictEqual([
         { bucket: 'stream|0[]', data: { description: '2025-08-19 09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
       ]);
-      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
+      expect(
+        rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets.map(removeSource)
+      ).toStrictEqual([
         {
           bucket: 'stream|0[]',
           definition: 'stream',
@@ -163,16 +175,18 @@ config:
     ).config.hydrate({ hydrationState: versionedHydrationState(1) });
 
     expect(
-      rules.evaluateRow({
-        sourceTable: ASSETS,
-        record: rules.applyRowContext<never>({
-          id: 'id',
-          description: new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
-            subSecondPrecision: TimeValuePrecision.seconds,
-            defaultSubSecondPrecision: TimeValuePrecision.seconds
+      rules
+        .evaluateRow({
+          sourceTable: ASSETS,
+          record: rules.applyRowContext<never>({
+            id: 'id',
+            description: new DateTimeValue('2025-08-19T09:21:00Z', undefined, {
+              subSecondPrecision: TimeValuePrecision.seconds,
+              defaultSubSecondPrecision: TimeValuePrecision.seconds
+            })
           })
         })
-      })
+        .map(removeSource)
     ).toStrictEqual([
       { bucket: '1#stream|0[]', data: { description: '2025-08-19T09:21:00Z', id: 'id' }, id: 'id', table: 'assets' }
     ]);
@@ -193,13 +207,15 @@ bucket_definitions:
       ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: {
-            id: 'id',
-            description: description
-          }
-        })
+        rules
+          .evaluateRow({
+            sourceTable: ASSETS,
+            record: {
+              id: 'id',
+              description: description
+            }
+          })
+          .map(removeSource)
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: 'baz', id: 'id' }, id: 'id', table: 'assets' }]);
     });
 
@@ -217,13 +233,15 @@ config:
       ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 
       expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: {
-            id: 'id',
-            description: description
-          }
-        })
+        rules
+          .evaluateRow({
+            sourceTable: ASSETS,
+            record: {
+              id: 'id',
+              description: description
+            }
+          })
+          .map(removeSource)
       ).toStrictEqual([{ bucket: 'a[]', data: { desc: null, id: 'id' }, id: 'id', table: 'assets' }]);
     });
   });
@@ -273,13 +291,15 @@ config:
         hydrationState: DEFAULT_HYDRATION_STATE
       });
       expect(
-        rules.evaluateRow({
-          sourceTable: ASSETS,
-          record: rules.applyRowContext<never>({
-            id: 'id',
-            description: data
+        rules
+          .evaluateRow({
+            sourceTable: ASSETS,
+            record: rules.applyRowContext<never>({
+              id: 'id',
+              description: data
+            })
           })
-        })
+          .map(removeSource)
       ).toStrictEqual([
         {
           bucket: 'mybucket[]',
@@ -294,7 +314,9 @@ config:
         }
       ]);
 
-      expect(rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets).toStrictEqual([
+      expect(
+        rules.getBucketParameterQuerier(normalizeQuerierOptions({}, {}, {})).querier.staticBuckets.map(removeSource)
+      ).toStrictEqual([
         {
           bucket: 'mybucket[]',
           definition: 'mybucket',

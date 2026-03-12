@@ -14,13 +14,15 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
-  maxLsn,
   mergeAsyncIterables,
+  BucketDefinitionMapping,
+  PersistedSyncRules,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
+  SyncRuleState,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
@@ -32,15 +34,7 @@ import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { VersionedPowerSyncMongo } from './db.js';
-import {
-  BucketDataDocument,
-  BucketDataKey,
-  BucketStateDocument,
-  SourceKey,
-  SourceTableDocument,
-  StorageConfig
-} from './models.js';
-import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, StorageConfig } from './models.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
@@ -70,20 +64,25 @@ export class MongoSyncBucketStorage
   private readonly db: VersionedPowerSyncMongo;
   readonly checksums: MongoChecksums;
 
-  private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncRulesCache:
+    | { parsed: PersistedSyncRules; hydrated: HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
+  private readonly mapping: BucketDefinitionMapping;
 
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    private readonly sync_rules: MongoPersistedSyncRulesContent,
+    public readonly sync_rules: MongoPersistedSyncRulesContent,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
     super();
+    this.mapping = this.sync_rules.mapping;
     this.db = factory.db.versioned(sync_rules.getStorageConfig());
-    this.checksums = new MongoChecksums(this.db, this.group_id, {
+
+    this.checksums = new MongoChecksums(this.db, this.group_id, this.mapping, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig
     });
@@ -113,17 +112,27 @@ export class MongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): PersistedSyncRules {
+    this.getHydratedSyncRules(options);
+    return this.parsedSyncRulesCache!.parsed;
+  }
+
+  getHydratedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync rules, if present, had the same options.
      * Parse sync rules if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      const parsed = this.sync_rules.parsed(options);
+      this.parsedSyncRulesCache = {
+        parsed: Object.assign(parsed, { mapping: this.mapping }),
+        hydrated: parsed.hydratedSyncRules(),
+        options
+      };
     }
 
-    return this.parsedSyncRulesCache!.parsed;
+    return this.parsedSyncRulesCache!.hydrated;
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
@@ -167,144 +176,8 @@ export class MongoSyncBucketStorage
     });
   }
 
-  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
-    const doc = await this.db.sync_rules.findOne(
-      {
-        _id: this.group_id
-      },
-      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1, snapshot_lsn: 1 } }
-    );
-    const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
-
-    const writer = new MongoBucketBatch({
-      logger: options.logger,
-      db: this.db,
-      syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
-      groupId: this.group_id,
-      slotName: this.slot_name,
-      lastCheckpointLsn: checkpoint_lsn,
-      resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
-      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
-      storeCurrentData: options.storeCurrentData,
-      skipExistingRows: options.skipExistingRows ?? false,
-      markRecordUnavailable: options.markRecordUnavailable
-    });
-    this.iterateListeners((cb) => cb.batchStarted?.(writer));
-    return writer;
-  }
-
-  /**
-   * @deprecated Use `createWriter()` with `await using` instead.
-   */
-  async startBatch(
-    options: storage.CreateWriterOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
-    await using writer = await this.createWriter(options);
-    await callback(writer);
-    await writer.flush();
-    return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
-  }
-
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
-
-    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
-
-    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      type_oid: column.typeId
-    }));
-    let result: storage.ResolveTableResult | null = null;
-    await this.db.client.withSession(async (session) => {
-      const col = this.db.source_tables;
-      let filter: Partial<SourceTableDocument> = {
-        group_id: group_id,
-        connection_id: connection_id,
-        schema_name: schema,
-        table_name: name,
-        replica_id_columns2: normalizedReplicaIdColumns
-      };
-      if (objectId != null) {
-        filter.relation_id = objectId;
-      }
-      let doc = await col.findOne(filter, { session });
-      if (doc == null) {
-        doc = {
-          _id: new bson.ObjectId(),
-          group_id: group_id,
-          connection_id: connection_id,
-          relation_id: objectId,
-          schema_name: schema,
-          table_name: name,
-          replica_id_columns: null,
-          replica_id_columns2: normalizedReplicaIdColumns,
-          snapshot_done: false,
-          snapshot_status: undefined
-        };
-
-        await col.insertOne(doc, { session });
-      }
-      const sourceTable = new storage.SourceTable({
-        id: doc._id,
-        connectionTag: connection_tag,
-        objectId: objectId,
-        schema: schema,
-        name: name,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true
-      });
-      sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
-      sourceTable.snapshotStatus =
-        doc.snapshot_status == null
-          ? undefined
-          : {
-              lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-              totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-              replicatedCount: doc.snapshot_status.replicated_count
-            };
-
-      let dropTables: storage.SourceTable[] = [];
-      // Detect tables that are either renamed, or have different replica_id_columns
-      let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
-      if (objectId != null) {
-        // Only detect renames if the source uses relation ids.
-        truncateFilter.push({ relation_id: objectId });
-      }
-      const truncate = await col
-        .find(
-          {
-            group_id: group_id,
-            connection_id: connection_id,
-            _id: { $ne: doc._id },
-            $or: truncateFilter
-          },
-          { session }
-        )
-        .toArray();
-      dropTables = truncate.map(
-        (doc) =>
-          new storage.SourceTable({
-            id: doc._id,
-            connectionTag: connection_tag,
-            objectId: doc.relation_id,
-            schema: doc.schema_name,
-            name: doc.table_name,
-            replicaIdColumns:
-              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true
-          })
-      );
-
-      result = {
-        table: sourceTable,
-        dropTables: dropTables
-      };
-    });
-    return result!;
+  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketDataWriter> {
+    return await this.factory.createCombinedWriter([this], options);
   }
 
   async getParameterSets(
@@ -336,7 +209,7 @@ export class MongoSyncBucketStorage
           [
             {
               $match: {
-                'key.g': this.group_id,
+                'key.g': 0,
                 lookup: { $in: lookupFilter },
                 _id: { $lte: checkpoint.checkpoint }
               }
@@ -388,16 +261,17 @@ export class MongoSyncBucketStorage
       throw new ServiceAssertionError('checkpoint is null');
     }
     const end = checkpoint;
-    for (let { bucket: name, start } of dataBuckets) {
+    for (let { bucket: name, start, source } of dataBuckets) {
+      const sourceDefinitionId = this.mapping.bucketSourceId(source);
       filters.push({
         _id: {
           $gt: {
-            g: this.group_id,
+            g: sourceDefinitionId,
             b: name,
             o: start
           },
           $lte: {
-            g: this.group_id,
+            g: sourceDefinitionId,
             b: name,
             o: end as any
           }
@@ -581,33 +455,9 @@ export class MongoSyncBucketStorage
   }
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
-    while (true) {
-      if (options?.signal?.aborted) {
-        throw new ReplicationAbortedError('Aborted clearing data', options.signal.reason);
-      }
-      try {
-        await this.clearIteration();
+    const signal = options?.signal ?? new AbortController().signal;
 
-        logger.info(`${this.slot_name} Done clearing data`);
-        return;
-      } catch (e: unknown) {
-        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-          logger.info(
-            `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-          );
-          await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
-        } else {
-          throw e;
-        }
-      }
-    }
-  }
-
-  private async clearIteration(): Promise<void> {
-    // Individual operations here may time out with the maxTimeMS option.
-    // It is expected to still make progress, and continue on the next try.
-
-    await this.db.sync_rules.updateOne(
+    const doc = await this.db.sync_rules.findOneAndUpdate(
       {
         _id: this.group_id
       },
@@ -623,41 +473,171 @@ export class MongoSyncBucketStorage
           snapshot_lsn: 1
         }
       },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
-    await this.db.bucket_data.deleteMany(
-      {
-        _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
-    await this.db.bucket_parameters.deleteMany(
-      {
-        'key.g': this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS, returnDocument: 'after' }
     );
 
-    await this.db.common_current_data.deleteMany(
-      {
-        _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    if (doc?.rule_mapping != null) {
+      // TODO: Handle consistency
+
+      const otherSyncRules = await this.db.sync_rules
+        .find({
+          _id: { $ne: this.group_id },
+          state: { $in: [SyncRuleState.ACTIVE, SyncRuleState.PROCESSING, SyncRuleState.ERRORED] },
+          'rule_mapping.definitions': { $exists: true }
+        })
+        .toArray();
+      const keepSyncDefinitionIds = new Set<number>();
+      const keepParameterLookupIds = new Set<number>();
+      for (let other of otherSyncRules) {
+        for (let id of Object.values(other.rule_mapping.definitions)) {
+          keepSyncDefinitionIds.add(id);
+        }
+        for (let id of Object.values(other.rule_mapping.parameter_lookups)) {
+          keepParameterLookupIds.add(id);
+        }
+      }
+
+      for (let [name, id] of Object.entries(doc.rule_mapping.definitions)) {
+        if (keepSyncDefinitionIds.has(id)) {
+          continue;
+        }
+        await this.retriedDelete(`deleting bucket data for ${name}`, signal, () =>
+          this.db.bucket_data.deleteMany(
+            {
+              _id: idPrefixFilter<BucketDataKey>({ g: id }, ['b', 'o'])
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          )
+        );
+
+        await this.retriedDelete(`deleting bucket_state data for ${name}`, signal, () =>
+          this.db.bucket_state.deleteMany(
+            {
+              _id: idPrefixFilter<BucketStateDocument['_id']>({ g: id }, ['b'])
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          )
+        );
+      }
+
+      for (let [name, id] of Object.entries(doc.rule_mapping.parameter_lookups)) {
+        if (keepParameterLookupIds.has(id)) {
+          continue;
+        }
+        // FIXME: Index this
+        await this.retriedDelete(`deleting parameter lookup data for ${name}`, signal, () =>
+          this.db.bucket_parameters.deleteMany(
+            {
+              def: id
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          )
+        );
+      }
+    }
+
+    // Legacy
+    await this.retriedDelete('deleting bucket data', signal, () =>
+      this.db.bucket_data.deleteMany(
+        {
+          _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
     );
 
-    await this.db.bucket_state.deleteMany(
-      {
-        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    // Legacy
+    await this.retriedDelete('deleting bucket parameter lookup values', signal, () =>
+      this.db.bucket_parameters.deleteMany(
+        {
+          'key.g': this.group_id
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
     );
 
-    await this.db.source_tables.deleteMany(
-      {
-        group_id: this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    // Legacy
+    await this.retriedDelete('deleting current data records', signal, () =>
+      this.db.common_current_data.deleteMany(
+        {
+          _id: idPrefixFilter<SourceKey>({ g: this.group_id as any }, ['t', 'k'])
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
     );
+
+    // Legacy
+    await this.retriedDelete('deleting bucket state records', signal, () =>
+      this.db.bucket_state.deleteMany(
+        {
+          _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      )
+    );
+
+    // First remove the reference
+    this.db.source_tables.updateMany({ sync_rules_ids: this.group_id }, { $pull: { sync_rules_ids: this.group_id } });
+
+    // Then delete the data associated with unreferenced source tables
+    const tables = await this.db.source_tables
+      .find(
+        {
+          sync_rules_ids: []
+        },
+        { projection: { _id: 1 } }
+      )
+      .toArray();
+
+    for (let table of tables) {
+      await this.retriedDelete(`deleting current data records for table ${table.table_name}`, signal, () =>
+        this.db.common_current_data.deleteMany(
+          {
+            _id: idPrefixFilter<SourceKey>({ g: 0, t: table._id }, ['k'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        )
+      );
+      await this.retriedDelete(`deleting parameter data records for table ${table.table_name}`, signal, () =>
+        this.db.bucket_parameters.deleteMany(
+          {
+            key: idPrefixFilter<SourceKey>({ g: 0, t: table._id }, ['k'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        )
+      );
+
+      await this.db.source_tables.deleteOne({ _id: table._id }); // Delete the source table record itself
+    }
+  }
+
+  private async retriedDelete(
+    message: string,
+    signal: AbortSignal,
+    deleteFunc: () => Promise<mongo.DeleteResult>
+  ): Promise<void> {
+    // Individual operations here may time out with the maxTimeMS option.
+    // It is expected to still make progress, and continue on the next try.
+
+    let i = 0;
+    while (!signal.aborted) {
+      try {
+        const result = await deleteFunc();
+        if (result.deletedCount > 0) {
+          logger.info(`${this.slot_name} ${message} - done`);
+        }
+        return;
+      } catch (e: unknown) {
+        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
+          i += 1;
+          logger.info(`${this.slot_name} ${message} iteration ${i}, continuing...`);
+          await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
+        } else {
+          throw e;
+        }
+      }
+    }
+    throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
   }
 
   async reportError(e: any): Promise<void> {
@@ -684,7 +664,7 @@ export class MongoSyncBucketStorage
     await new MongoCompactor(this, this.db, { ...options, maxOpId }).compact();
 
     if (maxOpId != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+      await new MongoParameterCompactor(this.db, this, maxOpId, options).compact();
     }
   }
 
@@ -931,7 +911,10 @@ export class MongoSyncBucketStorage
       .find(
         {
           // We have an index on (_id.g, last_op).
-          '_id.g': this.group_id,
+          // We cannot do a plain filter this on _id.g anymore, since that depends on the bucket definition.
+          // For now we leave out the filter. But we may need to either:
+          //  1. Add a new index purely on last_op, or
+          //  2. Use an $in on all relevant _id.g values (from the sync rules mapping).
           last_op: { $gt: options.lastCheckpoint.checkpoint }
         },
         {
@@ -964,7 +947,7 @@ export class MongoSyncBucketStorage
       .find(
         {
           _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
-          'key.g': this.group_id
+          'key.g': 0
         },
         {
           projection: {

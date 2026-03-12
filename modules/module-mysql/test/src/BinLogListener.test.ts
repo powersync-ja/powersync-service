@@ -13,7 +13,7 @@ import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/
 import crypto from 'crypto';
 import { TablePattern } from '@powersync/service-sync-rules';
 
-describe('BinlogListener tests', () => {
+describe('BinlogListener tests', async () => {
   const MAX_QUEUE_CAPACITY_MB = 1;
   const BINLOG_LISTENER_CONNECTION_OPTIONS = {
     ...TEST_CONNECTION_OPTIONS,
@@ -23,15 +23,15 @@ describe('BinlogListener tests', () => {
   let connectionManager: MySQLConnectionManager;
   let eventHandler: TestBinLogEventHandler;
   let binLogListener: BinLogListener;
-  let isMySQL57: boolean = false;
+  let isMySQL57: boolean;
 
-  beforeAll(async () => {
+  {
     connectionManager = new MySQLConnectionManager(BINLOG_LISTENER_CONNECTION_OPTIONS, {});
     const connection = await connectionManager.getConnection();
     const version = await getMySQLVersion(connection);
     isMySQL57 = satisfiesVersion(version, '5.7.x');
     connection.release();
-  });
+  }
 
   beforeEach(async () => {
     const connection = await connectionManager.getConnection();
@@ -232,20 +232,19 @@ describe('BinlogListener tests', () => {
     );
   });
 
-  test('Schema change event: Rename column via rename statement', async () => {
+  test.skipIf(isMySQL57)('Schema change event: Rename column via rename statement', async () => {
     // Syntax ALTER TABLE RENAME COLUMN was only introduced in MySQL 8.0.0
-    if (!isMySQL57) {
-      await binLogListener.start();
-      await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
-      await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
-      await binLogListener.stop();
-      assertSchemaChange(
-        eventHandler.schemaChanges[0],
-        SchemaChangeType.ALTER_TABLE_COLUMN,
-        connectionManager.databaseName,
-        'test_DATA'
-      );
-    }
+
+    await binLogListener.start();
+    await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await binLogListener.stop();
+    assertSchemaChange(
+      eventHandler.schemaChanges[0],
+      SchemaChangeType.ALTER_TABLE_COLUMN,
+      connectionManager.databaseName,
+      'test_DATA'
+    );
   });
 
   test('Schema change event: Multiple column changes', async () => {

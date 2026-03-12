@@ -8,7 +8,7 @@ import {
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
-import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
+import { lookupScope, removeSource, requestParameters, TestSourceTable } from '../../util.js';
 
 describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {
@@ -22,17 +22,19 @@ streams:
 `);
 
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo',
-          _double: 1,
-          _int: 1n,
-          _null: null,
-          _text: 'text',
-          _blob: new Uint8Array(10) // non-JSON columns should be removed
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo',
+            _double: 1,
+            _int: 1n,
+            _null: null,
+            _text: 'text',
+            _blob: new Uint8Array(10) // non-JSON columns should be removed
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',
@@ -121,12 +123,14 @@ streams:
       query: SELECT * FROM users u
 `);
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo'
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo'
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',
@@ -147,12 +151,14 @@ streams:
       query: SELECT * FROM "%" output
 `);
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo'
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo'
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',
@@ -173,12 +179,14 @@ streams:
       query: SELECT * FROM "%"
 `);
     expect(
-      desc.evaluateRow({
-        sourceTable: USERS,
-        record: {
-          id: 'foo'
-        }
-      })
+      desc
+        .evaluateRow({
+          sourceTable: USERS,
+          record: {
+            id: 'foo'
+          }
+        })
+        .map(removeSource)
     ).toStrictEqual([
       {
         bucket: 'stream|0[]',

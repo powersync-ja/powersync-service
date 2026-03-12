@@ -21,6 +21,8 @@ import {
   CURRENT_STORAGE_VERSION,
   initializeCoreReplicationMetrics,
   reduceBucket,
+  settledPromise,
+  unsettledPromise,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
@@ -46,7 +48,7 @@ function defineSlowTests({ factory, storageVersion }: StorageVersionTestContext)
   let walStream: WalStream | undefined;
   let connections: PgManager | undefined;
   let abortController: AbortController | undefined;
-  let streamPromise: Promise<void> | undefined;
+  let streamPromise: Promise<PromiseSettledResult<void>> | undefined;
 
   beforeAll(async () => {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -112,9 +114,11 @@ bucket_definitions:
     await pool.query(`ALTER TABLE test_data REPLICA IDENTITY FULL`);
 
     let abort = false;
-    streamPromise = walStream.replicate().finally(() => {
-      abort = true;
-    });
+    streamPromise = settledPromise(
+      walStream.replicate().finally(() => {
+        abort = true;
+      })
+    );
     await walStream.waitForInitialSnapshot();
     const start = Date.now();
 
@@ -270,6 +274,8 @@ bucket_definitions:
             *
           FROM
             current_data
+          WHERE
+            pending_delete IS NULL
         `
           .decoded(postgres_storage.models.V1CurrentData)
           .rows();
@@ -304,7 +310,7 @@ bucket_definitions:
     }
 
     abortController.abort();
-    await streamPromise.catch((e) => {
+    await unsettledPromise(streamPromise).catch((e) => {
       if (e instanceof ReplicationAbortedError) {
         // Ignore
       } else {
@@ -368,7 +374,7 @@ bucket_definitions:
 
       // 3. Start replication, but don't wait for it
       let initialReplicationDone = false;
-      streamPromise = walStream.replicate();
+      streamPromise = settledPromise(walStream.replicate());
       walStream
         .waitForInitialSnapshot()
         .catch((_) => {})
@@ -416,7 +422,7 @@ bucket_definitions:
       }
 
       abortController.abort();
-      await streamPromise.catch((e) => {
+      await unsettledPromise(streamPromise).catch((e) => {
         if (e instanceof ReplicationAbortedError) {
           // Ignore
         } else {
@@ -486,7 +492,7 @@ bucket_definitions:
       // 3. Start replication, but don't wait for it
       let initialReplicationDone = false;
 
-      streamPromise = context.replicateSnapshot().finally(() => {
+      streamPromise = settledPromise(context.replicateSnapshot()).finally(() => {
         initialReplicationDone = true;
       });
 
@@ -508,7 +514,7 @@ bucket_definitions:
         await new Promise((resolve) => setTimeout(resolve, Math.random() * 10));
       }
 
-      await streamPromise;
+      await unsettledPromise(streamPromise);
 
       // 5. Once initial replication is done, wait for the streaming changes to complete syncing.
       const data = await context.getBucketData('global[]', 0n);

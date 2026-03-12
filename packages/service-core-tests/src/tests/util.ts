@@ -33,8 +33,8 @@ const EMPTY_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
       source: EMPTY_LOOKUP_SOURCE
     };
   },
-  getSourceTables(): Set<TablePattern> {
-    return new Set();
+  getSourceTables(): TablePattern[] {
+    return [];
   },
   evaluateParameterRow(_sourceTable: SourceTableInterface, _row: SqliteRow) {
     return [];

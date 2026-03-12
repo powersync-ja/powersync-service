@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
+import { BucketDataScope } from '../../src/HydrationState.js';
 import {
   CompatibilityContext,
   CompatibilityEdition,
   CompatibilityOption,
-  RequestJwtPayload,
   RequestParameters,
   SqlParameterQuery
 } from '../../src/index.js';
@@ -11,7 +11,13 @@ import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';
 import { bucketDataScope, EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } from './util.js';
 
 describe('table-valued function queries', () => {
-  const emptyPayload: RequestJwtPayload = { userIdJson: '', parsedPayload: {} };
+  function getStaticBucketDescriptions(
+    query: StaticSqlParameterQuery,
+    parameters: RequestParameters,
+    scope: BucketDataScope
+  ) {
+    return query.getStaticBucketDescriptions(parameters, scope);
+  }
 
   test('json_each(array param)', function () {
     const sql = "SELECT json_each.value as v FROM json_each(request.parameters() -> 'array')";
@@ -244,7 +250,8 @@ describe('table-valued function queries', () => {
     expect(query.bucketParameters).toEqual(['project_id']);
 
     expect(
-      query.getStaticBucketDescriptions(
+      getStaticBucketDescriptions(
+        query,
         requestParameters(
           {
             projects: [

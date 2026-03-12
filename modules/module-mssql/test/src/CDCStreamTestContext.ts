@@ -1,3 +1,5 @@
+import { CDCStream, CDCStreamOptions } from '@module/replication/CDCStream.js';
+import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
@@ -10,10 +12,8 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
-import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
-import { CDCStream, CDCStreamOptions } from '@module/replication/CDCStream.js';
-import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import timers from 'timers/promises';
+import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
 /**
  * Tests operating on the change data capture need to configure the stream and manage asynchronous

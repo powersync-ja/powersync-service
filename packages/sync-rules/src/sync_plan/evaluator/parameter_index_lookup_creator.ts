@@ -45,10 +45,8 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
-  getSourceTables(): Set<TablePattern> {
-    const set = new Set<TablePattern>();
-    set.add(this.sourceTable);
-    return set;
+  getSourceTables(): TablePattern[] {
+    return [this.sourceTable];
   }
 
   evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {

@@ -31,6 +31,7 @@ export * from './utils.js';
 export * from './cast.js';
 export * from './HydrationState.js';
 export * from './HydratedSyncRules.js';
+export * from './HydrationState.js';
 
 export * from './compiler/compiler.js';
 export * from './sync_plan/plan.js';
