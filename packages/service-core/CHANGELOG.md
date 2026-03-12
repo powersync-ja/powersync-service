@@ -1,5 +1,20 @@
 # @powersync/service-core
 
+## 1.20.2
+
+### Patch Changes
+
+- 4c92c24: [Internal] Add a createWriter() API to replace startBatch().
+- 275fd5f: Tighten Supabase URI regular expression.
+- Updated dependencies [acf1486]
+- Updated dependencies [391c5ef]
+- Updated dependencies [99de8be]
+- Updated dependencies [9daf965]
+- Updated dependencies [3a0627e]
+  - @powersync/service-sync-rules@0.33.1
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/service-rsocket-router@0.2.17
+
 ## 1.20.1
 
 ### Patch Changes
