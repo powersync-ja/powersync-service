@@ -129,6 +129,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
         pollingIntervalMs: 1000,
         trustServerCertificate: true
       },
+      schemaCheckIntervalMs: 500,
       ...this.cdcStreamOptions
     };
     this._cdcStream = new CDCStream(options);
@@ -140,7 +141,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
    */
   async initializeReplication() {
     await this.replicateSnapshot();
-    // TODO: renable this.startStreaming();
+    await this.startStreaming();
     // Make sure we're up to date
     await this.getCheckpoint();
   }
@@ -150,11 +151,12 @@ export class CDCStreamTestContext implements AsyncDisposable {
     this.replicationDone = true;
   }
 
-  // TODO: Enable once streaming is implemented
   startStreaming() {
     if (!this.replicationDone) {
       throw new Error('Call replicateSnapshot() before startStreaming()');
     }
+
+    this.cdcStream.isStartingReplication = true;
     this.streamPromise = this.cdcStream.streamChanges();
     // Wait for the replication to start before returning.
     // This avoids a bunch of unpredictable race conditions that appear in testing
@@ -210,6 +212,11 @@ export class CDCStreamTestContext implements AsyncDisposable {
       map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
+  }
+
+  async getFinalBucketState(bucket: string) {
+    const data = await this.getBucketData(bucket);
+    return test_utils.reduceBucket(data).slice(1);
   }
 
   /**
