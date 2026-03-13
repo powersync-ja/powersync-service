@@ -143,7 +143,7 @@ const GRAMMARS: GrammarConfig[] = [
       JoinClause: 'JOIN orders ON users.id = orders.user_id',
       WhereClause: 'active = true AND age > 18',
       Condition: 'age BETWEEN 10 AND 100',
-      PredicateTail: 'IN (1, 2, 3)',
+      PredicateTail: 'IN (SELECT id FROM users)',
       InSource: '(SELECT id FROM users)',
       Expression: 'price * quantity + tax',
       PropertyAccess: "->'address'->>'city'",
@@ -156,8 +156,8 @@ const GRAMMARS: GrammarConfig[] = [
       CaseCondition: 'x > 0 AND y IS NOT NULL',
       CastExpression: 'CAST(age AS TEXT)',
       FunctionCall: 'upper(name)',
-      Subquery: 'SELECT id, name FROM users WHERE active = true',
-      CteDefinition: 'SELECT id, name FROM users WHERE active = true'
+      Subquery: 'SELECT id FROM orders WHERE orders.user_id = users.id',
+      CteDefinition: 'SELECT id, upper(name) AS display_name FROM users WHERE active = true'
     }
   },
   {
@@ -189,13 +189,13 @@ const GRAMMARS: GrammarConfig[] = [
     examples: {
       ParameterQuery: 'SELECT id FROM users WHERE id = token_parameters.user_id',
       StaticParameterQuery: 'SELECT token_parameters.user_id AS id',
-      TableParameterQuery: 'SELECT id FROM users WHERE id = token_parameters.user_id',
+      TableParameterQuery: 'SELECT id, name FROM users WHERE org_id = token_parameters.org_id',
       TableValuedParameterQuery: 'SELECT value FROM json_each(token_parameters.tags)',
       DataQuery: 'SELECT id, name FROM users WHERE users.id = bucket.user_id',
       SelectItem: 'name AS user_name',
       JsonEachCall: 'JSON_EACH(token_parameters.tags)',
       WhereClause: 'users.id = bucket.user_id AND active = true',
-      Predicate: 'age > 18',
+      Predicate: 'status IS NOT NULL',
       Expression: 'price * quantity + tax',
       PropertyAccess: "->'address'->>'city'",
       Reference: 'users.id',
