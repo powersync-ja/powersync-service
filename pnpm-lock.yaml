@@ -739,9 +739,6 @@ importers:
       railroad-diagrams:
         specifier: ^1.0.0
         version: 1.0.0
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
       vitest:
         specifier: 'catalog:'
         version: 4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(tsx@4.21.0)(yaml@2.4.5)
@@ -9019,14 +9016,6 @@ snapshots:
     optionalDependencies:
       vite: 7.1.5(@types/node@24.10.9)(tsx@4.21.0)(yaml@2.8.2)
 
-  '@vitest/mocker@4.0.16(vite@7.1.5(@types/node@22.16.2)(tsx@4.21.0)(yaml@2.4.5))':
-    dependencies:
-      '@vitest/spy': 4.0.16
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.1.5(@types/node@22.16.2)(tsx@4.21.0)(yaml@2.4.5)
-
   '@vitest/mocker@4.0.16(vite@7.1.5(@types/node@22.16.2)(tsx@4.21.0)(yaml@2.8.2))':
     dependencies:
       '@vitest/spy': 4.0.16
@@ -9034,14 +9023,6 @@ snapshots:
       magic-string: 0.30.21
     optionalDependencies:
       vite: 7.1.5(@types/node@22.16.2)(tsx@4.21.0)(yaml@2.8.2)
-
-  '@vitest/mocker@4.0.16(vite@7.1.5(@types/node@24.10.9)(tsx@4.21.0)(yaml@2.8.2))':
-    dependencies:
-      '@vitest/spy': 4.0.16
-      estree-walker: 3.0.3
-      magic-string: 0.30.21
-    optionalDependencies:
-      vite: 7.1.5(@types/node@24.10.9)(tsx@4.21.0)(yaml@2.8.2)
 
   '@vitest/pretty-format@3.2.4':
     dependencies:
@@ -9089,7 +9070,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(tsx@4.21.0)(yaml@2.4.5)
+      vitest: 4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(tsx@4.21.0)(yaml@2.8.2)
 
   '@vitest/utils@3.2.4':
     dependencies:
@@ -9936,6 +9917,7 @@ snapshots:
       '@esbuild/win32-arm64': 0.27.3
       '@esbuild/win32-ia32': 0.27.3
       '@esbuild/win32-x64': 0.27.3
+    optional: true
 
   escalade@3.1.2: {}
 
@@ -10189,6 +10171,7 @@ snapshots:
   get-tsconfig@4.13.6:
     dependencies:
       resolve-pkg-maps: 1.0.0
+    optional: true
 
   github-from-package@0.0.0: {}
 
@@ -11763,7 +11746,8 @@ snapshots:
 
   resolve-from@5.0.0: {}
 
-  resolve-pkg-maps@1.0.0: {}
+  resolve-pkg-maps@1.0.0:
+    optional: true
 
   resolve@1.22.8:
     dependencies:
@@ -12430,6 +12414,7 @@ snapshots:
       get-tsconfig: 4.13.6
     optionalDependencies:
       fsevents: 2.3.3
+    optional: true
 
   tuf-js@1.1.7:
     dependencies:
@@ -12675,7 +12660,7 @@ snapshots:
   vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(tsx@4.21.0)(yaml@2.4.5):
     dependencies:
       '@vitest/expect': 4.0.16
-      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@22.16.2)(tsx@4.21.0)(yaml@2.4.5))
+      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@22.16.2)(tsx@4.21.0)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.16
       '@vitest/runner': 4.0.16
       '@vitest/snapshot': 4.0.16
@@ -12753,7 +12738,7 @@ snapshots:
   vitest@4.0.16(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@vitest/ui@4.0.16)(tsx@4.21.0)(yaml@2.8.2):
     dependencies:
       '@vitest/expect': 4.0.16
-      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@24.10.9)(tsx@4.21.0)(yaml@2.8.2))
+      '@vitest/mocker': 4.0.16(vite@7.1.5(@types/node@22.16.2)(tsx@4.21.0)(yaml@2.8.2))
       '@vitest/pretty-format': 4.0.16
       '@vitest/runner': 4.0.16
       '@vitest/snapshot': 4.0.16
