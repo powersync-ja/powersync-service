@@ -11,14 +11,14 @@
 */
 
 /* Top-level stream query form: streams.<name>.query / streams.<name>.queries[] */
-CompilerStreamQuery ::= "SELECT" ResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
+SelectStatement ::= "SELECT" SelectList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
 
-ResultColumnList ::= ResultColumn ("," ResultColumn)*
+SelectList ::= SelectItem ("," SelectItem)*
 
 /* Supports wildcard, table wildcard, or scalar expression columns */
-ResultColumn ::= "*" | Reference "." "*" | ScalarExpr Alias?
+SelectItem ::= "*" | Reference "." "*" | Expression Alias?
 
-FromContinuation ::= "," FromSource | JoinClause
+FromClause ::= "," FromSource | JoinClause
 
 FromSource ::= TableValuedSource | SubquerySource | TableSource
 
@@ -28,75 +28,75 @@ TableSource ::= Reference Alias | Reference
 TableValuedSource ::= TableValuedCall Alias | TableValuedCall
 
 /* Subqueries require an alias; optional column-name list is supported */
-SubquerySource ::= "(" CompilerSubquery ")" Alias ("(" ColumnNameList ")")?
+SubquerySource ::= "(" Subquery ")" Alias ("(" ColumnNameList ")")?
 
-JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereExpr)?
+JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereClause)?
 
-TableValuedCall ::= Identifier "(" ArgList? ")"
+TableValuedCall ::= Identifier "(" ArgumentList? ")"
 
-WhereExpr ::= OrExpr
+WhereClause ::= OrExpr
 
 /* WHERE boolean expression subset */
 OrExpr ::= AndExpr ("OR" AndExpr)*
 
 AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
 
-UnaryExpr ::= "NOT"? WhereAtom
+UnaryExpr ::= "NOT"? Condition
 
-WhereAtom ::= Predicate | "(" WhereExpr ")"
+Condition ::= Predicate | "(" WhereClause ")"
 
-Predicate ::= ScalarExpr PredicateTail | ScalarExpr
+Predicate ::= Expression PredicateTail | Expression
 
 /* Includes IN/NOT IN, overlap, null checks, and BETWEEN */
-PredicateTail ::= "=" ScalarExpr | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" ScalarExpr "AND" ScalarExpr
+PredicateTail ::= "=" Expression | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" Expression "AND" Expression
 
-InSource ::= "(" CompilerSubquery ")" | CteShorthandRef | ScalarExpr
+InSource ::= "(" Subquery ")" | CteReference | Expression
 
 /* CTE shorthand supports expressions like: x IN cte_name */
-CteShorthandRef ::= Identifier
+CteReference ::= Identifier
 
-CompilerSubquery ::= "SELECT" ResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
+Subquery ::= "SELECT" SelectList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
 
-/* CTE bodies (streams.<name>.with.<cte_name>) disallow wildcard columns by using ScalarExpr columns only */
-CompilerCteSubquery ::= "SELECT" CteResultColumnList "FROM" FromSource FromContinuation* ("WHERE" WhereExpr)?
+/* CTE bodies (streams.<name>.with.<cte_name>) disallow wildcard columns by using Expression columns only */
+WithQuery ::= "SELECT" CteColumnList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
 
-CteResultColumnList ::= CteResultColumn ("," CteResultColumn)*
+CteColumnList ::= CteColumn ("," CteColumn)*
 
-CteResultColumn ::= ScalarExpr Alias?
+CteColumn ::= Expression Alias?
 
 /* Scalar expression subset lowered by compiler/sqlite.ts */
-ScalarExpr ::= ValueTerm ScalarBinaryOp?
+Expression ::= UnaryExpression BinaryExpression?
 
-ScalarBinaryOp ::= (BinaryOp ValueTerm)+
+BinaryExpression ::= (BinaryOperator UnaryExpression)+
 
-ValueTerm ::= PrimaryTerm MemberSuffix?
+UnaryExpression ::= PrimaryExpression PropertyAccess?
 
-PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+PrimaryExpression ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpression | CastExpression | FunctionCall | Reference | "(" Expression ")"
 
-MemberSuffix ::= (MemberSuffixOp MemberSuffixValue)+
+PropertyAccess ::= (PropertyAccessOp PropertyAccessKey)+
 
-MemberSuffixOp ::= ("->>" | "->")
+PropertyAccessOp ::= ("->>" | "->")
 
-MemberSuffixValue ::= (StringLiteral | IntegerLiteral)
+PropertyAccessKey ::= (StringLiteral | IntegerLiteral)
 
-CastExpr ::= "CAST" "(" ScalarExpr "AS" CastType ")"
+CastExpression ::= "CAST" "(" Expression "AS" CastType ")"
 
 /* CASE expression subset supported by compiler parser */
-CaseExpr ::= SearchedCaseExpr | SimpleCaseExpr
+CaseExpression ::= SearchedCase | SimpleCase
 
-SearchedCaseExpr ::= "CASE" WhenCaseExpr ("ELSE" ScalarExpr)? "END"
+SearchedCase ::= "CASE" WhenClause ("ELSE" Expression)? "END"
 
-WhenCaseExpr ::= "WHEN" CaseCondition "THEN" ScalarExpr WhenCaseExpr?
+WhenClause ::= "WHEN" CaseCondition "THEN" Expression WhenClause?
 
-SimpleCaseExpr ::= "CASE" ScalarExpr WhenScalarExpr ("ELSE" ScalarExpr)? "END"
+SimpleCase ::= "CASE" Expression WhenValueClause ("ELSE" Expression)? "END"
 
-WhenScalarExpr ::= "WHEN" ScalarExpr "THEN" ScalarExpr WhenScalarExpr?
+WhenValueClause ::= "WHEN" Expression "THEN" Expression WhenValueClause?
 
 CaseCondition ::= OrExpr
 
-FunctionCall ::= Reference "(" ArgList? ")"
+FunctionCall ::= Reference "(" ArgumentList? ")"
 
-ArgList ::= ScalarExpr ("," ScalarExpr)*
+ArgumentList ::= Expression ("," Expression)*
 
 Reference ::= Identifier ("." Identifier)?
 
@@ -104,7 +104,7 @@ Alias ::= "AS" Identifier
 
 ColumnNameList ::= Identifier ("," Identifier)*
 
-BinaryOp ::= "=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>"
+BinaryOperator ::= "=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>"
 
 CastType ::= "TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB"
 

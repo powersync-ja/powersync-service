@@ -278,7 +278,7 @@ function grammarStartRule(mode: FixtureMode, slot: FixtureSlot): string {
     return 'SyncStreamsAlphaQuery';
   }
 
-  return slot === 'with' ? 'CompilerCteSubquery' : 'CompilerStreamQuery';
+  return slot === 'with' ? 'WithQuery' : 'SelectStatement';
 }
 
 function hardParserMessages(errors: Array<{ message: string; type?: string }>): string[] {

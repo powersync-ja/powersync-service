@@ -95,36 +95,36 @@ const GRAMMARS: GrammarConfig[] = [
     label: 'Sync Streams',
     ebnfFile: 'grammar/sync-streams-compiler.ebnf',
     inlineRules: {
-      CompilerStreamQuery: ['ResultColumnList', 'Alias', 'FromContinuation'],
-      ResultColumn: ['Alias'],
+      SelectStatement: ['SelectList', 'Alias', 'FromClause'],
+      SelectItem: ['Alias'],
       Reference: [],
       FromSource: [],
       TableSource: ['Alias'],
-      TableValuedCall: ['ArgList'],
+      TableValuedCall: ['ArgumentList'],
       TableValuedSource: ['Alias'],
       SubquerySource: ['ColumnNameList', 'Alias'],
       JoinClause: [],
-      WhereExpr: ['OrExpr', 'AndExpr', 'UnaryExpr'],
-      WhereAtom: ['Predicate'],
+      WhereClause: ['OrExpr', 'AndExpr', 'UnaryExpr'],
+      Condition: ['Predicate'],
       PredicateTail: [],
-      InSource: ['CteShorthandRef'],
-      ScalarExpr: ['ValueTerm', 'ScalarBinaryOp', 'BinaryOp'],
-      MemberSuffix: ['MemberSuffixOp', 'MemberSuffixValue'],
-      PrimaryTerm: [],
-      CaseExpr: [],
-      SearchedCaseExpr: [],
-      WhenCaseExpr: [],
+      InSource: ['CteReference'],
+      Expression: ['UnaryExpression', 'BinaryExpression', 'BinaryOperator'],
+      PropertyAccess: ['PropertyAccessOp', 'PropertyAccessKey'],
+      PrimaryExpression: [],
+      CaseExpression: [],
+      SearchedCase: [],
+      WhenClause: [],
       CaseCondition: ['OrExpr', 'AndExpr', 'UnaryExpr'],
-      SimpleCaseExpr: [],
-      WhenScalarExpr: [],
-      CastExpr: ['CastType'],
-      FunctionCall: ['ArgList'],
-      CompilerSubquery: ['ResultColumnList', 'Alias', 'FromContinuation'],
-      CompilerCteSubquery: ['CteResultColumn', 'CteResultColumnList', 'Alias', 'FromContinuation']
+      SimpleCase: [],
+      WhenValueClause: [],
+      CastExpression: ['CastType'],
+      FunctionCall: ['ArgumentList'],
+      Subquery: ['SelectList', 'Alias', 'FromClause'],
+      WithQuery: ['CteColumn', 'CteColumnList', 'Alias', 'FromClause']
     },
     lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral'],
     operatorTableRules: {
-      BinaryOp: { diagramLabel: '\u00ABoperator\u00BB', groups: BINARY_OPERATOR_GROUPS }
+      BinaryOperator: { diagramLabel: '\u00ABoperator\u00BB', groups: BINARY_OPERATOR_GROUPS }
     }
   },
   {
@@ -136,21 +136,21 @@ const GRAMMARS: GrammarConfig[] = [
       TableValuedParameterQuery: ['SelectList', 'Alias'],
       TableParameterQuery: ['SelectList', 'Alias'],
       StaticParameterQuery: ['SelectList', 'Alias'],
-      DataQuery: ['DataSelectList', 'DataMatchExpr', 'Alias'],
+      DataQuery: ['DataColumnList', 'DataWhereClause', 'Alias'],
       SelectItem: ['Alias'],
       JsonEachCall: [],
-      MatchExpr: ['OrExpr', 'AndExpr', 'UnaryExpr', 'MatchAtom'],
+      WhereClause: ['OrExpr', 'AndExpr', 'UnaryExpr', 'Condition'],
       Predicate: ['PredicateTail'],
-      ScalarExpr: ['ValueTerm', 'ScalarBinaryOp', 'BinaryOp'],
-      MemberSuffix: ['MemberSuffixOp', 'MemberSuffixValue'],
+      Expression: ['UnaryExpression', 'BinaryExpression', 'BinaryOperator'],
+      PropertyAccess: ['PropertyAccessOp', 'PropertyAccessKey'],
       Reference: [],
-      CastExpr: ['CastType'],
-      FunctionCall: ['ArgList'],
-      PrimaryTerm: []
+      CastExpression: ['CastType'],
+      FunctionCall: ['ArgumentList'],
+      PrimaryExpression: []
     },
     lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral'],
     operatorTableRules: {
-      BinaryOp: { diagramLabel: '\u00ABoperator\u00BB', groups: BINARY_OPERATOR_GROUPS }
+      BinaryOperator: { diagramLabel: '\u00ABoperator\u00BB', groups: BINARY_OPERATOR_GROUPS }
     }
   }
 ];
@@ -967,7 +967,7 @@ function buildFlatMdxContent(opts: FlatMdxOptions): string {
     lines.push(`![${name} syntax diagram](${svgPath(name)})`);
 
     // Embed operator table directly under ScalarExpr
-    if (name === 'ScalarExpr' && Object.keys(grammar.operatorTableRules).length > 0) {
+    if (name === 'Expression' && Object.keys(grammar.operatorTableRules).length > 0) {
       lines.push('');
       lines.push('### Operators');
       lines.push('');
@@ -1248,7 +1248,7 @@ function generateFlatHtml(
     lines.push('  </div>');
 
     // Embed operator table directly under ScalarExpr
-    if (name === 'ScalarExpr' && Object.keys(grammar.operatorTableRules).length > 0) {
+    if (name === 'Expression' && Object.keys(grammar.operatorTableRules).length > 0) {
       lines.push('  <h3>Operators</h3>');
       lines.push(
         '  <p>Binary operators supported in scalar expressions, listed from highest to lowest precedence.</p>'

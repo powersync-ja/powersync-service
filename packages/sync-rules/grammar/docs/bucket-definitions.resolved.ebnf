@@ -1,29 +1,29 @@
 ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParameterQuery
 
-TableValuedParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" JsonEachCall ("AS" Identifier)? ("WHERE" MatchExpr)?
+TableValuedParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" JsonEachCall ("AS" Identifier)? ("WHERE" WhereClause)?
 
-TableParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" Reference ("WHERE" MatchExpr)?
+TableParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" Reference ("WHERE" WhereClause)?
 
-StaticParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* ("WHERE" MatchExpr)?
+StaticParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* ("WHERE" WhereClause)?
 
-DataQuery ::= "SELECT" ("*" | SelectItem) ("," SelectItem)* "FROM" Reference ("WHERE" MatchExpr)?
+DataQuery ::= "SELECT" ("*" | SelectItem) ("," SelectItem)* "FROM" Reference ("WHERE" WhereClause)?
 
-SelectItem ::= ScalarExpr ("AS" Identifier)?
+SelectItem ::= Expression ("AS" Identifier)?
 
-JsonEachCall ::= "JSON_EACH" "(" ScalarExpr ")"
+JsonEachCall ::= "JSON_EACH" "(" Expression ")"
 
-MatchExpr ::= "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | "(" MatchExpr ")"))* ("OR" "NOT"? (Predicate | "(" MatchExpr ")") ("AND" "NOT"? (Predicate | "(" MatchExpr ")"))*)*
+WhereClause ::= "NOT"? (Predicate | "(" WhereClause ")") ("AND" "NOT"? (Predicate | "(" WhereClause ")"))* ("OR" "NOT"? (Predicate | "(" WhereClause ")") ("AND" "NOT"? (Predicate | "(" WhereClause ")"))*)*
 
-Predicate ::= ScalarExpr ("=" ScalarExpr | "IN" ScalarExpr | "&&" ScalarExpr | "IS" "NOT"? "NULL") | ScalarExpr
+Predicate ::= Expression ("=" Expression | "IN" Expression | "&&" Expression | "IS" "NOT"? "NULL") | Expression
 
-ScalarExpr ::= PrimaryTerm MemberSuffix? ((«operator» PrimaryTerm MemberSuffix?)+)?
+Expression ::= PrimaryExpression PropertyAccess? ((«operator» PrimaryExpression PropertyAccess?)+)?
 
-MemberSuffix ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
+PropertyAccess ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
 
 Reference ::= Identifier ("." Identifier)?
 
-CastExpr ::= "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
+CastExpression ::= "CAST" "(" Expression "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
 
-FunctionCall ::= Reference "(" (ScalarExpr ("," ScalarExpr)*)? ")"
+FunctionCall ::= Reference "(" (Expression ("," Expression)*)? ")"
 
-PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+PrimaryExpression ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CastExpression | FunctionCall | Reference | "(" Expression ")"

@@ -1,6 +1,6 @@
-CompilerStreamQuery ::= "SELECT" ResultColumn ("," ResultColumn)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
+SelectStatement ::= "SELECT" SelectItem ("," SelectItem)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
 
-ResultColumn ::= "*" | Reference "." "*" | ScalarExpr ("AS" Identifier)?
+SelectItem ::= "*" | Reference "." "*" | Expression ("AS" Identifier)?
 
 Reference ::= Identifier ("." Identifier)?
 
@@ -8,44 +8,44 @@ FromSource ::= TableValuedSource | SubquerySource | TableSource
 
 TableSource ::= Reference "AS" Identifier | Reference
 
-TableValuedCall ::= Identifier "(" (ScalarExpr ("," ScalarExpr)*)? ")"
+TableValuedCall ::= Identifier "(" (Expression ("," Expression)*)? ")"
 
 TableValuedSource ::= TableValuedCall "AS" Identifier | TableValuedCall
 
-SubquerySource ::= "(" CompilerSubquery ")" "AS" Identifier ("(" Identifier ("," Identifier)* ")")?
+SubquerySource ::= "(" Subquery ")" "AS" Identifier ("(" Identifier ("," Identifier)* ")")?
 
-JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereExpr)?
+JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereClause)?
 
-WhereExpr ::= "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)* ("OR" "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)*)*
+WhereClause ::= "NOT"? Condition ("AND" "NOT"? Condition)* ("OR" "NOT"? Condition ("AND" "NOT"? Condition)*)*
 
-WhereAtom ::= (ScalarExpr PredicateTail | ScalarExpr) | "(" WhereExpr ")"
+Condition ::= (Expression PredicateTail | Expression) | "(" WhereClause ")"
 
-PredicateTail ::= "=" ScalarExpr | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" ScalarExpr "AND" ScalarExpr
+PredicateTail ::= "=" Expression | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" Expression "AND" Expression
 
-InSource ::= "(" CompilerSubquery ")" | Identifier | ScalarExpr
+InSource ::= "(" Subquery ")" | Identifier | Expression
 
-ScalarExpr ::= PrimaryTerm MemberSuffix? ((«operator» PrimaryTerm MemberSuffix?)+)?
+Expression ::= PrimaryExpression PropertyAccess? ((«operator» PrimaryExpression PropertyAccess?)+)?
 
-MemberSuffix ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
+PropertyAccess ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
 
-PrimaryTerm ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpr | CastExpr | FunctionCall | Reference | "(" ScalarExpr ")"
+PrimaryExpression ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpression | CastExpression | FunctionCall | Reference | "(" Expression ")"
 
-CaseExpr ::= SearchedCaseExpr | SimpleCaseExpr
+CaseExpression ::= SearchedCase | SimpleCase
 
-SearchedCaseExpr ::= "CASE" WhenCaseExpr ("ELSE" ScalarExpr)? "END"
+SearchedCase ::= "CASE" WhenClause ("ELSE" Expression)? "END"
 
-WhenCaseExpr ::= "WHEN" CaseCondition "THEN" ScalarExpr WhenCaseExpr?
+WhenClause ::= "WHEN" CaseCondition "THEN" Expression WhenClause?
 
-CaseCondition ::= "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)* ("OR" "NOT"? WhereAtom ("AND" "NOT"? WhereAtom)*)*
+CaseCondition ::= "NOT"? Condition ("AND" "NOT"? Condition)* ("OR" "NOT"? Condition ("AND" "NOT"? Condition)*)*
 
-SimpleCaseExpr ::= "CASE" ScalarExpr WhenScalarExpr ("ELSE" ScalarExpr)? "END"
+SimpleCase ::= "CASE" Expression WhenValueClause ("ELSE" Expression)? "END"
 
-WhenScalarExpr ::= "WHEN" ScalarExpr "THEN" ScalarExpr WhenScalarExpr?
+WhenValueClause ::= "WHEN" Expression "THEN" Expression WhenValueClause?
 
-CastExpr ::= "CAST" "(" ScalarExpr "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
+CastExpression ::= "CAST" "(" Expression "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
 
-FunctionCall ::= Reference "(" (ScalarExpr ("," ScalarExpr)*)? ")"
+FunctionCall ::= Reference "(" (Expression ("," Expression)*)? ")"
 
-CompilerSubquery ::= "SELECT" ResultColumn ("," ResultColumn)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
+Subquery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
 
-CompilerCteSubquery ::= "SELECT" ScalarExpr ("AS" Identifier)? ("," ScalarExpr ("AS" Identifier)?)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereExpr)?
+WithQuery ::= "SELECT" Expression ("AS" Identifier)? ("," Expression ("AS" Identifier)?)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
