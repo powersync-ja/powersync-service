@@ -128,7 +128,7 @@ describe('Connection reporting storage', async () => {
     await factory.deleteOldConnectionData({
       date: dates.weekAgo
     });
-    const connection = await factory.getClientConnectionReports({
+    const connection = await factory.getClientConnectionsSummary({
       start: dates.monthAgo,
       end: dates.now
     });

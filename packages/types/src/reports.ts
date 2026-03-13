@@ -82,8 +82,8 @@ export type ClientConnectionResponse = {
 };
 
 export type ClientConnectionReportResponse = {
-  users: number;
-  sdks: {
+  total_users: number;
+  sdk_breakdown: {
     sdk: string;
     users: number;
     clients: number;

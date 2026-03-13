@@ -21,21 +21,21 @@ export interface ReportStorage extends AsyncDisposable {
    * This will return any short or long term connected clients.
    * Clients that have no disconnected_at timestamp and that have a valid jwt_exp timestamp are considered connected.
    */
-  getConnectedClients(): Promise<event_types.ClientConnectionReportResponse>;
+  getCurrentConnections(): Promise<event_types.ClientConnectionReportResponse>;
   /**
    * Get a report of client connections over a day, week or month.
    * This is internally used to generate reports over it always returns the previous day, week or month.
    * Usually this is call on the start of the new day, week or month. It will return all unique completed connections
    * as well as uniques currently connected clients.
    */
-  getClientConnectionReports(
+  getClientConnectionsSummary(
     data: event_types.ClientConnectionReportRequest
   ): Promise<event_types.ClientConnectionReportResponse>;
   /**
    * Get a paginated list of client connection events
    * This will return a paginated list of connections for a client/ user ID or all if neither is provided, within a date range if provided
    */
-  getGeneralClientConnectionAnalytics(
+  getClientSessions(
     data: event_types.ClientConnectionAnalyticsRequest
   ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>>;
   /**

@@ -26,7 +26,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     }
   }
 
-  async getClientConnectionReports(
+  async getClientConnectionsSummary(
     data: event_types.ClientConnectionReportRequest
   ): Promise<event_types.ClientConnectionReportResponse> {
     const { start, end } = data;
@@ -44,7 +44,7 @@ export class MongoReportStorage implements storage.ReportStorage {
     return result[0];
   }
 
-  async getGeneralClientConnectionAnalytics(
+  async getClientSessions(
     data: event_types.ClientConnectionAnalyticsRequest
   ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>> {
     const { cursor, date_range } = data;
@@ -98,7 +98,7 @@ export class MongoReportStorage implements storage.ReportStorage {
       }
     );
   }
-  async getConnectedClients(): Promise<event_types.ClientConnectionReportResponse> {
+  async getCurrentConnections(): Promise<event_types.ClientConnectionReportResponse> {
     const result = await this.db.connection_report_events
       .aggregate<event_types.ClientConnectionReportResponse>([
         {
@@ -175,8 +175,8 @@ export class MongoReportStorage implements storage.ReportStorage {
   private connectionsProjectPipeline() {
     return {
       $project: {
-        users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
-        sdks: '$sdk_versions_array'
+        total_users: { $ifNull: [{ $arrayElemAt: ['$unique_users.count', 0] }, 0] },
+        sdk_breakdown: '$sdk_versions_array'
       }
     };
   }

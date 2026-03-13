@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Connection reporting storage > Should create a connection report if its after a day 1`] = `
+exports[`Connection report storage > Should create a connection event if its after a day 1`] = `
 [
   {
     "client_id": "client_one",
@@ -17,9 +17,9 @@ exports[`Connection reporting storage > Should create a connection report if its
 ]
 `;
 
-exports[`Connection reporting storage > Should delete rows older than specified range 1`] = `
+exports[`Connection report storage > Should delete rows older than specified range 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -51,11 +51,11 @@ exports[`Connection reporting storage > Should delete rows older than specified 
       "users": 1,
     },
   ],
-  "users": 5,
+  "total_users": 5,
 }
 `;
 
-exports[`Connection reporting storage > Should update a connected connection report and make it disconnected 1`] = `
+exports[`Connection report storage > Should update a connection event and make it disconnected 1`] = `
 [
   {
     "client_id": "client_three",
@@ -66,7 +66,7 @@ exports[`Connection reporting storage > Should update a connected connection rep
 ]
 `;
 
-exports[`Connection reporting storage > Should update a connection report if its within a day 1`] = `
+exports[`Connection report storage > Should update a connection event if its within a day 1`] = `
 [
   {
     "client_id": "client_one",
@@ -77,9 +77,9 @@ exports[`Connection reporting storage > Should update a connection report if its
 ]
 `;
 
-exports[`Report storage tests > Should show connection report data for user over the past day 1`] = `
+exports[`Report storage tests > getClientConnectionsSummary returns the past day summary 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -101,13 +101,13 @@ exports[`Report storage tests > Should show connection report data for user over
       "users": 1,
     },
   ],
-  "users": 3,
+  "total_users": 3,
 }
 `;
 
-exports[`Report storage tests > Should show connection report data for user over the past month 1`] = `
+exports[`Report storage tests > getClientConnectionsSummary returns the past month summary 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -149,13 +149,13 @@ exports[`Report storage tests > Should show connection report data for user over
       "users": 1,
     },
   ],
-  "users": 7,
+  "total_users": 7,
 }
 `;
 
-exports[`Report storage tests > Should show connection report data for user over the past week 1`] = `
+exports[`Report storage tests > getClientConnectionsSummary returns the past week summary 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -187,13 +187,13 @@ exports[`Report storage tests > Should show connection report data for user over
       "users": 1,
     },
   ],
-  "users": 5,
+  "total_users": 5,
 }
 `;
 
-exports[`Report storage tests > Should show currently connected users 1`] = `
+exports[`Report storage tests > getCurrentConnections returns current connections 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -210,17 +210,18 @@ exports[`Report storage tests > Should show currently connected users 1`] = `
       "users": 1,
     },
   ],
-  "users": 2,
+  "total_users": 2,
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections of specified client_id 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for a client_id 1`] = `
 {
   "count": 1,
   "cursor": undefined,
   "items": [
     {
       "client_id": "client_two",
+      "id": "2",
       "sdk": "powersync-js/1.21.1",
       "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
       "user_id": "user_two",
@@ -230,65 +231,73 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit 1`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit 1`] = `
 {
   "count": 4,
   "cursor": "<removed-for-snapshot>",
   "items": [
     {
       "client_id": "client_one",
+      "id": "1",
       "sdk": "powersync-dart/1.6.4",
       "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
       "user_id": "user_one",
     },
     {
       "client_id": "client_four",
+      "id": "4",
       "sdk": "powersync-js/1.21.4",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_four",
     },
     {
-      "client_id": "",
-      "sdk": "unknown",
-      "user_agent": "Dart (flutter-web) Chrome/128 android",
-      "user_id": "user_one",
-    },
-    {
       "client_id": "client_two",
+      "id": "2",
       "sdk": "powersync-js/1.21.1",
       "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
       "user_id": "user_two",
+    },
+    {
+      "client_id": "",
+      "id": "5",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
     },
   ],
   "more": true,
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit 2`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit 2`] = `
 {
   "count": 4,
   "cursor": undefined,
   "items": [
     {
       "client_id": "client_three",
+      "id": "3",
       "sdk": "powersync-js/1.21.2",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_three",
     },
     {
       "client_id": "client_one",
+      "id": "week",
       "sdk": "powersync-js/1.24.5",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_week",
     },
     {
       "client_id": "client_month",
+      "id": "month",
       "sdk": "powersync-js/1.23.6",
       "user_agent": "powersync-js/1.23.0 powersync-web Firefox/141 linux",
       "user_id": "user_month",
     },
     {
       "client_id": "client_expired",
+      "id": "expired",
       "sdk": "powersync-js/1.23.7",
       "user_agent": "powersync-js/1.23.0 powersync-web Firefox/141 linux",
       "user_id": "user_expired",
@@ -298,31 +307,35 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit with date range 1`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit and date range 1`] = `
 {
   "count": 4,
   "cursor": "<removed-for-snapshot>",
   "items": [
     {
-      "client_id": "",
-      "sdk": "unknown",
-      "user_agent": "Dart (flutter-web) Chrome/128 android",
-      "user_id": "user_one",
-    },
-    {
       "client_id": "client_two",
+      "id": "2",
       "sdk": "powersync-js/1.21.1",
       "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
       "user_id": "user_two",
     },
     {
+      "client_id": "",
+      "id": "5",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
       "client_id": "client_three",
+      "id": "3",
       "sdk": "powersync-js/1.21.2",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_three",
     },
     {
       "client_id": "client_one",
+      "id": "week",
       "sdk": "powersync-js/1.24.5",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_week",
@@ -332,31 +345,35 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit with date range 2`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit and date range 2`] = `
 {
   "count": 2,
   "cursor": undefined,
   "items": [
     {
-      "client_id": "",
-      "sdk": "unknown",
-      "user_agent": "Dart (flutter-web) Chrome/128 android",
-      "user_id": "user_one",
-    },
-    {
       "client_id": "client_two",
+      "id": "2",
       "sdk": "powersync-js/1.21.1",
       "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
       "user_id": "user_two",
     },
     {
+      "client_id": "",
+      "id": "5",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
       "client_id": "client_three",
+      "id": "3",
       "sdk": "powersync-js/1.21.2",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_three",
     },
     {
       "client_id": "client_one",
+      "id": "week",
       "sdk": "powersync-js/1.24.5",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_week",
@@ -366,19 +383,21 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of connections of specified user_id 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for a user_id 1`] = `
 {
   "count": 2,
   "cursor": undefined,
   "items": [
     {
       "client_id": "client_one",
+      "id": "1",
       "sdk": "powersync-dart/1.6.4",
       "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
       "user_id": "user_one",
     },
     {
       "client_id": "",
+      "id": "5",
       "sdk": "unknown",
       "user_agent": "Dart (flutter-web) Chrome/128 android",
       "user_id": "user_one",
@@ -388,43 +407,49 @@ exports[`Report storage tests > Should show paginated response of connections of
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of connections over a date range 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for a date range 1`] = `
 {
   "count": 6,
   "cursor": undefined,
   "items": [
     {
       "client_id": "client_one",
+      "id": "1",
       "sdk": "powersync-dart/1.6.4",
       "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
       "user_id": "user_one",
     },
     {
       "client_id": "client_four",
+      "id": "4",
       "sdk": "powersync-js/1.21.4",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_four",
     },
     {
       "client_id": "client_two",
+      "id": "2",
       "sdk": "powersync-js/1.21.1",
       "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
       "user_id": "user_two",
     },
     {
       "client_id": "",
+      "id": "5",
       "sdk": "unknown",
       "user_agent": "Dart (flutter-web) Chrome/128 android",
       "user_id": "user_one",
     },
     {
       "client_id": "client_three",
+      "id": "3",
       "sdk": "powersync-js/1.21.2",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_three",
     },
     {
       "client_id": "client_one",
+      "id": "week",
       "sdk": "powersync-js/1.24.5",
       "user_agent": "powersync-js/1.21.0 powersync-web Firefox/141 linux",
       "user_id": "user_week",
@@ -434,13 +459,14 @@ exports[`Report storage tests > Should show paginated response of connections ov
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of connections over a date range of specified client_id and user_id 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for client_id and user_id within a date range 1`] = `
 {
   "count": 1,
   "cursor": undefined,
   "items": [
     {
       "client_id": "client_one",
+      "id": "1",
       "sdk": "powersync-dart/1.6.4",
       "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
       "user_id": "user_one",
