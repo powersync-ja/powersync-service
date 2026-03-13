@@ -48,4 +48,4 @@ FunctionCall ::= Reference "(" (Expression ("," Expression)*)? ")"
 
 Subquery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
 
-WithQuery ::= "SELECT" Expression ("AS" Identifier)? ("," Expression ("AS" Identifier)?)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
+CteDefinition ::= "SELECT" Expression ("AS" Identifier)? ("," Expression ("AS" Identifier)?)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?

@@ -58,7 +58,7 @@ CteReference ::= Identifier
 Subquery ::= "SELECT" SelectList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
 
 /* CTE bodies (streams.<name>.with.<cte_name>) disallow wildcard columns by using Expression columns only */
-WithQuery ::= "SELECT" CteColumnList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
+CteDefinition ::= "SELECT" CteColumnList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
 
 CteColumnList ::= CteColumn ("," CteColumn)*
 

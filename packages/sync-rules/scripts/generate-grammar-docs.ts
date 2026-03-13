@@ -125,7 +125,7 @@ const GRAMMARS: GrammarConfig[] = [
       CastExpression: ['CastType'],
       FunctionCall: ['ArgumentList'],
       Subquery: ['SelectList', 'Alias', 'FromClause'],
-      WithQuery: ['CteColumn', 'CteColumnList', 'Alias', 'FromClause']
+      CteDefinition: ['CteColumn', 'CteColumnList', 'Alias', 'FromClause']
     },
     lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral'],
     operatorTableRules: {
@@ -146,7 +146,7 @@ const GRAMMARS: GrammarConfig[] = [
       PredicateTail: 'IN (1, 2, 3)',
       InSource: '(SELECT id FROM users)',
       Expression: 'price * quantity + tax',
-      PropertyAccess: "data->'address'->>'city'",
+      PropertyAccess: "->'address'->>'city'",
       PrimaryExpression: '(price + tax)',
       CaseExpression: "CASE WHEN age >= 18 THEN 'adult' ELSE 'minor' END",
       SearchedCase: "CASE WHEN x > 0 THEN 'positive' ELSE 'negative' END",
@@ -157,7 +157,7 @@ const GRAMMARS: GrammarConfig[] = [
       CastExpression: 'CAST(age AS TEXT)',
       FunctionCall: 'upper(name)',
       Subquery: 'SELECT id, name FROM users WHERE active = true',
-      WithQuery: 'WITH active AS (SELECT * FROM users WHERE active = true)\nSELECT * FROM active'
+      CteDefinition: 'SELECT id, name FROM users WHERE active = true'
     }
   },
   {
@@ -197,7 +197,7 @@ const GRAMMARS: GrammarConfig[] = [
       WhereClause: 'users.id = bucket.user_id AND active = true',
       Predicate: 'age > 18',
       Expression: 'price * quantity + tax',
-      PropertyAccess: 'data.address.city',
+      PropertyAccess: "->'address'->>'city'",
       Reference: 'users.id',
       CastExpression: 'CAST(age AS TEXT)',
       FunctionCall: 'upper(name)',
