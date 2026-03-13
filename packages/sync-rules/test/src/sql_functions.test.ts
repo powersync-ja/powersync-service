@@ -319,6 +319,67 @@ describe('SQL functions', () => {
     expect(fn.datetime('2023-06-28 14:12:00.0', 'subsecond')).toEqual('2023-06-28 14:12:00.000');
   });
 
+  test('instr', () => {
+    // Null handling - SQLite returns NULL when either argument is NULL
+    expect(fn.instr(null, null)).toEqual(null);
+    expect(fn.instr(null, 'a')).toEqual(null);
+    expect(fn.instr('abc', null)).toEqual(null);
+
+    // Basic match - 1-indexed positions
+    expect(fn.instr('hello world', 'world')).toEqual(7);
+    expect(fn.instr('hello world', 'hello')).toEqual(1);
+    expect(fn.instr('hello world', 'o')).toEqual(5);
+
+    // No match returns 0
+    expect(fn.instr('hello world', 'xyz')).toEqual(0);
+    expect(fn.instr('hello', 'HELLO')).toEqual(0);
+
+    // Match at very start (verifies 1-indexed, not 0)
+    expect(fn.instr('abc', 'a')).toEqual(1);
+    expect(fn.instr('abc', 'ab')).toEqual(1);
+    expect(fn.instr('abc', 'abc')).toEqual(1);
+
+    // Match at end
+    expect(fn.instr('abc', 'c')).toEqual(3);
+    expect(fn.instr('abc', 'bc')).toEqual(2);
+
+    // Single character haystack and needle
+    expect(fn.instr('a', 'a')).toEqual(1);
+    expect(fn.instr('a', 'b')).toEqual(0);
+
+    // Empty string behavior (matches SQLite: empty needle always found at position 1)
+    expect(fn.instr('abc', '')).toEqual(1);
+    expect(fn.instr('', '')).toEqual(1);
+    expect(fn.instr('', 'a')).toEqual(0);
+
+    // First occurrence only (returns position of first match)
+    expect(fn.instr('abcabc', 'b')).toEqual(2);
+    expect(fn.instr('aaa', 'a')).toEqual(1);
+
+    // Case sensitivity
+    expect(fn.instr('Hello World', 'hello')).toEqual(0);
+    expect(fn.instr('Hello World', 'Hello')).toEqual(1);
+
+    // Multi-character needle
+    expect(fn.instr('abcdef', 'cde')).toEqual(3);
+    expect(fn.instr('abcdef', 'ef')).toEqual(5);
+
+    // Special characters
+    expect(fn.instr('foo|bar|baz', '|')).toEqual(4);
+    expect(fn.instr('foo.bar', '.')).toEqual(4);
+    expect(fn.instr('hello\nworld', '\n')).toEqual(6);
+    expect(fn.instr('path/to/file', '/')).toEqual(5);
+
+    // Convex JWT use case - extracting user ID before the | character
+    const convexSub = 'k5764nz5tn54hncf94wh9458bn82nx89|jh76fr94jnqm0z5sqbc4wbx2vn82vmke';
+    expect(fn.instr(convexSub, '|')).toEqual(33);
+
+    // Numeric inputs (converted to string via toString)
+    expect(fn.instr(12345, '3')).toEqual(3);
+    expect(fn.instr('12345', 3)).toEqual(3);
+    expect(fn.instr(123, 123)).toEqual(1);
+  });
+
   test('ST_AsGeoJSON', () => {
     expect(fn.st_asgeojson(null)).toEqual(null);
     expect(fn.st_asgeojson('0101000000029a081b9ede4340d7a3703d0a3f5ac0')).toEqual(
