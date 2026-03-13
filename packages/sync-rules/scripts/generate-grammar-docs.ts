@@ -80,6 +80,8 @@ interface GrammarConfig {
   operatorTableRules: Record<string, { diagramLabel: string; groups: OperatorGroup[] }>;
   /** Optional SQL example per diagrammed production. Rendered as a fenced sql block above the diagram. */
   examples?: Record<string, string>;
+  /** Path to an MDX file (relative to PACKAGE_ROOT) whose content is inserted after the frontmatter. */
+  introFile?: string;
 }
 
 const BINARY_OPERATOR_GROUPS: OperatorGroup[] = [
@@ -96,6 +98,7 @@ const GRAMMARS: GrammarConfig[] = [
     id: 'sync-streams-compiler',
     label: 'Sync Streams',
     ebnfFile: 'grammar/sync-streams-compiler.ebnf',
+    introFile: 'grammar/sync-streams-compiler.intro.mdx',
     inlineRules: {
       SelectStatement: ['SelectList', 'Alias', 'FromClause'],
       SelectItem: ['Alias'],
@@ -161,6 +164,7 @@ const GRAMMARS: GrammarConfig[] = [
     id: 'bucket-definitions',
     label: 'Sync Rules',
     ebnfFile: 'grammar/bucket-definitions.ebnf',
+    introFile: 'grammar/bucket-definitions.intro.mdx',
     inlineRules: {
       ParameterQuery: [],
       TableValuedParameterQuery: ['SelectList', 'Alias'],
@@ -352,6 +356,38 @@ function assertNoSkippedTerms(grammar: GrammarConfig, skipped: string[]): void {
     `Coverage check failed for ${grammar.id}: ${skipped.length} user term(s) are neither diagrammed nor inlined.\n` +
       'Add each term as a top-level diagram or include it in at least one inline list.\n\n' +
       `Missing terms:\n${skippedList}`
+  );
+}
+
+/**
+ * Check that the examples config stays in sync with diagrammed productions.
+ * Catches stale keys (renamed/removed) and missing keys (newly added).
+ */
+function assertExamplesCoverage(grammar: GrammarConfig, productionNames: string[]): void {
+  if (!grammar.examples) return;
+
+  const diagrammed = new Set(productionNames);
+  const stale: string[] = [];
+  const missing: string[] = [];
+
+  for (const key of Object.keys(grammar.examples)) {
+    if (!diagrammed.has(key)) stale.push(key);
+  }
+  for (const name of productionNames) {
+    if (!grammar.examples[name]) missing.push(name);
+  }
+
+  if (stale.length === 0 && missing.length === 0) return;
+
+  const parts: string[] = [];
+  if (stale.length > 0) {
+    parts.push(`Stale example keys (not in diagrammed productions):\n${stale.map((k) => `- ${k}`).join('\n')}`);
+  }
+  if (missing.length > 0) {
+    parts.push(`Missing examples (diagrammed but no example provided):\n${missing.map((k) => `- ${k}`).join('\n')}`);
+  }
+  throw new Error(
+    `Examples coverage check failed for ${grammar.id}: ${stale.length} stale, ${missing.length} missing.\n\n${parts.join('\n\n')}`
   );
 }
 
@@ -1002,10 +1038,24 @@ function buildFlatMdxContent(opts: FlatMdxOptions): string {
 
   // YAML frontmatter
   lines.push('---');
-  lines.push(`title: "${grammar.label}: Grammar Reference"`);
+  lines.push(`title: "Grammar Reference (${grammar.label})"`);
   lines.push(`description: Railroad diagrams for the SQL syntax supported in ${grammar.label} queries.`);
   lines.push('---');
   lines.push('');
+
+  // Intro from external file
+  if (grammar.introFile) {
+    const introPath = path.join(PACKAGE_ROOT, grammar.introFile);
+    try {
+      const introContent = fs.readFileSync(introPath, 'utf8').trim();
+      if (introContent) {
+        lines.push(introContent);
+        lines.push('');
+      }
+    } catch {
+      console.warn(`  Warning: intro file not found: ${introPath}`);
+    }
+  }
 
   // Production sections
   for (const name of productionNames) {
@@ -1620,6 +1670,7 @@ async function main() {
     assertNoStaleInlineRefs(grammar, ruleMap);
     assertNoSkippedTerms(grammar, coverage.skipped);
     assertAllRefsAreDiagrammed(grammar, ruleMap, diagrammedNames);
+    assertExamplesCoverage(grammar, productionNames);
 
     // Build reference graph for MDX cross-links
     const refGraph = buildReferenceGraph(grammar, productionNames, ruleMap, diagrammedNames);
