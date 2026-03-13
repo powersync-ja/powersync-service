@@ -271,6 +271,31 @@ const iif: DocumentedSqlFunction = {
   detail: 'If x is true then returns y else returns z'
 };
 
+// This is the same behavior as the instr function in SQLite, but only supports TEXT values
+const instr: DocumentedSqlFunction = {
+  debugName: 'instr',
+  call(x: SqliteValue, y: SqliteValue) {
+    if (x == null || y == null) {
+      return null;
+    }
+    let pos: number = x.toString().indexOf(y.toString());
+    if (pos < 0) {
+      return 0;
+    }
+    else {
+      return pos + 1;
+    }
+  },
+  parameters: [
+    { name: 'x', type: ExpressionType.TEXT, optional: false },
+    { name: 'y', type: ExpressionType.TEXT, optional: false }
+  ],
+  getReturnType() {
+    return ExpressionType.INTEGER;
+  },
+  detail: 'If y is in x, return the starting position of y (the number of characters before y plus 1), else return 0'
+};
+
 const json_valid: DocumentedSqlFunction = {
   debugName: 'json_valid',
   call(json: SqliteValue) {
@@ -496,6 +521,7 @@ export function generateSqlFunctions(compatibility: CompatibilityContext) {
     typeof: fn_typeof,
     ifnull,
     iif,
+    instr,
     json_extract: json.json_extract,
     json_array_length: json.json_array_length,
     json_valid,
