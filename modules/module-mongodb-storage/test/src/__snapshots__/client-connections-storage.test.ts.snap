@@ -191,45 +191,6 @@ exports[`Report storage tests > getClientConnectionsSummary returns the past wee
 }
 `;
 
-exports[`Report storage tests > getCurrentConnections returns current connections 1`] = `
-{
-  "sdk_breakdown": [
-    {
-      "clients": 1,
-      "sdk": "powersync-dart/1.6.4",
-      "users": 1,
-    },
-    {
-      "clients": 1,
-      "sdk": "powersync-js/1.21.1",
-      "users": 1,
-    },
-    {
-      "clients": 1,
-      "sdk": "unknown",
-      "users": 1,
-    },
-  ],
-  "total_users": 2,
-}
-`;
-
-exports[`Report storage tests > getClientSessions returns sessions for a client_id 1`] = `
-{
-  "count": 1,
-  "cursor": undefined,
-  "items": [
-    {
-      "client_id": "client_two",
-      "sdk": "powersync-js/1.21.1",
-      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
-      "user_id": "user_two",
-    },
-  ],
-  "more": false,
-}
-`;
-
 exports[`Report storage tests > getClientSessions returns paginated sessions with a limit 1`] = `
 {
   "count": 4,
@@ -366,22 +327,16 @@ exports[`Report storage tests > getClientSessions returns paginated sessions wit
 }
 `;
 
-exports[`Report storage tests > getClientSessions returns sessions for a user_id 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for a client_id 1`] = `
 {
-  "count": 2,
+  "count": 1,
   "cursor": undefined,
   "items": [
     {
-      "client_id": "client_one",
-      "sdk": "powersync-dart/1.6.4",
-      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
-      "user_id": "user_one",
-    },
-    {
-      "client_id": "",
-      "sdk": "unknown",
-      "user_agent": "Dart (flutter-web) Chrome/128 android",
-      "user_id": "user_one",
+      "client_id": "client_two",
+      "sdk": "powersync-js/1.21.1",
+      "user_agent": "powersync-js/1.21.0 powersync-web Chromium/138 linux",
+      "user_id": "user_two",
     },
   ],
   "more": false,
@@ -434,6 +389,28 @@ exports[`Report storage tests > getClientSessions returns sessions for a date ra
 }
 `;
 
+exports[`Report storage tests > getClientSessions returns sessions for a user_id 1`] = `
+{
+  "count": 2,
+  "cursor": undefined,
+  "items": [
+    {
+      "client_id": "client_one",
+      "sdk": "powersync-dart/1.6.4",
+      "user_agent": "powersync-dart/1.6.4 Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+    {
+      "client_id": "",
+      "sdk": "unknown",
+      "user_agent": "Dart (flutter-web) Chrome/128 android",
+      "user_id": "user_one",
+    },
+  ],
+  "more": false,
+}
+`;
+
 exports[`Report storage tests > getClientSessions returns sessions for client_id and user_id within a date range 1`] = `
 {
   "count": 1,
@@ -447,5 +424,28 @@ exports[`Report storage tests > getClientSessions returns sessions for client_id
     },
   ],
   "more": false,
+}
+`;
+
+exports[`Report storage tests > getCurrentConnections returns current connections 1`] = `
+{
+  "sdk_breakdown": [
+    {
+      "clients": 1,
+      "sdk": "powersync-dart/1.6.4",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "powersync-js/1.21.1",
+      "users": 1,
+    },
+    {
+      "clients": 1,
+      "sdk": "unknown",
+      "users": 1,
+    },
+  ],
+  "total_users": 2,
 }
 `;
