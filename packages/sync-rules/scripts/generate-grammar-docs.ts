@@ -78,6 +78,8 @@ interface GrammarConfig {
   lexicalRules: string[];
   /** Rules that should render as a styled «label» terminal in diagrams and be documented as a table. */
   operatorTableRules: Record<string, { diagramLabel: string; groups: OperatorGroup[] }>;
+  /** Optional SQL example per diagrammed production. Rendered as a fenced sql block above the diagram. */
+  examples?: Record<string, string>;
 }
 
 const BINARY_OPERATOR_GROUPS: OperatorGroup[] = [
@@ -125,6 +127,34 @@ const GRAMMARS: GrammarConfig[] = [
     lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral'],
     operatorTableRules: {
       BinaryOperator: { diagramLabel: '\u00ABoperator\u00BB', groups: BINARY_OPERATOR_GROUPS }
+    },
+    examples: {
+      SelectStatement: 'SELECT id, name FROM users WHERE active = true',
+      SelectItem: 'name AS user_name',
+      Reference: 'users.id',
+      FromSource: 'users',
+      TableSource: 'users AS u',
+      TableValuedCall: 'json_each(data)',
+      TableValuedSource: 'json_each(data) AS items',
+      SubquerySource: '(SELECT id FROM users) AS u',
+      JoinClause: 'JOIN orders ON users.id = orders.user_id',
+      WhereClause: 'active = true AND age > 18',
+      Condition: 'age BETWEEN 10 AND 100',
+      PredicateTail: 'IN (1, 2, 3)',
+      InSource: '(SELECT id FROM users)',
+      Expression: 'price * quantity + tax',
+      PropertyAccess: "data->'address'->>'city'",
+      PrimaryExpression: '(price + tax)',
+      CaseExpression: "CASE WHEN age >= 18 THEN 'adult' ELSE 'minor' END",
+      SearchedCase: "CASE WHEN x > 0 THEN 'positive' ELSE 'negative' END",
+      WhenClause: "WHEN age >= 18 THEN 'adult'",
+      SimpleCase: "CASE status WHEN 1 THEN 'active' WHEN 0 THEN 'inactive' END",
+      WhenValueClause: "WHEN 1 THEN 'active'",
+      CaseCondition: 'x > 0 AND y IS NOT NULL',
+      CastExpression: 'CAST(age AS TEXT)',
+      FunctionCall: 'upper(name)',
+      Subquery: 'SELECT id, name FROM users WHERE active = true',
+      WithQuery: 'WITH active AS (SELECT * FROM users WHERE active = true)\nSELECT * FROM active'
     }
   },
   {
@@ -151,6 +181,23 @@ const GRAMMARS: GrammarConfig[] = [
     lexicalRules: ['Identifier', 'StringLiteral', 'IntegerLiteral', 'NumericLiteral'],
     operatorTableRules: {
       BinaryOperator: { diagramLabel: '\u00ABoperator\u00BB', groups: BINARY_OPERATOR_GROUPS }
+    },
+    examples: {
+      ParameterQuery: 'SELECT id FROM users WHERE id = token_parameters.user_id',
+      StaticParameterQuery: 'SELECT token_parameters.user_id AS id',
+      TableParameterQuery: 'SELECT id FROM users WHERE id = token_parameters.user_id',
+      TableValuedParameterQuery: 'SELECT value FROM json_each(token_parameters.tags)',
+      DataQuery: 'SELECT id, name FROM users WHERE users.id = bucket.user_id',
+      SelectItem: 'name AS user_name',
+      JsonEachCall: 'JSON_EACH(token_parameters.tags)',
+      WhereClause: 'users.id = bucket.user_id AND active = true',
+      Predicate: 'age > 18',
+      Expression: 'price * quantity + tax',
+      PropertyAccess: 'data.address.city',
+      Reference: 'users.id',
+      CastExpression: 'CAST(age AS TEXT)',
+      FunctionCall: 'upper(name)',
+      PrimaryExpression: '(price + tax)'
     }
   }
 ];
@@ -964,6 +1011,16 @@ function buildFlatMdxContent(opts: FlatMdxOptions): string {
   for (const name of productionNames) {
     lines.push(`## ${name}`);
     lines.push('');
+
+    // SQL example (above the diagram)
+    const example = grammar.examples?.[name];
+    if (example) {
+      lines.push('```sql');
+      lines.push(example);
+      lines.push('```');
+      lines.push('');
+    }
+
     lines.push(`![${name} syntax diagram](${svgPath(name)})`);
 
     // Embed operator table directly under ScalarExpr
@@ -997,18 +1054,20 @@ function buildFlatMdxContent(opts: FlatMdxOptions): string {
       }
     }
 
-    // Used by (parent terms whose diagrams reference this production)
-    const parentList = refs.parents.get(name) || [];
-    if (parentList.length > 0) {
-      lines.push('');
-      lines.push(`**Used by:** ${parentList.map(termLink).join(', ')}`);
-    }
-
     // References (child terms that appear as NonTerminal boxes in this diagram)
     const childList = refs.children.get(name) || [];
     if (childList.length > 0) {
       lines.push('');
       lines.push(`**References:** ${childList.map(termLink).join(', ')}`);
+    }
+
+    // Used by (collapsed by default — Mintlify Accordion component)
+    const parentList = refs.parents.get(name) || [];
+    if (parentList.length > 0) {
+      lines.push('');
+      lines.push('<Accordion title="Used by">');
+      lines.push(parentList.map(termLink).join(', '));
+      lines.push('</Accordion>');
     }
 
     lines.push('');
@@ -1036,14 +1095,16 @@ function buildFlatMdxContent(opts: FlatMdxOptions): string {
     for (const row of lexicalSummaries) {
       lines.push(`### ${row.name}`);
       lines.push('');
-      // Used by (parent terms)
-      const lexParents = refs.parents.get(row.name) || [];
-      if (lexParents.length > 0) {
-        lines.push(`**Used by:** ${lexParents.map(termLink).join(', ')}`);
-        lines.push('');
-      }
       lines.push(row.note);
       lines.push('');
+      // Used by (collapsed by default)
+      const lexParents = refs.parents.get(row.name) || [];
+      if (lexParents.length > 0) {
+        lines.push('<Accordion title="Used by">');
+        lines.push(lexParents.map(termLink).join(', '));
+        lines.push('</Accordion>');
+        lines.push('');
+      }
     }
   }
 
@@ -1128,8 +1189,10 @@ function generateFlatHtml(
   lexicalSummaries: LexicalRuleSummary[],
   inlineOnlySummaries: InlineOnlySummary[],
   diagrammedNames: Set<string>,
+  refs: FlatMdxOptions['refs'],
   outdir: string
 ): void {
+  const lexicalNames = new Set(grammar.lexicalRules);
   const lines: string[] = [];
 
   lines.push('<!DOCTYPE html>');
@@ -1188,6 +1251,16 @@ function generateFlatHtml(
   );
   lines.push('  .operator-note { color: #6b7280; font-size: 0.88rem; margin-top: 0.5rem; }');
   lines.push('  .lexical-description { color: #374151; margin: 0.4rem 0 0.5rem; line-height: 1.5; }');
+  lines.push(
+    '  .sql-example { background: #1e293b; color: #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; font-family: "SF Mono", "Fira Code", monospace; font-size: 0.88rem; overflow-x: auto; margin: 0.5rem 0 0.75rem; white-space: pre; }'
+  );
+  lines.push('  .cross-refs { font-size: 0.92rem; margin: 0.3rem 0; color: #374151; }');
+  lines.push('  .cross-refs a { color: #2563eb; text-decoration: none; }');
+  lines.push('  .cross-refs a:hover { text-decoration: underline; }');
+  lines.push('  details.used-by { font-size: 0.92rem; margin: 0.3rem 0; color: #374151; }');
+  lines.push('  details.used-by summary { cursor: pointer; color: #6b7280; font-weight: 600; }');
+  lines.push('  details.used-by a { color: #2563eb; text-decoration: none; }');
+  lines.push('  details.used-by a:hover { text-decoration: underline; }');
   lines.push('  hr { border: none; border-top: 1px solid #ddd; margin: 2rem 0; }');
   lines.push('</style>');
   lines.push('</head>');
@@ -1235,6 +1308,12 @@ function generateFlatHtml(
       lines.push(`  <p class="inlining">This term inlined the following terms: ${renderedInlines.join(', ')}.</p>`);
     }
 
+    // SQL example (above the diagram)
+    const example = grammar.examples?.[name];
+    if (example) {
+      lines.push(`  <pre class="sql-example">${escapeHtml(example)}</pre>`);
+    }
+
     lines.push('  <div class="diagram-container">');
     // Inline the SVG with anchor links for interactive navigation
     const svgFile = path.join(outdir, 'diagrams', `${grammar.id}--${name}.svg`);
@@ -1276,6 +1355,30 @@ function generateFlatHtml(
       );
     }
 
+    // Used by (collapsed by default)
+    const parentList = refs.parents.get(name) || [];
+    if (parentList.length > 0) {
+      const parentLinks = parentList.map((p) => `<a href="#${p.toLowerCase()}">${escapeHtml(p)}</a>`).join(', ');
+      lines.push('  <details class="used-by">');
+      lines.push('    <summary>Used by</summary>');
+      lines.push(`    <p>${parentLinks}</p>`);
+      lines.push('  </details>');
+    }
+
+    // References (visible)
+    const childList = refs.children.get(name) || [];
+    if (childList.length > 0) {
+      const childLinks = childList
+        .map((c) => {
+          if (lexicalNames.has(c)) {
+            return `<a href="#${c.toLowerCase()}">${escapeHtml(c)}</a>`;
+          }
+          return `<a href="#${c.toLowerCase()}">${escapeHtml(c)}</a>`;
+        })
+        .join(', ');
+      lines.push(`  <p class="cross-refs"><strong>References:</strong> ${childLinks}</p>`);
+    }
+
     lines.push('</div>');
     lines.push('');
 
@@ -1312,6 +1415,15 @@ function generateFlatHtml(
     for (const row of lexicalSummaries) {
       lines.push(`  <div class="production" id="${row.name.toLowerCase()}">`);
       lines.push(`    <h3>${escapeHtml(row.name)}</h3>`);
+      // Used by (collapsed)
+      const lexParents = refs.parents.get(row.name) || [];
+      if (lexParents.length > 0) {
+        const lexParentLinks = lexParents.map((p) => `<a href="#${p.toLowerCase()}">${escapeHtml(p)}</a>`).join(', ');
+        lines.push('    <details class="used-by">');
+        lines.push('      <summary>Used by</summary>');
+        lines.push(`      <p>${lexParentLinks}</p>`);
+        lines.push('    </details>');
+      }
       lines.push(`    <p class="lexical-description">${escapeHtml(row.note)}</p>`);
       lines.push('  </div>');
       lines.push('');
@@ -1516,7 +1628,15 @@ async function main() {
     generateFlatMdx(grammar, productionNames, lexicalSummaries, refGraph, cliArgs.outdir);
 
     // Generate HTML review file (inlines SVGs with anchor links)
-    generateFlatHtml(grammar, productionNames, lexicalSummaries, inlineOnlySummaries, diagrammedNames, cliArgs.outdir);
+    generateFlatHtml(
+      grammar,
+      productionNames,
+      lexicalSummaries,
+      inlineOnlySummaries,
+      diagrammedNames,
+      refGraph,
+      cliArgs.outdir
+    );
 
     // Generate resolved EBNF file
     generateResolvedEbnf(grammar, ruleMap, productionNames, cliArgs.outdir);
