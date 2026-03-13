@@ -19,7 +19,7 @@ exports[`Connection report storage > Should create a connection event if its aft
 
 exports[`Connection report storage > Should delete rows older than specified range 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -51,7 +51,7 @@ exports[`Connection report storage > Should delete rows older than specified ran
       "users": 1,
     },
   ],
-  "users": 5,
+  "total_users": 5,
 }
 `;
 
@@ -77,9 +77,9 @@ exports[`Connection report storage > Should update a connection event if its wit
 ]
 `;
 
-exports[`Report storage tests > Should show connection report data for user over the past day 1`] = `
+exports[`Report storage tests > getClientConnectionsSummary returns the past day summary 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -101,13 +101,13 @@ exports[`Report storage tests > Should show connection report data for user over
       "users": 1,
     },
   ],
-  "users": 3,
+  "total_users": 3,
 }
 `;
 
-exports[`Report storage tests > Should show connection report data for user over the past month 1`] = `
+exports[`Report storage tests > getClientConnectionsSummary returns the past month summary 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -149,13 +149,13 @@ exports[`Report storage tests > Should show connection report data for user over
       "users": 1,
     },
   ],
-  "users": 7,
+  "total_users": 7,
 }
 `;
 
-exports[`Report storage tests > Should show connection report data for user over the past week 1`] = `
+exports[`Report storage tests > getClientConnectionsSummary returns the past week summary 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -187,13 +187,13 @@ exports[`Report storage tests > Should show connection report data for user over
       "users": 1,
     },
   ],
-  "users": 5,
+  "total_users": 5,
 }
 `;
 
-exports[`Report storage tests > Should show currently connected users 1`] = `
+exports[`Report storage tests > getCurrentConnections returns current connections 1`] = `
 {
-  "sdks": [
+  "sdk_breakdown": [
     {
       "clients": 1,
       "sdk": "powersync-dart/1.6.4",
@@ -210,11 +210,11 @@ exports[`Report storage tests > Should show currently connected users 1`] = `
       "users": 1,
     },
   ],
-  "users": 2,
+  "total_users": 2,
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections of specified client_id 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for a client_id 1`] = `
 {
   "count": 1,
   "cursor": undefined,
@@ -231,7 +231,7 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit 1`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit 1`] = `
 {
   "count": 4,
   "cursor": "<removed-for-snapshot>",
@@ -269,7 +269,7 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit 2`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit 2`] = `
 {
   "count": 4,
   "cursor": undefined,
@@ -307,7 +307,7 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit with date range 1`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit and date range 1`] = `
 {
   "count": 4,
   "cursor": "<removed-for-snapshot>",
@@ -345,7 +345,7 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of all connections with a limit with date range 2`] = `
+exports[`Report storage tests > getClientSessions returns paginated sessions with a limit and date range 2`] = `
 {
   "count": 2,
   "cursor": undefined,
@@ -383,7 +383,7 @@ exports[`Report storage tests > Should show paginated response of all connection
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of connections of specified user_id 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for a user_id 1`] = `
 {
   "count": 2,
   "cursor": undefined,
@@ -407,7 +407,7 @@ exports[`Report storage tests > Should show paginated response of connections of
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of connections over a date range 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for a date range 1`] = `
 {
   "count": 6,
   "cursor": undefined,
@@ -459,7 +459,7 @@ exports[`Report storage tests > Should show paginated response of connections ov
 }
 `;
 
-exports[`Report storage tests > Should show paginated response of connections over a date range of specified client_id and user_id 1`] = `
+exports[`Report storage tests > getClientSessions returns sessions for client_id and user_id within a date range 1`] = `
 {
   "count": 1,
   "cursor": undefined,

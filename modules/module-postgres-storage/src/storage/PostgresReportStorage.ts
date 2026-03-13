@@ -48,13 +48,13 @@ export class PostgresReportStorage implements storage.ReportStorage {
   ): event_types.ClientConnectionReportResponse {
     if (!result) {
       return {
-        users: 0,
-        sdks: []
+        total_users: 0,
+        sdk_breakdown: []
       };
     }
     return {
-      users: Number(result.users),
-      sdks: result.sdks?.data || []
+      total_users: Number(result.users),
+      sdk_breakdown: result.sdks?.data || []
     };
   }
   private async listConnectionsQuery() {
@@ -234,12 +234,12 @@ export class PostgresReportStorage implements storage.ReportStorage {
         AND connected_at = ${{ type: 1184, value: connectIsoString }}
     `.execute();
   }
-  async getConnectedClients(): Promise<event_types.ClientConnectionReportResponse> {
+  async getCurrentConnections(): Promise<event_types.ClientConnectionReportResponse> {
     const result = await this.listConnectionsQuery();
     return this.mapListCurrentConnectionsResponse(result);
   }
 
-  async getClientConnectionReports(
+  async getClientConnectionsSummary(
     data: event_types.ClientConnectionReportRequest
   ): Promise<event_types.ClientConnectionReportResponse> {
     const { start, end } = data;
@@ -289,7 +289,7 @@ export class PostgresReportStorage implements storage.ReportStorage {
     return this.mapListCurrentConnectionsResponse(result);
   }
 
-  async getGeneralClientConnectionAnalytics(
+  async getClientSessions(
     data: event_types.ClientConnectionAnalyticsRequest
   ): Promise<event_types.PaginatedResponse<event_types.ClientConnection>> {
     const limit = data.limit || 100;
