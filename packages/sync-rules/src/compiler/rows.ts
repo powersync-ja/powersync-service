@@ -192,11 +192,14 @@ export class RowEvaluator extends BaseSourceRowProcessor {
         // Unaliased wildcard, use source table name.
         return undefined;
       }
+      // Wildcard with alias always uses the alias, regardless of joins.
+      return alias;
     }
 
-    // In JOIN queries, table aliases are for SQL column disambiguation, not
-    // for renaming the output table. Using aliases here would cause WAL events
-    // (which use real table names) to not match the output table name.
+    // In explicit JOIN queries (not lowered subqueries), table aliases are for
+    // SQL column disambiguation, not for renaming the output table. Using
+    // aliases here would cause WAL events (which use real table names) to not
+    // match the output table name.
     if (this.hasJoinedTables) {
       return this.syntacticSource.tablePattern.tablePattern;
     }

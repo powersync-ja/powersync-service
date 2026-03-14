@@ -201,6 +201,36 @@ streams:
     ]);
   });
 
+  syncTest('output table name with subquery preserves alias', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM comments c WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+`);
+    // Subqueries get lowered into joins internally, but alias-as-rename should
+    // still work because the user wrote a single-table query with a subquery,
+    // not an explicit JOIN.
+    expect(
+      desc.evaluateRow({
+        sourceTable: COMMENTS,
+        record: {
+          id: 'comment1',
+          issue_id: 'issue1'
+        }
+      })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["issue1"]',
+        id: 'comment1',
+        data: { id: 'comment1', issue_id: 'issue1' },
+        table: 'c'
+      }
+    ]);
+  });
+
   syncTest('wildcard with alias', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:

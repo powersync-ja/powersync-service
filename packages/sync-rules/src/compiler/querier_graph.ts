@@ -158,7 +158,7 @@ class PendingQuerierPath {
         filters: state.filters,
         partitionBy: partitions,
         addedFunctions: [...state.addedFunctions.values()],
-        hasJoinedTables: this.query.joined.some((s) => s instanceof PhysicalSourceResultSet)
+        hasJoinedTables: this.query.hasExplicitJoins
       })
     );
     this.processExistsOperators();

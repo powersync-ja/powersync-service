@@ -1926,7 +1926,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
 {
   "buckets": [
     {
-      "hash": 178626979,
+      "hash": 160259622,
       "sources": [
         0,
       ],
@@ -1939,8 +1939,8 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 49916842,
-      "outputTableName": "profile",
+      "hash": 394681392,
+      "outputTableName": "p",
       "partitionBy": [
         {
           "expr": {

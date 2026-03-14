@@ -2994,7 +2994,7 @@ exports[`old streams test > table alias 1`] = `
 {
   "buckets": [
     {
-      "hash": 360683602,
+      "hash": 466037865,
       "sources": [
         0,
       ],
@@ -3007,8 +3007,8 @@ exports[`old streams test > table alias 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 279942793,
-      "outputTableName": "account_member",
+      "hash": 265683697,
+      "outputTableName": "outer",
       "partitionBy": [
         {
           "expr": {
