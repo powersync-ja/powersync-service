@@ -743,7 +743,7 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
 {
   "buckets": [
     {
-      "hash": 87224296,
+      "hash": 445777469,
       "sources": [
         0,
       ],
@@ -756,8 +756,8 @@ exports[`new sync stream features > joins feedback > response 1 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 5951378,
-      "outputTableName": "u",
+      "hash": 75754117,
+      "outputTableName": "users",
       "partitionBy": [
         {
           "expr": {
@@ -920,7 +920,7 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
 {
   "buckets": [
     {
-      "hash": 514655288,
+      "hash": 313699974,
       "sources": [
         0,
       ],
@@ -933,8 +933,8 @@ exports[`new sync stream features > joins feedback > response 4 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 445379715,
-      "outputTableName": "m",
+      "hash": 496818140,
+      "outputTableName": "message",
       "partitionBy": [
         {
           "expr": {
@@ -1395,7 +1395,7 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
 {
   "buckets": [
     {
-      "hash": 243129021,
+      "hash": 314938625,
       "sources": [
         0,
       ],
@@ -1408,8 +1408,8 @@ exports[`new sync stream features > joins feedback > response 9 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 105399988,
-      "outputTableName": "u",
+      "hash": 287678376,
+      "outputTableName": "users",
       "partitionBy": [
         {
           "expr": {
@@ -1572,7 +1572,7 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
 {
   "buckets": [
     {
-      "hash": 437667704,
+      "hash": 75836376,
       "sources": [
         0,
       ],
@@ -1585,8 +1585,8 @@ exports[`new sync stream features > joins feedback > response 10 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 268156404,
-      "outputTableName": "a",
+      "hash": 213846435,
+      "outputTableName": "addresses",
       "partitionBy": [
         {
           "expr": {
@@ -1797,7 +1797,7 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
 {
   "buckets": [
     {
-      "hash": 327475413,
+      "hash": 384339763,
       "sources": [
         0,
       ],
@@ -1810,8 +1810,8 @@ exports[`new sync stream features > joins feedback > response 11 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 259562331,
-      "outputTableName": "t",
+      "hash": 325935862,
+      "outputTableName": "ticket",
       "partitionBy": [
         {
           "expr": {
@@ -1926,7 +1926,7 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
 {
   "buckets": [
     {
-      "hash": 160259622,
+      "hash": 178626979,
       "sources": [
         0,
       ],
@@ -1939,8 +1939,8 @@ exports[`new sync stream features > joins feedback > response 12 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 394681392,
-      "outputTableName": "p",
+      "hash": 49916842,
+      "outputTableName": "profile",
       "partitionBy": [
         {
           "expr": {
@@ -2152,7 +2152,7 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
 {
   "buckets": [
     {
-      "hash": 27478573,
+      "hash": 428463597,
       "sources": [
         0,
       ],
@@ -2165,8 +2165,8 @@ exports[`new sync stream features > joins feedback > response 13 1`] = `
         "star",
       ],
       "filters": [],
-      "hash": 97931753,
-      "outputTableName": "c",
+      "hash": 181896086,
+      "outputTableName": "checkpoint",
       "partitionBy": [
         {
           "expr": {
