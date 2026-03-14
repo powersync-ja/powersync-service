@@ -231,6 +231,38 @@ streams:
     ]);
   });
 
+  syncTest('output table name with TVF on left, source table joined on right', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      accept_potentially_dangerous_queries: true
+      query: |
+        SELECT u.* FROM json_each('["user1"]') j
+          INNER JOIN users u ON u.id = j.value
+        WHERE u.id = subscription.parameter('p')
+`);
+    // When the source table is on the right side of a TVF join, the alias
+    // should still be dropped — WAL events use real table names.
+    expect(
+      desc.evaluateRow({
+        sourceTable: USERS,
+        record: {
+          id: 'user1'
+        }
+      })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["user1"]',
+        id: 'user1',
+        data: { id: 'user1' },
+        table: 'users'
+      }
+    ]);
+  });
+
   syncTest('wildcard with alias', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
