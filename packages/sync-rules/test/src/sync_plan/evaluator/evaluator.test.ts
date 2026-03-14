@@ -115,7 +115,7 @@ streams:
     const desc = sync.prepareSyncStreams(`
 config:
   edition: 3
-  
+
 streams:
   stream:
       query: SELECT * FROM users u
@@ -133,6 +133,132 @@ streams:
         id: 'foo',
         data: { id: 'foo' },
         table: 'u'
+      }
+    ]);
+  });
+
+  syncTest('output table name with JOIN alias', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      accept_potentially_dangerous_queries: true
+      query: |
+        SELECT c.* FROM comments c
+          INNER JOIN issues ON c.issue_id = issues.id
+        WHERE issues.id = subscription.parameter('p')
+`);
+    // WAL event arrives for "comments" table - the output table should be "comments", not the alias "c"
+    expect(
+      desc.evaluateRow({
+        sourceTable: COMMENTS,
+        record: {
+          id: 'comment1',
+          issue_id: 'issue1'
+        }
+      })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["issue1"]',
+        id: 'comment1',
+        data: { id: 'comment1', issue_id: 'issue1' },
+        table: 'comments'
+      }
+    ]);
+  });
+
+  syncTest('output table name with JOIN - only joined table aliased', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      accept_potentially_dangerous_queries: true
+      query: |
+        SELECT comments.* FROM comments
+          INNER JOIN issues i ON comments.issue_id = i.id
+        WHERE i.id = subscription.parameter('p')
+`);
+    // Aliasing only the joined table should also work correctly
+    expect(
+      desc.evaluateRow({
+        sourceTable: COMMENTS,
+        record: {
+          id: 'comment1',
+          issue_id: 'issue1'
+        }
+      })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["issue1"]',
+        id: 'comment1',
+        data: { id: 'comment1', issue_id: 'issue1' },
+        table: 'comments'
+      }
+    ]);
+  });
+
+  syncTest('output table name with subquery preserves alias', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT * FROM comments c WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+`);
+    // Subqueries get lowered into joins internally, but alias-as-rename should
+    // still work because the user wrote a single-table query with a subquery,
+    // not an explicit JOIN.
+    expect(
+      desc.evaluateRow({
+        sourceTable: COMMENTS,
+        record: {
+          id: 'comment1',
+          issue_id: 'issue1'
+        }
+      })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["issue1"]',
+        id: 'comment1',
+        data: { id: 'comment1', issue_id: 'issue1' },
+        table: 'c'
+      }
+    ]);
+  });
+
+  syncTest('output table name with TVF on left, source table joined on right', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      accept_potentially_dangerous_queries: true
+      query: |
+        SELECT u.* FROM json_each('["user1"]') j
+          INNER JOIN users u ON u.id = j.value
+        WHERE u.id = subscription.parameter('p')
+`);
+    // When the source table is on the right side of a TVF join, the alias
+    // should still be dropped — WAL events use real table names.
+    expect(
+      desc.evaluateRow({
+        sourceTable: USERS,
+        record: {
+          id: 'user1'
+        }
+      })
+    ).toStrictEqual([
+      {
+        bucket: 'stream|0["user1"]',
+        id: 'user1',
+        data: { id: 'user1' },
+        table: 'users'
       }
     ]);
   });

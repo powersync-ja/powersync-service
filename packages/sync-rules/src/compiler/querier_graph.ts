@@ -157,7 +157,8 @@ class PendingQuerierPath {
         syntacticSource: this.query.sourceTable,
         filters: state.filters,
         partitionBy: partitions,
-        addedFunctions: [...state.addedFunctions.values()]
+        addedFunctions: [...state.addedFunctions.values()],
+        hasJoinedTables: this.query.hasExplicitJoins
       })
     );
     this.processExistsOperators();

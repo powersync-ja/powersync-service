@@ -76,6 +76,12 @@ export interface ParsedStreamQuery {
   sourceTable: PhysicalSourceResultSet;
   joined: SourceResultSet[];
   /**
+   * Whether the query contains explicit JOIN clauses (as opposed to subqueries
+   * lowered into joins by the compiler). When true, source table aliases serve
+   * SQL column disambiguation rather than output table renaming.
+   */
+  hasExplicitJoins: boolean;
+  /**
    * All filters, in disjunctive normal form (an OR of ANDs).
    */
   where: Or;
@@ -104,6 +110,8 @@ export class StreamQueryParser {
 
   /** The result set for which rows are synced. Set when analyzing result columns. */
   private primaryResultSet?: PhysicalSourceResultSet;
+  /** Whether the query contains explicit JOIN clauses in the FROM list. */
+  private hasExplicitJoins = false;
   private syntheticSubqueryCounter: number = 0;
   private nodeLocations: NodeLocations;
   private exprParser: PostgresToSqlite;
@@ -173,6 +181,7 @@ export class StreamQueryParser {
         resultColumns: this.resultColumns,
         sourceTable: this.primaryResultSet,
         joined,
+        hasExplicitJoins: this.hasExplicitJoins,
         where: where
       };
     } else {
@@ -328,6 +337,12 @@ export class StreamQueryParser {
 
     const join = from.join;
     if (join) {
+      if (from.type == 'table') {
+        // Track explicit JOINs to physical tables. Table-valued function JOINs
+        // (e.g. json_each) and subquery JOINs are not counted — their aliases
+        // don't affect the source table's output name semantics.
+        this.hasExplicitJoins = true;
+      }
       if (join.type != 'INNER JOIN') {
         // We only support inner joins.
         this.warnUnsupported(join, 'FULL JOIN');
