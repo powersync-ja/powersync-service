@@ -41,7 +41,7 @@ const DEFAULT_BUCKET_BATCH_LIMIT = 200;
 const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
 
 /**
- * Checksum query implementation.
+ * Shared checksum query plumbing.
  *
  * General implementation flow is:
  * 1. getChecksums() -> check cache for (partial) matches. If not found or partial match, query the remainder using computePartialChecksums().
@@ -49,18 +49,16 @@ const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
  * 3. computePartialChecksumsDirect() -> split into batches of 200 buckets at a time -> computePartialChecksumsInternal()
  * 4. computePartialChecksumsInternal() -> aggregate over 50_000 operations in bucket_data at a time
  */
-export class MongoChecksums {
+abstract class AbstractMongoChecksums {
   private _cache: ChecksumCache | undefined;
   private readonly storageConfig: StorageConfig;
-  private readonly mapping: BucketDefinitionMapping | undefined;
 
   constructor(
-    private db: VersionedPowerSyncMongo,
-    private group_id: number,
-    private options: MongoChecksumOptions
+    protected readonly db: VersionedPowerSyncMongo,
+    protected readonly group_id: number,
+    protected readonly options: MongoChecksumOptions
   ) {
     this.storageConfig = options.storageConfig;
-    this.mapping = options.mapping;
   }
 
   /**
@@ -205,105 +203,9 @@ export class MongoChecksums {
    *
    * `batch` must be limited to DEFAULT_BUCKET_BATCH_LIMIT buckets before calling this.
    */
-  private async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
-    if (this.storageConfig.incrementalReprocessing) {
-      if (this.mapping == null) {
-        throw new ServiceAssertionError('BucketDefinitionMapping is required for v3 MongoDB checksum queries');
-      }
+  protected abstract computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap>;
 
-      const results = new Map<string, PartialOrFullChecksum>();
-      const requestsByDefinition = new Map<string, FetchPartialBucketChecksum[]>();
-      const fallbackRequests: FetchPartialBucketChecksum[] = [];
-      for (const request of batch) {
-        if (!isBucketSourceLike(request.source)) {
-          fallbackRequests.push(request);
-          continue;
-        }
-        const definitionId = this.mapping.bucketSourceId(request.source);
-        const existing = requestsByDefinition.get(definitionId) ?? [];
-        existing.push(request);
-        requestsByDefinition.set(definitionId, existing);
-      }
-
-      for (const [definitionId, requests] of requestsByDefinition.entries()) {
-        const groupResults = await this.computePartialChecksumsForCollection(
-          requests,
-          this.db.bucket_data_v3(this.group_id, definitionId) as unknown as mongo.Collection<mongo.Document>,
-          (request) => ({
-            _id: {
-              $gt: {
-                b: request.bucket,
-                o: request.start ?? new bson.MinKey()
-              },
-              $lte: {
-                b: request.bucket,
-                o: request.end
-              }
-            }
-          })
-        );
-        for (const checksum of groupResults.values()) {
-          results.set(checksum.bucket, checksum);
-        }
-      }
-
-      if (fallbackRequests.length > 0) {
-        const collections = await this.db.listBucketDataCollectionsV3(this.group_id);
-        for (const request of fallbackRequests) {
-          let merged: PartialOrFullChecksum | null = null;
-          for (const collection of collections) {
-            const groupResults = await this.computePartialChecksumsForCollection(
-              [request],
-              collection as unknown as mongo.Collection<mongo.Document>,
-              (entry) => ({
-                _id: {
-                  $gt: {
-                    b: entry.bucket,
-                    o: entry.start ?? new bson.MinKey()
-                  },
-                  $lte: {
-                    b: entry.bucket,
-                    o: entry.end
-                  }
-                }
-              })
-            );
-            merged = addPartialChecksums(request.bucket, merged, groupResults.get(request.bucket) ?? null);
-          }
-          results.set(
-            request.bucket,
-            merged ??
-              (request.start == null
-                ? { bucket: request.bucket, count: 0, checksum: 0 }
-                : { bucket: request.bucket, partialCount: 0, partialChecksum: 0 })
-          );
-        }
-      }
-
-      return results;
-    }
-
-    return this.computePartialChecksumsForCollection(
-      batch,
-      this.db.bucket_data as unknown as mongo.Collection<mongo.Document>,
-      (request) => ({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.start ?? new bson.MinKey()
-          },
-          $lte: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.end
-          }
-        }
-      })
-    );
-  }
-
-  private async computePartialChecksumsForCollection(
+  protected async computePartialChecksumsForCollection(
     batch: FetchPartialBucketChecksum[],
     collection: mongo.Collection<mongo.Document>,
     createFilter: (request: FetchPartialBucketChecksum) => any
@@ -429,6 +331,141 @@ export class MongoChecksums {
       })
     );
   }
+}
+
+class MongoChecksumsV1Impl extends AbstractMongoChecksums {
+  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    return this.computePartialChecksumsForCollection(
+      batch,
+      this.db.bucket_data as unknown as mongo.Collection<mongo.Document>,
+      (request) => ({
+        _id: {
+          $gt: {
+            g: this.group_id,
+            b: request.bucket,
+            o: request.start ?? new bson.MinKey()
+          },
+          $lte: {
+            g: this.group_id,
+            b: request.bucket,
+            o: request.end
+          }
+        }
+      })
+    );
+  }
+}
+
+class MongoChecksumsV3Impl extends AbstractMongoChecksums {
+  constructor(
+    db: VersionedPowerSyncMongo,
+    group_id: number,
+    options: MongoChecksumOptions,
+    private readonly mapping: BucketDefinitionMapping
+  ) {
+    super(db, group_id, options);
+  }
+
+  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    const results = new Map<string, PartialOrFullChecksum>();
+    const requestsByDefinition = new Map<string, FetchPartialBucketChecksum[]>();
+    const fallbackRequests: FetchPartialBucketChecksum[] = [];
+
+    for (const request of batch) {
+      if (!isBucketSourceLike(request.source)) {
+        fallbackRequests.push(request);
+        continue;
+      }
+
+      const definitionId = this.mapping.bucketSourceId(request.source);
+      const existing = requestsByDefinition.get(definitionId) ?? [];
+      existing.push(request);
+      requestsByDefinition.set(definitionId, existing);
+    }
+
+    for (const [definitionId, requests] of requestsByDefinition.entries()) {
+      const groupResults = await this.computePartialChecksumsForCollection(
+        requests,
+        this.db.bucket_data_v3(this.group_id, definitionId) as unknown as mongo.Collection<mongo.Document>,
+        createV3BucketFilter
+      );
+      for (const checksum of groupResults.values()) {
+        results.set(checksum.bucket, checksum);
+      }
+    }
+
+    if (fallbackRequests.length > 0) {
+      const collections = await this.db.listBucketDataCollectionsV3(this.group_id);
+      for (const request of fallbackRequests) {
+        let merged: PartialOrFullChecksum | null = null;
+        for (const collection of collections) {
+          const groupResults = await this.computePartialChecksumsForCollection(
+            [request],
+            collection as unknown as mongo.Collection<mongo.Document>,
+            createV3BucketFilter
+          );
+          merged = addPartialChecksums(request.bucket, merged, groupResults.get(request.bucket) ?? null);
+        }
+        results.set(request.bucket, merged ?? emptyChecksumForRequest(request));
+      }
+    }
+
+    return results;
+  }
+}
+
+/**
+ * Public checksum API. Delegates to a storage-version-specific implementation.
+ */
+export class MongoChecksums {
+  private readonly impl: AbstractMongoChecksums;
+
+  constructor(db: VersionedPowerSyncMongo, group_id: number, options: MongoChecksumOptions) {
+    this.impl = options.storageConfig.incrementalReprocessing
+      ? new MongoChecksumsV3Impl(
+          db,
+          group_id,
+          options,
+          options.mapping ??
+            (() => {
+              throw new ServiceAssertionError('BucketDefinitionMapping is required for v3 MongoDB checksum queries');
+            })()
+        )
+      : new MongoChecksumsV1Impl(db, group_id, options);
+  }
+
+  async getChecksums(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
+    return this.impl.getChecksums(checkpoint, buckets);
+  }
+
+  clearCache() {
+    this.impl.clearCache();
+  }
+
+  async computePartialChecksumsDirect(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    return this.impl.computePartialChecksumsDirect(batch);
+  }
+}
+
+function createV3BucketFilter(request: FetchPartialBucketChecksum) {
+  return {
+    _id: {
+      $gt: {
+        b: request.bucket,
+        o: request.start ?? new bson.MinKey()
+      },
+      $lte: {
+        b: request.bucket,
+        o: request.end
+      }
+    }
+  };
+}
+
+function emptyChecksumForRequest(request: FetchPartialBucketChecksum): PartialOrFullChecksum {
+  return request.start == null
+    ? { bucket: request.bucket, count: 0, checksum: 0 }
+    : { bucket: request.bucket, partialCount: 0, partialChecksum: 0 };
 }
 
 function isBucketSourceLike(
