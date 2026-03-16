@@ -283,14 +283,14 @@ function defineEngineTests(
     expectFunction('st_asgeojson', [geography], '{"type":"Point","coordinates":[-33.9626,18.8395]}');
     expectFunction('st_astext', [geography], 'POINT(-33.9626 18.8395)');
 
-    expectFunction('instr', ['hello world', 'world'], isJavaScript ? 7 : 7n);
-    expectFunction('instr', ['hello world', 'xyz'], isJavaScript ? 0 : 0n);
-    expectFunction('instr', ['hello world', ''], isJavaScript ? 1 : 1n);
-    expectFunction('instr', ['', 'hello'], isJavaScript ? 0 : 0n);
+    expectFunction('instr', ['hello world', 'world'], 7n);
+    expectFunction('instr', ['hello world', 'xyz'], 0n);
+    expectFunction('instr', ['hello world', ''], 1n);
+    expectFunction('instr', ['', 'hello'], 0n);
     expectFunction('instr', [null, 'hello'], null);
     expectFunction('instr', ['hello', null], null);
-    expectFunction('instr', [new Uint8Array([0xde, 0xad]), new Uint8Array([0xad])], isJavaScript ? 2 : 2n);
-    expectFunction('instr', [new Uint8Array([0xde, 0xad]), new Uint8Array()], isJavaScript ? 1 : 1n);
+    expectFunction('instr', [new Uint8Array([0xde, 0xad]), new Uint8Array([0xad])], 2n);
+    expectFunction('instr', [new Uint8Array([0xde, 0xad]), new Uint8Array()], 1n);
     expectFunction('instr', [new Uint8Array([0xde, 0xad]), null], null);
   });
 

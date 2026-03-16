@@ -283,13 +283,13 @@ const instr: DocumentedSqlFunction = {
     // Both BLOBs: byte-level search
     if (x instanceof Uint8Array && y instanceof Uint8Array) {
       const pos = Buffer.from(x).indexOf(Buffer.from(y));
-      return pos < 0 ? 0 : pos + 1;
+      return BigInt(pos < 0 ? 0 : pos + 1);
     }
     // Neither BLOB, or mixed: cast both to text
     const haystack = castAsText(x)!;
     const needle = castAsText(y)!;
     const pos = haystack.indexOf(needle);
-    return pos < 0 ? 0 : pos + 1;
+    return BigInt(pos < 0 ? 0 : pos + 1);
   },
   parameters: [
     { name: 'x', type: ExpressionType.ANY, optional: false },
