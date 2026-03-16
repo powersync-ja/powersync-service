@@ -39,6 +39,8 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
+import { PersistedBatchV1 } from './PersistedBatchV1.js';
+import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
@@ -157,6 +159,17 @@ export class MongoBucketBatch
 
   get lastCheckpointLsn() {
     return this.last_checkpoint_lsn;
+  }
+
+  private createPersistedBatch(writtenSize: number): PersistedBatch {
+    if (this.db.storageConfig.incrementalReprocessing) {
+      return new PersistedBatchV3(this.db, this.group_id, this.mapping, writtenSize, {
+        logger: this.logger
+      });
+    }
+    return new PersistedBatchV1(this.db, this.group_id, this.mapping, writtenSize, {
+      logger: this.logger
+    });
   }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
@@ -284,15 +297,7 @@ export class MongoBucketBatch
         current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
       }
 
-      let persistedBatch: PersistedBatch | null = new PersistedBatch(
-        this.db,
-        this.group_id,
-        this.mapping,
-        transactionSize,
-        {
-          logger: this.logger
-        }
-      );
+      let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
 
       for (let op of b) {
         if (resumeBatch) {
@@ -1110,7 +1115,7 @@ export class MongoBucketBatch
           session: session
         });
         const batch = await cursor.toArray();
-        const persistedBatch = new PersistedBatch(this.db, this.group_id, this.mapping, 0, { logger: this.logger });
+        const persistedBatch = this.createPersistedBatch(0);
 
         for (let value of batch) {
           persistedBatch.saveBucketData({
