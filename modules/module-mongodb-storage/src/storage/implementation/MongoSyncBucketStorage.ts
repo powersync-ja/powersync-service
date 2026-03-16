@@ -580,6 +580,17 @@ export class MongoSyncBucketStorage
     }
   }
 
+  /**
+   * Reads V3 bucket data across per-definition collections while presenting a single paginated
+   * stream to the caller.
+   *
+   * Unlike v1, the requested buckets may live in multiple collections. We therefore page through
+   * one definition group at a time.
+   *
+   * Important: as soon as any limit is hit for the current read, we stop and return control to
+   * the caller. We do not continue with the same group, and we do not move on to later groups.
+   * That keeps pagination boundaries predictable and matches the v1 behavior more closely.
+   */
   private async *getBucketDataBatchV3(
     checkpoint: utils.InternalOpId,
     dataBuckets: storage.BucketDataRequest[],
@@ -597,7 +608,6 @@ export class MongoSyncBucketStorage
     const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
     const end = checkpoint;
     let remainingLimit = batchLimit;
-    let hasMoreAcrossGroups = false;
 
     const requestsByDefinition = new Map<string, storage.BucketDataRequest[]>();
     for (const request of dataBuckets) {
@@ -607,14 +617,12 @@ export class MongoSyncBucketStorage
       requestsByDefinition.set(definitionId, requests);
     }
 
-    for (const [definitionId, requests] of requestsByDefinition.entries()) {
-      if (remainingLimit <= 0) {
-        hasMoreAcrossGroups = true;
-        break;
-      }
-
+    const definitionGroups = Array.from(requestsByDefinition.entries());
+    for (let groupIndex = 0; groupIndex < definitionGroups.length && remainingLimit > 0; groupIndex++) {
+      const [definitionId, requests] = definitionGroups[groupIndex];
+      const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
       const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
-      const filters: mongo.Filter<BucketDataDocumentV3>[] = requests.map(({ bucket, start }) => ({
+      const filters: mongo.Filter<BucketDataDocumentV3>[] = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
         _id: {
           $gt: {
             b: bucket,
@@ -647,9 +655,11 @@ export class MongoSyncBucketStorage
       if (data.length == remainingLimit) {
         batchHasMore = true;
       }
+      if (data.length == 0) {
+        continue;
+      }
 
       remainingLimit -= data.length;
-      hasMoreAcrossGroups ||= batchHasMore;
 
       let chunkSizeBytes = 0;
       let currentChunk: utils.SyncBucketData | null = null;
@@ -705,8 +715,15 @@ export class MongoSyncBucketStorage
 
       if (currentChunk != null) {
         const yieldChunk = currentChunk;
-        yieldChunk.has_more = batchHasMore || hasMoreAcrossGroups;
+        // Stop after the current read if either:
+        // 1. MongoDB indicates more rows remain for this definition group, or
+        // 2. we exhausted the caller's overall document limit before later groups.
+        yieldChunk.has_more = batchHasMore || (remainingLimit <= 0 && hasLaterDefinitionGroups);
         yield { chunkData: yieldChunk, targetOp: targetOp };
+      }
+
+      if (batchHasMore || remainingLimit <= 0) {
+        return;
       }
     }
   }

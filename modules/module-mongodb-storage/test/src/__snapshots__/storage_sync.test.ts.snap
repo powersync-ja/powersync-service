@@ -3284,3 +3284,5 @@ exports[`sync - mongodb > storage v3 > sync updates to parameter query only 2`] 
   },
 ]
 `;
+
+exports[`sync - mongodb > storage v3 > write checkpoint 1`] = `[]`;

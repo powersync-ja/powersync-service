@@ -111,7 +111,7 @@ export class PowerSyncMongo {
     await this.v3_current_data.deleteMany({});
     await this.bucket_data.deleteMany({});
     for (const collection of await this.listBucketDataCollectionsV3()) {
-      await collection.deleteMany({});
+      await collection.drop();
     }
     await this.bucket_parameters.deleteMany({});
     await this.v3_bucket_parameters.deleteMany({});
