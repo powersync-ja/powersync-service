@@ -56,7 +56,7 @@ export interface SaveParameterDataOptions {
 
 export interface UpsertCurrentDataOptions {
   id: SourceKey;
-  data: bson.Binary | undefined;
+  data: bson.Binary | null;
   buckets: CommonCurrentBucket[];
   lookups: CommonCurrentLookup[];
 }

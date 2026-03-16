@@ -4,7 +4,7 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as bson from 'bson';
 
-import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import {
   PersistedBatch,
   SaveBucketDataOptions,
@@ -178,7 +178,7 @@ export class PersistedBatchV1 extends PersistedBatch {
         filter: { _id: values.id },
         update: {
           $set: {
-            data: values.data,
+            data: values.data ?? EMPTY_DATA,
             buckets,
             lookups
           },

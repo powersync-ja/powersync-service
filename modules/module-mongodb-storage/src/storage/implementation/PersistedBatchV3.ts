@@ -1,8 +1,9 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import {
   PersistedBatch,
   SaveBucketDataOptions,
@@ -13,12 +14,11 @@ import {
   BucketParameterDocumentV3,
   CurrentBucketV3,
   CurrentDataDocumentV3,
-  RecordedLookupV3,
-  SourceKey,
   isCurrentBucketV3,
-  isRecordedLookupV3
+  isRecordedLookupV3,
+  RecordedLookupV3,
+  SourceKey
 } from './models.js';
-import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3>[] = [];
@@ -165,7 +165,7 @@ export class PersistedBatchV3 extends PersistedBatch {
         filter: { _id: id },
         update: {
           $set: {
-            data: EMPTY_DATA,
+            data: null,
             buckets: [] as CurrentDataDocumentV3['buckets'],
             lookups: [] as CurrentDataDocumentV3['lookups'],
             pending_delete: checkpointGreaterThan

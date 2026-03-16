@@ -314,7 +314,7 @@ export abstract class MongoBucketBatch
         if (nextData != null) {
           // Update our current_data and size cache
           current_data_lookup.set(op.internalAfterKey!, nextData);
-          sizes?.set(op.internalAfterKey!, nextData.data.length());
+          sizes?.set(op.internalAfterKey!, nextData.data?.length() ?? 0);
         }
 
         if (persistedBatch!.shouldFlushTransaction()) {
@@ -399,8 +399,8 @@ export abstract class MongoBucketBatch
       } else {
         existing_buckets = result.buckets;
         existing_lookups = result.lookups;
-        if (this.storeCurrentData) {
-          const data = deserializeBson((result.data as mongo.Binary).buffer) as SqliteRow;
+        if (this.storeCurrentData && result.data != null) {
+          const data = deserializeBson(result.data.buffer) as SqliteRow;
           after = storage.mergeToast<SqliteValue>(after!, data);
         }
       }
@@ -422,9 +422,9 @@ export abstract class MongoBucketBatch
       }
     }
 
-    let afterData: bson.Binary | undefined;
+    let afterData: bson.Binary | null = null;
     if (afterId != null && !this.storeCurrentData) {
-      afterData = EMPTY_DATA;
+      afterData = null;
     } else if (afterId != null) {
       try {
         // This will fail immediately if the record is > 16MB.

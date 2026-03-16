@@ -49,7 +49,7 @@ export interface RecordedLookupV3 {
 
 export interface CurrentDataDocumentV3 {
   _id: SourceKey;
-  data: bson.Binary;
+  data: bson.Binary | null;
   buckets: CurrentBucketV3[];
   lookups: RecordedLookupV3[];
   /**
