@@ -815,7 +815,7 @@ export class MongoSyncBucketStorage
     );
     if (this.db.storageConfig.incrementalReprocessing) {
       for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
-        await collection.deleteMany({}, { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS });
+        await collection.drop();
       }
     } else {
       await this.db.bucket_data.deleteMany(
