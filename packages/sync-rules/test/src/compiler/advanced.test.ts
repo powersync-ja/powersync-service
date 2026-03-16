@@ -280,4 +280,37 @@ streams:
 `);
     expect(serializeSyncPlan(plan)).toMatchSnapshot();
   });
+
+  test('checking for existence in two CTEs', () => {
+    // Regression test for https://discord.com/channels/1138230179878154300/1480494423417688105/1480494813684961405,
+    // slightly simplified.
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  rbac_stream:
+    accept_potentially_dangerous_queries: true
+    with:
+      user_project_permissions: SELECT perm FROM project_permissions WHERE "user" = auth.user_id()
+      user_global_permissions: SELECT perm FROM global_permissions WHERE "user" = auth.user_id()
+
+    query: |
+      SELECT "Scene".*
+      FROM "Scene"
+      WHERE 
+        "Scene".project = subscription.parameter('project')
+        AND (
+            'a' IN user_global_permissions
+            OR 'b' IN user_project_permissions
+        )
+`);
+
+    // There should only be a single bucket, but two ways to get there (thanks to the OR).
+    expect(plan.buckets).toHaveLength(1);
+    expect(plan.streams).toHaveLength(1);
+    expect(plan.streams[0].queriers).toHaveLength(2);
+
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
+  });
 });

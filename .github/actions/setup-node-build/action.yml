@@ -1,0 +1,23 @@
+name: Setup Node and Build
+description: Enable Corepack, install Node.js dependencies, and build the workspace
+
+runs:
+  using: composite
+  steps:
+    - name: Enable Corepack
+      shell: bash
+      run: corepack enable
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version-file: .nvmrc
+        cache: pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install
+
+    - name: Build
+      shell: bash
+      run: pnpm build

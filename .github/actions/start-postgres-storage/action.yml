@@ -1,0 +1,24 @@
+name: Start PostgreSQL Storage DB
+description: Start the PostgreSQL container used by storage tests
+
+inputs:
+  postgres-version:
+    description: PostgreSQL image tag to use
+    required: false
+    default: '18'
+
+runs:
+  using: composite
+  steps:
+    - name: Start PostgreSQL (Storage)
+      shell: bash
+      run: |
+        docker run \
+          --health-cmd pg_isready \
+          --health-interval 10s \
+          --health-timeout 5s \
+          --health-retries 5 \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=powersync_storage_test \
+          -p 5431:5432 \
+          -d postgres:${{ inputs.postgres-version }}
