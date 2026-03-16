@@ -81,7 +81,9 @@ export interface BucketParameterDocument {
   bucket_parameters: Record<string, SqliteJsonValue>[];
 }
 
-export interface BucketParameterDocumentV3 extends BucketParameterDocument {
+export interface BucketParameterDocumentV3 extends BucketParameterDocument {}
+
+export interface TaggedBucketParameterDocument extends BucketParameterDocumentV3 {
   index: ParameterIndexId;
 }
 
@@ -117,6 +119,11 @@ export interface TaggedBucketDataDocument extends BucketDataProperties {
  */
 export const LEGACY_BUCKET_DATA_DEFINITION_ID = '0';
 
+/**
+ * Internal-only tag used for v1 bucket_parameters rows before they are converted to the v1 on-disk shape.
+ */
+export const LEGACY_BUCKET_PARAMETER_INDEX_ID = '0';
+
 export function bucketDataDocumentToTagged(
   document: BucketDataDocumentV1 | BucketDataDocumentV3,
   definitionId: BucketDefinitionId
@@ -148,6 +155,26 @@ export function taggedBucketDataDocumentToV1(
 
 export function taggedBucketDataDocumentToV3(document: TaggedBucketDataDocument): BucketDataDocumentV3 {
   const { def: _definitionId, ...rest } = document;
+  return rest;
+}
+
+export function bucketParameterDocumentToTagged(
+  document: BucketParameterDocument | BucketParameterDocumentV3,
+  index: ParameterIndexId
+): TaggedBucketParameterDocument {
+  return {
+    ...document,
+    index
+  };
+}
+
+export function taggedBucketParameterDocumentToV1(document: TaggedBucketParameterDocument): BucketParameterDocument {
+  const { index: _index, ...rest } = document;
+  return rest;
+}
+
+export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {
+  const { index: _index, ...rest } = document;
   return rest;
 }
 
@@ -383,7 +410,6 @@ export interface ClientConnectionDocument extends event_types.ClientConnection {
 export type CommonCurrentDataDocument = CurrentDataDocument | CurrentDataDocumentV3;
 export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
 export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
-export type CommonBucketParameterDocument = BucketParameterDocument | BucketParameterDocumentV3;
 export type CommonSourceTableDocument = SourceTableDocument | SourceTableDocumentV3;
 
 export function isCurrentBucketV3(bucket: CommonCurrentBucket): bucket is CurrentBucketV3 {

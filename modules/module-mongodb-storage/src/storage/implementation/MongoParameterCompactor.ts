@@ -3,7 +3,7 @@ import { logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
 import { VersionedPowerSyncMongo } from './db.js';
-import { BucketParameterDocument } from './models.js';
+import { BucketParameterDocument, BucketParameterDocumentV3 } from './models.js';
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
@@ -22,6 +22,24 @@ export class MongoParameterCompactor {
 
   async compact() {
     logger.info(`Compacting parameters for group ${this.group_id} up to checkpoint ${this.checkpoint}`);
+    if (this.db.storageConfig.incrementalReprocessing) {
+      await this.compactV3();
+      return;
+    }
+    await this.compactV1();
+  }
+
+  private async compactV1() {
+    await this.compactCollection(this.db.v1_bucket_parameters);
+  }
+
+  private async compactV3() {
+    for (const collection of await this.db.listBucketParameterCollectionsV3(this.group_id)) {
+      await this.compactCollection(collection);
+    }
+  }
+
+  private async compactCollection(collection: mongo.Collection<BucketParameterDocument | BucketParameterDocumentV3>) {
     // This is the currently-active checkpoint.
     // We do not remove any data that may be used by this checkpoint.
     // snapshot queries ensure that if any clients are still using older checkpoints, they would
@@ -32,7 +50,7 @@ export class MongoParameterCompactor {
     // In theory, we could let MongoDB do more of the work here, by grouping by (key, lookup)
     // in MongoDB already. However, that risks running into cases where MongoDB needs to process
     // very large amounts of data before returning results, which could lead to timeouts.
-    const cursor = this.db.bucket_parameters.find(
+    const cursor = collection.find(
       {
         'key.g': this.group_id
       },
@@ -48,17 +66,17 @@ export class MongoParameterCompactor {
       max: this.options.compactParameterCacheLimit ?? 10_000
     });
     let removeIds: InternalOpId[] = [];
-    let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
+    let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument | BucketParameterDocumentV3>[] = [];
 
     const flush = async (force: boolean) => {
       if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
-        const results = await this.db.bucket_parameters.deleteMany({ _id: { $in: removeIds } });
+        const results = await collection.deleteMany({ _id: { $in: removeIds } });
         logger.info(`Removed ${results.deletedCount} (${removeIds.length}) superseded parameter entries`);
         removeIds = [];
       }
 
       if (removeDeleted.length > 10 || (force && removeDeleted.length > 0)) {
-        const results = await this.db.bucket_parameters.bulkWrite(removeDeleted);
+        const results = await collection.bulkWrite(removeDeleted);
         logger.info(`Removed ${results.deletedCount} (${removeDeleted.length}) deleted parameter entries`);
         removeDeleted = [];
       }
@@ -100,6 +118,6 @@ export class MongoParameterCompactor {
     }
 
     await flush(true);
-    logger.info('Parameter compaction completed');
+    logger.info(`Parameter compaction completed for ${collection.collectionName}`);
   }
 }

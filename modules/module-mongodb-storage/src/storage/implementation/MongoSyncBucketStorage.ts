@@ -360,6 +360,16 @@ export class MongoSyncBucketStorage
     checkpoint: MongoReplicationCheckpoint,
     lookups: ScopedParameterLookup[]
   ): Promise<SqliteJsonRow[]> {
+    if (this.db.storageConfig.incrementalReprocessing) {
+      return this.getParameterSetsV3(checkpoint, lookups);
+    }
+    return this.getParameterSetsV1(checkpoint, lookups);
+  }
+
+  private async getParameterSetsV1(
+    checkpoint: MongoReplicationCheckpoint,
+    lookups: ScopedParameterLookup[]
+  ): Promise<SqliteJsonRow[]> {
     return this.db.client.withSession({ snapshot: true }, async (session) => {
       // Set the session's snapshot time to the checkpoint's snapshot time.
       // An alternative would be to create the session when the checkpoint is created, but managing
@@ -380,7 +390,7 @@ export class MongoSyncBucketStorage
       // but could not do the same using $group.
       // For now, just rely on compacting to remove extraneous data.
       // For a description of the data format, see the `/docs/parameters-lookups.md` file.
-      const rows = await this.db.bucket_parameters
+      const rows = await this.db.v1_bucket_parameters
         .aggregate(
           [
             {
@@ -418,6 +428,65 @@ export class MongoSyncBucketStorage
       const groupedParameters = rows.map((row) => {
         return row.bucket_parameters;
       });
+      return groupedParameters.flat();
+    });
+  }
+
+  private async getParameterSetsV3(
+    checkpoint: MongoReplicationCheckpoint,
+    lookups: ScopedParameterLookup[]
+  ): Promise<SqliteJsonRow[]> {
+    return this.db.client.withSession({ snapshot: true }, async (session) => {
+      setSessionSnapshotTime(session, checkpoint.snapshotTime);
+
+      const lookupsByIndex = new Map<string, bson.Binary[]>();
+      for (const lookup of lookups) {
+        const indexId = this.sync_rules.mapping.parameterLookupId(lookup.source);
+        const existing = lookupsByIndex.get(indexId) ?? [];
+        existing.push(storage.serializeLookup(lookup));
+        lookupsByIndex.set(indexId, existing);
+      }
+
+      const groupedParameters: SqliteJsonRow[][] = [];
+      for (const [indexId, lookupFilter] of lookupsByIndex.entries()) {
+        const rows = await this.db
+          .bucket_parameters_v3(this.group_id, indexId)
+          .aggregate(
+            [
+              {
+                $match: {
+                  lookup: { $in: lookupFilter },
+                  _id: { $lte: checkpoint.checkpoint }
+                }
+              },
+              {
+                $sort: {
+                  _id: -1
+                }
+              },
+              {
+                $group: {
+                  _id: { key: '$key', lookup: '$lookup' },
+                  bucket_parameters: {
+                    $first: '$bucket_parameters'
+                  }
+                }
+              }
+            ],
+            {
+              session,
+              readConcern: 'snapshot',
+              maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+            }
+          )
+          .toArray()
+          .catch((e) => {
+            throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
+          });
+
+        groupedParameters.push(...rows.map((row) => row.bucket_parameters));
+      }
+
       return groupedParameters.flat();
     });
   }
@@ -842,12 +911,18 @@ export class MongoSyncBucketStorage
         { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
       );
     }
-    await this.db.bucket_parameters.deleteMany(
-      {
-        'key.g': this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+    if (this.db.storageConfig.incrementalReprocessing) {
+      for (const collection of await this.db.listBucketParameterCollectionsV3(this.group_id)) {
+        await collection.drop();
+      }
+    } else {
+      await this.db.v1_bucket_parameters.deleteMany(
+        {
+          'key.g': this.group_id
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      );
+    }
 
     await this.db.common_current_data.deleteMany(
       {
@@ -1170,8 +1245,17 @@ export class MongoSyncBucketStorage
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    if (this.db.storageConfig.incrementalReprocessing) {
+      return this.getParameterBucketChangesV3(options);
+    }
+    return this.getParameterBucketChangesV1(options);
+  }
+
+  private async getParameterBucketChangesV1(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     const limit = 1000;
-    const parameterUpdates = await this.db.bucket_parameters
+    const parameterUpdates = await this.db.v1_bucket_parameters
       .find(
         {
           _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
@@ -1189,6 +1273,46 @@ export class MongoSyncBucketStorage
         }
       )
       .toArray();
+    const invalidateParameterUpdates = parameterUpdates.length > limit;
+
+    return {
+      invalidateParameterBuckets: invalidateParameterUpdates,
+      updatedParameterLookups: invalidateParameterUpdates
+        ? new Set<string>()
+        : new Set<string>(parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookup(p.lookup))))
+    };
+  }
+
+  private async getParameterBucketChangesV3(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    const limit = 1000;
+    const parameterUpdates: { lookup: bson.Binary }[] = [];
+
+    for (const collection of await this.db.listBucketParameterCollectionsV3(this.group_id)) {
+      if (parameterUpdates.length > limit) {
+        break;
+      }
+
+      const remaining = limit + 1 - parameterUpdates.length;
+      const updates = await collection
+        .find(
+          {
+            _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint }
+          },
+          {
+            projection: {
+              lookup: 1
+            },
+            limit: remaining,
+            batchSize: remaining + 1,
+            singleBatch: true
+          }
+        )
+        .toArray();
+      parameterUpdates.push(...updates);
+    }
+
     const invalidateParameterUpdates = parameterUpdates.length > limit;
 
     return {

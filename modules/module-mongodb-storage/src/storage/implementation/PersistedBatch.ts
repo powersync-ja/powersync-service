@@ -9,10 +9,10 @@ import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import {
   BucketStateDocument,
-  CommonBucketParameterDocument,
   CommonCurrentBucket,
   CommonCurrentLookup,
   SourceKey,
+  TaggedBucketParameterDocument,
   TaggedBucketDataDocument
 } from './models.js';
 import { BucketDefinitionId } from './BucketDefinitionMapping.js';
@@ -75,7 +75,7 @@ export interface PersistedBatchOptions {
 export abstract class PersistedBatch {
   logger: Logger;
   bucketData: TaggedBucketDataDocument[] = [];
-  bucketParameters: mongo.AnyBulkWriteOperation<CommonBucketParameterDocument>[] = [];
+  bucketParameters: TaggedBucketParameterDocument[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
 
   /**
@@ -113,6 +113,8 @@ export abstract class PersistedBatch {
 
   protected abstract flushBucketData(session: mongo.ClientSession): Promise<void>;
 
+  protected abstract flushBucketParameters(session: mongo.ClientSession): Promise<void>;
+
   protected abstract flushCurrentData(session: mongo.ClientSession): Promise<void>;
 
   protected abstract resetCurrentData(): void;
@@ -134,10 +136,6 @@ export abstract class PersistedBatch {
         incrementBytes: bytes
       });
     }
-  }
-
-  protected flushBucketParameters() {
-    return this.bucketParameters.length > 0;
   }
 
   protected addBucketDataPut(options: {
@@ -210,12 +208,9 @@ export abstract class PersistedBatch {
       flushedSomething = true;
       await this.flushBucketData(session);
     }
-    if (this.flushBucketParameters()) {
+    if (this.bucketParameters.length > 0) {
       flushedSomething = true;
-      await db.bucket_parameters.bulkWrite(this.bucketParameters, {
-        session,
-        ordered: false
-      });
+      await this.flushBucketParameters(session);
     }
     if (this.currentDataCount > 0) {
       flushedSomething = true;

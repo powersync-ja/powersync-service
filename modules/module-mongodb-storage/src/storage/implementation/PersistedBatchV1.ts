@@ -16,7 +16,9 @@ import {
   CurrentBucket,
   CurrentDataDocument,
   LEGACY_BUCKET_DATA_DEFINITION_ID,
+  LEGACY_BUCKET_PARAMETER_INDEX_ID,
   SourceKey,
+  taggedBucketParameterDocumentToV1,
   taggedBucketDataDocumentToV1,
   isCurrentBucketV3,
   isRecordedLookupV3
@@ -119,9 +121,8 @@ export class PersistedBatchV1 extends PersistedBatch {
         bucket_parameters: result.bucketParameters
       };
       this.bucketParameters.push({
-        insertOne: {
-          document: values
-        }
+        ...values,
+        index: LEGACY_BUCKET_PARAMETER_INDEX_ID
       });
 
       this.currentSize += 200;
@@ -141,9 +142,8 @@ export class PersistedBatchV1 extends PersistedBatch {
         bucket_parameters: []
       };
       this.bucketParameters.push({
-        insertOne: {
-          document: values
-        }
+        ...values,
+        index: LEGACY_BUCKET_PARAMETER_INDEX_ID
       });
 
       this.currentSize += 200;
@@ -203,6 +203,20 @@ export class PersistedBatchV1 extends PersistedBatch {
       this.bucketData.map((document) => ({
         insertOne: {
           document: taggedBucketDataDocumentToV1(this.group_id, document)
+        }
+      })),
+      {
+        session,
+        ordered: false
+      }
+    );
+  }
+
+  protected async flushBucketParameters(session: mongo.ClientSession) {
+    await this.db.v1_bucket_parameters.bulkWrite(
+      this.bucketParameters.map((document) => ({
+        insertOne: {
+          document: taggedBucketParameterDocumentToV1(document)
         }
       })),
       {

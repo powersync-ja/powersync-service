@@ -19,6 +19,7 @@ import {
   isRecordedLookupV3,
   RecordedLookupV3,
   SourceKey,
+  taggedBucketParameterDocumentToV3,
   taggedBucketDataDocumentToV3
 } from './models.js';
 
@@ -112,7 +113,6 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.debugLastOpId = op_id;
       const values: BucketParameterDocumentV3 = {
         _id: op_id,
-        index: sourceDefinitionId,
         key: {
           g: this.group_id,
           t: mongoTableId(sourceTable.id),
@@ -122,9 +122,8 @@ export class PersistedBatchV3 extends PersistedBatch {
         bucket_parameters: result.bucketParameters
       };
       this.bucketParameters.push({
-        insertOne: {
-          document: values
-        }
+        ...values,
+        index: sourceDefinitionId
       });
 
       this.currentSize += 200;
@@ -135,7 +134,6 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.debugLastOpId = op_id;
       const values: BucketParameterDocumentV3 = {
         _id: op_id,
-        index: lookup.i,
         key: {
           g: this.group_id,
           t: mongoTableId(sourceTable.id),
@@ -145,9 +143,8 @@ export class PersistedBatchV3 extends PersistedBatch {
         bucket_parameters: []
       };
       this.bucketParameters.push({
-        insertOne: {
-          document: values
-        }
+        ...values,
+        index: lookup.i
       });
 
       this.currentSize += 200;
@@ -229,6 +226,30 @@ export class PersistedBatchV3 extends PersistedBatch {
         documents.map((document) => ({
           insertOne: {
             document: taggedBucketDataDocumentToV3(document)
+          }
+        })),
+        {
+          session,
+          ordered: false
+        }
+      );
+    }
+  }
+
+  protected async flushBucketParameters(session: mongo.ClientSession) {
+    const operationsByIndex = new Map<string, typeof this.bucketParameters>();
+    for (const document of this.bucketParameters) {
+      const existing = operationsByIndex.get(document.index) ?? [];
+      existing.push(document);
+      operationsByIndex.set(document.index, existing);
+    }
+
+    for (const [indexId, documents] of operationsByIndex.entries()) {
+      await this.db.initializeBucketParameterCollectionV3(this.group_id, indexId);
+      await this.db.bucket_parameters_v3(this.group_id, indexId).bulkWrite(
+        documents.map((document) => ({
+          insertOne: {
+            document: taggedBucketParameterDocumentToV3(document)
           }
         })),
         {

@@ -11,7 +11,6 @@ import {
   BucketStateDocument,
   CheckpointEventDocument,
   ClientConnectionDocument,
-  CommonBucketParameterDocument,
   CommonCurrentDataDocument,
   CommonSourceTableDocument,
   CurrentDataDocument,
@@ -26,7 +25,7 @@ import {
   WriteCheckpointDocument
 } from './models.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDefinitionId, BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { BucketDefinitionId, BucketDefinitionMapping, ParameterIndexId } from './BucketDefinitionMapping.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -40,7 +39,6 @@ export class PowerSyncMongo {
   readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
   readonly bucket_data: mongo.Collection<BucketDataDocumentV1>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
-  readonly v3_bucket_parameters: mongo.Collection<BucketParameterDocumentV3>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
   readonly sync_rules: mongo.Collection<SyncRuleDocument>;
   readonly source_tables: mongo.Collection<SourceTableDocument>;
@@ -68,7 +66,6 @@ export class PowerSyncMongo {
     this.v3_current_data = db.collection('v3_current_data');
     this.bucket_data = db.collection('bucket_data');
     this.bucket_parameters = db.collection('bucket_parameters');
-    this.v3_bucket_parameters = db.collection('v3_bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
     this.sync_rules = db.collection('sync_rules');
     this.source_tables = db.collection('source_tables');
@@ -103,6 +100,35 @@ export class PowerSyncMongo {
       .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
   }
 
+  bucketParameterCollectionNameV3(groupId: number, indexId: ParameterIndexId) {
+    return `bucket_parameters_${groupId}_${indexId}`;
+  }
+
+  bucketParametersV3(groupId: number, indexId: ParameterIndexId): mongo.Collection<BucketParameterDocumentV3> {
+    return this.db.collection(this.bucketParameterCollectionNameV3(groupId, indexId));
+  }
+
+  async listBucketParameterCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketParameterDocumentV3>[]> {
+    const prefix = groupId == null ? 'bucket_parameters_' : `bucket_parameters_${groupId}_`;
+    const collections = await this.db.listCollections({}, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<BucketParameterDocumentV3>(collection.name));
+  }
+
+  async initializeBucketParameterCollectionV3(groupId: number, indexId: ParameterIndexId) {
+    await this.bucketParametersV3(groupId, indexId).createIndex(
+      {
+        lookup: 1,
+        _id: 1
+      },
+      {
+        name: 'lookup_op_id'
+      }
+    );
+  }
+
   /**
    * Clear all collections.
    */
@@ -114,7 +140,9 @@ export class PowerSyncMongo {
       await collection.drop();
     }
     await this.bucket_parameters.deleteMany({});
-    await this.v3_bucket_parameters.deleteMany({});
+    for (const collection of await this.listBucketParameterCollectionsV3()) {
+      await collection.drop();
+    }
     await this.op_id_sequence.deleteMany({});
     await this.sync_rules.deleteMany({});
     await this.source_tables.deleteMany({});
@@ -229,16 +257,6 @@ export class PowerSyncMongo {
           name: 'pending_delete'
         }
       );
-      await this.v3_bucket_parameters.createIndex(
-        {
-          'key.g': 1,
-          lookup: 1,
-          _id: 1
-        },
-        {
-          name: 'lookup_group_id'
-        }
-      );
       await this.v3_source_tables.createIndex(
         {
           group_id: 1,
@@ -334,12 +352,40 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.listBucketDataCollectionsV3(groupId);
   }
 
-  get bucket_parameters() {
+  get v1_bucket_parameters() {
     if (this.storageConfig.incrementalReprocessing) {
-      return this.#upstream.v3_bucket_parameters as unknown as mongo.Collection<CommonBucketParameterDocument>;
-    } else {
-      return this.#upstream.bucket_parameters as unknown as mongo.Collection<CommonBucketParameterDocument>;
+      throw new ServiceAssertionError(
+        'bucket_parameters collection should not be used when incrementalReprocessing is enabled'
+      );
     }
+    return this.#upstream.bucket_parameters;
+  }
+
+  bucket_parameters_v3(groupId: number, indexId: ParameterIndexId) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.bucketParametersV3(groupId, indexId);
+  }
+
+  listBucketParameterCollectionsV3(groupId?: number) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.listBucketParameterCollectionsV3(groupId);
+  }
+
+  initializeBucketParameterCollectionV3(groupId: number, indexId: ParameterIndexId) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.initializeBucketParameterCollectionV3(groupId, indexId);
   }
 
   get op_id_sequence() {
