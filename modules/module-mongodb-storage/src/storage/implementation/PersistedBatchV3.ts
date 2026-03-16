@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import {
   PersistedBatch,
   SaveBucketDataOptions,

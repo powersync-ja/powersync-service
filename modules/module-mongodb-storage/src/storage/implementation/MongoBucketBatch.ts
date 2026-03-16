@@ -45,11 +45,7 @@ import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js'
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-
-/**
- * 15MB
- */
-export const MAX_ROW_SIZE = 15 * 1024 * 1024;
+import { EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 
 // Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
 // While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex
@@ -57,8 +53,6 @@ export const MAX_ROW_SIZE = 15 * 1024 * 1024;
 //
 // In the future, we can investigate allowing multiple replication streams operating independently.
 const replicationMutex = new utils.Mutex();
-
-export const EMPTY_DATA = new bson.Binary(bson.serialize({}));
 
 export interface MongoBucketBatchOptions {
   db: VersionedPowerSyncMongo;
@@ -1209,9 +1203,4 @@ export abstract class MongoBucketBatch
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
     );
   }
-}
-
-export function currentBucketKey(b: CommonCurrentBucket) {
-  const prefix = 'def' in b ? `${b.def}:` : '';
-  return `${prefix}${b.bucket}/${b.table}/${b.id}`;
 }
