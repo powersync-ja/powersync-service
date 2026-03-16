@@ -24,7 +24,9 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     private readonly storageConfig: StorageConfig
   ) {
     if (this.mapping != null && this.storageConfig.incrementalReprocessing) {
-      this.hydrationState = new MongoHydrationState(this.mapping);
+      // FIXME: Recheck bucket name generation again when we get to merging sync config versions.
+      // this.hydrationState = new MongoHydrationState(this.mapping);
+      this.hydrationState = versionedHydrationState(this.id);
     } else if (
       !this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
       !this.storageConfig.versionedBuckets
