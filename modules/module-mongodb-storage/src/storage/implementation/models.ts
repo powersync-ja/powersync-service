@@ -329,5 +329,5 @@ export function isCurrentBucketV3(bucket: CommonCurrentBucket): bucket is Curren
 }
 
 export function isRecordedLookupV3(lookup: CommonCurrentLookup): lookup is RecordedLookupV3 {
-  return !(lookup instanceof bson.Binary);
+  return typeof lookup === 'object' && lookup != null && 'd' in lookup && 'l' in lookup;
 }
