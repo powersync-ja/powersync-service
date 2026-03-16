@@ -96,7 +96,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       if (!isRecordedLookupV3(lookup)) {
         throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
       }
-      remaining_lookups.set(`${lookup.d}.${lookup.l.toString('base64')}`, lookup);
+      remaining_lookups.set(`${lookup.i}.${lookup.l.toString('base64')}`, lookup);
     }
 
     for (let result of evaluated) {
@@ -108,7 +108,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.debugLastOpId = op_id;
       const values: BucketParameterDocumentV3 = {
         _id: op_id,
-        def: sourceDefinitionId,
+        index: sourceDefinitionId,
         key: {
           g: this.group_id,
           t: mongoTableId(sourceTable.id),
@@ -131,7 +131,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.debugLastOpId = op_id;
       const values: BucketParameterDocumentV3 = {
         _id: op_id,
-        def: lookup.d,
+        index: lookup.i,
         key: {
           g: this.group_id,
           t: mongoTableId(sourceTable.id),

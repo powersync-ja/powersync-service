@@ -3,6 +3,7 @@ import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -39,11 +40,11 @@ export interface CurrentDataDocument {
 }
 
 export interface CurrentBucketV3 extends CurrentBucket {
-  def: number;
+  def: BucketDefinitionId;
 }
 
 export interface RecordedLookupV3 {
-  d: number;
+  i: ParameterIndexId;
   l: bson.Binary;
 }
 
@@ -74,7 +75,7 @@ export interface BucketParameterDocument {
 }
 
 export interface BucketParameterDocumentV3 extends BucketParameterDocument {
-  def: number;
+  index: ParameterIndexId;
 }
 
 export interface BucketDataDocument {
@@ -233,8 +234,8 @@ export interface SyncRuleDocument {
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
   rule_mapping?: {
-    definitions: Record<string, number>;
-    parameter_lookups: Record<string, number>;
+    definitions: Record<string, string>;
+    parameter_indexes: Record<string, string>;
   };
 
   lock?: {

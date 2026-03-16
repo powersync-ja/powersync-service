@@ -2,9 +2,12 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { SyncRuleDocument } from './models.js';
 
+export type BucketDefinitionId = string;
+export type ParameterIndexId = string;
+
 export class BucketDefinitionMapping {
   static fromSyncRules(doc: Pick<SyncRuleDocument, 'rule_mapping'>): BucketDefinitionMapping {
-    return new BucketDefinitionMapping(doc.rule_mapping?.definitions ?? {}, doc.rule_mapping?.parameter_lookups ?? {});
+    return new BucketDefinitionMapping(doc.rule_mapping?.definitions ?? {}, doc.rule_mapping?.parameter_indexes ?? {});
   }
 
   static fromParsedSyncRules(syncRules: SyncConfigWithErrors): BucketDefinitionMapping {
@@ -13,25 +16,25 @@ export class BucketDefinitionMapping {
       .map((source) => `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`)
       .sort();
 
-    const definitions: Record<string, number> = {};
-    const parameterLookups: Record<string, number> = {};
+    const definitions: Record<string, BucketDefinitionId> = {};
+    const parameterLookups: Record<string, ParameterIndexId> = {};
 
     for (const [index, uniqueName] of definitionNames.entries()) {
-      definitions[uniqueName] = index + 1;
+      definitions[uniqueName] = (index + 1).toString(16);
     }
     for (const [index, key] of parameterKeys.entries()) {
-      parameterLookups[key] = index + 1;
+      parameterLookups[key] = (index + 1).toString(16);
     }
 
     return new BucketDefinitionMapping(definitions, parameterLookups);
   }
 
   constructor(
-    private definitions: Record<string, number> = {},
-    private parameterLookupMapping: Record<string, number> = {}
+    private definitions: Record<string, BucketDefinitionId> = {},
+    private parameterLookupMapping: Record<string, ParameterIndexId> = {}
   ) {}
 
-  bucketSourceId(source: BucketDataSource): number {
+  bucketSourceId(source: BucketDataSource): BucketDefinitionId {
     const defId = this.definitions[source.uniqueName];
     if (defId == null) {
       throw new ServiceAssertionError(`No mapping found for bucket source ${source.uniqueName}`);
@@ -39,7 +42,7 @@ export class BucketDefinitionMapping {
     return defId;
   }
 
-  parameterLookupId(source: ParameterIndexLookupCreator): number {
+  parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
     const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
@@ -51,7 +54,7 @@ export class BucketDefinitionMapping {
   serialize(): NonNullable<SyncRuleDocument['rule_mapping']> {
     return {
       definitions: { ...this.definitions },
-      parameter_lookups: { ...this.parameterLookupMapping }
+      parameter_indexes: { ...this.parameterLookupMapping }
     };
   }
 }

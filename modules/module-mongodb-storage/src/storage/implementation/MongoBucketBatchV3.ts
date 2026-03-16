@@ -43,7 +43,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   protected mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CommonCurrentLookup[] {
     return paramEvaluated.map((entry) => {
       const def = this.mapping.parameterLookupId(entry.lookup.source);
-      return { d: def, l: storage.serializeLookup(entry.lookup) } satisfies RecordedLookupV3;
+      return { i: def, l: storage.serializeLookup(entry.lookup) } satisfies RecordedLookupV3;
     });
   }
 
