@@ -1,5 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+import {
+  EvaluatedParameters,
+  EvaluatedRow,
+  HydratedSyncRules,
+  SqlEventDescriptor,
+  SqliteRow,
+  SqliteValue
+} from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -30,8 +37,6 @@ import {
   CommonCurrentBucket,
   CommonCurrentLookup,
   CommonCurrentDataDocument,
-  CurrentBucketV3,
-  RecordedLookupV3,
   SourceKey,
   SyncRuleDocument
 } from './models.js';
@@ -39,8 +44,6 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
-import { PersistedBatchV1 } from './PersistedBatchV1.js';
-import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 /**
@@ -77,23 +80,23 @@ export interface MongoBucketBatchOptions {
   logger?: Logger;
 }
 
-export class MongoBucketBatch
+export abstract class MongoBucketBatch
   extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
-  private logger: Logger;
+  protected logger: Logger;
 
   private readonly client: mongo.MongoClient;
   public readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
   private readonly sync_rules: HydratedSyncRules;
 
-  private readonly group_id: number;
+  protected readonly group_id: number;
 
   private readonly slot_name: string;
   private readonly storeCurrentData: boolean;
   private readonly skipExistingRows: boolean;
-  private readonly mapping: BucketDefinitionMapping;
+  protected readonly mapping: BucketDefinitionMapping;
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
@@ -161,16 +164,20 @@ export class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
-  private createPersistedBatch(writtenSize: number): PersistedBatch {
-    if (this.db.storageConfig.incrementalReprocessing) {
-      return new PersistedBatchV3(this.db, this.group_id, this.mapping, writtenSize, {
-        logger: this.logger
-      });
-    }
-    return new PersistedBatchV1(this.db, this.group_id, this.mapping, writtenSize, {
-      logger: this.logger
-    });
-  }
+  protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
+
+  protected abstract mapEvaluatedBuckets(evaluated: EvaluatedRow[]): CommonCurrentBucket[];
+
+  protected abstract mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CommonCurrentLookup[];
+
+  protected abstract createCurrentDataDocument(
+    id: SourceKey,
+    data: bson.Binary,
+    buckets: CommonCurrentBucket[],
+    lookups: CommonCurrentLookup[]
+  ): CommonCurrentDataDocument;
+
+  protected abstract cleanupCurrentData(lastCheckpoint: bigint): Promise<void>;
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
@@ -521,25 +528,7 @@ export class MongoBucketBatch
           table: sourceTable,
           before_buckets: existing_buckets
         });
-        if (this.db.storageConfig.incrementalReprocessing) {
-          new_buckets = evaluated.map((e) => {
-            const def = this.mapping.bucketSourceId(e.source);
-            return {
-              def,
-              bucket: e.bucket,
-              table: e.table,
-              id: e.id
-            } satisfies CurrentBucketV3;
-          });
-        } else {
-          new_buckets = evaluated.map((e) => {
-            return {
-              bucket: e.bucket,
-              table: e.table,
-              id: e.id
-            };
-          });
-        }
+        new_buckets = this.mapEvaluatedBuckets(evaluated);
       }
 
       if (sourceTable.syncParameters) {
@@ -572,16 +561,7 @@ export class MongoBucketBatch
           evaluated: paramEvaluated,
           existing_lookups
         });
-        if (this.db.storageConfig.incrementalReprocessing) {
-          new_lookups = paramEvaluated.map((p) => {
-            const def = this.mapping.parameterLookupId(p.lookup.source);
-            return { d: def, l: storage.serializeLookup(p.lookup) } satisfies RecordedLookupV3;
-          });
-        } else {
-          new_lookups = paramEvaluated.map((p) => {
-            return storage.serializeLookup(p.lookup);
-          });
-        }
+        new_lookups = this.mapParameterLookups(paramEvaluated);
       }
     }
 
@@ -597,45 +577,7 @@ export class MongoBucketBatch
         buckets: new_buckets,
         lookups: new_lookups
       });
-      if (this.db.storageConfig.incrementalReprocessing) {
-        const buckets = new_buckets.map((bucket) => {
-          if (!('def' in bucket)) {
-            throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
-          }
-          return bucket;
-        });
-        const lookups = new_lookups.map((lookup) => {
-          if (lookup instanceof bson.Binary) {
-            throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
-          }
-          return lookup;
-        });
-        result = {
-          _id: after_key,
-          data: afterData!,
-          buckets,
-          lookups
-        };
-      } else {
-        const buckets = new_buckets.map((bucket) => {
-          if ('def' in bucket) {
-            throw new ReplicationAssertionError('Unexpected v3 bucket when incrementalReprocessing is disabled');
-          }
-          return bucket;
-        });
-        const lookups = new_lookups.map((lookup) => {
-          if (!(lookup instanceof bson.Binary)) {
-            throw new ReplicationAssertionError('Unexpected v3 lookup when incrementalReprocessing is disabled');
-          }
-          return lookup;
-        });
-        result = {
-          _id: after_key,
-          data: afterData!,
-          buckets,
-          lookups
-        };
-      }
+      result = this.createCurrentDataDocument(after_key, afterData!, new_buckets, new_lookups);
     }
 
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
@@ -924,23 +866,11 @@ export class MongoBucketBatch
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
-      if (this.db.storageConfig.incrementalReprocessing && newLastCheckpoint != null) {
+      if (newLastCheckpoint != null) {
         await this.cleanupCurrentData(newLastCheckpoint);
       }
     }
     return { checkpointBlocked, checkpointCreated };
-  }
-
-  private async cleanupCurrentData(lastCheckpoint: bigint) {
-    const result = await this.db.v3_current_data.deleteMany({
-      '_id.g': this.group_id,
-      pending_delete: { $exists: true, $lte: lastCheckpoint }
-    });
-    if (result.deletedCount > 0) {
-      this.logger.info(
-        `Cleaned up ${result.deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`
-      );
-    }
   }
 
   /**

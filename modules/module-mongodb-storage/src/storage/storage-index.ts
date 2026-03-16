@@ -2,6 +2,8 @@ export * from './implementation/db.js';
 export * from './implementation/BucketDefinitionMapping.js';
 export * from './implementation/models.js';
 export * from './implementation/MongoBucketBatch.js';
+export * from './implementation/MongoBucketBatchV1.js';
+export * from './implementation/MongoBucketBatchV3.js';
 export * from './implementation/MongoIdSequence.js';
 export * from './implementation/MongoPersistedSyncRules.js';
 export * from './implementation/MongoPersistedSyncRulesContent.js';

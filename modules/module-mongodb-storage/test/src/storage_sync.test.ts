@@ -149,25 +149,28 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
-    await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      await batch.save({
-        sourceTable: TEST_TABLE,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'shape-check',
-          description: 'shape'
-        },
-        afterReplicaId: test_utils.rid('shape-check')
-      });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'shape-check',
+        description: 'shape'
+      },
+      afterReplicaId: test_utils.rid('shape-check')
     });
+    await writer.flush();
 
     const mongoFactory = factory as MongoBucketStorage;
-    const currentData = (await mongoFactory.db.v3_current_data.findOne({})) as CurrentDataDocumentV3 | null;
-    expect(currentData?.buckets?.[0]?.def).toBeGreaterThan(0);
+    const currentData = await mongoFactory.db.v3_current_data.findOne({});
+    const firstBucket: CurrentDataDocumentV3['buckets'][number] | undefined = currentData?.buckets[0];
+    expect(firstBucket?.def).toBeGreaterThan(0);
 
-    const syncRule = (await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id })) as SyncRuleDocument | null;
-    expect(Object.keys(syncRule?.rule_mapping?.definitions ?? {})).not.toHaveLength(0);
+    const syncRule = await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id });
+    const ruleMapping: SyncRuleDocument['rule_mapping'] | undefined = syncRule?.rule_mapping;
+    expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);
   });
 }
 

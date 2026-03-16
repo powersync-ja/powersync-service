@@ -40,7 +40,8 @@ import {
   SourceKey,
   StorageConfig
 } from './models.js';
-import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
+import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
@@ -176,7 +177,7 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    const writer = new MongoBucketBatch({
+    const batchOptions = {
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
@@ -189,7 +190,10 @@ export class MongoSyncBucketStorage
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable
-    });
+    };
+    const writer = this.db.storageConfig.incrementalReprocessing
+      ? new MongoBucketBatchV3(batchOptions)
+      : new MongoBucketBatchV1(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
     return writer;
   }
