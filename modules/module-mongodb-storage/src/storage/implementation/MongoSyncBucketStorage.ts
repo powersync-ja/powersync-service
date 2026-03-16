@@ -33,12 +33,15 @@ import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } f
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import {
-  BucketDataDocument,
-  BucketDataKey,
+  BucketDataDocumentV1,
+  BucketDataKeyV1,
+  BucketDataDocumentV3,
   BucketStateDocument,
   CommonSourceTableDocument,
+  LEGACY_BUCKET_DATA_DEFINITION_ID,
   SourceKey,
-  StorageConfig
+  StorageConfig,
+  bucketDataDocumentToTagged
 } from './models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
@@ -86,7 +89,8 @@ export class MongoSyncBucketStorage
     this.db = factory.db.versioned(sync_rules.getStorageConfig());
     this.checksums = new MongoChecksums(this.db, this.group_id, {
       ...options.checksumOptions,
-      storageConfig: options?.storageConfig
+      storageConfig: options?.storageConfig,
+      mapping: sync_rules.mapping
     });
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
@@ -407,10 +411,15 @@ export class MongoSyncBucketStorage
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
+    if (this.db.storageConfig.incrementalReprocessing) {
+      yield* this.getBucketDataBatchV3(checkpoint, dataBuckets, options);
+      return;
+    }
+
     if (dataBuckets.length == 0) {
       return;
     }
-    let filters: mongo.Filter<BucketDataDocument>[] = [];
+    let filters: mongo.Filter<BucketDataDocumentV1>[] = [];
     const bucketMap = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     if (checkpoint == null) {
@@ -486,7 +495,10 @@ export class MongoSyncBucketStorage
 
     // Ordered by _id, meaning buckets are grouped together
     for (let rawData of data) {
-      const row = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocument;
+      const row = bucketDataDocumentToTagged(
+        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV1,
+        LEGACY_BUCKET_DATA_DEFINITION_ID
+      );
       const bucket = row._id.b;
 
       if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
@@ -549,6 +561,137 @@ export class MongoSyncBucketStorage
       yieldChunk.has_more = batchHasMore;
       yield { chunkData: yieldChunk, targetOp: targetOp };
       targetOp = null;
+    }
+  }
+
+  private async *getBucketDataBatchV3(
+    checkpoint: utils.InternalOpId,
+    dataBuckets: storage.BucketDataRequest[],
+    options?: storage.BucketDataBatchOptions
+  ): AsyncIterable<storage.SyncBucketDataChunk> {
+    if (dataBuckets.length == 0) {
+      return;
+    }
+
+    if (checkpoint == null) {
+      throw new ServiceAssertionError('checkpoint is null');
+    }
+
+    const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
+    const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
+    const end = checkpoint;
+    let remainingLimit = batchLimit;
+    let hasMoreAcrossGroups = false;
+
+    const requestsByDefinition = new Map<string, storage.BucketDataRequest[]>();
+    for (const request of dataBuckets) {
+      const definitionId = this.sync_rules.mapping.bucketSourceId(request.source);
+      const requests = requestsByDefinition.get(definitionId) ?? [];
+      requests.push(request);
+      requestsByDefinition.set(definitionId, requests);
+    }
+
+    for (const [definitionId, requests] of requestsByDefinition.entries()) {
+      if (remainingLimit <= 0) {
+        hasMoreAcrossGroups = true;
+        break;
+      }
+
+      const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
+      const filters: mongo.Filter<BucketDataDocumentV3>[] = requests.map(({ bucket, start }) => ({
+        _id: {
+          $gt: {
+            b: bucket,
+            o: start
+          },
+          $lte: {
+            b: bucket,
+            o: end as any
+          }
+        }
+      }));
+
+      const cursor = this.db.bucket_data_v3(this.group_id, definitionId).find(
+        {
+          $or: filters
+        },
+        {
+          session: undefined,
+          sort: { _id: 1 },
+          limit: remainingLimit,
+          batchSize: remainingLimit + 1,
+          raw: true,
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+        }
+      ) as unknown as mongo.FindCursor<Buffer>;
+
+      let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
+        throw lib_mongo.mapQueryError(e, 'while reading bucket data');
+      });
+      if (data.length == remainingLimit) {
+        batchHasMore = true;
+      }
+
+      remainingLimit -= data.length;
+      hasMoreAcrossGroups ||= batchHasMore;
+
+      let chunkSizeBytes = 0;
+      let currentChunk: utils.SyncBucketData | null = null;
+      let targetOp: InternalOpId | null = null;
+
+      for (let rawData of data) {
+        const row = bucketDataDocumentToTagged(
+          bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3,
+          definitionId
+        );
+        const bucket = row._id.b;
+
+        if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
+          let start: ProtocolOpId | undefined = undefined;
+          if (currentChunk != null) {
+            if (currentChunk.bucket == bucket) {
+              currentChunk.has_more = true;
+              start = currentChunk.next_after;
+            }
+
+            const yieldChunk = currentChunk;
+            currentChunk = null;
+            chunkSizeBytes = 0;
+            yield { chunkData: yieldChunk, targetOp: targetOp };
+            targetOp = null;
+          }
+
+          if (start == null) {
+            const startOpId = bucketMap.get(bucket);
+            if (startOpId == null) {
+              throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
+            }
+            start = internalToExternalOpId(startOpId);
+          }
+          currentChunk = {
+            bucket,
+            after: start,
+            has_more: false,
+            data: [],
+            next_after: start
+          };
+        }
+
+        const entry = mapOpEntry(row);
+        if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
+          targetOp = row.target_op;
+        }
+
+        currentChunk.data.push(entry);
+        currentChunk.next_after = entry.op_id;
+        chunkSizeBytes += rawData.byteLength;
+      }
+
+      if (currentChunk != null) {
+        const yieldChunk = currentChunk;
+        yieldChunk.has_more = batchHasMore || hasMoreAcrossGroups;
+        yield { chunkData: yieldChunk, targetOp: targetOp };
+      }
     }
   }
 
@@ -654,12 +797,18 @@ export class MongoSyncBucketStorage
       },
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
-    await this.db.bucket_data.deleteMany(
-      {
-        _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+    if (this.db.storageConfig.incrementalReprocessing) {
+      for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
+        await collection.deleteMany({}, { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS });
+      }
+    } else {
+      await this.db.bucket_data.deleteMany(
+        {
+          _id: idPrefixFilter<BucketDataKeyV1>({ g: this.group_id }, ['b', 'o'])
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      );
+    }
     await this.db.bucket_parameters.deleteMany(
       {
         'key.g': this.group_id

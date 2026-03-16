@@ -15,7 +15,9 @@ import {
   BucketParameterDocument,
   CurrentBucket,
   CurrentDataDocument,
+  LEGACY_BUCKET_DATA_DEFINITION_ID,
   SourceKey,
+  taggedBucketDataDocumentToV1,
   isCurrentBucketV3,
   isRecordedLookupV3
 } from './models.js';
@@ -58,6 +60,7 @@ export class PersistedBatchV1 extends PersistedBatch {
 
       this.addBucketDataPut({
         op_id,
+        definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
         bucket: evaluated.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
@@ -75,6 +78,7 @@ export class PersistedBatchV1 extends PersistedBatch {
 
       this.addBucketDataRemove({
         op_id,
+        definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
         bucket: bucket.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
@@ -192,6 +196,20 @@ export class PersistedBatchV1 extends PersistedBatch {
 
   protected get currentDataCount() {
     return this.currentData.length;
+  }
+
+  protected async flushBucketData(session: mongo.ClientSession) {
+    await this.db.v1_bucket_data.bulkWrite(
+      this.bucketData.map((document) => ({
+        insertOne: {
+          document: taggedBucketDataDocumentToV1(this.group_id, document)
+        }
+      })),
+      {
+        session,
+        ordered: false
+      }
+    );
   }
 
   protected async flushCurrentData(session: mongo.ClientSession) {

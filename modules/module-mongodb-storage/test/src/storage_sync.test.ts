@@ -129,9 +129,25 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     // Test that the checksum type is correct.
     // Specifically, test that it never persisted as double.
     const mongoFactory = factory as MongoBucketStorage;
-    const checksumTypes = await mongoFactory.db.bucket_data
-      .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
-      .toArray();
+    const checksumTypes =
+      storageVersion >= 3
+        ? (
+            await Promise.all(
+              (
+                await mongoFactory.db.db
+                  .listCollections({ name: new RegExp(`^bucket_data_${syncRules.id}_`) }, { nameOnly: true })
+                  .toArray()
+              ).map((collection: { name: string }) =>
+                mongoFactory.db.db
+                  .collection(collection.name)
+                  .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
+                  .toArray()
+              )
+            )
+          ).flat()
+        : await mongoFactory.db.bucket_data
+            .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
+            .toArray();
     expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
   });
 
@@ -166,7 +182,14 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const mongoFactory = factory as MongoBucketStorage;
     const currentData = await mongoFactory.db.v3_current_data.findOne({});
     const firstBucket: CurrentDataDocumentV3['buckets'][number] | undefined = currentData?.buckets[0];
-    expect(firstBucket?.def).toBeGreaterThan(0);
+    expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
+
+    const bucketCollections = await mongoFactory.db.db
+      .listCollections({ name: new RegExp(`^bucket_data_${syncRules.id}_`) }, { nameOnly: true })
+      .toArray();
+    expect(
+      bucketCollections.some((collection) => collection.name === `bucket_data_${syncRules.id}_${firstBucket?.def}`)
+    ).toBe(true);
 
     const syncRule = await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id });
     const ruleMapping: SyncRuleDocument['rule_mapping'] | undefined = syncRule?.rule_mapping;

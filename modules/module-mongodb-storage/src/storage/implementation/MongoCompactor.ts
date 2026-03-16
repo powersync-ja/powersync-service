@@ -10,7 +10,17 @@ import {
 } from '@powersync/service-core';
 
 import { VersionedPowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument } from './models.js';
+import { BucketDefinitionId } from './BucketDefinitionMapping.js';
+import {
+  BucketDataDocumentV1,
+  BucketDataDocumentV3,
+  BucketStateDocument,
+  LEGACY_BUCKET_DATA_DEFINITION_ID,
+  TaggedBucketDataDocument,
+  bucketDataDocumentToTagged,
+  taggedBucketDataDocumentToV1,
+  taggedBucketDataDocumentToV3
+} from './models.js';
 import { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 
@@ -53,6 +63,22 @@ interface CurrentBucketState {
   opBytes: number;
 }
 
+type CompactBucketDataDocument = Pick<
+  TaggedBucketDataDocument,
+  '_id' | 'def' | 'op' | 'table' | 'row_id' | 'source_table' | 'source_key' | 'checksum' | 'target_op'
+> & {
+  size: number | bigint;
+};
+
+type CompactClearBucketDataDocument = Pick<TaggedBucketDataDocument, '_id' | 'def' | 'op' | 'checksum' | 'target_op'>;
+type BucketDataCollectionDocument = BucketDataDocumentV1 | BucketDataDocumentV3;
+type BucketDataClearProjection = {
+  _id: BucketDataCollectionDocument['_id'];
+  op: CompactClearBucketDataDocument['op'];
+  checksum: bigint;
+  target_op?: bigint | null;
+};
+
 /**
  * Additional options, primarily for testing.
  */
@@ -69,8 +95,10 @@ const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
 const DEFAULT_MEMORY_LIMIT_MB = 64;
 
 export class MongoCompactor {
-  private updates: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
+  private updates: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
   private bucketStateUpdates: mongo.AnyBulkWriteOperation<BucketStateDocument>[] = [];
+  private activeBucketDataCollection: mongo.Collection<mongo.Document> | null = null;
+  private activeBucketDefinitionId: BucketDefinitionId = LEGACY_BUCKET_DATA_DEFINITION_ID;
 
   private idLimitBytes: number;
   private moveBatchLimit: number;
@@ -138,6 +166,12 @@ export class MongoCompactor {
 
   private async compactSingleBucket(bucket: string) {
     const idLimitBytes = this.idLimitBytes;
+    const bucketCollection = await this.getBucketDataCollection(bucket);
+    if (bucketCollection == null) {
+      return;
+    }
+    this.activeBucketDataCollection = bucketCollection.collection;
+    this.activeBucketDefinitionId = bucketCollection.definitionId;
 
     let currentState: CurrentBucketState = {
       bucket,
@@ -152,154 +186,156 @@ export class MongoCompactor {
     };
 
     // Constant lower bound
-    const lowerBound: BucketDataKey = {
-      g: this.group_id,
-      b: bucket,
-      o: new mongo.MinKey() as any
-    };
+    const lowerBound = this.bucketDataKey({
+      _id: { b: bucket, o: new mongo.MinKey() as any },
+      def: bucketCollection.definitionId
+    });
 
     // Upper bound is adjusted for each batch
-    let upperBound: BucketDataKey = {
-      g: this.group_id,
-      b: bucket,
-      o: new mongo.MaxKey() as any
-    };
+    let upperBound = this.bucketDataKey({
+      _id: { b: bucket, o: new mongo.MaxKey() as any },
+      def: bucketCollection.definitionId
+    });
 
-    while (!this.signal?.aborted) {
-      // Query one batch at a time, to avoid cursor timeouts
-      const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>(
-        [
-          {
-            $match: {
-              _id: {
-                $gte: lowerBound,
-                $lt: upperBound
-              }
-            }
-          },
-          { $sort: { _id: -1 } },
-          { $limit: this.moveBatchQueryLimit },
-          {
-            $project: {
-              _id: 1,
-              op: 1,
-              table: 1,
-              row_id: 1,
-              source_table: 1,
-              source_key: 1,
-              checksum: 1,
-              size: { $bsonSize: '$$ROOT' }
-            }
-          }
-        ],
-        {
-          // batchSize is 1 more than limit to auto-close the cursor.
-          // See https://github.com/mongodb/node-mongodb-native/pull/4580
-          batchSize: this.moveBatchQueryLimit + 1
-        }
-      );
-      // We don't limit to a single batch here, since that often causes MongoDB to scan through more than it returns.
-      // Instead, we load up to the limit.
-      const batch = await cursor.toArray();
-
-      if (batch.length == 0) {
-        // We've reached the end
-        break;
-      }
-
-      // Set upperBound for the next batch
-      upperBound = batch[batch.length - 1]._id;
-
-      for (let doc of batch) {
-        if (doc._id.o > this.maxOpId) {
-          continue;
-        }
-
-        currentState.checksum = addChecksums(currentState.checksum, Number(doc.checksum));
-        currentState.opCount += 1;
-
-        let isPersistentPut = doc.op == 'PUT';
-
-        currentState.opBytes += Number(doc.size);
-        if (doc.op == 'REMOVE' || doc.op == 'PUT') {
-          const key = `${doc.table}/${doc.row_id}/${cacheKey(doc.source_table!, doc.source_key!)}`;
-          const targetOp = currentState.seen.get(key);
-          if (targetOp) {
-            // Will convert to MOVE, so don't count as PUT
-            isPersistentPut = false;
-
-            this.updates.push({
-              updateOne: {
-                filter: {
-                  _id: doc._id
-                },
-                update: {
-                  $set: {
-                    op: 'MOVE',
-                    target_op: targetOp
-                  },
-                  $unset: {
-                    source_table: 1,
-                    source_key: 1,
-                    table: 1,
-                    row_id: 1,
-                    data: 1
-                  }
+    try {
+      while (!this.signal?.aborted) {
+        // Query one batch at a time, to avoid cursor timeouts
+        const cursor = bucketCollection.collection.aggregate<BucketDataCollectionDocument & { size: number | bigint }>(
+          [
+            {
+              $match: {
+                _id: {
+                  $gte: lowerBound,
+                  $lt: upperBound
                 }
               }
-            });
+            },
+            { $sort: { _id: -1 } },
+            { $limit: this.moveBatchQueryLimit },
+            {
+              $project: {
+                _id: 1,
+                op: 1,
+                table: 1,
+                row_id: 1,
+                source_table: 1,
+                source_key: 1,
+                checksum: 1,
+                size: { $bsonSize: '$$ROOT' }
+              }
+            }
+          ],
+          {
+            // batchSize is 1 more than limit to auto-close the cursor.
+            // See https://github.com/mongodb/node-mongodb-native/pull/4580
+            batchSize: this.moveBatchQueryLimit + 1
+          }
+        );
+        // We don't limit to a single batch here, since that often causes MongoDB to scan through more than it returns.
+        // Instead, we load up to the limit.
+        const rawBatch = await cursor.toArray();
+        const batch = rawBatch.map((document) => this.tagBucketDataDocument(document, bucketCollection.definitionId));
 
-            currentState.opBytes += 200 - Number(doc.size); // TODO: better estimate for this
-          } else {
-            if (currentState.trackingSize >= idLimitBytes) {
-              // Reached memory limit.
-              // Keep the highest seen values in this case.
+        if (batch.length == 0) {
+          // We've reached the end
+          break;
+        }
+
+        // Set upperBound for the next batch
+        upperBound = this.bucketDataKey(batch[batch.length - 1]);
+
+        for (let doc of batch) {
+          if (doc._id.o > this.maxOpId) {
+            continue;
+          }
+
+          currentState.checksum = addChecksums(currentState.checksum, Number(doc.checksum));
+          currentState.opCount += 1;
+
+          let isPersistentPut = doc.op == 'PUT';
+
+          currentState.opBytes += Number(doc.size);
+          if (doc.op == 'REMOVE' || doc.op == 'PUT') {
+            const key = `${doc.table}/${doc.row_id}/${cacheKey(doc.source_table!, doc.source_key!)}`;
+            const targetOp = currentState.seen.get(key);
+            if (targetOp) {
+              // Will convert to MOVE, so don't count as PUT
+              isPersistentPut = false;
+
+              this.updates.push({
+                updateOne: {
+                  filter: { _id: this.bucketDataKey(doc) },
+                  update: {
+                    $set: {
+                      op: 'MOVE',
+                      target_op: targetOp
+                    },
+                    $unset: {
+                      source_table: 1,
+                      source_key: 1,
+                      table: 1,
+                      row_id: 1,
+                      data: 1
+                    }
+                  }
+                }
+              });
+
+              currentState.opBytes += 200 - Number(doc.size); // TODO: better estimate for this
             } else {
-              // flatstr reduces the memory usage by flattening the string
-              currentState.seen.set(utils.flatstr(key), doc._id.o);
-              // length + 16 for the string
-              // 24 for the bigint
-              // 50 for map overhead
-              // 50 for additional overhead
-              currentState.trackingSize += key.length + 140;
+              if (currentState.trackingSize >= idLimitBytes) {
+                // Reached memory limit.
+                // Keep the highest seen values in this case.
+              } else {
+                // flatstr reduces the memory usage by flattening the string
+                currentState.seen.set(utils.flatstr(key), doc._id.o);
+                // length + 16 for the string
+                // 24 for the bigint
+                // 50 for map overhead
+                // 50 for additional overhead
+                currentState.trackingSize += key.length + 140;
+              }
             }
           }
-        }
 
-        if (isPersistentPut) {
-          currentState.lastNotPut = null;
-          currentState.opsSincePut = 0;
-        } else if (doc.op != 'CLEAR') {
-          if (currentState.lastNotPut == null) {
-            currentState.lastNotPut = doc._id.o;
+          if (isPersistentPut) {
+            currentState.lastNotPut = null;
+            currentState.opsSincePut = 0;
+          } else if (doc.op != 'CLEAR') {
+            if (currentState.lastNotPut == null) {
+              currentState.lastNotPut = doc._id.o;
+            }
+            currentState.opsSincePut += 1;
           }
-          currentState.opsSincePut += 1;
+
+          if (this.updates.length + this.bucketStateUpdates.length >= this.moveBatchLimit) {
+            await this.flush();
+          }
         }
 
-        if (this.updates.length + this.bucketStateUpdates.length >= this.moveBatchLimit) {
-          await this.flush();
-        }
+        logger.info(`Processed batch of length ${batch.length} current bucket: ${bucket}`);
       }
 
-      logger.info(`Processed batch of length ${batch.length} current bucket: ${bucket}`);
-    }
+      // Free memory before clearing bucket
+      currentState.seen.clear();
+      if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
+        logger.info(
+          `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
+        );
+        // Need flush() before clear()
+        await this.flush();
+        await this.clearBucket(currentState);
+      }
 
-    // Free memory before clearing bucket
-    currentState.seen.clear();
-    if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
-      logger.info(
-        `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
-      );
-      // Need flush() before clear()
+      // Do this _after_ clearBucket so that we have accurate counts.
+      this.updateBucketChecksums(currentState);
+
+      // Need another flush after updateBucketChecksums()
       await this.flush();
-      await this.clearBucket(currentState);
+    } finally {
+      this.activeBucketDataCollection = null;
+      this.activeBucketDefinitionId = LEGACY_BUCKET_DATA_DEFINITION_ID;
     }
-
-    // Do this _after_ clearBucket so that we have accurate counts.
-    this.updateBucketChecksums(currentState);
-
-    // Need another flush after updateBucketChecksums()
-    await this.flush();
   }
 
   /**
@@ -346,7 +382,10 @@ export class MongoCompactor {
   private async flush() {
     if (this.updates.length > 0) {
       logger.info(`Compacting ${this.updates.length} ops`);
-      await this.db.bucket_data.bulkWrite(this.updates, {
+      if (this.activeBucketDataCollection == null) {
+        throw new ServiceAssertionError('No bucket_data collection selected for compaction');
+      }
+      await this.activeBucketDataCollection.bulkWrite(this.updates, {
         // Order is not important.
         // Since checksums are not affected, these operations can happen in any order,
         // and it's fine if the operations are partially applied.
@@ -374,19 +413,18 @@ export class MongoCompactor {
   private async clearBucket(currentState: CurrentBucketState) {
     const bucket = currentState.bucket;
     const clearOp = currentState.lastNotPut!;
+    const bucketCollection = this.activeBucketDataCollection;
+    if (bucketCollection == null) {
+      throw new ServiceAssertionError('No bucket_data collection selected for compaction');
+    }
 
     const opFilter = {
       _id: {
-        $gte: {
-          g: this.group_id,
-          b: bucket,
-          o: new mongo.MinKey() as any
-        },
-        $lte: {
-          g: this.group_id,
-          b: bucket,
-          o: clearOp
-        }
+        $gte: this.bucketDataKey({
+          _id: { b: bucket, o: new mongo.MinKey() as any },
+          def: this.activeBucketDefinitionId
+        }),
+        $lte: this.bucketDataKey({ _id: { b: bucket, o: clearOp }, def: this.activeBucketDefinitionId })
       }
     };
 
@@ -400,7 +438,7 @@ export class MongoCompactor {
         // We need a transaction per batch to make sure checksums stay consistent.
         await session.withTransaction(
           async () => {
-            const query = this.db.bucket_data.find(opFilter, {
+            const query = bucketCollection.find(opFilter as any, {
               session,
               sort: { _id: 1 },
               projection: {
@@ -412,14 +450,19 @@ export class MongoCompactor {
               limit: this.clearBatchLimit
             });
             let checksum = 0;
-            let lastOpId: BucketDataKey | null = null;
+            let lastOp: CompactClearBucketDataDocument | null = null;
             let targetOp: bigint | null = null;
             let gotAnOp = false;
             let numberOfOpsToClear = 0;
-            for await (let op of query.stream()) {
+            for await (let rawOp of query.stream()) {
+              const op = this.tagClearBucketDataDocument(
+                rawOp as unknown as BucketDataClearProjection,
+                this.activeBucketDefinitionId
+              );
+
               if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
                 checksum = utils.addChecksums(checksum, Number(op.checksum));
-                lastOpId = op._id;
+                lastOp = op;
                 numberOfOpsToClear += 1;
                 if (op.op != 'CLEAR') {
                   gotAnOp = true;
@@ -431,7 +474,7 @@ export class MongoCompactor {
                 }
               } else {
                 throw new ReplicationAssertionError(
-                  `Unexpected ${op.op} operation at ${op._id.g}:${op._id.b}:${op._id.o}`
+                  `Unexpected ${op.op} operation at ${this.formatBucketDataKey(op._id as unknown as mongo.Document)}`
                 );
               }
             }
@@ -440,30 +483,30 @@ export class MongoCompactor {
               return;
             }
 
-            logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOpId?.o}`);
-            await this.db.bucket_data.deleteMany(
+            logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOp?._id.o}`);
+            await bucketCollection.deleteMany(
               {
                 _id: {
-                  $gte: {
-                    g: this.group_id,
-                    b: bucket,
-                    o: new mongo.MinKey() as any
-                  },
-                  $lte: lastOpId!
+                  $gte: this.bucketDataKey({
+                    _id: { b: bucket, o: new mongo.MinKey() as any },
+                    def: this.activeBucketDefinitionId
+                  }),
+                  $lte: this.bucketDataKey(lastOp!)
                 }
-              },
-              { session }
+              } as any,
+              { session } as any
             );
 
-            await this.db.bucket_data.insertOne(
-              {
-                _id: lastOpId!,
+            await bucketCollection.insertOne(
+              this.collectionBucketDataDocument({
+                def: this.activeBucketDefinitionId,
+                _id: lastOp!._id,
                 op: 'CLEAR',
                 checksum: BigInt(checksum),
                 data: null,
                 target_op: targetOp
-              },
-              { session }
+              }) as unknown as mongo.OptionalId<mongo.Document>,
+              { session } as any
             );
 
             opCountDiff = -numberOfOpsToClear + 1;
@@ -704,5 +747,92 @@ export class MongoCompactor {
     }
 
     await this.flush();
+  }
+
+  private bucketDataKey(document: Pick<TaggedBucketDataDocument, '_id' | 'def'>) {
+    if (this.db.storageConfig.incrementalReprocessing) {
+      return taggedBucketDataDocumentToV3({
+        def: document.def,
+        _id: document._id,
+        op: 'CLEAR',
+        checksum: 0n,
+        data: null
+      })._id;
+    }
+
+    return taggedBucketDataDocumentToV1(this.group_id, {
+      def: document.def,
+      _id: document._id,
+      op: 'CLEAR',
+      checksum: 0n,
+      data: null
+    })._id;
+  }
+
+  private async getBucketDataCollection(
+    bucket: string
+  ): Promise<{ collection: mongo.Collection<mongo.Document>; definitionId: BucketDefinitionId } | null> {
+    if (!this.db.storageConfig.incrementalReprocessing) {
+      return {
+        collection: this.db.v1_bucket_data as unknown as mongo.Collection<mongo.Document>,
+        definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID
+      };
+    }
+
+    for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
+      const existing = await collection.findOne(
+        { '_id.b': bucket },
+        { projection: { _id: 1 }, maxTimeMS: MONGO_OPERATION_TIMEOUT_MS }
+      );
+      if (existing != null) {
+        const definitionId = collection.collectionName.replace(`bucket_data_${this.group_id}_`, '');
+        return {
+          collection: collection as unknown as mongo.Collection<mongo.Document>,
+          definitionId
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private formatBucketDataKey(key: mongo.Document) {
+    const bucket = (key.b ?? key._id?.b) as string | undefined;
+    const op = (key.o ?? key._id?.o) as bigint | undefined;
+    return `${this.group_id}:${bucket ?? '?'}:${op ?? '?'}`;
+  }
+
+  private tagBucketDataDocument(
+    document: BucketDataCollectionDocument & { size: number | bigint },
+    definitionId: BucketDefinitionId
+  ): CompactBucketDataDocument {
+    const tagged = bucketDataDocumentToTagged(document, definitionId);
+    return {
+      ...tagged,
+      size: document.size
+    };
+  }
+
+  private tagClearBucketDataDocument(
+    document: BucketDataClearProjection,
+    definitionId: BucketDefinitionId
+  ): CompactClearBucketDataDocument {
+    return {
+      def: definitionId,
+      _id: {
+        b: document._id.b,
+        o: document._id.o
+      },
+      op: document.op,
+      checksum: document.checksum,
+      target_op: document.target_op
+    };
+  }
+
+  private collectionBucketDataDocument(document: TaggedBucketDataDocument) {
+    if (this.db.storageConfig.incrementalReprocessing) {
+      return taggedBucketDataDocumentToV3(document);
+    }
+    return taggedBucketDataDocumentToV1(this.group_id, document);
   }
 }

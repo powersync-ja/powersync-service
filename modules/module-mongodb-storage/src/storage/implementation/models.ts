@@ -23,9 +23,16 @@ export interface SourceKey {
   k: ReplicaId;
 }
 
-export interface BucketDataKey {
+export interface BucketDataKeyV1 {
   /** group_id */
   g: number;
+  /** bucket name */
+  b: string;
+  /** op_id */
+  o: bigint;
+}
+
+export interface BucketDataKeyV3 {
   /** bucket name */
   b: string;
   /** op_id */
@@ -78,8 +85,7 @@ export interface BucketParameterDocumentV3 extends BucketParameterDocument {
   index: ParameterIndexId;
 }
 
-export interface BucketDataDocument {
-  _id: BucketDataKey;
+export interface BucketDataProperties {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
@@ -88,6 +94,61 @@ export interface BucketDataDocument {
   checksum: bigint;
   data: string | null;
   target_op?: bigint | null;
+}
+
+export interface BucketDataDocumentV1 extends BucketDataProperties {
+  _id: BucketDataKeyV1;
+}
+
+export interface BucketDataDocumentV3 extends BucketDataProperties {
+  _id: BucketDataKeyV3;
+}
+
+/**
+ * All data we need in-memory, for any storage version.
+ */
+export interface TaggedBucketDataDocument extends BucketDataProperties {
+  def: BucketDefinitionId;
+  _id: BucketDataKeyV3;
+}
+
+/**
+ * Internal-only tag used for v1 bucket_data rows before they are converted to the v1 on-disk shape.
+ */
+export const LEGACY_BUCKET_DATA_DEFINITION_ID = '0';
+
+export function bucketDataDocumentToTagged(
+  document: BucketDataDocumentV1 | BucketDataDocumentV3,
+  definitionId: BucketDefinitionId
+): TaggedBucketDataDocument {
+  return {
+    ...document,
+    def: definitionId,
+    _id: {
+      b: document._id.b,
+      o: document._id.o
+    }
+  };
+}
+
+export function taggedBucketDataDocumentToV1(
+  groupId: number,
+  document: TaggedBucketDataDocument
+): BucketDataDocumentV1 {
+  const { def: _definitionId, _id: _id, ...rest } = document;
+  return {
+    _id: {
+      g: groupId,
+      b: _id.b,
+      o: _id.o
+    },
+    ...rest
+  };
+}
+
+export function taggedBucketDataDocumentToV3(document: TaggedBucketDataDocument): BucketDataDocumentV3 {
+  const { def: _definitionId, ...rest } = document;
+  return rest;
 }
 
 export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
@@ -106,8 +167,8 @@ export interface SourceTableDocument {
 }
 
 export interface SourceTableDocumentV3 extends SourceTableDocument {
-  bucket_data_source_ids: number[];
-  parameter_lookup_source_ids: number[];
+  bucket_data_source_ids: BucketDefinitionId[];
+  parameter_lookup_source_ids: ParameterIndexId[];
 }
 
 export interface SourceTableDocumentSnapshotStatus {
@@ -330,5 +391,5 @@ export function isCurrentBucketV3(bucket: CommonCurrentBucket): bucket is Curren
 }
 
 export function isRecordedLookupV3(lookup: CommonCurrentLookup): lookup is RecordedLookupV3 {
-  return typeof lookup === 'object' && lookup != null && 'd' in lookup && 'l' in lookup;
+  return typeof lookup === 'object' && lookup != null && 'i' in lookup && 'l' in lookup;
 }

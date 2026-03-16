@@ -4,7 +4,8 @@ import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
 import { MongoStorageConfig } from '../../types/types.js';
 import {
-  BucketDataDocument,
+  BucketDataDocumentV1,
+  BucketDataDocumentV3,
   BucketParameterDocument,
   BucketParameterDocumentV3,
   BucketStateDocument,
@@ -25,6 +26,7 @@ import {
   WriteCheckpointDocument
 } from './models.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -36,7 +38,7 @@ export interface PowerSyncMongoOptions {
 export class PowerSyncMongo {
   readonly current_data: mongo.Collection<CurrentDataDocument>;
   readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
-  readonly bucket_data: mongo.Collection<BucketDataDocument>;
+  readonly bucket_data: mongo.Collection<BucketDataDocumentV1>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
   readonly v3_bucket_parameters: mongo.Collection<BucketParameterDocumentV3>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
@@ -84,6 +86,23 @@ export class PowerSyncMongo {
     return new VersionedPowerSyncMongo(this, storageConfig);
   }
 
+  bucketDataCollectionNameV3(groupId: number, definitionId: BucketDefinitionId) {
+    return `bucket_data_${groupId}_${definitionId}`;
+  }
+
+  bucketDataV3(groupId: number, definitionId: BucketDefinitionId): mongo.Collection<BucketDataDocumentV3> {
+    return this.db.collection(this.bucketDataCollectionNameV3(groupId, definitionId));
+  }
+
+  async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketDataDocumentV3>[]> {
+    const prefix = groupId == null ? 'bucket_data_' : `bucket_data_${groupId}_`;
+    const collections = await this.db.listCollections({}, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
+  }
+
   /**
    * Clear all collections.
    */
@@ -91,6 +110,9 @@ export class PowerSyncMongo {
     await this.current_data.deleteMany({});
     await this.v3_current_data.deleteMany({});
     await this.bucket_data.deleteMany({});
+    for (const collection of await this.listBucketDataCollectionsV3()) {
+      await collection.deleteMany({});
+    }
     await this.bucket_parameters.deleteMany({});
     await this.v3_bucket_parameters.deleteMany({});
     await this.op_id_sequence.deleteMany({});
@@ -283,6 +305,33 @@ export class VersionedPowerSyncMongo {
 
   get bucket_data() {
     return this.#upstream.bucket_data;
+  }
+
+  get v1_bucket_data() {
+    if (this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'bucket_data collection should not be used when incrementalReprocessing is enabled'
+      );
+    }
+    return this.#upstream.bucket_data;
+  }
+
+  bucket_data_v3(groupId: number, definitionId: BucketDefinitionId) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_data collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.bucketDataV3(groupId, definitionId);
+  }
+
+  listBucketDataCollectionsV3(groupId?: number) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_data collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.listBucketDataCollectionsV3(groupId);
   }
 
   get bucket_parameters() {

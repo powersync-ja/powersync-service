@@ -312,7 +312,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       };
     }
     const operations_aggregate = await this.db.bucket_data
-
       .aggregate([
         {
           $collStats: {
@@ -322,6 +321,20 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       ])
       .toArray()
       .catch(ignoreNotExisting);
+    const v3_operation_aggregates = await Promise.all(
+      (await this.db.listBucketDataCollectionsV3()).map((collection) =>
+        collection
+          .aggregate([
+            {
+              $collStats: {
+                storageStats: {}
+              }
+            }
+          ])
+          .toArray()
+          .catch(ignoreNotExisting)
+      )
+    );
 
     const parameters_aggregate = await this.db.bucket_parameters
       .aggregate([
@@ -356,7 +369,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       .toArray()
       .catch(ignoreNotExisting);
     return {
-      operations_size_bytes: Number(operations_aggregate[0].storageStats.size),
+      operations_size_bytes:
+        Number(operations_aggregate[0].storageStats.size) +
+        v3_operation_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
       parameters_size_bytes: Number(parameters_aggregate[0].storageStats.size),
       replication_size_bytes:
         Number(v1_replication_aggregate[0].storageStats.size) + Number(v3_replication_aggregate[0].storageStats.size)

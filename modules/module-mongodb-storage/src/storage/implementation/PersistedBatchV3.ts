@@ -4,6 +4,7 @@ import { storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
 import { currentBucketKey, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
+import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 import {
   PersistedBatch,
   SaveBucketDataOptions,
@@ -17,7 +18,8 @@ import {
   isCurrentBucketV3,
   isRecordedLookupV3,
   RecordedLookupV3,
-  SourceKey
+  SourceKey,
+  taggedBucketDataDocumentToV3
 } from './models.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
@@ -59,6 +61,7 @@ export class PersistedBatchV3 extends PersistedBatch {
 
       this.addBucketDataPut({
         op_id,
+        definitionId: sourceDefinitionId,
         bucket: evaluated.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
@@ -76,6 +79,7 @@ export class PersistedBatchV3 extends PersistedBatch {
 
       this.addBucketDataRemove({
         op_id,
+        definitionId: bucket.def,
         bucket: bucket.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
@@ -210,6 +214,29 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   protected get currentDataCount() {
     return this.currentData.length;
+  }
+
+  protected async flushBucketData(session: mongo.ClientSession) {
+    const operationsByDefinition = new Map<BucketDefinitionId, typeof this.bucketData>();
+    for (const document of this.bucketData) {
+      const existing = operationsByDefinition.get(document.def) ?? [];
+      existing.push(document);
+      operationsByDefinition.set(document.def, existing);
+    }
+
+    for (const [definitionId, documents] of operationsByDefinition.entries()) {
+      await this.db.bucket_data_v3(this.group_id, definitionId).bulkWrite(
+        documents.map((document) => ({
+          insertOne: {
+            document: taggedBucketDataDocumentToV3(document)
+          }
+        })),
+        {
+          session,
+          ordered: false
+        }
+      );
+    }
   }
 
   protected async flushCurrentData(session: mongo.ClientSession) {

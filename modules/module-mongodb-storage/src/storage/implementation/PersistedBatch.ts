@@ -8,13 +8,14 @@ import { MongoIdSequence } from './MongoIdSequence.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import {
-  BucketDataDocument,
   BucketStateDocument,
   CommonBucketParameterDocument,
   CommonCurrentBucket,
   CommonCurrentLookup,
-  SourceKey
+  SourceKey,
+  TaggedBucketDataDocument
 } from './models.js';
+import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 import { mongoTableId } from '../../utils/util.js';
 
 /**
@@ -73,7 +74,7 @@ export interface PersistedBatchOptions {
  */
 export abstract class PersistedBatch {
   logger: Logger;
-  bucketData: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
+  bucketData: TaggedBucketDataDocument[] = [];
   bucketParameters: mongo.AnyBulkWriteOperation<CommonBucketParameterDocument>[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
 
@@ -110,9 +111,15 @@ export abstract class PersistedBatch {
 
   protected abstract get currentDataCount(): number;
 
+  protected abstract flushBucketData(session: mongo.ClientSession): Promise<void>;
+
   protected abstract flushCurrentData(session: mongo.ClientSession): Promise<void>;
 
   protected abstract resetCurrentData(): void;
+
+  protected get bucketDataCount(): number {
+    return this.bucketData.length;
+  }
 
   protected incrementBucket(bucket: string, op_id: InternalOpId, bytes: number) {
     let existingState = this.bucketStates.get(bucket);
@@ -129,8 +136,13 @@ export abstract class PersistedBatch {
     }
   }
 
+  protected flushBucketParameters() {
+    return this.bucketParameters.length > 0;
+  }
+
   protected addBucketDataPut(options: {
     op_id: InternalOpId;
+    definitionId: BucketDefinitionId;
     bucket: string;
     sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
@@ -140,27 +152,24 @@ export abstract class PersistedBatch {
     data: string;
   }) {
     this.bucketData.push({
-      insertOne: {
-        document: {
-          _id: {
-            g: this.group_id,
-            b: options.bucket,
-            o: options.op_id
-          },
-          op: 'PUT',
-          source_table: mongoTableId(options.sourceTableId),
-          source_key: options.sourceKey,
-          table: options.table,
-          row_id: options.rowId,
-          checksum: options.checksum,
-          data: options.data
-        }
-      }
+      def: options.definitionId,
+      _id: {
+        b: options.bucket,
+        o: options.op_id
+      },
+      op: 'PUT',
+      source_table: mongoTableId(options.sourceTableId),
+      source_key: options.sourceKey,
+      table: options.table,
+      row_id: options.rowId,
+      checksum: options.checksum,
+      data: options.data
     });
   }
 
   protected addBucketDataRemove(options: {
     op_id: InternalOpId;
+    definitionId: BucketDefinitionId;
     bucket: string;
     sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
@@ -169,33 +178,25 @@ export abstract class PersistedBatch {
     checksum: bigint;
   }) {
     this.bucketData.push({
-      insertOne: {
-        document: {
-          _id: {
-            g: this.group_id,
-            b: options.bucket,
-            o: options.op_id
-          },
-          op: 'REMOVE',
-          source_table: mongoTableId(options.sourceTableId),
-          source_key: options.sourceKey,
-          table: options.table,
-          row_id: options.rowId,
-          checksum: options.checksum,
-          data: null
-        }
-      }
+      def: options.definitionId,
+      _id: {
+        b: options.bucket,
+        o: options.op_id
+      },
+      op: 'REMOVE',
+      source_table: mongoTableId(options.sourceTableId),
+      source_key: options.sourceKey,
+      table: options.table,
+      row_id: options.rowId,
+      checksum: options.checksum,
+      data: null
     });
-  }
-
-  protected flushBucketParameters() {
-    return this.bucketParameters.length > 0;
   }
 
   shouldFlushTransaction() {
     return (
       this.currentSize >= MAX_TRANSACTION_BATCH_SIZE ||
-      this.bucketData.length >= MAX_TRANSACTION_DOC_COUNT ||
+      this.bucketDataCount >= MAX_TRANSACTION_DOC_COUNT ||
       this.currentDataCount >= MAX_TRANSACTION_DOC_COUNT ||
       this.bucketParameters.length >= MAX_TRANSACTION_DOC_COUNT
     );
@@ -205,12 +206,9 @@ export abstract class PersistedBatch {
     const db = this.db;
     const startAt = performance.now();
     let flushedSomething = false;
-    if (this.bucketData.length > 0) {
+    if (this.bucketDataCount > 0) {
       flushedSomething = true;
-      await db.bucket_data.bulkWrite(this.bucketData, {
-        session,
-        ordered: false
-      });
+      await this.flushBucketData(session);
     }
     if (this.flushBucketParameters()) {
       flushedSomething = true;
@@ -238,14 +236,14 @@ export abstract class PersistedBatch {
         const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
 
         this.logger.info(
-          `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
+          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
             this.currentDataCount
           } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketData.length,
+              bucket_data_count: this.bucketDataCount,
               parameter_data_count: this.bucketParameters.length,
               current_data_count: this.currentDataCount,
               replication_lag_seconds: replicationLag
@@ -254,14 +252,14 @@ export abstract class PersistedBatch {
         );
       } else {
         this.logger.info(
-          `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
+          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
             this.currentDataCount
           } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketData.length,
+              bucket_data_count: this.bucketDataCount,
               parameter_data_count: this.bucketParameters.length,
               current_data_count: this.currentDataCount
             }
@@ -271,7 +269,7 @@ export abstract class PersistedBatch {
     }
 
     const stats = {
-      bucketDataCount: this.bucketData.length,
+      bucketDataCount: this.bucketDataCount,
       parameterDataCount: this.bucketParameters.length,
       currentDataCount: this.currentDataCount,
       flushedAny: flushedSomething
