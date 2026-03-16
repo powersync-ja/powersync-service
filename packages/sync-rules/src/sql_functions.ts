@@ -271,6 +271,37 @@ const iif: DocumentedSqlFunction = {
   detail: 'If x is true then returns y else returns z'
 };
 
+// This matches the behavior of the instr function in SQLite.
+// If both arguments are BLOBs, performs a byte-level search.
+// Otherwise, both arguments are interpreted as text.
+const instr: DocumentedSqlFunction = {
+  debugName: 'instr',
+  call(x: SqliteValue, y: SqliteValue) {
+    if (x == null || y == null) {
+      return null;
+    }
+    // Both BLOBs: byte-level search
+    if (x instanceof Uint8Array && y instanceof Uint8Array) {
+      const pos = Buffer.from(x.buffer, x.byteOffset, x.byteLength).indexOf(y);
+      return BigInt(pos < 0 ? 0 : pos + 1);
+    }
+    // Neither BLOB, or mixed: cast both to text
+    const haystack = castAsText(x)!;
+    const needle = castAsText(y)!;
+    const pos = haystack.indexOf(needle);
+    return BigInt(pos < 0 ? 0 : pos + 1);
+  },
+  parameters: [
+    { name: 'x', type: ExpressionType.ANY, optional: false },
+    { name: 'y', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType() {
+    return ExpressionType.INTEGER;
+  },
+  detail:
+    'Returns 1-indexed position of y in x, or 0 if not found. If both are BLOBs, counts bytes; otherwise counts characters.'
+};
+
 const json_valid: DocumentedSqlFunction = {
   debugName: 'json_valid',
   call(json: SqliteValue) {
@@ -496,6 +527,7 @@ export function generateSqlFunctions(compatibility: CompatibilityContext) {
     typeof: fn_typeof,
     ifnull,
     iif,
+    instr,
     json_extract: json.json_extract,
     json_array_length: json.json_array_length,
     json_valid,

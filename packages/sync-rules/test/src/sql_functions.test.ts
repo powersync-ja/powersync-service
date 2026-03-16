@@ -319,6 +319,88 @@ describe('SQL functions', () => {
     expect(fn.datetime('2023-06-28 14:12:00.0', 'subsecond')).toEqual('2023-06-28 14:12:00.000');
   });
 
+  test('instr', () => {
+    // Null handling - SQLite returns NULL when either argument is NULL
+    expect(fn.instr(null, null)).toEqual(null);
+    expect(fn.instr(null, 'a')).toEqual(null);
+    expect(fn.instr('abc', null)).toEqual(null);
+
+    // Basic match - 1-indexed positions
+    expect(fn.instr('hello world', 'world')).toEqual(7n);
+    expect(fn.instr('hello world', 'hello')).toEqual(1n);
+    expect(fn.instr('hello world', 'o')).toEqual(5n);
+
+    // No match returns 0
+    expect(fn.instr('hello world', 'xyz')).toEqual(0n);
+    expect(fn.instr('hello', 'HELLO')).toEqual(0n);
+
+    // Match at very start (verifies 1-indexed, not 0)
+    expect(fn.instr('abc', 'a')).toEqual(1n);
+    expect(fn.instr('abc', 'ab')).toEqual(1n);
+    expect(fn.instr('abc', 'abc')).toEqual(1n);
+
+    // Match at end
+    expect(fn.instr('abc', 'c')).toEqual(3n);
+    expect(fn.instr('abc', 'bc')).toEqual(2n);
+
+    // Single character haystack and needle
+    expect(fn.instr('a', 'a')).toEqual(1n);
+    expect(fn.instr('a', 'b')).toEqual(0n);
+
+    // Empty string behavior (matches SQLite: empty needle always found at position 1)
+    expect(fn.instr('abc', '')).toEqual(1n);
+    expect(fn.instr('', '')).toEqual(1n);
+    expect(fn.instr('', 'a')).toEqual(0n);
+
+    // First occurrence only (returns position of first match)
+    expect(fn.instr('abcabc', 'b')).toEqual(2n);
+    expect(fn.instr('aaa', 'a')).toEqual(1n);
+
+    // Case sensitivity
+    expect(fn.instr('Hello World', 'hello')).toEqual(0n);
+    expect(fn.instr('Hello World', 'Hello')).toEqual(1n);
+
+    // Multi-character needle
+    expect(fn.instr('abcdef', 'cde')).toEqual(3n);
+    expect(fn.instr('abcdef', 'ef')).toEqual(5n);
+
+    // Special characters and emojis
+    expect(fn.instr('foo|bar|baz', '|')).toEqual(4n);
+    expect(fn.instr('foo.bar', '.')).toEqual(4n);
+    expect(fn.instr('hello\nworld', '\n')).toEqual(6n);
+    expect(fn.instr('path/to/file', '/')).toEqual(5n);
+    expect(fn.instr('rofl 😂', '😂')).toEqual(6n);
+    expect(fn.instr('😂😂', '😂')).toEqual(1n);
+
+    // Numeric inputs (converted to string via toString)
+    expect(fn.instr(12345, '3')).toEqual(3n);
+    expect(fn.instr('12345', 3)).toEqual(3n);
+    expect(fn.instr(123, 123)).toEqual(1n);
+
+    // Both BLOBs: byte-level search (1-indexed byte position)
+    const enc = new TextEncoder();
+    expect(fn.instr(enc.encode('hello world'), enc.encode('world'))).toEqual(7n);
+    expect(fn.instr(enc.encode('hello world'), enc.encode('hello'))).toEqual(1n);
+    expect(fn.instr(enc.encode('hello world'), enc.encode('xyz'))).toEqual(0n);
+    expect(fn.instr(enc.encode('abc'), enc.encode('bc'))).toEqual(2n);
+    expect(fn.instr(new Uint8Array([0x00, 0xff, 0xab, 0xcd]), new Uint8Array([0xab, 0xcd]))).toEqual(3n);
+    expect(fn.instr(new Uint8Array([0x00, 0xff, 0xab]), new Uint8Array([0xcd]))).toEqual(0n);
+
+    // Both BLOBs: empty needle found at position 1
+    expect(fn.instr(enc.encode('abc'), new Uint8Array([]))).toEqual(1n);
+    expect(fn.instr(new Uint8Array([]), new Uint8Array([]))).toEqual(1n);
+    expect(fn.instr(new Uint8Array([]), enc.encode('a'))).toEqual(0n);
+
+    // Mixed BLOB/text: both coerced to text (matches SQLite behavior)
+    expect(fn.instr(enc.encode('hello world'), 'world')).toEqual(7n);
+    expect(fn.instr('hello world', enc.encode('world'))).toEqual(7n);
+    expect(fn.instr(enc.encode('abc'), 'xyz')).toEqual(0n);
+
+    // NULL handling
+    expect(fn.instr(null, enc.encode('a'))).toEqual(null);
+    expect(fn.instr(enc.encode('a'), null)).toEqual(null);
+  });
+
   test('ST_AsGeoJSON', () => {
     expect(fn.st_asgeojson(null)).toEqual(null);
     expect(fn.st_asgeojson('0101000000029a081b9ede4340d7a3703d0a3f5ac0')).toEqual(
