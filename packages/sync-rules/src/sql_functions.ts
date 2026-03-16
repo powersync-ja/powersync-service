@@ -298,7 +298,8 @@ const instr: DocumentedSqlFunction = {
   getReturnType() {
     return ExpressionType.INTEGER;
   },
-  detail: 'Returns 1-indexed position of y in x, or 0 if not found. If both are BLOBs, counts bytes; otherwise counts characters.'
+  detail:
+    'Returns 1-indexed position of y in x, or 0 if not found. If both are BLOBs, counts bytes; otherwise counts characters.'
 };
 
 const json_valid: DocumentedSqlFunction = {
