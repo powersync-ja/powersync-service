@@ -378,6 +378,29 @@ describe('SQL functions', () => {
     expect(fn.instr(12345, '3')).toEqual(3);
     expect(fn.instr('12345', 3)).toEqual(3);
     expect(fn.instr(123, 123)).toEqual(1);
+
+    // Both BLOBs: byte-level search (1-indexed byte position)
+    const enc = new TextEncoder();
+    expect(fn.instr(enc.encode('hello world'), enc.encode('world'))).toEqual(7);
+    expect(fn.instr(enc.encode('hello world'), enc.encode('hello'))).toEqual(1);
+    expect(fn.instr(enc.encode('hello world'), enc.encode('xyz'))).toEqual(0);
+    expect(fn.instr(enc.encode('abc'), enc.encode('bc'))).toEqual(2);
+    expect(fn.instr(new Uint8Array([0x00, 0xff, 0xab, 0xcd]), new Uint8Array([0xab, 0xcd]))).toEqual(3);
+    expect(fn.instr(new Uint8Array([0x00, 0xff, 0xab]), new Uint8Array([0xcd]))).toEqual(0);
+
+    // Both BLOBs: empty needle found at position 1
+    expect(fn.instr(enc.encode('abc'), new Uint8Array([]))).toEqual(1);
+    expect(fn.instr(new Uint8Array([]), new Uint8Array([]))).toEqual(1);
+    expect(fn.instr(new Uint8Array([]), enc.encode('a'))).toEqual(0);
+
+    // Mixed BLOB/text: both coerced to text (matches SQLite behavior)
+    expect(fn.instr(enc.encode('hello world'), 'world')).toEqual(7);
+    expect(fn.instr('hello world', enc.encode('world'))).toEqual(7);
+    expect(fn.instr(enc.encode('abc'), 'xyz')).toEqual(0);
+
+    //NULL handling
+    expect(fn.instr(null, enc.encode('a'))).toEqual(null);
+    expect(fn.instr(enc.encode('a'), null)).toEqual(null);
   });
 
   test('ST_AsGeoJSON', () => {

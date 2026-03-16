@@ -271,29 +271,34 @@ const iif: DocumentedSqlFunction = {
   detail: 'If x is true then returns y else returns z'
 };
 
-// This is the same behavior as the instr function in SQLite, but only supports TEXT values
+// This matches the behavior of the instr function in SQLite.
+// If both arguments are BLOBs, performs a byte-level search.
+// Otherwise, both arguments are interpreted as text.
 const instr: DocumentedSqlFunction = {
   debugName: 'instr',
   call(x: SqliteValue, y: SqliteValue) {
     if (x == null || y == null) {
       return null;
     }
-    let pos: number = x.toString().indexOf(y.toString());
-    if (pos < 0) {
-      return 0;
+    // Both BLOBs: byte-level search
+    if (x instanceof Uint8Array && y instanceof Uint8Array) {
+      const pos = Buffer.from(x).indexOf(Buffer.from(y));
+      return pos < 0 ? 0 : pos + 1;
     }
-    else {
-      return pos + 1;
-    }
+    // Neither BLOB, or mixed: cast both to text
+    const haystack = castAsText(x)!;
+    const needle = castAsText(y)!;
+    const pos = haystack.indexOf(needle);
+    return pos < 0 ? 0 : pos + 1;
   },
   parameters: [
-    { name: 'x', type: ExpressionType.TEXT, optional: false },
-    { name: 'y', type: ExpressionType.TEXT, optional: false }
+    { name: 'x', type: ExpressionType.ANY, optional: false },
+    { name: 'y', type: ExpressionType.ANY, optional: false }
   ],
   getReturnType() {
     return ExpressionType.INTEGER;
   },
-  detail: 'If y is in x, return the starting position of y (the number of characters before y plus 1), else return 0'
+  detail: 'Returns 1-indexed position of y in x, or 0 if not found. If both are BLOBs, counts bytes; otherwise counts characters.'
 };
 
 const json_valid: DocumentedSqlFunction = {
