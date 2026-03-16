@@ -42,6 +42,10 @@ export class BucketDefinitionMapping {
     return defId;
   }
 
+  allBucketDefinitionIds(): BucketDefinitionId[] {
+    return Object.values(this.definitions);
+  }
+
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
     const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
     const defId = this.parameterLookupMapping[key];

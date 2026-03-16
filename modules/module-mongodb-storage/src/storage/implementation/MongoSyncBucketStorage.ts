@@ -76,6 +76,7 @@ export class MongoSyncBucketStorage
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
+  #storageInitialized = false;
 
   constructor(
     public readonly factory: MongoBucketStorage,
@@ -172,7 +173,22 @@ export class MongoSyncBucketStorage
     });
   }
 
+  private async initializeStorage() {
+    if (this.#storageInitialized) {
+      return;
+    }
+
+    const mapping = this.sync_rules.mapping;
+    for (let source of mapping.allBucketDefinitionIds()) {
+      const collection = this.db.bucket_data_v3(this.group_id, source).collectionName;
+      await this.db.db.createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } });
+    }
+    this.#storageInitialized = true;
+  }
+
   async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    await this.initializeStorage();
+
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id

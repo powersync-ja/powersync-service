@@ -26,7 +26,7 @@ import {
   WriteCheckpointDocument
 } from './models.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDefinitionId } from './BucketDefinitionMapping.js';
+import { BucketDefinitionId, BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export interface PowerSyncMongoOptions {
   /**
