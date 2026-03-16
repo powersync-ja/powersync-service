@@ -16,7 +16,7 @@ import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 
 export interface MongoBucketStorageOptions {
-  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {

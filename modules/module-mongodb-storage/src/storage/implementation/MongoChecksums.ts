@@ -1,5 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   addPartialChecksums,
   bson,
@@ -33,7 +34,7 @@ export interface MongoChecksumOptions {
   operationBatchLimit?: number;
 
   storageConfig: StorageConfig;
-  mapping: BucketDefinitionMapping;
+  mapping?: BucketDefinitionMapping;
 }
 
 const DEFAULT_BUCKET_BATCH_LIMIT = 200;
@@ -51,7 +52,7 @@ const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
 export class MongoChecksums {
   private _cache: ChecksumCache | undefined;
   private readonly storageConfig: StorageConfig;
-  private readonly mapping: BucketDefinitionMapping;
+  private readonly mapping: BucketDefinitionMapping | undefined;
 
   constructor(
     private db: VersionedPowerSyncMongo,
@@ -206,6 +207,10 @@ export class MongoChecksums {
    */
   private async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     if (this.storageConfig.incrementalReprocessing) {
+      if (this.mapping == null) {
+        throw new ServiceAssertionError('BucketDefinitionMapping is required for v3 MongoDB checksum queries');
+      }
+
       const results = new Map<string, PartialOrFullChecksum>();
       const requestsByDefinition = new Map<string, FetchPartialBucketChecksum[]>();
       const fallbackRequests: FetchPartialBucketChecksum[] = [];

@@ -52,7 +52,7 @@ import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
-  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
   storageConfig: StorageConfig;
 }
 
