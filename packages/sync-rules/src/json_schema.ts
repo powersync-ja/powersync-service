@@ -50,6 +50,15 @@ export const syncRulesSchema: ajvModule.Schema = {
         }
       }
     },
+    with: {
+      type: 'object',
+      description: 'Common-table expressions available to all sync streams',
+      patternProperties: {
+        '.*': {
+          type: 'string'
+        }
+      }
+    },
     streams: {
       type: 'object',
       description: 'List of stream definitions',
