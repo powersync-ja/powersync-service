@@ -69,6 +69,7 @@ function createFakeStorage(options?: {
     lastCheckpointLsn: null,
     resumeFromLsn: options?.resumeFromLsn ?? null,
     noCheckpointBeforeLsn: ZERO_LSN,
+    async [Symbol.asyncDispose]() {},
     async save(record: any) {
       saves.push(record);
       return null;
@@ -139,6 +140,7 @@ function createFakeStorage(options?: {
       table: getOrCreateTable(entity_descriptor.name),
       dropTables: []
     })),
+    createWriter: vi.fn(async (_options: any) => batch),
     startBatch: vi.fn(async (_options: any, callback: (batch: any) => Promise<void>) => {
       await callback(batch);
       return { flushed_op: 1n };
