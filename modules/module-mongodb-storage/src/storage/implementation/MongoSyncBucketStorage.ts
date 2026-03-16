@@ -183,6 +183,18 @@ export class MongoSyncBucketStorage
       const collection = this.db.bucket_data_v3(this.group_id, source).collectionName;
       await this.db.db.createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } });
     }
+    for (let indexId of mapping.allParameterIndexIds()) {
+      await this.db.bucket_parameters_v3(this.group_id, indexId).createIndex(
+        {
+          lookup: 1,
+          key: 1,
+          _id: -1
+        },
+        {
+          name: 'lookup_op_id'
+        }
+      );
+    }
     this.#storageInitialized = true;
   }
 
@@ -448,6 +460,7 @@ export class MongoSyncBucketStorage
       }
 
       const groupedParameters: SqliteJsonRow[][] = [];
+      // FIXME: Optimize these lookups, properly utilizing the new index on {lookup: 1, key: 1, _id: -1}.
       for (const [indexId, lookupFilter] of lookupsByIndex.entries()) {
         const rows = await this.db
           .bucket_parameters_v3(this.group_id, indexId)

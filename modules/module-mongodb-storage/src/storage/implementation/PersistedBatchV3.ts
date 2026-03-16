@@ -245,7 +245,6 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [indexId, documents] of operationsByIndex.entries()) {
-      await this.db.initializeBucketParameterCollectionV3(this.group_id, indexId);
       await this.db.bucket_parameters_v3(this.group_id, indexId).bulkWrite(
         documents.map((document) => ({
           insertOne: {

@@ -117,18 +117,6 @@ export class PowerSyncMongo {
       .map((collection) => this.db.collection<BucketParameterDocumentV3>(collection.name));
   }
 
-  async initializeBucketParameterCollectionV3(groupId: number, indexId: ParameterIndexId) {
-    await this.bucketParametersV3(groupId, indexId).createIndex(
-      {
-        lookup: 1,
-        _id: 1
-      },
-      {
-        name: 'lookup_op_id'
-      }
-    );
-  }
-
   /**
    * Clear all collections.
    */
@@ -377,15 +365,6 @@ export class VersionedPowerSyncMongo {
       );
     }
     return this.#upstream.listBucketParameterCollectionsV3(groupId);
-  }
-
-  initializeBucketParameterCollectionV3(groupId: number, indexId: ParameterIndexId) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
-      );
-    }
-    return this.#upstream.initializeBucketParameterCollectionV3(groupId, indexId);
   }
 
   get op_id_sequence() {
