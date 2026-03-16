@@ -282,7 +282,7 @@ const instr: DocumentedSqlFunction = {
     }
     // Both BLOBs: byte-level search
     if (x instanceof Uint8Array && y instanceof Uint8Array) {
-      const pos = Buffer.from(x).indexOf(Buffer.from(y));
+      const pos = Buffer.from(x.buffer, x.byteOffset, x.byteLength).indexOf(y);
       return BigInt(pos < 0 ? 0 : pos + 1);
     }
     // Neither BLOB, or mixed: cast both to text
