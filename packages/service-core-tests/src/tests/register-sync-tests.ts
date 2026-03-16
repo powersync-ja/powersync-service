@@ -100,7 +100,7 @@ export function registerSyncTests(
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage: bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -162,7 +162,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -226,7 +226,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -335,7 +335,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -473,7 +473,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -588,7 +588,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -653,7 +653,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -682,7 +682,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -714,7 +714,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -783,7 +783,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -858,7 +858,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -922,7 +922,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -991,7 +991,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -1055,7 +1055,7 @@ bucket_definitions:
     const stream = sync.streamResponse({
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -1183,7 +1183,7 @@ bucket_definitions:
     const params: sync.SyncStreamParameters = {
       syncContext,
       bucketStorage,
-      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
       params: {
         buckets: [],
         include_checksum: true,
@@ -1270,7 +1270,7 @@ config:
       const stream = sync.streamResponse({
         syncContext,
         bucketStorage: bucketStorage,
-        syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+        syncRules: bucketStorage.getHydratedSyncRules(test_utils.PARSE_OPTIONS),
         params: {
           buckets: [],
           include_checksum: true,

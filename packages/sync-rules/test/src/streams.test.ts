@@ -2,19 +2,21 @@
 import { describe, expect, test } from 'vitest';
 import { HydrationState, ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
 import {
-  BucketParameterQuerier,
   BucketDataScope,
+  BucketParameterQuerier,
   CompatibilityContext,
   CompatibilityEdition,
   CreateSourceParams,
   debugHydratedMergedSource,
   DEFAULT_TAG,
+  EvaluatedParametersResult,
   EvaluationResult,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
+  isEvaluatedParameters,
   mergeBucketParameterQueriers,
-  UnscopedParameterLookup,
   QuerierError,
+  ScopedParameterLookup,
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
@@ -22,13 +24,27 @@ import {
   StreamParseOptions,
   SyncStream,
   syncStreamFromSql,
-  ScopedParameterLookup
+  UnscopedParameterLookup
 } from '../../src/index.js';
-import { lookupScope, normalizeQuerierOptions, PARSE_OPTIONS, requestParameters, TestSourceTable } from './util.js';
+import {
+  lookupScope,
+  normalizeQuerierOptions,
+  PARSE_OPTIONS,
+  removeSource,
+  requestParameters,
+  TestSourceTable
+} from './util.js';
 
 describe('streams', () => {
   const STREAM_0: ParameterLookupScope = lookupScope('stream', '0');
   const STREAM_1: ParameterLookupScope = lookupScope('stream', '1');
+
+  function removeLookupSource(entry: EvaluatedParametersResult) {
+    if (!isEvaluatedParameters(entry)) {
+      return entry;
+    }
+    return { ...entry, lookup: removeSource(entry.lookup) };
+  }
 
   test('refuses edition: 1', () => {
     expect(() =>
@@ -84,7 +100,7 @@ describe('streams', () => {
       normalizeQuerierOptions({ parameters: { test: 'foo' } }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
     );
 
-    expect(mergeBucketParameterQueriers(queriers).staticBuckets).toEqual([
+    expect(mergeBucketParameterQueriers(queriers).staticBuckets.map(removeSource)).toEqual([
       {
         bucket: '1#stream|0["foo"]',
         definition: 'stream',
@@ -267,13 +283,15 @@ describe('streams', () => {
       ]);
 
       expect(
-        debugHydratedMergedSource(desc, hydrationParams).evaluateParameterRow(ISSUES, {
-          id: 'i1',
-          owner_id: 'u1'
-        })
+        debugHydratedMergedSource(desc, hydrationParams)
+          .evaluateParameterRow(ISSUES, {
+            id: 'i1',
+            owner_id: 'u1'
+          })
+          .map(removeLookupSource)
       ).toStrictEqual([
         {
-          lookup: ScopedParameterLookup.direct(STREAM_0, ['u1']),
+          lookup: removeSource(ScopedParameterLookup.direct(STREAM_0, ['u1'])),
           bucketParameters: [
             {
               result: 'i1'
@@ -283,7 +301,7 @@ describe('streams', () => {
       ]);
 
       function getParameterSets(lookups: ScopedParameterLookup[]) {
-        expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u1'])]);
+        expect(lookups.map(removeSource)).toStrictEqual([removeSource(ScopedParameterLookup.direct(STREAM_0, ['u1']))]);
 
         return [{ result: 'i1' }];
       }
@@ -322,7 +340,9 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['user1']))
+            ]);
 
             return [{ result: 'issue_id' }];
           }
@@ -354,7 +374,9 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           tokenPayload: { sub: 'u' },
           getParameterSets: (lookups: ScopedParameterLookup[]) => {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['u']))
+            ]);
             return [{ result: 'u' }];
           }
         })
@@ -365,7 +387,9 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           tokenPayload: { sub: 'u2' },
           getParameterSets: (lookups: ScopedParameterLookup[]) => {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['u2'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['u2']))
+            ]);
             return [];
           }
         })
@@ -385,9 +409,9 @@ describe('streams', () => {
 
       const source = debugHydratedMergedSource(desc, hydrationParams);
 
-      expect(source.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' })).toStrictEqual([
+      expect(source.evaluateParameterRow(FRIENDS, { user_a: 'a', user_b: 'b' }).map(removeLookupSource)).toStrictEqual([
         {
-          lookup: ScopedParameterLookup.direct(STREAM_0, ['b']),
+          lookup: removeSource(ScopedParameterLookup.direct(STREAM_0, ['b'])),
           bucketParameters: [
             {
               result: 'a'
@@ -395,7 +419,7 @@ describe('streams', () => {
           ]
         },
         {
-          lookup: ScopedParameterLookup.direct(STREAM_1, ['a']),
+          lookup: removeSource(ScopedParameterLookup.direct(STREAM_1, ['a'])),
           bucketParameters: [
             {
               result: 'b'
@@ -408,10 +432,10 @@ describe('streams', () => {
         expect(lookups).toHaveLength(1);
         const [lookup] = lookups;
         if (lookup.values[1] == '0') {
-          expect(lookup).toStrictEqual(ScopedParameterLookup.direct(STREAM_0, ['a']));
+          expect(removeSource(lookup)).toStrictEqual(removeSource(ScopedParameterLookup.direct(STREAM_0, ['a'])));
           return [];
         } else {
-          expect(lookup).toStrictEqual(ScopedParameterLookup.direct(STREAM_1, ['a']));
+          expect(removeSource(lookup)).toStrictEqual(removeSource(ScopedParameterLookup.direct(STREAM_1, ['a'])));
           return [{ result: 'b' }];
         }
       }
@@ -451,7 +475,7 @@ describe('streams', () => {
           getParameterSets(lookups) {
             expect(lookups).toHaveLength(1);
             const [lookup] = lookups;
-            expect(lookup).toStrictEqual(ScopedParameterLookup.direct(STREAM_0, ['a']));
+            expect(removeSource(lookup)).toStrictEqual(removeSource(ScopedParameterLookup.direct(STREAM_0, ['a'])));
             return [{ result: 'i1' }, { result: 'i2' }];
           }
         })
@@ -511,7 +535,9 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['user1']))
+            ]);
 
             return [{ result: 'issue_id' }];
           }
@@ -671,7 +697,9 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['user1']))
+            ]);
 
             return [{ result: 'issue_id' }];
           }
@@ -726,7 +754,9 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           tokenPayload: { sub: 'user1' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['user1']))
+            ]);
 
             return [{ result: 'issue_id' }];
           }
@@ -736,7 +766,9 @@ describe('streams', () => {
         await queryBucketIds(desc, {
           tokenPayload: { sub: 'user1', is_admin: true },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['user1'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['user1']))
+            ]);
 
             return [{ result: 'issue_id' }];
           }
@@ -890,7 +922,9 @@ WHERE
           tokenPayload: { sub: 'user1', haystack_id: 1 },
           parameters: { project: 'foo' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, [1n, 'foo'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, [1n, 'foo']))
+            ]);
             return [{ result: 'foo' }];
           }
         })
@@ -987,7 +1021,9 @@ WHERE
           parameters: { project: 'foo' },
           globalParameters: { team_id: 'team' },
           getParameterSets(lookups) {
-            expect(lookups).toStrictEqual([ScopedParameterLookup.direct(STREAM_0, ['team'])]);
+            expect(lookups.map(removeSource)).toStrictEqual([
+              removeSource(ScopedParameterLookup.direct(STREAM_0, ['team']))
+            ]);
             return [{ result: 'user' }];
           }
         })

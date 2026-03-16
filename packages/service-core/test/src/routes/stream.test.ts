@@ -1,6 +1,6 @@
 import { BasicRouterRequest, Context, JwtPayload, SyncRulesBucketStorage } from '@/index.js';
 import { RouterResponse, ServiceError, logger } from '@powersync/lib-services-framework';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, SqlSyncRules } from '@powersync/service-sync-rules';
 import { Readable, Writable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { describe, expect, it } from 'vitest';
@@ -8,7 +8,6 @@ import winston from 'winston';
 import { syncStreamed } from '../../../src/routes/endpoints/sync-stream.js';
 import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../../../src/util/param-logging.js';
 import { mockServiceContext } from './mocks.js';
-import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
 
 describe('Stream Route', () => {
   describe('compressed stream', () => {
@@ -45,7 +44,7 @@ describe('Stream Route', () => {
       // when compressing the stream.
 
       const storage = {
-        getParsedSyncRules() {
+        getHydratedSyncRules() {
           return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {
@@ -83,7 +82,7 @@ describe('Stream Route', () => {
 
     it('logs the application metadata', async () => {
       const storage = {
-        getParsedSyncRules() {
+        getHydratedSyncRules() {
           return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
         },
         watchCheckpointChanges: async function* (options) {

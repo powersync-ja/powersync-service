@@ -72,7 +72,7 @@ export const syncStreamed = routeDefinition({
       });
     }
 
-    const syncRules = bucketStorage.getParsedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
+    const syncRules = bucketStorage.getHydratedSyncRules(routerEngine.getAPI().getParseSyncRulesOptions());
 
     const controller = new AbortController();
     const tracker = new sync.RequestTracker(metricsEngine);

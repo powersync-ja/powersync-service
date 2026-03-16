@@ -1,3 +1,4 @@
+import { bucketRequest } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
@@ -46,12 +47,17 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
       connection: TEST_CONNECTION_OPTIONS
     });
 
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
     const start = Date.now();
 
-    const checksum = await context.getChecksums(['global[]'], { timeout: 100_000 });
+    const request = bucketRequest(syncRules, 'global[]');
+    const checksum = await context.getChecksums([request], { timeout: 100_000 });
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-    expect(checksum.get('global[]')!.count).toEqual(operation_count);
+    expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
     const perSecond = Math.round((operation_count / duration) * 1000);
     console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s. ${used}MB heap`);
   });
@@ -94,9 +100,16 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
 
       await context.replicateSnapshot();
 
-      const checksum = await context.getChecksums(['global[]'], { timeout: 100_000 });
+      const checkpoint = await context.getCheckpoint({ timeout: 100_000 });
+
+      const syncRules = await context.factory.getActiveSyncRulesContent();
+      if (!syncRules) {
+        throw new Error('Active sync rules not available');
+      }
+      const request = bucketRequest(syncRules, 'global[]');
       const duration = Date.now() - start;
-      expect(checksum.get('global[]')!.count).toEqual(operation_count);
+      const checksum = await context.storage!.getChecksums(checkpoint, [request]);
+      expect(checksum.get(request.bucket)!.count).toEqual(operation_count);
       const perSecond = Math.round((operation_count / duration) * 1000);
       console.log(`${operation_count} ops in ${duration}ms ${perSecond} ops/s.`);
       printMemoryUsage();
@@ -141,12 +154,18 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
       operationCount += perTransaction * 2;
     }
 
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules, 'global[]');
+
     const start = Date.now();
 
-    const checksum = await context.getChecksums(['global[]']);
+    const checksum = await context.getChecksums([request]);
     const duration = Date.now() - start;
     const used = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
-    expect(checksum.get('global[]')!.count).toEqual(operationCount);
+    expect(checksum.get(request.bucket)!.count).toEqual(operationCount);
     const perSecond = Math.round((operationCount / duration) * 1000);
     // This number depends on the test machine, so we keep the test significantly
     // lower than expected numbers.
@@ -159,9 +178,10 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     const truncateStart = Date.now();
     await pool.query(`TRUNCATE test_data`);
 
-    const checksum2 = await context.getChecksums(['global[]'], { timeout: 20_000 });
+    const checksum2 = await context.getChecksums([request], { timeout: 20_000 });
     const truncateDuration = Date.now() - truncateStart;
-    const truncateCount = checksum2.get('global[]')!.count - checksum.get('global[]')!.count;
+
+    const truncateCount = checksum2.get(request.bucket)!.count - checksum.get(request.bucket)!.count;
     expect(truncateCount).toEqual(numTransactions * perTransaction);
     const truncatePerSecond = Math.round((truncateCount / truncateDuration) * 1000);
     console.log(`Truncated ${truncateCount} ops in ${truncateDuration}ms ${truncatePerSecond} ops/s. ${used}MB heap`);
@@ -225,8 +245,14 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     });
     await context.replicateSnapshot();
 
-    const checksum = await context.getChecksums(['global[]'], { timeout: 50_000 });
-    expect(checksum.get('global[]')!.count).toEqual((numDocs + 2) * 4);
+    const checkpoint = await context.getCheckpoint({ timeout: 50_000 });
+    const syncRules = await context.factory.getActiveSyncRulesContent();
+    if (!syncRules) {
+      throw new Error('Active sync rules not available');
+    }
+    const request = bucketRequest(syncRules, 'global[]');
+    const checksum = await context.storage!.getChecksums(checkpoint, [request]);
+    expect(checksum.get(request.bucket)!.count).toEqual((numDocs + 2) * 4);
   });
 
   function printMemoryUsage() {

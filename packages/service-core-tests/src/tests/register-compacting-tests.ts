@@ -17,7 +17,6 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');
@@ -124,9 +123,9 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
       sourceTable: testTable,
@@ -240,9 +239,9 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
       sourceTable: testTable,
@@ -328,9 +327,9 @@ bucket_definitions:
               - select * from test where b = bucket.b`)
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
     /**
      * Repeatedly create operations which fall into different buckets.
@@ -458,9 +457,9 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
       sourceTable: testTable,
@@ -536,7 +535,6 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
     await writer.markAllSnapshotDone('1/1');

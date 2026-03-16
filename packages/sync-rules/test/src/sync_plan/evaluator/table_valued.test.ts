@@ -1,6 +1,4 @@
 import { describe, expect } from 'vitest';
-import { syncTest } from './utils.js';
-import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
 import {
   deserializeSyncPlan,
   ImplicitSchemaTablePattern,
@@ -11,6 +9,12 @@ import {
   TableProcessorTableValuedFunction
 } from '../../../../src/index.js';
 import { PreparedStreamBucketDataSource } from '../../../../src/sync_plan/evaluator/bucket_data_source.js';
+import { lookupScope, removeSource, requestParameters, TestSourceTable } from '../../util.js';
+import { syncTest } from './utils.js';
+
+function removeLookupSource<T extends { lookup: ScopedParameterLookup }>(row: T): Omit<T, 'lookup'> & { lookup: any } {
+  return { ...row, lookup: removeSource(row.lookup) };
+}
 
 describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {
@@ -25,7 +29,7 @@ streams:
 `);
 
     const sourceTable = new TestSourceTable('stores');
-    expect(desc.evaluateRow({ sourceTable, record: { id: 'id', tags: '[1,2,3]' } })).toStrictEqual(
+    expect(desc.evaluateRow({ sourceTable, record: { id: 'id', tags: '[1,2,3]' } }).map(removeSource)).toStrictEqual(
       [1, 2, 3].map((e) => ({ bucket: `stream|0[${e}]`, data: { id: 'id' }, table: 's', id: 'id' }))
     );
   });

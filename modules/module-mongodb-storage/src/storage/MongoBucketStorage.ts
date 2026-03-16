@@ -1,4 +1,12 @@
-import { GetIntanceOptions, storage } from '@powersync/service-core';
+import { BucketDataSource, ParameterIndexLookupCreator, SqlSyncRules } from '@powersync/service-sync-rules';
+
+import {
+  BucketDefinitionMapping,
+  CreateWriterOptions,
+  GetIntanceOptions,
+  maxLsn,
+  storage
+} from '@powersync/service-core';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -6,12 +14,14 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
+import { generateSlotName } from '../utils/util.js';
 import { PowerSyncMongo } from './implementation/db.js';
+import { MergedSyncRules } from './implementation/MergedSyncRules.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
+import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
-import { generateSlotName } from '../utils/util.js';
-import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+import { MongoBucketDataWriter } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
@@ -46,22 +56,16 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   getInstance(syncRules: storage.PersistedSyncRulesContent, options?: GetIntanceOptions): MongoSyncBucketStorage {
+    const mongoSyncRules = syncRules as MongoPersistedSyncRulesContent;
     let { id, slot_name } = syncRules;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
-    const storage = new MongoSyncBucketStorage(
-      this,
-      id,
-      syncRules as MongoPersistedSyncRulesContent,
-      slot_name,
-      undefined,
-      {
-        ...this.internalOptions,
-        storageConfig
-      }
-    );
+    const storageConfig = mongoSyncRules.getStorageConfig();
+    const storage = new MongoSyncBucketStorage(this, id, mongoSyncRules, slot_name, undefined, {
+      ...this.internalOptions,
+      storageConfig
+    });
     if (!options?.skipLifecycleHooks) {
       this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
     }
@@ -74,6 +78,48 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       }
     });
     return storage;
+  }
+
+  async createCombinedWriter(
+    storages: storage.SyncRulesBucketStorage[],
+    options: CreateWriterOptions
+  ): Promise<MongoBucketDataWriter> {
+    const mongoStorages = storages as MongoSyncBucketStorage[];
+    const mappings = mongoStorages.map((s) => s.sync_rules.mapping);
+    const mergedMappings = BucketDefinitionMapping.merged(mappings);
+    const mergedProcessor = MergedSyncRules.merge(mongoStorages.map((s) => s.getParsedSyncRules(options)));
+
+    const writer = new MongoBucketDataWriter({
+      db: this.db.versioned(mongoStorages[0].sync_rules.getStorageConfig()),
+      mapping: mergedMappings,
+      markRecordUnavailable: options.markRecordUnavailable,
+      rowProcessor: mergedProcessor,
+      skipExistingRows: options.skipExistingRows ?? false,
+      slotName: '',
+      storeCurrentData: options.storeCurrentData,
+      logger: options.logger
+    });
+
+    for (let storage of mongoStorages) {
+      const doc = await this.db.sync_rules.findOne(
+        {
+          _id: storage.group_id
+        },
+        { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1, snapshot_lsn: 1 } }
+      );
+      const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
+      const parsedSyncRules = storage.getParsedSyncRules(options);
+      const batch = writer.forSyncRules({
+        syncRules: parsedSyncRules,
+
+        lastCheckpointLsn: checkpoint_lsn,
+        resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
+        keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
+      });
+      storage.iterateListeners((cb) => cb.batchStarted?.(batch));
+    }
+
+    return writer;
   }
 
   async getSystemIdentifier(): Promise<storage.BucketStorageSystemIdentifier> {
@@ -164,7 +210,17 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP } }
+        { $set: { state: storage.SyncRuleState.STOP } },
+        {
+          session: this.session
+        }
+      );
+
+      const activeSyncRules = await this.db.sync_rules.findOne(
+        {
+          state: storage.SyncRuleState.ACTIVE
+        },
+        { session: this.session }
       );
 
       const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
@@ -178,22 +234,76 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         },
         {
           upsert: true,
-          returnDocument: 'after'
+          returnDocument: 'after',
+          session: this.session
         }
       );
 
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
+      const syncRules = SqlSyncRules.fromYaml(options.config.yaml, {
+        // No schema-based validation at this point
+        schema: undefined,
+        defaultSchema: 'not_applicable', // Not needed for validation
+        throwOnError: false
+      });
+      let bucketDefinitionMapping: Record<string, number> = {};
+      let parameterDefinitionMapping: Record<string, number> = {};
+      let bucketDefinitionId = (id << 16) + 1;
+      let parameterDefinitionId = (id << 17) + 1;
+
+      let existingMapping: BucketDefinitionMapping;
+      if (activeSyncRules != null) {
+        existingMapping = BucketDefinitionMapping.fromSyncRules(activeSyncRules);
+      } else {
+        existingMapping = new BucketDefinitionMapping({}, {});
+      }
+
+      syncRules.config.hydrate({
+        hydrationState: {
+          getBucketSourceScope(source: BucketDataSource) {
+            const existingId = existingMapping.equivalentBucketSourceId(source);
+            if (existingId != null) {
+              bucketDefinitionMapping[source.uniqueName] = existingId;
+            } else {
+              bucketDefinitionMapping[source.uniqueName] = bucketDefinitionId;
+              bucketDefinitionId += 1;
+            }
+            return {
+              // N/A
+              bucketPrefix: '',
+              source
+            };
+          },
+          getParameterIndexLookupScope(source: ParameterIndexLookupCreator) {
+            const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
+            const existingId = existingMapping.equivalentParameterLookupId(source);
+            if (existingId != null) {
+              parameterDefinitionMapping[key] = existingId;
+            } else {
+              parameterDefinitionMapping[key] = parameterDefinitionId;
+              parameterDefinitionId += 1;
+            }
+            // N/A
+            return source.defaultLookupScope;
+          }
+        }
+      });
+
+      const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
       const doc: SyncRuleDocument = {
         _id: id,
         storage_version: storageVersion,
         content: options.config.yaml,
         serialized_plan: options.config.plan,
-        last_checkpoint: null,
+        last_checkpoint: activeSyncRules?.last_checkpoint ?? null,
         last_checkpoint_lsn: null,
         no_checkpoint_before: null,
-        keepalive_op: null,
+        // HACK: copy the op from the active sync rules, if any.
+        // This specifically helps for the case of the new sync rules not replicating anything new.
+        // FIXME: Make sure this is properly sound and tested.
+        keepalive_op: activeSyncRules?.last_checkpoint ? String(activeSyncRules.last_checkpoint) : null,
         snapshot_done: false,
         snapshot_lsn: undefined,
         state: storage.SyncRuleState.PROCESSING,
@@ -201,13 +311,17 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         last_checkpoint_ts: null,
         last_fatal_error: null,
         last_fatal_error_ts: null,
-        last_keepalive_ts: null
+        last_keepalive_ts: null,
+        rule_mapping: {
+          definitions: bucketDefinitionMapping,
+          parameter_lookups: parameterDefinitionMapping
+        }
       };
-      await this.db.sync_rules.insertOne(doc);
+      await this.db.sync_rules.insertOne(doc, { session: this.session });
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);
       if (options.lock) {
-        const lock = await rules.lock();
+        await rules.lock();
       }
     });
 
@@ -247,6 +361,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       .find({
         state: { $in: [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE] }
       })
+      // Prioritize "ACTIVE" first
+      .sort({ state: 1, _id: 1 })
       .toArray();
 
     return docs.map((doc) => {

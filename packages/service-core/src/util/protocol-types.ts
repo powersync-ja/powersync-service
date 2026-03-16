@@ -1,5 +1,5 @@
 import { JsonContainer } from '@powersync/service-jsonbig';
-import { BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { BucketDataScope, BucketPriority, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as t from 'ts-codec';
 
 export const BucketRequest = t.object({

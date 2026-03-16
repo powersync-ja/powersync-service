@@ -1,6 +1,6 @@
 export * from './implementation/db.js';
 export * from './implementation/models.js';
-export * from './implementation/MongoBucketBatch.js';
+export * from './implementation/MongoBucketDataWriter.js';
 export * from './implementation/MongoIdSequence.js';
 export * from './implementation/MongoPersistedSyncRulesContent.js';
 export * from './implementation/MongoStorageProvider.js';
