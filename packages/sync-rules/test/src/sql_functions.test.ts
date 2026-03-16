@@ -364,15 +364,13 @@ describe('SQL functions', () => {
     expect(fn.instr('abcdef', 'cde')).toEqual(3);
     expect(fn.instr('abcdef', 'ef')).toEqual(5);
 
-    // Special characters
+    // Special characters and emojis
     expect(fn.instr('foo|bar|baz', '|')).toEqual(4);
     expect(fn.instr('foo.bar', '.')).toEqual(4);
     expect(fn.instr('hello\nworld', '\n')).toEqual(6);
     expect(fn.instr('path/to/file', '/')).toEqual(5);
-
-    // Convex JWT use case - extracting user ID before the | character
-    const convexSub = 'k5764nz5tn54hncf94wh9458bn82nx89|jh76fr94jnqm0z5sqbc4wbx2vn82vmke';
-    expect(fn.instr(convexSub, '|')).toEqual(33);
+    expect(fn.instr('rofl 😂', '😂')).toEqual(6);
+    expect(fn.instr('😂😂', '😂')).toEqual(1);
 
     // Numeric inputs (converted to string via toString)
     expect(fn.instr(12345, '3')).toEqual(3);
@@ -398,7 +396,7 @@ describe('SQL functions', () => {
     expect(fn.instr('hello world', enc.encode('world'))).toEqual(7);
     expect(fn.instr(enc.encode('abc'), 'xyz')).toEqual(0);
 
-    //NULL handling
+    // NULL handling
     expect(fn.instr(null, enc.encode('a'))).toEqual(null);
     expect(fn.instr(enc.encode('a'), null)).toEqual(null);
   });
