@@ -185,10 +185,22 @@ bucket_definitions:
           if (f instanceof mongo_storage.storage.MongoBucketStorage) {
             const opsBefore = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
               .filter((row) => row._id.o <= checkpoint)
+              .map((row) =>
+                mongo_storage.storage.bucketDataDocumentToTagged(
+                  row,
+                  mongo_storage.storage.LEGACY_BUCKET_DATA_DEFINITION_ID
+                )
+              )
               .map(mongo_storage.storage.mapOpEntry);
             await storage.compact({ maxOpId: checkpoint });
             const opsAfter = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
               .filter((row) => row._id.o <= checkpoint)
+              .map((row) =>
+                mongo_storage.storage.bucketDataDocumentToTagged(
+                  row,
+                  mongo_storage.storage.LEGACY_BUCKET_DATA_DEFINITION_ID
+                )
+              )
               .map(mongo_storage.storage.mapOpEntry);
 
             test_utils.validateCompactedBucket(opsBefore, opsAfter);
@@ -252,7 +264,11 @@ bucket_definitions:
         const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
 
         // All a single bucket in this test
-        const bucket = ops.map((op) => mongo_storage.storage.mapOpEntry(op));
+        const bucket = ops
+          .map((op) =>
+            mongo_storage.storage.bucketDataDocumentToTagged(op, mongo_storage.storage.LEGACY_BUCKET_DATA_DEFINITION_ID)
+          )
+          .map((op) => mongo_storage.storage.mapOpEntry(op));
         const reduced = test_utils.reduceBucket(bucket);
         expect(reduced).toMatchObject([
           {
