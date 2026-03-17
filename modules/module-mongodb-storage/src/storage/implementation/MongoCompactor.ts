@@ -111,7 +111,7 @@ export class MongoCompactor {
         // We can make this more efficient later on by iterating
         // through the buckets in a single query.
         // That makes batching more tricky, so we leave for later.
-        await this.compactSingleBucket(bucket);
+        await this.compactSingleBucketRetried(bucket);
       }
     } else {
       await this.compactDirtyBuckets();
@@ -131,7 +131,30 @@ export class MongoCompactor {
       }
 
       for (let { bucket } of buckets) {
+        await this.compactSingleBucketRetried(bucket);
+      }
+    }
+  }
+
+  /**
+   * Compaction for a single bucket, with retries on failure.
+   *
+   * This covers against occasional network or other database errors during a long compact job.
+   */
+  private async compactSingleBucketRetried(bucket: string) {
+    let retryCount = 0;
+    while (true) {
+      try {
         await this.compactSingleBucket(bucket);
+        break;
+      } catch (e) {
+        if (retryCount < 3) {
+          logger.warn(`Error compacting bucket ${bucket}, retrying...`, e);
+          retryCount++;
+          await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
+        } else {
+          throw e;
+        }
       }
     }
   }
