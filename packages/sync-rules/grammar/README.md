@@ -18,7 +18,7 @@ A script at `scripts/generate-grammar-docs.ts` parses the EBNF files and produce
 
 ```bash
 # From the repo root
-pnpm --filter='./packages/sync-rules' generate:grammar-flat
+pnpm --filter='./packages/sync-rules' generate:grammar
 ```
 
 This generates output into `grammar/docs/`:

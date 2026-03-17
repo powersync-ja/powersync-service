@@ -208,7 +208,7 @@ const GRAMMARS: GrammarConfig[] = [
 
 const DEFAULT_LEXICAL_NOTES: Record<string, string> = {
   Identifier:
-    'Bare identifiers are normalized to uppercase and may contain letters, digits, and underscores. Double-quoted identifiers ("name") allow any printable character and support escaped quotes ("").',
+    'Bare identifiers are normalized to lower case and may contain letters, digits, and underscores. Double-quoted identifiers ("name") allow any printable character and support escaped quotes ("").',
   StringLiteral: "Single-quoted string literal. Embedded single quotes are escaped by doubling them ('').",
   IntegerLiteral: 'One or more decimal digits (0-9).',
   NumericLiteral: 'Decimal number: one or more digits with an optional fractional part (.digits).'
