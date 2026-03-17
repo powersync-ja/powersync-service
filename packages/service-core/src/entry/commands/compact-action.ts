@@ -62,6 +62,15 @@ export function registerCompactAction(program: Command) {
       serviceMode: system.ServiceContextMode.COMPACT,
       configuration: config
     });
+    const abortController = new AbortController();
+    const completion = Promise.withResolvers<void>();
+
+    serviceContext.lifeCycleEngine.withLifecycle(null, {
+      stop: async () => {
+        abortController.abort();
+        await completion.promise;
+      }
+    });
 
     // Register modules in order to allow custom module compacting
     const moduleManager = container.getImplementation(modules.ModuleManager);
@@ -84,12 +93,14 @@ export function registerCompactAction(program: Command) {
         await active.compact({
           memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
           compactBuckets: buckets,
-          compactParameterData: compactParameters ?? false
+          compactParameterData: compactParameters ?? false,
+          signal: abortController.signal
         });
       } else {
         await active.compact({
           memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
-          compactParameterData: compactParameters ?? true
+          compactParameterData: compactParameters ?? true,
+          signal: abortController.signal
         });
       }
       logger.info('Successfully compacted storage.');
@@ -98,6 +109,8 @@ export function registerCompactAction(program: Command) {
       // Indirectly triggers lifeCycleEngine.stop
       process.exit(1);
     } finally {
+      // No need to propagate errors on completion - this merely signals that the process can exit.
+      completion.resolve();
       // Indirectly triggers lifeCycleEngine.stop
       process.exit(0);
     }
