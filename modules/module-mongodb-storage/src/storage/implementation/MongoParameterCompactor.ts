@@ -21,7 +21,7 @@ export class MongoParameterCompactor {
   ) {}
 
   async compact() {
-    logger.info(`Compacting parameters for group ${this.group_id} up to checkpoint ${this.checkpoint}`);
+    logger.info(`Compacting parameters for sync config ${this.group_id} up to checkpoint ${this.checkpoint}`);
     // This is the currently-active checkpoint.
     // We do not remove any data that may be used by this checkpoint.
     // snapshot queries ensure that if any clients are still using older checkpoints, they would

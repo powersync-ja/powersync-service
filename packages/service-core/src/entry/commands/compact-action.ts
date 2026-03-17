@@ -25,7 +25,9 @@ const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
 export function registerCompactAction(program: Command) {
   const compactCommand = program
     .command(COMMAND_NAME)
-    .option(`-b, --buckets [buckets]`, 'Full bucket names, comma-separated (e.g., "global[],mybucket[\\"user1\\"]")');
+    .option(`-b, --buckets [buckets]`, 'Full bucket names, comma-separated (e.g., "global[],mybucket[\\"user1\\"]")')
+    .option('-p, --parameter-indexes', 'Compacting parameter indexes. Defaults to set unless --buckets is provided.')
+    .option('--no-parameter-indexes', 'Disabling compacting parameter indexes.');
 
   wrapConfigCommand(compactCommand);
 
@@ -44,11 +46,17 @@ export function registerCompactAction(program: Command) {
         process.exit(1);
       }
     }
+
+    let compactParameters: boolean | null = options.parameterIndexes;
+
     if (buckets == null) {
       logger.info('Compacting storage for all buckets...');
+    } else if (buckets.length == 0) {
+      logger.info('Skipping bucket compaction');
     } else {
       logger.info(`Compacting storage for ${buckets?.join(', ')}...`);
     }
+
     const config = await utils.loadConfig(extractRunnerOptions(options));
     const serviceContext = new system.ServiceContextContainer({
       serviceMode: system.ServiceContextMode.COMPACT,
@@ -71,15 +79,18 @@ export function registerCompactAction(program: Command) {
         logger.info('No active instance to compact');
         return;
       }
-      logger.info('Performing compaction...');
       if (buckets != null) {
+        logger.info('Performing compaction...');
         await active.compact({
           memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
           compactBuckets: buckets,
-          compactParameterData: false
+          compactParameterData: compactParameters ?? false
         });
       } else {
-        await active.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactParameterData: true });
+        await active.compact({
+          memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
+          compactParameterData: compactParameters ?? true
+        });
       }
       logger.info('Successfully compacted storage.');
     } catch (e) {
