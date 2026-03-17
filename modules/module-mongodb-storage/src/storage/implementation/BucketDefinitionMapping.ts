@@ -51,12 +51,25 @@ export class BucketDefinitionMapping {
   }
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
-    const key = `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`;
+    const key = this.parameterLookupKey(source.defaultLookupScope.lookupName, source.defaultLookupScope.queryId);
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
       throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);
     }
     return defId;
+  }
+
+  parameterLookupScopeId(scope: Pick<ParameterIndexLookupCreator['defaultLookupScope'], 'lookupName' | 'queryId'>) {
+    const key = this.parameterLookupKey(scope.lookupName, scope.queryId);
+    const defId = this.parameterLookupMapping[key];
+    if (defId == null) {
+      throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);
+    }
+    return defId;
+  }
+
+  private parameterLookupKey(lookupName: string, queryId: string) {
+    return `${lookupName}#${queryId}`;
   }
 
   serialize(): NonNullable<SyncRuleDocument['rule_mapping']> {

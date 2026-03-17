@@ -453,7 +453,11 @@ export class MongoSyncBucketStorage
 
       const lookupsByIndex = new Map<string, bson.Binary[]>();
       for (const lookup of lookups) {
-        const indexId = this.sync_rules.mapping.parameterLookupId(lookup.source);
+        const [lookupName, queryId] = lookup.values;
+        if (typeof lookupName != 'string' || typeof queryId != 'string') {
+          throw new ServiceAssertionError('Invalid scoped parameter lookup identifier');
+        }
+        const indexId = this.sync_rules.mapping.parameterLookupScopeId({ lookupName, queryId });
         const existing = lookupsByIndex.get(indexId) ?? [];
         existing.push(storage.serializeLookup(lookup));
         lookupsByIndex.set(indexId, existing);
