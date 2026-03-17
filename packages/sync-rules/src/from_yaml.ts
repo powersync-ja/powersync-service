@@ -17,6 +17,8 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
+import { PreparedSubquery } from './compiler/sqlite.js';
+import { TablePattern } from './TablePattern.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -76,11 +78,22 @@ export class SyncConfigFromYaml {
     // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap | null;
     const streamMap = parsed.get('streams') as YAMLMap | null;
+    const globalCtes = parsed.get('with') as YAMLMap | null;
 
     let result: SyncConfig;
     if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
-      result = this.#compileSyncPlan(bucketMap, streamMap, compatibility);
+      result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, compatibility);
     } else {
+      if (globalCtes != null) {
+        // We don't support CTEs at all in this compiler implementation.
+        this.#errors.push(
+          this.#yamlError(
+            globalCtes as Node,
+            'Common table expressions are not supported without the `sync_config_compiler` option.'
+          )
+        );
+      }
+
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
     }
 
@@ -149,7 +162,12 @@ export class SyncConfigFromYaml {
     return compatibility;
   }
 
-  #compileSyncPlan(bucketMap: YAMLMap | null, streamMap: YAMLMap | null, compatibility: CompatibilityContext) {
+  #compileSyncPlan(
+    bucketMap: YAMLMap | null,
+    streamMap: YAMLMap | null,
+    globalCtes: YAMLMap | null,
+    compatibility: CompatibilityContext
+  ) {
     if (bucketMap != null) {
       this.#errors.push(
         this.#yamlError(
@@ -163,6 +181,40 @@ export class SyncConfigFromYaml {
     }
 
     const compiler = new SyncStreamsCompiler(this.options);
+
+    const parseCommonTableExpressions = (from: YAMLMap | null): Map<string, PreparedSubquery> => {
+      const map = new Map();
+      if (from != null) {
+        for (const entry of from.items ?? []) {
+          const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Scalar };
+          const cteName = cteNameScalar.value;
+
+          if (this.options.schema) {
+            // Emit a warning if the CTE shadows a name from the schema.
+            const pattern = new TablePattern(this.options.defaultSchema, cteName);
+            if (this.options.schema.getTables(pattern)?.length > 0) {
+              const error = this.#yamlError(
+                cteNameScalar,
+                'This common table expression shadows the name of a table in the source schema.'
+              );
+              error.type = 'warning';
+              this.#errors.push(error);
+            }
+          }
+
+          const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
+          const parsed = compiler.commonTableExpression(sql, errorListener);
+          if (parsed) {
+            map.set(cteName, parsed);
+          }
+        }
+      }
+
+      return map;
+    };
+
+    const parsedGlobalCommonTableExpressions = parseCommonTableExpressions(globalCtes);
+
     for (const entry of streamMap?.items ?? []) {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       if (!(value instanceof YAMLMap)) {
@@ -175,24 +227,20 @@ export class SyncConfigFromYaml {
         continue;
       }
 
-      const $with = value.get('with') as YAMLMap | null;
       const streamCompiler = compiler.stream({
         name: key,
         isSubscribedByDefault: value.get('auto_subscribe', true)?.value == true,
         priority: this.#parsePriority(value) ?? DEFAULT_BUCKET_PRIORITY,
         warnOnDangerousParameter: !this.#acceptPotentiallyUnsafeQueries(value)
       });
+      parsedGlobalCommonTableExpressions.forEach((query, name) =>
+        streamCompiler.registerCommonTableExpression(name, query)
+      );
 
-      if ($with != null) {
-        for (const entry of $with.items ?? []) {
-          const { key: cteName, value: cteQuery } = entry as { key: Scalar<string>; value: Scalar };
-          const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
-          const parsed = compiler.commonTableExpression(sql, errorListener);
-          if (parsed) {
-            streamCompiler.registerCommonTableExpression(cteName.value, parsed);
-          }
-        }
-      }
+      // Add stream-local CTEs, which shadow global definitions.
+      parseCommonTableExpressions(value.get('with') as YAMLMap | null).forEach((query, name) =>
+        streamCompiler.registerCommonTableExpression(name, query)
+      );
 
       const addQuery = (query: Scalar<string>) => {
         const [sql, errorListener] = this.#scalarErrorListener(query);
