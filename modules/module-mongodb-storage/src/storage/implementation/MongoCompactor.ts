@@ -186,45 +186,44 @@ export class MongoCompactor {
     };
 
     // Constant lower bound
-    const lowerBound = this.bucketDataKey({
-      _id: { b: bucket, o: new mongo.MinKey() as any },
-      def: bucketCollection.definitionId
-    });
+    const lowerBound = this.bucketDataKey(bucket, new mongo.MinKey() as any);
 
     // Upper bound is adjusted for each batch
-    let upperBound = this.bucketDataKey({
-      _id: { b: bucket, o: new mongo.MaxKey() as any },
-      def: bucketCollection.definitionId
-    });
+    let upperBound = this.bucketDataKey(bucket, new mongo.MaxKey() as any);
 
     try {
       while (!this.signal?.aborted) {
         // Query one batch at a time, to avoid cursor timeouts
-        const cursor = bucketCollection.collection.aggregate<BucketDataCollectionDocument & { size: number | bigint }>(
-          [
-            {
-              $match: {
-                _id: {
-                  $gte: lowerBound,
-                  $lt: upperBound
-                }
-              }
-            },
-            { $sort: { _id: -1 } },
-            { $limit: this.moveBatchQueryLimit },
-            {
-              $project: {
-                _id: 1,
-                op: 1,
-                table: 1,
-                row_id: 1,
-                source_table: 1,
-                source_key: 1,
-                checksum: 1,
-                size: { $bsonSize: '$$ROOT' }
-              }
+        const pipeline = [
+          {
+            $match: {
+              _id: {
+                $gte: lowerBound,
+                $lt: upperBound
+              },
+              // Workaround for bug with clustered collections (storage v3), where the $lt operator
+              // may include the upperBound.
+              // https://jira.mongodb.org/browse/SERVER-121822
+              '_id.o': { $lt: upperBound.o }
             }
-          ],
+          },
+          { $sort: { _id: -1 } },
+          { $limit: this.moveBatchQueryLimit },
+          {
+            $project: {
+              _id: 1,
+              op: 1,
+              table: 1,
+              row_id: 1,
+              source_table: 1,
+              source_key: 1,
+              checksum: 1,
+              size: { $bsonSize: '$$ROOT' }
+            }
+          }
+        ];
+        const cursor = bucketCollection.collection.aggregate<BucketDataCollectionDocument & { size: number | bigint }>(
+          pipeline,
           {
             // batchSize is 1 more than limit to auto-close the cursor.
             // See https://github.com/mongodb/node-mongodb-native/pull/4580
@@ -241,8 +240,8 @@ export class MongoCompactor {
           break;
         }
 
-        // Set upperBound for the next batch
-        upperBound = this.bucketDataKey(batch[batch.length - 1]);
+        // Reuse the exact collection _id value from Mongo for the next bound
+        upperBound = rawBatch[rawBatch.length - 1]._id;
 
         for (let doc of batch) {
           if (doc._id.o > this.maxOpId) {
@@ -264,7 +263,7 @@ export class MongoCompactor {
 
               this.updates.push({
                 updateOne: {
-                  filter: { _id: this.bucketDataKey(doc) },
+                  filter: { _id: this.bucketDataKey(doc._id.b, doc._id.o) },
                   update: {
                     $set: {
                       op: 'MOVE',
@@ -420,11 +419,8 @@ export class MongoCompactor {
 
     const opFilter = {
       _id: {
-        $gte: this.bucketDataKey({
-          _id: { b: bucket, o: new mongo.MinKey() as any },
-          def: this.activeBucketDefinitionId
-        }),
-        $lte: this.bucketDataKey({ _id: { b: bucket, o: clearOp }, def: this.activeBucketDefinitionId })
+        $gte: this.bucketDataKey(bucket, new mongo.MinKey() as any),
+        $lte: this.bucketDataKey(bucket, clearOp)
       }
     };
 
@@ -487,11 +483,8 @@ export class MongoCompactor {
             await bucketCollection.deleteMany(
               {
                 _id: {
-                  $gte: this.bucketDataKey({
-                    _id: { b: bucket, o: new mongo.MinKey() as any },
-                    def: this.activeBucketDefinitionId
-                  }),
-                  $lte: this.bucketDataKey(lastOp!)
+                  $gte: this.bucketDataKey(bucket, new mongo.MinKey() as any),
+                  $lte: this.bucketDataKey(lastOp!._id.b, lastOp!._id.o)
                 }
               } as any,
               { session } as any
@@ -749,24 +742,16 @@ export class MongoCompactor {
     await this.flush();
   }
 
-  private bucketDataKey(document: Pick<TaggedBucketDataDocument, '_id' | 'def'>) {
+  private bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey) {
     if (this.db.storageConfig.incrementalReprocessing) {
-      return taggedBucketDataDocumentToV3({
-        def: document.def,
-        _id: document._id,
-        op: 'CLEAR',
-        checksum: 0n,
-        data: null
-      })._id;
+      return { b: bucket, o: opId as any };
     }
 
-    return taggedBucketDataDocumentToV1(this.group_id, {
-      def: document.def,
-      _id: document._id,
-      op: 'CLEAR',
-      checksum: 0n,
-      data: null
-    })._id;
+    return {
+      g: this.group_id,
+      b: bucket,
+      o: opId as any
+    };
   }
 
   private async getBucketDataCollection(
