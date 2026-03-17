@@ -36,6 +36,7 @@ import {
   BucketDataDocumentV1,
   BucketDataKeyV1,
   BucketDataDocumentV3,
+  BucketParameterDocumentV3,
   BucketStateDocument,
   CommonSourceTableDocument,
   LEGACY_BUCKET_DATA_DEFINITION_ID,
@@ -451,60 +452,92 @@ export class MongoSyncBucketStorage
     return this.db.client.withSession({ snapshot: true }, async (session) => {
       setSessionSnapshotTime(session, checkpoint.snapshotTime);
 
-      const lookupsByIndex = new Map<string, bson.Binary[]>();
-      for (const lookup of lookups) {
+      // Conceptually we do each lookup separately as an aggregation pipeline. We then
+      // use $unionWith to combine it all into a single operation.
+      // This helps to:
+      //  1. Handle different collections in the same query (although this may not be common in practice).
+      //  2. Efficiently use the index to get the first item grouped by {lookup, key}.
+      // The index is on { lookup: 1, key: 1, _id: -1 }.
+
+      const buildLookupPipeline = (
+        lookup: ScopedParameterLookup
+      ): {
+        collection: mongo.Collection<BucketParameterDocumentV3>;
+        pipeline: mongo.Document[];
+      } => {
         const [lookupName, queryId] = lookup.values;
         if (typeof lookupName != 'string' || typeof queryId != 'string') {
           throw new ServiceAssertionError('Invalid scoped parameter lookup identifier');
         }
         const indexId = this.sync_rules.mapping.parameterLookupScopeId({ lookupName, queryId });
-        const existing = lookupsByIndex.get(indexId) ?? [];
-        existing.push(storage.serializeLookup(lookup));
-        lookupsByIndex.set(indexId, existing);
-      }
-
-      const groupedParameters: SqliteJsonRow[][] = [];
-      // FIXME: Optimize these lookups, properly utilizing the new index on {lookup: 1, key: 1, _id: -1}.
-      for (const [indexId, lookupFilter] of lookupsByIndex.entries()) {
-        const rows = await this.db
-          .bucket_parameters_v3(this.group_id, indexId)
-          .aggregate(
-            [
-              {
-                $match: {
-                  lookup: { $in: lookupFilter },
-                  _id: { $lte: checkpoint.checkpoint }
-                }
-              },
-              {
-                $sort: {
-                  _id: -1
-                }
-              },
-              {
-                $group: {
-                  _id: { key: '$key', lookup: '$lookup' },
-                  bucket_parameters: {
-                    $first: '$bucket_parameters'
-                  }
+        const collection = this.db.bucket_parameters_v3(this.group_id, indexId);
+        const lookupFilter = storage.serializeLookup(lookup);
+        return {
+          collection,
+          pipeline: [
+            {
+              $match: {
+                lookup: lookupFilter,
+                _id: { $lte: checkpoint.checkpoint }
+              }
+            },
+            {
+              $sort: {
+                key: 1,
+                _id: -1
+              }
+            },
+            {
+              $group: {
+                _id: {
+                  key: '$key'
+                },
+                bucket_parameters: {
+                  $first: '$bucket_parameters'
                 }
               }
-            ],
+            },
             {
-              session,
-              readConcern: 'snapshot',
-              maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+              $project: {
+                _id: 0,
+                bucket_parameters: 1
+              }
             }
-          )
-          .toArray()
-          .catch((e) => {
-            throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
-          });
+          ]
+        };
+      };
 
-        groupedParameters.push(...rows.map((row) => row.bucket_parameters));
+      const [firstLookup, ...remainingLookups] = lookups;
+      const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup);
+      if (firstQuery == null) {
+        return [];
       }
 
-      return groupedParameters.flat();
+      const pipeline: mongo.Document[] = [
+        ...firstQuery.pipeline,
+        ...remainingLookups.map((lookup) => {
+          const query = buildLookupPipeline(lookup);
+          return {
+            $unionWith: {
+              coll: query.collection.collectionName,
+              pipeline: query.pipeline
+            }
+          };
+        })
+      ];
+
+      const rows = await firstQuery.collection
+        .aggregate<{ bucket_parameters: SqliteJsonRow[] }>(pipeline, {
+          session,
+          readConcern: 'snapshot',
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+        })
+        .toArray()
+        .catch((e) => {
+          throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
+        });
+
+      return rows.flatMap((row) => row.bucket_parameters);
     });
   }
 
