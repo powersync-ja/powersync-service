@@ -1,0 +1,29 @@
+ParameterQuery ::= TableValuedParameterQuery | TableParameterQuery | StaticParameterQuery
+
+TableValuedParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" JsonEachCall ("AS" Identifier)? ("WHERE" WhereClause)?
+
+TableParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" Reference ("WHERE" WhereClause)?
+
+StaticParameterQuery ::= "SELECT" SelectItem ("," SelectItem)* ("WHERE" WhereClause)?
+
+DataQuery ::= "SELECT" ("*" | SelectItem) ("," SelectItem)* "FROM" Reference ("WHERE" WhereClause)?
+
+SelectItem ::= Expression ("AS" Identifier)?
+
+JsonEachCall ::= "JSON_EACH" "(" Expression ")"
+
+WhereClause ::= "NOT"? (Predicate | "(" WhereClause ")") ("AND" "NOT"? (Predicate | "(" WhereClause ")"))* ("OR" "NOT"? (Predicate | "(" WhereClause ")") ("AND" "NOT"? (Predicate | "(" WhereClause ")"))*)*
+
+Predicate ::= Expression ("=" Expression | "IN" Expression | "&&" Expression | "IS" "NOT"? "NULL") | Expression
+
+Expression ::= PrimaryExpression PropertyAccess? ((«operator» PrimaryExpression PropertyAccess?)+)?
+
+PropertyAccess ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
+
+Reference ::= Identifier ("." Identifier)?
+
+CastExpression ::= "CAST" "(" Expression "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
+
+FunctionCall ::= Reference "(" (Expression ("," Expression)*)? ")"
+
+PrimaryExpression ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CastExpression | FunctionCall | Reference | "(" Expression ")"
