@@ -66,6 +66,7 @@ export class MongoParameterCompactor {
 
     while (await cursor.hasNext()) {
       const batch = cursor.readBufferedDocuments();
+      logger.info(`Checking batch of ${batch.length} parameter index entries for compaction...`);
       for (let doc of batch) {
         if (doc._id >= checkpoint) {
           continue;
