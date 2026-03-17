@@ -1,4 +1,4 @@
-import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
+import { isMongoServerError, mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   addChecksums,
@@ -111,7 +111,7 @@ export class MongoCompactor {
         // We can make this more efficient later on by iterating
         // through the buckets in a single query.
         // That makes batching more tricky, so we leave for later.
-        await this.compactSingleBucket(bucket);
+        await this.compactSingleBucketRetried(bucket);
       }
     } else {
       await this.compactDirtyBuckets();
@@ -123,15 +123,36 @@ export class MongoCompactor {
       minBucketChanges: this.minBucketChanges,
       minChangeRatio: this.minChangeRatio
     })) {
-      if (this.signal?.aborted) {
-        break;
-      }
+      this.signal?.throwIfAborted();
       if (buckets.length == 0) {
         continue;
       }
 
       for (let { bucket } of buckets) {
+        await this.compactSingleBucketRetried(bucket);
+      }
+    }
+  }
+
+  /**
+   * Compaction for a single bucket, with retries on failure.
+   *
+   * This covers against occasional network or other database errors during a long compact job.
+   */
+  private async compactSingleBucketRetried(bucket: string) {
+    let retryCount = 0;
+    while (true) {
+      try {
         await this.compactSingleBucket(bucket);
+        break;
+      } catch (e) {
+        if (retryCount < 3 && isMongoServerError(e)) {
+          logger.warn(`Error compacting bucket ${bucket}, retrying...`, e);
+          retryCount++;
+          await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
+        } else {
+          throw e;
+        }
       }
     }
   }
@@ -165,7 +186,9 @@ export class MongoCompactor {
       o: new mongo.MaxKey() as any
     };
 
-    while (!this.signal?.aborted) {
+    while (true) {
+      this.signal?.throwIfAborted();
+
       // Query one batch at a time, to avoid cursor timeouts
       const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>(
         [
@@ -393,7 +416,8 @@ export class MongoCompactor {
     const session = this.db.client.startSession();
     try {
       let done = false;
-      while (!done && !this.signal?.aborted) {
+      while (!done) {
+        this.signal?.throwIfAborted();
         let opCountDiff = 0;
         // Do the CLEAR operation in batches, with each batch a separate transaction.
         // The state after each batch is fully consistent.
@@ -486,12 +510,14 @@ export class MongoCompactor {
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
     let count = 0;
-    while (!this.signal?.aborted) {
+    while (true) {
+      this.signal?.throwIfAborted();
       const buckets = await this.dirtyBucketBatchForChecksums(options);
-      if (buckets.length == 0 || this.signal?.aborted) {
+      if (buckets.length == 0) {
         // All done
         break;
       }
+      this.signal?.throwIfAborted();
 
       const start = Date.now();
 
