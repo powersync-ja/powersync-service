@@ -1,0 +1,51 @@
+SelectStatement ::= "SELECT" SelectItem ("," SelectItem)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
+
+SelectItem ::= "*" | Reference "." "*" | Expression ("AS" Identifier)?
+
+Reference ::= Identifier ("." Identifier)?
+
+FromSource ::= TableValuedSource | SubquerySource | TableSource
+
+TableSource ::= Reference "AS" Identifier | Reference
+
+TableValuedCall ::= Identifier "(" (Expression ("," Expression)*)? ")"
+
+TableValuedSource ::= TableValuedCall "AS" Identifier | TableValuedCall
+
+SubquerySource ::= "(" Subquery ")" "AS" Identifier ("(" Identifier ("," Identifier)* ")")?
+
+JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereClause)?
+
+WhereClause ::= "NOT"? Condition ("AND" "NOT"? Condition)* ("OR" "NOT"? Condition ("AND" "NOT"? Condition)*)*
+
+Condition ::= (Expression PredicateTail | Expression) | "(" WhereClause ")"
+
+PredicateTail ::= "=" Expression | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" Expression "AND" Expression
+
+InSource ::= "(" Subquery ")" | Identifier | Expression
+
+Expression ::= PrimaryExpression PropertyAccess? ((«operator» PrimaryExpression PropertyAccess?)+)?
+
+PropertyAccess ::= (("->>" | "->") (StringLiteral | IntegerLiteral))+
+
+PrimaryExpression ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpression | CastExpression | FunctionCall | Reference | "(" Expression ")"
+
+CaseExpression ::= SearchedCase | SimpleCase
+
+SearchedCase ::= "CASE" WhenClause ("ELSE" Expression)? "END"
+
+WhenClause ::= "WHEN" CaseCondition "THEN" Expression WhenClause?
+
+CaseCondition ::= "NOT"? Condition ("AND" "NOT"? Condition)* ("OR" "NOT"? Condition ("AND" "NOT"? Condition)*)*
+
+SimpleCase ::= "CASE" Expression WhenValueClause ("ELSE" Expression)? "END"
+
+WhenValueClause ::= "WHEN" Expression "THEN" Expression WhenValueClause?
+
+CastExpression ::= "CAST" "(" Expression "AS" ("TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB") ")"
+
+FunctionCall ::= Reference "(" (Expression ("," Expression)*)? ")"
+
+Subquery ::= "SELECT" SelectItem ("," SelectItem)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
+
+CteDefinition ::= "SELECT" Expression ("AS" Identifier)? ("," Expression ("AS" Identifier)?)* "FROM" FromSource ("," FromSource | JoinClause)* ("WHERE" WhereClause)?
