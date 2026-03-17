@@ -3,4 +3,4 @@
 '@powersync/service-core': patch
 ---
 
-Add option to explicitly enable/disable parameter compacting (MongoDB storage only).
+[MongoDB Storage] Add option to explicitly enable/disable parameter compacting, and improve abort behavior when compacting.
