@@ -49,6 +49,9 @@ export class MongoParameterCompactor {
     });
     let removeIds: InternalOpId[] = [];
     let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
+    let checkedEntries = 0;
+    let checkedEntriesAtLastLog = 0;
+    let lastProgressLogTime = Date.now();
 
     const flush = async (force: boolean) => {
       if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
@@ -66,7 +69,16 @@ export class MongoParameterCompactor {
 
     while (await cursor.hasNext()) {
       const batch = cursor.readBufferedDocuments();
-      logger.info(`Checking batch of ${batch.length} parameter index entries for compaction...`);
+      checkedEntries += batch.length;
+      const now = Date.now();
+      if (now - lastProgressLogTime >= 60_000) {
+        const elapsedSeconds = (now - lastProgressLogTime) / 1000;
+        const rate = (checkedEntries - checkedEntriesAtLastLog) / elapsedSeconds;
+        logger.info(`Checked ${checkedEntries} parameter index entries for compaction (${rate.toFixed(1)} entries/s)`);
+        lastProgressLogTime = now;
+        checkedEntriesAtLastLog = checkedEntries;
+      }
+
       for (let doc of batch) {
         if (doc._id >= checkpoint) {
           continue;
