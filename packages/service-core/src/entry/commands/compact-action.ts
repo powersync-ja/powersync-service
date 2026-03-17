@@ -105,7 +105,7 @@ export function registerCompactAction(program: Command) {
       }
       logger.info('Successfully compacted storage.');
     } catch (e) {
-      logger.error(`Failed to compact: ${e.toString()}`);
+      logger.error(`Failed to compact:`, e);
       // Indirectly triggers lifeCycleEngine.stop
       process.exit(1);
     } finally {
