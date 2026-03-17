@@ -1,4 +1,4 @@
-import { mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
+import { isMongoServerError, mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   addChecksums,
@@ -123,9 +123,7 @@ export class MongoCompactor {
       minBucketChanges: this.minBucketChanges,
       minChangeRatio: this.minChangeRatio
     })) {
-      if (this.signal?.aborted) {
-        break;
-      }
+      this.signal?.throwIfAborted();
       if (buckets.length == 0) {
         continue;
       }
@@ -148,7 +146,7 @@ export class MongoCompactor {
         await this.compactSingleBucket(bucket);
         break;
       } catch (e) {
-        if (retryCount < 3) {
+        if (retryCount < 3 && isMongoServerError(e)) {
           logger.warn(`Error compacting bucket ${bucket}, retrying...`, e);
           retryCount++;
           await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
@@ -188,7 +186,9 @@ export class MongoCompactor {
       o: new mongo.MaxKey() as any
     };
 
-    while (!this.signal?.aborted) {
+    while (true) {
+      this.signal?.throwIfAborted();
+
       // Query one batch at a time, to avoid cursor timeouts
       const cursor = this.db.bucket_data.aggregate<BucketDataDocument & { size: number | bigint }>(
         [
@@ -416,7 +416,8 @@ export class MongoCompactor {
     const session = this.db.client.startSession();
     try {
       let done = false;
-      while (!done && !this.signal?.aborted) {
+      while (!done) {
+        this.signal?.throwIfAborted();
         let opCountDiff = 0;
         // Do the CLEAR operation in batches, with each batch a separate transaction.
         // The state after each batch is fully consistent.
@@ -509,12 +510,14 @@ export class MongoCompactor {
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
     let count = 0;
-    while (!this.signal?.aborted) {
+    while (true) {
+      this.signal?.throwIfAborted();
       const buckets = await this.dirtyBucketBatchForChecksums(options);
-      if (buckets.length == 0 || this.signal?.aborted) {
+      if (buckets.length == 0) {
         // All done
         break;
       }
+      this.signal?.throwIfAborted();
 
       const start = Date.now();
 
