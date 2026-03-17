@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseConvexLsn, toConvexLsn } from '@module/common/ConvexLSN.js';
+import { parseConvexLsn, toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
 
 describe('Convex cursor LSN helpers', () => {
   it('validates and round-trips the numeric cursor', () => {
@@ -10,7 +10,7 @@ describe('Convex cursor LSN helpers', () => {
     expect(roundTrip).toBe('1772817606884944136');
   });
 
-  it('sorts lexicographically by timestamp', () => {
+  it('sorts lexicographically after validating fixed-width timestamps', () => {
     const older = toConvexLsn('1772817606884944136');
     const newer = toConvexLsn('1772817606884944137');
 
@@ -20,6 +20,14 @@ describe('Convex cursor LSN helpers', () => {
   it('handles bare numeric cursor string', () => {
     const parsed = parseConvexLsn('1772817606884944136');
     expect(parsed).toBe('1772817606884944136');
+  });
+
+  it('allows the zero sentinel', () => {
+    expect(parseConvexLsn(ZERO_LSN)).toBe(ZERO_LSN);
+  });
+
+  it('rejects non-19-digit numeric cursors', () => {
+    expect(() => parseConvexLsn('1770335566197683')).toThrow('Convex cursor is not a 19-digit numeric timestamp');
   });
 
   it('rejects padded serialized payloads', () => {

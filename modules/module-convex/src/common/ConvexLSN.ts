@@ -1,4 +1,6 @@
 export const ZERO_LSN = '0';
+// Convex replication cursors are fixed-width decimal timestamps.
+const CONVEX_TIMESTAMP_DIGITS = 19;
 
 export function parseConvexLsn(lsn: string): string {
   return toConvexLsn(lsn);
@@ -19,7 +21,15 @@ function assertValidConvexLsn(cursor: string) {
     throw new Error(`Convex cursor is not a valid numeric timestamp: ${cursor}`);
   }
 
-  if (cursor.length > 1 && cursor.startsWith('0')) {
+  if (cursor == ZERO_LSN) {
+    return;
+  }
+
+  if (cursor.startsWith('0')) {
     throw new Error(`Convex cursor is not a canonical numeric timestamp: ${cursor}`);
+  }
+
+  if (cursor.length != CONVEX_TIMESTAMP_DIGITS) {
+    throw new Error(`Convex cursor is not a 19-digit numeric timestamp: ${cursor}`);
   }
 }

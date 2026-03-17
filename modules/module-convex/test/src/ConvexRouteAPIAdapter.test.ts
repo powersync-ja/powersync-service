@@ -4,6 +4,8 @@ import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
 import { toConvexLsn } from '@module/common/ConvexLSN.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
 
+const HEAD_CURSOR = '1772817606884944123';
+
 function createAdapter() {
   const config = normalizeConnectionConfig({
     type: 'convex',
@@ -34,7 +36,7 @@ function createAdapter() {
       ],
       raw: {}
     }),
-    getHeadCursor: async () => '123',
+    getHeadCursor: async () => HEAD_CURSOR,
     createWriteCheckpointMarker: async () => undefined
   };
 
@@ -79,13 +81,13 @@ bucket_definitions:
 
   it('creates replication head from the global snapshot cursor', async () => {
     const adapter = createAdapter();
-    const getHeadCursor = vi.fn(async (_options?: any) => '123');
+    const getHeadCursor = vi.fn(async (_options?: any) => HEAD_CURSOR);
     const createWriteCheckpointMarker = vi.fn(async (_options?: any) => undefined);
     (adapter as any).connectionManager.client.getHeadCursor = getHeadCursor;
     (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
 
     const result = await adapter.createReplicationHead(async (head) => head);
-    expect(result).toBe(toConvexLsn('123'));
+    expect(result).toBe(toConvexLsn(HEAD_CURSOR));
     expect(getHeadCursor).toHaveBeenCalledTimes(1);
     expect(getHeadCursor).toHaveBeenCalledWith();
     expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);

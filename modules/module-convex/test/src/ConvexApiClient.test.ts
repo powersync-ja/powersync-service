@@ -8,6 +8,7 @@ const baseConfig = normalizeConnectionConfig({
   deployment_url: 'https://example.convex.cloud',
   deploy_key: 'test-key'
 });
+const SNAPSHOT_CURSOR = '1770335566197683000';
 
 describe('ConvexApiClient', () => {
   afterEach(() => {
@@ -44,8 +45,8 @@ describe('ConvexApiClient', () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            snapshot: '100',
-            cursor: '100',
+            snapshot: SNAPSHOT_CURSOR,
+            cursor: 'next-page',
             has_more: false,
             values: []
           }),
@@ -56,7 +57,7 @@ describe('ConvexApiClient', () => {
     const client = new ConvexApiClient(baseConfig);
     const page = await client.listSnapshot({ tableName: 'users' });
 
-    expect(page.snapshot).toBe('100');
+    expect(page.snapshot).toBe(SNAPSHOT_CURSOR);
     expect(fetchSpy.mock.calls.length).toBe(2);
     expect(String(fetchSpy.mock.calls[1]![0])).toContain('/api/streaming_export/list_snapshot');
   });
@@ -75,11 +76,11 @@ describe('ConvexApiClient', () => {
 
     const client = new ConvexApiClient(baseConfig);
     const page = await client.listSnapshot({
-      snapshot: '1770335566197683',
+      snapshot: SNAPSHOT_CURSOR,
       tableName: 'lists'
     });
 
-    expect(page.snapshot).toBe('1770335566197683');
+    expect(page.snapshot).toBe(SNAPSHOT_CURSOR);
     expect(page.cursor).toBe('next-page');
   });
 
@@ -150,7 +151,7 @@ describe('ConvexApiClient', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          snapshot: '100',
+          snapshot: SNAPSHOT_CURSOR,
           cursor: null,
           has_more: false,
           values: []
@@ -160,7 +161,7 @@ describe('ConvexApiClient', () => {
     );
 
     const client = new ConvexApiClient(baseConfig);
-    await client.listSnapshot({ tableName: 'lists', snapshot: '100' });
+    await client.listSnapshot({ tableName: 'lists', snapshot: SNAPSHOT_CURSOR });
 
     const url = String(fetchSpy.mock.calls[0]![0]);
     expect(url).toContain('table_name=lists');

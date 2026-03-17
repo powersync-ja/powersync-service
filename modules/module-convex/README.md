@@ -59,7 +59,7 @@ The content below is written in an agents.md style describing the behavior of `m
 
 - Convex snapshot and delta cursors are always `i64` timestamps (serialized as decimal numeric strings in JSON).
 - The `list_snapshot` pagination cursor is a separate JSON-serialized `{tablet, id}` string — it is pagination state, not a replication cursor.
-- Persisted Convex LSNs must be canonical numeric cursor strings.
+- Persisted Convex LSNs must be canonical 19-digit numeric cursor strings. `ZERO_LSN = "0"` remains the internal sentinel.
 
 ## 5) API Client Contract
 

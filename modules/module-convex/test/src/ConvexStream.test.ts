@@ -4,6 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { ConvexStream } from '@module/replication/ConvexStream.js';
 
+const CURSOR_100 = '1772817606884944100';
+const CURSOR_101 = '1772817606884944101';
+const CURSOR_102 = '1772817606884944102';
+const CURSOR_200 = '1772817606884944200';
+const CURSOR_300 = '1772817606884944300';
+const CURSOR_301 = '1772817606884944301';
+
 function createFakeStorage(options?: {
   snapshotDone?: boolean;
   snapshotLsn?: string | null;
@@ -130,7 +137,7 @@ function createFakeStorage(options?: {
       return {
         active: true,
         snapshot_done: options?.snapshotDone ?? false,
-        checkpoint_lsn: options?.snapshotDone ? toConvexLsn('100') : null,
+        checkpoint_lsn: options?.snapshotDone ? toConvexLsn(CURSOR_100) : null,
         snapshot_lsn: options?.snapshotLsn ?? null
       };
     },
@@ -171,7 +178,7 @@ describe('ConvexStream', () => {
       snapshotCalls.push(options ?? {});
       if (options?.tableName == null) {
         return {
-          snapshot: '100',
+          snapshot: CURSOR_100,
           cursor: null,
           hasMore: false,
           values: []
@@ -179,7 +186,7 @@ describe('ConvexStream', () => {
       }
 
       return {
-        snapshot: '100',
+        snapshot: CURSOR_100,
         cursor: null,
         hasMore: false,
         values: [{ _table: 'users', _id: 'u1', name: 'Alice' }]
@@ -215,12 +222,12 @@ describe('ConvexStream', () => {
     expect(snapshotCalls[0]?.cursor).toBeUndefined();
     expect(snapshotCalls[1]?.tableName).toBe('users');
     expect(snapshotCalls[1]?.cursor).toBeUndefined();
-    expect(snapshotCalls[1]?.snapshot).toBe('100');
+    expect(snapshotCalls[1]?.snapshot).toBe(CURSOR_100);
     expect(context.saves.length).toBe(1);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
     expect(context.resumeLsnUpdates.length).toBe(1);
-    expect(context.allSnapshotDoneLsns).toEqual([toConvexLsn('100')]);
-    expect(context.commits.at(-1)).toBe(toConvexLsn('100'));
+    expect(context.allSnapshotDoneLsns).toEqual([toConvexLsn(CURSOR_100)]);
+    expect(context.commits.at(-1)).toBe(toConvexLsn(CURSOR_100));
   });
 
   it('decodes bytes fields to Uint8Array during snapshot hydration', async () => {
@@ -255,7 +262,7 @@ describe('ConvexStream', () => {
           listSnapshot: async (options: any) => {
             if (options?.tableName == null) {
               return {
-                snapshot: '100',
+                snapshot: CURSOR_100,
                 cursor: null,
                 hasMore: false,
                 values: []
@@ -263,13 +270,13 @@ describe('ConvexStream', () => {
             }
 
             return {
-              snapshot: '100',
+              snapshot: CURSOR_100,
               cursor: null,
               hasMore: false,
               values: [{ _table: 'users', _id: 'u1', avatar: 'AQID' }]
             };
           },
-          getGlobalSnapshotCursor: async () => '100'
+          getGlobalSnapshotCursor: async () => CURSOR_100
         }
       } as any
     });
@@ -282,7 +289,7 @@ describe('ConvexStream', () => {
 
   it('resumes table snapshots from the persisted page cursor', async () => {
     const context = createFakeStorage({
-      snapshotLsn: toConvexLsn('200'),
+      snapshotLsn: toConvexLsn(CURSOR_200),
       tableSnapshotStatus: {
         replicatedCount: 1,
         totalEstimatedCount: -1,
@@ -295,7 +302,7 @@ describe('ConvexStream', () => {
     const listSnapshot = vi.fn(async (options: any) => {
       snapshotCalls.push(options ?? {});
       return {
-        snapshot: '200',
+        snapshot: CURSOR_200,
         cursor: null,
         hasMore: false,
         values: [{ _table: 'users', _id: 'u2', name: 'Bob' }]
@@ -330,7 +337,7 @@ describe('ConvexStream', () => {
 
     expect(getGlobalSnapshotCursor).not.toHaveBeenCalled();
     expect(snapshotCalls.length).toBe(1);
-    expect(snapshotCalls[0]?.snapshot).toBe('200');
+    expect(snapshotCalls[0]?.snapshot).toBe(CURSOR_200);
     expect(snapshotCalls[0]?.cursor).toBe('page-2');
     expect(context.saves.length).toBe(1);
     expect(context.tableProgressUpdates).toHaveLength(1);
@@ -339,7 +346,7 @@ describe('ConvexStream', () => {
 
   it('marks snapshot done without re-reading rows when the final page was already flushed', async () => {
     const context = createFakeStorage({
-      snapshotLsn: toConvexLsn('200'),
+      snapshotLsn: toConvexLsn(CURSOR_200),
       tableSnapshotStatus: {
         replicatedCount: 2,
         totalEstimatedCount: -1,
@@ -348,7 +355,7 @@ describe('ConvexStream', () => {
     });
     const abortController = new AbortController();
     const listSnapshot = vi.fn(async () => ({
-      snapshot: '200',
+      snapshot: CURSOR_200,
       cursor: null,
       hasMore: false,
       values: []
@@ -385,7 +392,7 @@ describe('ConvexStream', () => {
 
   it('fails when table snapshots return a different snapshot boundary', async () => {
     const context = createFakeStorage({
-      snapshotLsn: toConvexLsn('300')
+      snapshotLsn: toConvexLsn(CURSOR_300)
     });
     const abortController = new AbortController();
 
@@ -407,7 +414,7 @@ describe('ConvexStream', () => {
           }),
           getGlobalSnapshotCursor: async () => 'should-not-be-called',
           listSnapshot: async () => ({
-            snapshot: '301',
+            snapshot: CURSOR_301,
             cursor: null,
             hasMore: false,
             values: [{ _table: 'users', _id: 'u1', name: 'Alice' }]
@@ -422,7 +429,7 @@ describe('ConvexStream', () => {
   it('streams deltas and commits checkpoint', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: toConvexLsn('100')
+      resumeFromLsn: toConvexLsn(CURSOR_100)
     });
     const abortController = new AbortController();
 
@@ -450,7 +457,7 @@ describe('ConvexStream', () => {
             deltaCalls.push(options ?? {});
             setTimeout(() => abortController.abort(), 0);
             return {
-              cursor: '101',
+              cursor: CURSOR_101,
               hasMore: false,
               values: [
                 { _table: 'users', _id: 'u1', name: 'Updated' },
@@ -468,14 +475,14 @@ describe('ConvexStream', () => {
     expect(context.saves.length).toBe(2);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.UPDATE);
     expect(context.saves[1]?.tag).toBe(SaveOperationTag.DELETE);
-    expect(context.commits.at(-1)).toBe(toConvexLsn('101'));
+    expect(context.commits.at(-1)).toBe(toConvexLsn(CURSOR_101));
     expect(deltaCalls[0]?.tableName).toBeUndefined();
   });
 
   it('refreshes metadata before snapshotting a newly discovered wildcard-matched table inline', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: toConvexLsn('100'),
+      resumeFromLsn: toConvexLsn(CURSOR_100),
       sourcePatterns: [new TablePattern('convex', 'projects%')]
     });
     const abortController = new AbortController();
@@ -486,7 +493,7 @@ describe('ConvexStream', () => {
       raw: {}
     }));
     const listSnapshot = vi.fn(async (options: any) => ({
-      snapshot: '101',
+      snapshot: CURSOR_101,
       cursor: null,
       hasMore: false,
       values: [{ _table: 'projects_archive', _id: 'p1', name: 'From snapshot' }]
@@ -510,7 +517,7 @@ describe('ConvexStream', () => {
             calls += 1;
             setTimeout(() => abortController.abort(), 0);
             return {
-              cursor: '101',
+              cursor: CURSOR_101,
               hasMore: false,
               values: [{ _table: 'projects_archive', _id: 'p1', name: 'From delta' }]
             };
@@ -526,7 +533,7 @@ describe('ConvexStream', () => {
     expect(listSnapshot).toHaveBeenCalledTimes(1);
     expect(listSnapshot).toHaveBeenCalledWith({
       tableName: 'projects_archive',
-      snapshot: '101',
+      snapshot: CURSOR_101,
       cursor: undefined,
       signal: abortController.signal
     });
@@ -539,7 +546,7 @@ describe('ConvexStream', () => {
   it('keeps alive immediately when only checkpoint marker rows are streamed', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: toConvexLsn('100')
+      resumeFromLsn: toConvexLsn(CURSOR_100)
     });
     const abortController = new AbortController();
     let calls = 0;
@@ -564,7 +571,7 @@ describe('ConvexStream', () => {
             calls += 1;
             if (calls == 1) {
               return {
-                cursor: '101',
+                cursor: CURSOR_101,
                 hasMore: true,
                 values: []
               };
@@ -572,7 +579,7 @@ describe('ConvexStream', () => {
 
             setTimeout(() => abortController.abort(), 0);
             return {
-              cursor: '102',
+              cursor: CURSOR_102,
               hasMore: false,
               values: [{ _table: 'powersync_checkpoints', _id: 'cp1' }]
             };
@@ -585,6 +592,6 @@ describe('ConvexStream', () => {
 
     expect(context.saves.length).toBe(0);
     expect(context.commits.length).toBe(0);
-    expect(context.keepalives).toEqual([toConvexLsn('101'), toConvexLsn('102')]);
+    expect(context.keepalives).toEqual([toConvexLsn(CURSOR_101), toConvexLsn(CURSOR_102)]);
   });
 });
