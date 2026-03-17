@@ -298,6 +298,66 @@ streams:
     ).toStrictEqual([]);
   });
 
+  test('error location', () => {
+    // Verify that error locations are correctly mapped back to the raw YAML source for all
+    // scalar types. Each query has a syntax error at the word 'broken'.
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - SELECT * FROM users WHERE something is broken
+      - 'SELECT * FROM users WHERE something is broken'
+      - "SELECT * FROM users WHERE something is broken"
+      - SELECT * FROM users
+        WHERE something is broken
+      - |
+          SELECT * FROM users
+          WHERE something is broken
+      - >
+          SELECT * FROM users WHERE something is broken
+`);
+
+    expect(errors).toHaveLength(6);
+    for (const error of errors) {
+      expect(error.source).toEqual('broken');
+    }
+  });
+
+  test('error location: double-quoted escape sequences', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - "SELECT * FROM users\\nWHERE something is broken"
+      - "SELECT * FROM \\x75sers WHERE something is broken"
+      - "SELECT * FROM \\u0075sers WHERE something is broken"
+      - "SELECT * FROM \\U00000075sers WHERE something is broken"
+`);
+
+    expect(errors).toHaveLength(4);
+    for (const error of errors) {
+      expect(error.source).toEqual('broken');
+    }
+  });
+
+  test('error location: single-quoted escape sequences', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - 'SELECT * FROM users WHERE ''something'' is broken'
+`);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].source).toEqual('broken');
+  });
+
   describe('schema errors', () => {
     function schemaFromTables(...tables: SourceTableDefinition[]): StaticSchema {
       return new StaticSchema([{ tag: DEFAULT_TAG, schemas: [{ name: 'test_schema', tables }] }]);
