@@ -10,7 +10,7 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
 
   while (offset < bodyEnd) {
     const type = bytes[offset++];
-    const [key, afterKey] = readCString(bytes, offset);
+    const { value: key, nextOffset: afterKey } = readCString(bytes, offset);
     offset = afterKey;
 
     switch (type) {
@@ -27,13 +27,15 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x04: {
-        row[key] = serializeNestedArrayToJson(bytes, offset, 1);
-        offset += readInt32LE(bytes, offset);
+        const result = serializeNestedArrayToJson(bytes, offset, 1, '');
+        row[key] = result.out;
+        offset = result.nextOffset;
         break;
       }
       case 0x03: {
-        row[key] = serializeNestedObjectToJson(bytes, offset, 1);
-        offset += readInt32LE(bytes, offset);
+        const result = serializeNestedObjectToJson(bytes, offset, 1, '');
+        row[key] = result.out;
+        offset = result.nextOffset;
         break;
       }
       case 0x08: {
@@ -68,13 +70,13 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x05: {
-        const [value, nextOffset] = parseTopLevelBinary(bytes, offset);
+        const { value, nextOffset } = parseTopLevelBinary(bytes, offset);
         row[key] = value;
         offset = nextOffset;
         break;
       }
       case 0x0b: {
-        const [pattern, options, nextOffset] = parseRegex(bytes, offset);
+        const { pattern, options, nextOffset } = parseRegex(bytes, offset);
         row[key] = `{"pattern":${quoteJsonFast(pattern)},"options":${quoteJsonFast(options)}}`;
         offset = nextOffset;
         break;
@@ -106,12 +108,15 @@ function readInt32LE(bytes: Buffer, offset: number): number {
   return bytes.readInt32LE(offset);
 }
 
-function readCString(bytes: Buffer, offset: number): [string, number] {
+function readCString(bytes: Buffer, offset: number): { value: string; nextOffset: number } {
   const end = bytes.indexOf(0, offset);
   if (end < 0) {
     throw new Error('Invalid BSON: missing cstring terminator');
   }
-  return [bytes.toString('utf8', offset, end), end + 1];
+  return {
+    value: bytes.toString('utf8', offset, end),
+    nextOffset: end + 1
+  };
 }
 
 function skipCString(bytes: Buffer, offset: number): number {
@@ -135,7 +140,7 @@ function quoteJsonFast(text: string) {
   return `"${text}"`;
 }
 
-function parseRegex(bytes: Buffer, offset: number): [string, string, number] {
+function parseRegex(bytes: Buffer, offset: number): { pattern: string; options: string; nextOffset: number } {
   const patternEnd = bytes.indexOf(0, offset);
   const optionsEnd = bytes.indexOf(0, patternEnd + 1);
   if (patternEnd < 0 || optionsEnd < 0) {
@@ -143,7 +148,11 @@ function parseRegex(bytes: Buffer, offset: number): [string, string, number] {
   }
   const pattern = bytes.toString('utf8', offset, patternEnd);
   const optionsRaw = bytes.toString('utf8', patternEnd + 1, optionsEnd);
-  return [pattern, regexOptionsToJsFlags(optionsRaw), optionsEnd + 1];
+  return {
+    pattern,
+    options: regexOptionsToJsFlags(optionsRaw),
+    nextOffset: optionsEnd + 1
+  };
 }
 
 function decimal128ToString(bytes: Buffer, offset: number): string {
@@ -158,7 +167,7 @@ function uuidOrHex(bytes: Buffer): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function parseTopLevelBinary(bytes: Buffer, offset: number): [Buffer | string, number] {
+function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | string; nextOffset: number } {
   const length = readInt32LE(bytes, offset);
   const subtype = bytes[offset + 4];
   const dataStart = offset + 5;
@@ -166,10 +175,10 @@ function parseTopLevelBinary(bytes: Buffer, offset: number): [Buffer | string, n
   const data = bytes.subarray(dataStart, dataEnd);
 
   if (subtype === mongo.Binary.SUBTYPE_UUID || subtype === mongo.Binary.SUBTYPE_UUID_OLD) {
-    return [uuidOrHex(data), dataEnd];
+    return { value: uuidOrHex(data), nextOffset: dataEnd };
   }
 
-  return [data, dataEnd];
+  return { value: data, nextOffset: dataEnd };
 }
 
 function skipBsonValue(bytes: Buffer, offset: number, type: number) {
@@ -219,7 +228,12 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
   }
 }
 
-function serializeNestedObjectToJson(bytes: Buffer, offset: number, depth: number) {
+function serializeNestedObjectToJson(
+  bytes: Buffer,
+  offset: number,
+  depth: number,
+  out: string
+): { out: string; nextOffset: number } {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
   }
@@ -227,33 +241,46 @@ function serializeNestedObjectToJson(bytes: Buffer, offset: number, depth: numbe
   const totalLength = readInt32LE(bytes, offset);
   const bodyEnd = offset + totalLength - 1;
   let cursor = offset + 4;
-  let out = '{';
+  out += '{';
   let first = true;
 
   while (cursor < bodyEnd) {
     const type = bytes[cursor++];
-    const [key, afterKey] = readCString(bytes, cursor);
+    const { value: key, nextOffset: afterKey } = readCString(bytes, cursor);
     cursor = afterKey;
 
-    const [serialized, afterValue, defined] = serializeNestedElementValue(bytes, cursor, type, depth);
+    let candidateOut = out;
+    if (!first) {
+      candidateOut += ',';
+    }
+    candidateOut += quoteJsonFast(key);
+    candidateOut += ':';
+
+    const {
+      out: nextOut,
+      nextOffset: afterValue,
+      defined
+    } = serializeNestedElementValue(bytes, cursor, type, depth, candidateOut);
     cursor = afterValue;
 
     if (!defined) {
       continue;
     }
 
-    if (!first) {
-      out += ',';
-    }
     first = false;
-    out += `${quoteJsonFast(key)}:${serialized}`;
+    out = nextOut;
   }
 
   out += '}';
-  return out;
+  return { out, nextOffset: offset + totalLength };
 }
 
-function serializeNestedArrayToJson(bytes: Buffer, offset: number, depth: number) {
+function serializeNestedArrayToJson(
+  bytes: Buffer,
+  offset: number,
+  depth: number,
+  out: string
+): { out: string; nextOffset: number } {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
   }
@@ -261,93 +288,113 @@ function serializeNestedArrayToJson(bytes: Buffer, offset: number, depth: number
   const totalLength = readInt32LE(bytes, offset);
   const bodyEnd = offset + totalLength - 1;
   let cursor = offset + 4;
-  let out = '[';
+  out += '[';
   let first = true;
 
   while (cursor < bodyEnd) {
     const type = bytes[cursor++];
     cursor = skipCString(bytes, cursor);
 
-    const [serialized, afterValue, defined] = serializeNestedElementValue(bytes, cursor, type, depth);
-    cursor = afterValue;
-
     if (!first) {
       out += ',';
     }
     first = false;
-    out += defined ? serialized : 'null';
+
+    const {
+      out: nextOut,
+      nextOffset: afterValue,
+      defined
+    } = serializeNestedElementValue(bytes, cursor, type, depth, out);
+    cursor = afterValue;
+
+    out = defined ? nextOut : out + 'null';
   }
 
   out += ']';
-  return out;
+  return { out, nextOffset: offset + totalLength };
 }
 
 function serializeNestedElementValue(
   bytes: Buffer,
   offset: number,
   type: number,
-  depth: number
-): [string, number, boolean] {
+  depth: number,
+  out: string
+): { out: string; nextOffset: number; defined: boolean } {
   switch (type) {
     case 0x01: {
       const value = bytes.readDoubleLE(offset);
-      const serialized = Number.isInteger(value) ? Math.trunc(value).toString() : Number(value).toString();
-      return [serialized, offset + 8, true];
+      out += Number.isInteger(value) ? Math.trunc(value).toString() : Number(value).toString();
+      return { out, nextOffset: offset + 8, defined: true };
     }
     case 0x02: {
       const length = readInt32LE(bytes, offset);
       const stringStart = offset + 4;
       const text = bytes.toString('utf8', stringStart, stringStart + length - 1);
-      return [quoteJsonFast(text), stringStart + length, true];
+      out += quoteJsonFast(text);
+      return { out, nextOffset: stringStart + length, defined: true };
     }
     case 0x03: {
-      const serialized = serializeNestedObjectToJson(bytes, offset, depth + 1);
-      return [serialized, offset + readInt32LE(bytes, offset), true];
+      const result = serializeNestedObjectToJson(bytes, offset, depth + 1, out);
+      return { out: result.out, nextOffset: result.nextOffset, defined: true };
     }
     case 0x04: {
-      const serialized = serializeNestedArrayToJson(bytes, offset, depth + 1);
-      return [serialized, offset + readInt32LE(bytes, offset), true];
+      const result = serializeNestedArrayToJson(bytes, offset, depth + 1, out);
+      return { out: result.out, nextOffset: result.nextOffset, defined: true };
     }
     case 0x05: {
       const next = skipBsonValue(bytes, offset, type);
-      return ['', next, false];
+      return { out, nextOffset: next, defined: false };
     }
     case 0x06:
-      return ['', offset, false];
+      return { out, nextOffset: offset, defined: false };
     case 0x07: {
-      const value = quoteJsonFast(hexLower(bytes, offset, 12));
-      return [value, offset + 12, true];
+      out += quoteJsonFast(hexLower(bytes, offset, 12));
+      return { out, nextOffset: offset + 12, defined: true };
     }
     case 0x08:
-      return [bytes[offset] ? '1' : '0', offset + 1, true];
+      out += bytes[offset] ? '1' : '0';
+      return { out, nextOffset: offset + 1, defined: true };
     case 0x09: {
       const millis = Number(bytes.readBigInt64LE(offset));
-      const value = quoteJsonFast(legacyDateTimeString(millis));
-      return [value, offset + 8, true];
+      out += quoteJsonFast(legacyDateTimeString(millis));
+      return { out, nextOffset: offset + 8, defined: true };
     }
     case 0x0a:
     case 0xff:
     case 0x7f:
-      return ['null', offset, true];
+      out += 'null';
+      return { out, nextOffset: offset, defined: true };
     case 0x0b: {
-      const [pattern, options, nextOffset] = parseRegex(bytes, offset);
-      return [`{"pattern":${quoteJsonFast(pattern)},"options":${quoteJsonFast(options)}}`, nextOffset, true];
+      const { pattern, options, nextOffset } = parseRegex(bytes, offset);
+      out += '{"pattern":';
+      out += quoteJsonFast(pattern);
+      out += ',"options":';
+      out += quoteJsonFast(options);
+      out += '}';
+      return { out, nextOffset, defined: true };
     }
     case 0x10: {
-      const value = readInt32LE(bytes, offset);
-      return [String(value), offset + 4, true];
+      out += String(readInt32LE(bytes, offset));
+      return { out, nextOffset: offset + 4, defined: true };
     }
     case 0x11: {
       const increment = bytes.readUInt32LE(offset);
       const time = bytes.readUInt32LE(offset + 4);
-      return [`{"t":${time},"i":${increment}}`, offset + 8, true];
+      out += '{"t":';
+      out += String(time);
+      out += ',"i":';
+      out += String(increment);
+      out += '}';
+      return { out, nextOffset: offset + 8, defined: true };
     }
     case 0x12: {
-      const value = bytes.readBigInt64LE(offset);
-      return [value.toString(), offset + 8, true];
+      out += bytes.readBigInt64LE(offset).toString();
+      return { out, nextOffset: offset + 8, defined: true };
     }
     case 0x13:
-      return [quoteJsonFast(decimal128ToString(bytes, offset)), offset + 16, true];
+      out += quoteJsonFast(decimal128ToString(bytes, offset));
+      return { out, nextOffset: offset + 16, defined: true };
     default:
       throw new Error(`Unsupported BSON nested type: 0x${type.toString(16)}`);
   }
