@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.4.1
+
+### Patch Changes
+
+- 8d5d7ee: Added schema change detection and handling for the SQL Server adapter
+
 ## 0.4.0
 
 ### Minor Changes
