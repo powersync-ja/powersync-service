@@ -1005,7 +1005,20 @@ export class ChangeStream {
             // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
 
             const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
-            if (!(checkpointId == STANDALONE_CHECKPOINT_ID || this.checkpointStreamId.equals(checkpointId))) {
+
+            if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+              // Standalone / write checkpoint received.
+              // In some cases, there could be a _lot_ of these.
+              // We use the same batching logic to handle them.
+              // This does introduce some delay - write checkpoint latency during low load could be doubled.
+              // However, during high load, this will increase throughput significantly.
+              if (waitForCheckpointLsn == null) {
+                waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+              }
+              continue;
+            }
+
+            if (!this.checkpointStreamId.equals(checkpointId)) {
               continue;
             }
             const { comparable: lsn } = new MongoLSN({
