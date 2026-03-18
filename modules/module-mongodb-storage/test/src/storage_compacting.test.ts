@@ -1,6 +1,7 @@
 import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
+import { MongoCompactor } from '../../src/storage/implementation/MongoCompactor.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
@@ -145,6 +146,68 @@ bucket_definitions:
         checksum: 430217650,
         count: 1
       });
+    });
+
+    test('dirty bucket discovery handles bigint bucket_state bytes', async () => {
+      await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(`
+bucket_definitions:
+  global:
+    data: [select * from test]
+    `)
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+
+      // This simulates bucket_state created using bigint bytes.
+      // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
+      // data in the tests, so we directly insert the bucket_state here.
+      await factory.db.bucket_state.insertOne({
+        _id: {
+          g: bucketStorage.group_id,
+          b: 'global[]'
+        },
+        last_op: 5n,
+        compacted_state: {
+          op_id: 3n,
+          count: 3,
+          checksum: 0n,
+          bytes: 7n
+        },
+        estimate_since_compact: {
+          count: 2,
+          bytes: 5n
+        }
+      });
+
+      // This test uses a couple of internal APIs of the compactor - there is no simple way
+      // to test this using the current public APIs.
+      const compactor = new MongoCompactor(bucketStorage, (bucketStorage as any).db, {
+        maxOpId: 5n
+      });
+
+      const dirtyBuckets = (compactor as any).dirtyBucketBatches({
+        minBucketChanges: 1,
+        minChangeRatio: 0.39
+      });
+      const firstBatch = await dirtyBuckets.next();
+
+      expect(firstBatch.done).toBe(false);
+      expect(firstBatch.value).toHaveLength(1);
+      expect(firstBatch.value[0].bucket).toBe('global[]');
+      expect(firstBatch.value[0].estimatedCount).toBe(5);
+      expect(typeof firstBatch.value[0].estimatedCount).toBe('number');
+      expect(firstBatch.value[0].dirtyRatio).toBeCloseTo(5 / 12);
+
+      const checksumBuckets = await (compactor as any).dirtyBucketBatchForChecksums({
+        minBucketChanges: 1
+      });
+      expect(checksumBuckets).toEqual([
+        {
+          bucket: 'global[]',
+          estimatedCount: 5
+        }
+      ]);
     });
   });
 });
