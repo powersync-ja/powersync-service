@@ -19,6 +19,7 @@ import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 import { PreparedSubquery } from './compiler/sqlite.js';
 import { TablePattern } from './TablePattern.js';
+import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -535,22 +536,30 @@ export class SyncConfigFromYaml {
    * @param error An error in the scalar content. Offsets will be translated to point at the full YAML source.
    */
   #addErrorFromScalar(scalar: Scalar, value: string, err: SqlRuleError) {
-    let sourceOffset = scalar.srcToken!.offset;
-    if (scalar.type == Scalar.QUOTE_DOUBLE || scalar.type == Scalar.QUOTE_SINGLE) {
-      // TODO: Is there a better way to do this?
-      sourceOffset += 1;
-    }
+    const srcToken = scalar.srcToken!;
+    // For block scalars, skip past the | or > header line. For quoted scalars, skip the opening quote.
+    const valueStart = isBlockScalar(scalar.type)
+      ? this.yaml.indexOf('\n', srcToken.offset) + 1
+      : srcToken.offset + (isQuotedScalar(scalar.type) ? 1 : 0);
+
     let offset: number;
     let end: number;
+
     if (err instanceof SqlRuleError && err.location) {
-      offset = err.location!.start + sourceOffset;
-      end = err.location!.end + sourceOffset;
+      // Use an offset map to translate parsed-value positions to source positions, handling
+      // escape sequences in quoted scalars and stripped indentation in block scalars.
+      const valueSource = isQuotedScalar(scalar.type)
+        ? this.yaml.slice(valueStart, scalar.range![1] - 1)
+        : this.yaml.slice(valueStart, scalar.range![1]);
+      const offsetMap = buildParsedToSourceValueMap(valueSource, scalar.type);
+      offset = valueStart + (offsetMap[err.location.start] ?? err.location.start);
+      end = valueStart + (offsetMap[err.location.end] ?? err.location.end);
     } else if (typeof (err as any).token?._location?.start == 'number') {
-      offset = sourceOffset + (err as any).token?._location?.start;
-      end = sourceOffset + (err as any).token?._location?.end;
+      offset = valueStart + (err as any).token?._location?.start;
+      end = valueStart + (err as any).token?._location?.end;
     } else {
-      offset = sourceOffset;
-      end = sourceOffset + Math.max(value.length, 1);
+      offset = valueStart;
+      end = valueStart + Math.max(value.length, 1);
     }
 
     const pos = { start: offset, end };
