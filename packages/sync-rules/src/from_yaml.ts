@@ -17,6 +17,9 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.j
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
+import { PreparedSubquery } from './compiler/sqlite.js';
+import { TablePattern } from './TablePattern.js';
+import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -66,25 +69,32 @@ export class SyncConfigFromYaml {
     }
 
     let compatibility: CompatibilityContext;
-    let useNewCompiler: boolean;
     if (parsed.has('config')) {
       const declaredOptions = parsed.get('config') as YAMLMap;
-      const compatibilityOptions = this.#parseCompatibilityOptions(declaredOptions);
-      compatibility = compatibilityOptions.compatibility;
-      useNewCompiler = compatibilityOptions.useNewCompiler;
+      compatibility = this.#parseCompatibilityOptions(declaredOptions);
     } else {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
-      useNewCompiler = false;
     }
 
     // Bucket definitions using explicit parameter and data queries.
     const bucketMap = parsed.get('bucket_definitions') as YAMLMap | null;
     const streamMap = parsed.get('streams') as YAMLMap | null;
+    const globalCtes = parsed.get('with') as YAMLMap | null;
 
     let result: SyncConfig;
-    if (useNewCompiler && this.options.allowNewSyncCompiler) {
-      result = this.#compileSyncPlan(bucketMap, streamMap, compatibility);
+    if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
+      result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, compatibility);
     } else {
+      if (globalCtes != null) {
+        // We don't support CTEs at all in this compiler implementation.
+        this.#errors.push(
+          this.#yamlError(
+            globalCtes as Node,
+            'Common table expressions are not supported without the `sync_config_compiler` option.'
+          )
+        );
+      }
+
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
     }
 
@@ -150,10 +160,15 @@ export class SyncConfigFromYaml {
       );
     }
 
-    return { compatibility, useNewCompiler };
+    return compatibility;
   }
 
-  #compileSyncPlan(bucketMap: YAMLMap | null, streamMap: YAMLMap | null, compatibility: CompatibilityContext) {
+  #compileSyncPlan(
+    bucketMap: YAMLMap | null,
+    streamMap: YAMLMap | null,
+    globalCtes: YAMLMap | null,
+    compatibility: CompatibilityContext
+  ) {
     if (bucketMap != null) {
       this.#errors.push(
         this.#yamlError(
@@ -167,6 +182,40 @@ export class SyncConfigFromYaml {
     }
 
     const compiler = new SyncStreamsCompiler(this.options);
+
+    const parseCommonTableExpressions = (from: YAMLMap | null): Map<string, PreparedSubquery> => {
+      const map = new Map();
+      if (from != null) {
+        for (const entry of from.items ?? []) {
+          const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Scalar };
+          const cteName = cteNameScalar.value;
+
+          if (this.options.schema) {
+            // Emit a warning if the CTE shadows a name from the schema.
+            const pattern = new TablePattern(this.options.defaultSchema, cteName);
+            if (this.options.schema.getTables(pattern)?.length > 0) {
+              const error = this.#yamlError(
+                cteNameScalar,
+                'This common table expression shadows the name of a table in the source schema.'
+              );
+              error.type = 'warning';
+              this.#errors.push(error);
+            }
+          }
+
+          const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
+          const parsed = compiler.commonTableExpression(sql, errorListener);
+          if (parsed) {
+            map.set(cteName, parsed);
+          }
+        }
+      }
+
+      return map;
+    };
+
+    const parsedGlobalCommonTableExpressions = parseCommonTableExpressions(globalCtes);
+
     for (const entry of streamMap?.items ?? []) {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       if (!(value instanceof YAMLMap)) {
@@ -179,23 +228,20 @@ export class SyncConfigFromYaml {
         continue;
       }
 
-      const $with = value.get('with') as YAMLMap | null;
       const streamCompiler = compiler.stream({
         name: key,
         isSubscribedByDefault: value.get('auto_subscribe', true)?.value == true,
-        priority: this.#parsePriority(value) ?? DEFAULT_BUCKET_PRIORITY
+        priority: this.#parsePriority(value) ?? DEFAULT_BUCKET_PRIORITY,
+        warnOnDangerousParameter: !this.#acceptPotentiallyUnsafeQueries(value)
       });
+      parsedGlobalCommonTableExpressions.forEach((query, name) =>
+        streamCompiler.registerCommonTableExpression(name, query)
+      );
 
-      if ($with != null) {
-        for (const entry of $with.items ?? []) {
-          const { key: cteName, value: cteQuery } = entry as { key: Scalar<string>; value: Scalar };
-          const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
-          const parsed = compiler.commonTableExpression(sql, errorListener);
-          if (parsed) {
-            streamCompiler.registerCommonTableExpression(cteName.value, parsed);
-          }
-        }
-      }
+      // Add stream-local CTEs, which shadow global definitions.
+      parseCommonTableExpressions(value.get('with') as YAMLMap | null).forEach((query, name) =>
+        streamCompiler.registerCommonTableExpression(name, query)
+      );
 
       const addQuery = (query: Scalar<string>) => {
         const [sql, errorListener] = this.#scalarErrorListener(query);
@@ -222,7 +268,8 @@ export class SyncConfigFromYaml {
       streamCompiler.finish();
     }
 
-    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), {
+    // We pass an empty array for eventDefinitions here because those will get parsed in #parseEventDefinitions.
+    return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), compatibility, [], {
       defaultSchema: this.options.defaultSchema,
       engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
@@ -242,6 +289,17 @@ export class SyncConfigFromYaml {
       this.#throwOnErrorIfRequested();
     }
 
+    if (streamMap != null) {
+      // This is with config.edition <= 2, we want to encourage users with streams to migrate to version 3 to use
+      // compiled sync plans.
+      const error = this.#yamlError(
+        streamMap,
+        'This is using an alpha version of Sync Streams. We recommend upgrading `config.edition` to version 3 to support the latest features.'
+      );
+      error.type = 'warning';
+      this.#errors.push(error);
+    }
+
     for (let entry of bucketMap?.items ?? []) {
       const { key: keyScalar, value } = entry as { key: Scalar; value: YAMLMap };
       const key = keyScalar.toString();
@@ -254,8 +312,7 @@ export class SyncConfigFromYaml {
         continue;
       }
 
-      const accept_potentially_dangerous_queries =
-        value.get('accept_potentially_dangerous_queries', true)?.value == true;
+      const accept_potentially_dangerous_queries = this.#acceptPotentiallyUnsafeQueries(value);
       const parseOptionPriority = this.#parsePriority(value);
 
       const queryOptions: QueryParseOptions = {
@@ -412,6 +469,10 @@ export class SyncConfigFromYaml {
     }
   }
 
+  #acceptPotentiallyUnsafeQueries(definition: YAMLMap): boolean {
+    return definition.get('accept_potentially_dangerous_queries', true)?.value == true;
+  }
+
   #yamlError(node: Node, message: string) {
     if (node.range != null) {
       const [start, _, end] = node.range;
@@ -475,22 +536,30 @@ export class SyncConfigFromYaml {
    * @param error An error in the scalar content. Offsets will be translated to point at the full YAML source.
    */
   #addErrorFromScalar(scalar: Scalar, value: string, err: SqlRuleError) {
-    let sourceOffset = scalar.srcToken!.offset;
-    if (scalar.type == Scalar.QUOTE_DOUBLE || scalar.type == Scalar.QUOTE_SINGLE) {
-      // TODO: Is there a better way to do this?
-      sourceOffset += 1;
-    }
+    const srcToken = scalar.srcToken!;
+    // For block scalars, skip past the | or > header line. For quoted scalars, skip the opening quote.
+    const valueStart = isBlockScalar(scalar.type)
+      ? this.yaml.indexOf('\n', srcToken.offset) + 1
+      : srcToken.offset + (isQuotedScalar(scalar.type) ? 1 : 0);
+
     let offset: number;
     let end: number;
+
     if (err instanceof SqlRuleError && err.location) {
-      offset = err.location!.start + sourceOffset;
-      end = err.location!.end + sourceOffset;
+      // Use an offset map to translate parsed-value positions to source positions, handling
+      // escape sequences in quoted scalars and stripped indentation in block scalars.
+      const valueSource = isQuotedScalar(scalar.type)
+        ? this.yaml.slice(valueStart, scalar.range![1] - 1)
+        : this.yaml.slice(valueStart, scalar.range![1]);
+      const offsetMap = buildParsedToSourceValueMap(valueSource, scalar.type);
+      offset = valueStart + (offsetMap[err.location.start] ?? err.location.start);
+      end = valueStart + (offsetMap[err.location.end] ?? err.location.end);
     } else if (typeof (err as any).token?._location?.start == 'number') {
-      offset = sourceOffset + (err as any).token?._location?.start;
-      end = sourceOffset + (err as any).token?._location?.end;
+      offset = valueStart + (err as any).token?._location?.start;
+      end = valueStart + (err as any).token?._location?.end;
     } else {
-      offset = sourceOffset;
-      end = sourceOffset + Math.max(value.length, 1);
+      offset = valueStart;
+      end = valueStart + Math.max(value.length, 1);
     }
 
     const pos = { start: offset, end };
@@ -507,9 +576,4 @@ export interface SyncConfigFromYamlOptions {
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   readonly defaultSchema: string;
-
-  /**
-   * Whether to allow the option of using the new sync compiler.
-   */
-  readonly allowNewSyncCompiler: boolean;
 }

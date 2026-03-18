@@ -1,80 +1,86 @@
-import { storage } from '@powersync/service-core';
-import { register, TEST_TABLE, test_utils } from '@powersync/service-core-tests';
+import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
-describe('sync - mongodb', () => {
-  register.registerSyncTests(INITIALIZED_MONGO_STORAGE_FACTORY);
-
+function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
+  register.registerSyncTests(storageConfig.factory, {
+    storageVersion,
+    tableIdStrings: storageConfig.tableIdStrings
+  });
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {
     // Test syncing a batch of data that is small in count,
     // but large enough in size to be split over multiple returned chunks.
     // Similar to the above test, but splits over 1MB chunks.
-    const sync_rules = test_utils.testRules(
-      `
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
     bucket_definitions:
       global:
         data:
           - SELECT id, description FROM "%"
-    `
+    `,
+        { storageVersion }
+      )
     );
-    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY();
-    const bucketStorage = factory.getInstance(sync_rules);
+    const bucketStorage = factory.getInstance(syncRules);
 
-    const result = await bucketStorage.startBatch(test_utils.BATCH_OPTIONS, async (batch) => {
-      const sourceTable = TEST_TABLE;
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
-      const largeDescription = '0123456789'.repeat(2_000_00);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test1',
-          description: 'test1'
-        },
-        afterReplicaId: test_utils.rid('test1')
-      });
+    const largeDescription = '0123456789'.repeat(2_000_00);
 
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large1',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large1')
-      });
-
-      // Large enough to split the returned batch
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'large2',
-          description: largeDescription
-        },
-        afterReplicaId: test_utils.rid('large2')
-      });
-
-      await batch.save({
-        sourceTable,
-        tag: storage.SaveOperationTag.INSERT,
-        after: {
-          id: 'test3',
-          description: 'test3'
-        },
-        afterReplicaId: test_utils.rid('test3')
-      });
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test1',
+        description: 'test1'
+      },
+      afterReplicaId: test_utils.rid('test1')
     });
 
-    const checkpoint = result!.flushed_op;
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'large1',
+        description: largeDescription
+      },
+      afterReplicaId: test_utils.rid('large1')
+    });
+
+    // Large enough to split the returned batch
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'large2',
+        description: largeDescription
+      },
+      afterReplicaId: test_utils.rid('large2')
+    });
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'test3',
+        description: 'test3'
+      },
+      afterReplicaId: test_utils.rid('test3')
+    });
+
+    const flushResult = await writer.flush();
+
+    const checkpoint = flushResult!.flushed_op;
 
     const options: storage.BucketDataBatchOptions = {};
-
     const batch1 = await test_utils.fromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint, new Map([['global[]', 0n]]), options)
+      bucketStorage.getBucketDataBatch(checkpoint, [bucketRequest(syncRules, 'global[]', 0n)], options)
     );
     expect(test_utils.getBatchData(batch1)).toEqual([
       { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 },
@@ -89,7 +95,7 @@ describe('sync - mongodb', () => {
     const batch2 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([['global[]', BigInt(batch1[0].chunkData.next_after)]]),
+        [bucketRequest(syncRules, 'global[]', batch1[0].chunkData.next_after)],
         options
       )
     );
@@ -105,7 +111,7 @@ describe('sync - mongodb', () => {
     const batch3 = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        new Map([['global[]', BigInt(batch2[0].chunkData.next_after)]]),
+        [bucketRequest(syncRules, 'global[]', batch2[0].chunkData.next_after)],
         options
       )
     );
@@ -120,9 +126,18 @@ describe('sync - mongodb', () => {
 
     // Test that the checksum type is correct.
     // Specifically, test that it never persisted as double.
-    const checksumTypes = await factory.db.bucket_data
+    const mongoFactory = factory as any;
+    const checksumTypes = await mongoFactory.db.bucket_data
       .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
       .toArray();
     expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
   });
+}
+
+describe('sync - mongodb', () => {
+  for (const storageVersion of TEST_STORAGE_VERSIONS) {
+    describe(`storage v${storageVersion}`, () => {
+      registerSyncStorageTests(INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion);
+    });
+  }
 });

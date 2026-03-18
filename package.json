@@ -10,6 +10,9 @@
     "check-updates": "ncu -u --deep",
     "validate:tsconfig-references": "node scripts/validate-tsconfig-references.mts",
     "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "format:dirty": "{ git diff --name-only --diff-filter=ACMR -z; git diff --name-only --cached --diff-filter=ACMR -z; git ls-files --others --exclude-standard -z; } | sort -zu | xargs -0 -r prettier --write --ignore-unknown",
+    "lint-staged": "./scripts/lint-staged.sh",
     "build": "tsc -b && pnpm run -r build:extra",
     "build:production": "NODE_ENV=production pnpm run -r build",
     "build:ts": "tsc -b",
@@ -19,17 +22,22 @@
     "clean:modules": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
     "clean": "pnpm run -r clean",
     "release": "pnpm build:production && pnpm changeset publish",
-    "test:core": "pnpm run -r --filter '!./modules/*' test"
+    "test:core": "pnpm run -r --filter '!./modules/*' test",
+    "configure-hooks": "husky"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.8",
     "@pnpm/workspace.find-packages": "^1000.0.54",
     "@types/node": "^22.16.2",
+    "@vitest/coverage-v8": "catalog:",
+    "@vitest/ui": "catalog:",
     "async": "^3.2.4",
     "bson": "^6.10.4",
     "concurrently": "^8.2.2",
     "fast-glob": "^3.3.3",
+    "husky": "^9.1.7",
     "inquirer": "^9.2.7",
+    "lint-staged": "^16.1.0",
     "npm-check-updates": "^17.1.2",
     "prettier": "^3.4.1",
     "prettier-plugin-embed": "^0.4.15",
@@ -41,8 +49,6 @@
     "tsc-watch": "^6.2.0",
     "typescript": "^5.7.3",
     "vitest": "catalog:",
-    "@vitest/ui": "catalog:",
-    "@vitest/coverage-v8": "catalog:",
     "ws": "^8.2.3"
   },
   "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264"

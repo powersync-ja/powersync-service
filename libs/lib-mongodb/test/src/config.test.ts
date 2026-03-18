@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { normalizeMongoConfig } from '../../src/types/types.js';
+import { normalizeMongoConfig, parseMongoConnectionParam, parseMongoConnectionParams } from '../../src/types/types.js';
 import { LookupAddress } from 'node:dns';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
@@ -146,6 +146,94 @@ describe('config', () => {
     expect(result instanceof Error).toBe(true);
   });
 
+  describe('connection parameters', () => {
+    test('parses all connection parameters from URL query string', () => {
+      const uri =
+        'mongodb://localhost:27017/powersync_test?connectTimeoutMS=5000&socketTimeoutMS=30000&serverSelectionTimeoutMS=15000&maxPoolSize=20&maxIdleTimeMS=120000';
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri
+      });
+      expect(normalized.connectionParams.connectTimeoutMS).equals(5000);
+      expect(normalized.connectionParams.socketTimeoutMS).equals(30000);
+      expect(normalized.connectionParams.serverSelectionTimeoutMS).equals(15000);
+      expect(normalized.connectionParams.maxPoolSize).equals(20);
+      expect(normalized.connectionParams.maxIdleTimeMS).equals(120000);
+    });
+
+    test('URL without connection parameters returns empty connectionParams', () => {
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://localhost:27017/powersync_test'
+      });
+      expect(normalized.connectionParams).toEqual({});
+    });
+
+    test('parameters can be partially specified', () => {
+      const uri = 'mongodb://localhost:27017/powersync_test?connectTimeoutMS=5000&maxPoolSize=20';
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri
+      });
+      expect(normalized.connectionParams.connectTimeoutMS).equals(5000);
+      expect(normalized.connectionParams.maxPoolSize).equals(20);
+      expect(normalized.connectionParams.socketTimeoutMS).toBeUndefined();
+      expect(normalized.connectionParams.serverSelectionTimeoutMS).toBeUndefined();
+      expect(normalized.connectionParams.maxIdleTimeMS).toBeUndefined();
+    });
+
+    test('preserves other query parameters alongside connection params', () => {
+      const uri = 'mongodb://localhost:27017/powersync_test?replicaSet=rs0&connectTimeoutMS=5000';
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri
+      });
+      expect(normalized.connectionParams.connectTimeoutMS).equals(5000);
+      // The URI should still contain the replicaSet param
+      expect(normalized.uri).toContain('replicaSet=rs0');
+    });
+
+    test('ignores invalid (non-numeric) connection parameter values', () => {
+      const uri = 'mongodb://localhost:27017/powersync_test?connectTimeoutMS=abc&maxPoolSize=xyz';
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri
+      });
+      expect(normalized.connectionParams.connectTimeoutMS).toBeUndefined();
+      expect(normalized.connectionParams.maxPoolSize).toBeUndefined();
+    });
+
+    test('ignores negative connection parameter values', () => {
+      const uri = 'mongodb://localhost:27017/powersync_test?connectTimeoutMS=-5000&maxPoolSize=-10';
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri
+      });
+      expect(normalized.connectionParams.connectTimeoutMS).toBeUndefined();
+      expect(normalized.connectionParams.maxPoolSize).toBeUndefined();
+    });
+
+    test('ignores zero connection parameter values', () => {
+      const uri = 'mongodb://localhost:27017/powersync_test?connectTimeoutMS=0&maxPoolSize=0';
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri
+      });
+      expect(normalized.connectionParams.connectTimeoutMS).toBeUndefined();
+      expect(normalized.connectionParams.maxPoolSize).toBeUndefined();
+    });
+
+    test('works with replica set URI and connection params', () => {
+      const uri = 'mongodb://host1:27017,host2:27017,host3:27017/powersync_test?replicaSet=rs0&connectTimeoutMS=10000';
+      const normalized = normalizeMongoConfig({
+        type: 'mongodb',
+        uri
+      });
+      expect(normalized.connectionParams.connectTimeoutMS).equals(10000);
+      expect(normalized.database).equals('powersync_test');
+    });
+  });
+
   describe('errors', () => {
     test('Should throw error when no database specified', () => {
       ['mongodb://localhost:27017', 'mongodb://localhost:27017/'].forEach((uri) => {
@@ -174,6 +262,84 @@ describe('config', () => {
           uri: 'mongodb://'
         })
       ).toThrow('[PSYNC_S1109] MongoDB connection: invalid URI');
+    });
+  });
+});
+
+describe('parseMongoConnectionParam', () => {
+  test('returns undefined when no value provided', () => {
+    expect(parseMongoConnectionParam(undefined)).toBeUndefined();
+    expect(parseMongoConnectionParam(null)).toBeUndefined();
+  });
+
+  test('parses valid numeric string', () => {
+    expect(parseMongoConnectionParam('5000')).equals(5000);
+  });
+
+  test('parses fractional values', () => {
+    expect(parseMongoConnectionParam('1500.5')).equals(1500.5);
+  });
+
+  test('ignores non-numeric string', () => {
+    expect(parseMongoConnectionParam('abc')).toBeUndefined();
+  });
+
+  test('ignores empty string', () => {
+    expect(parseMongoConnectionParam('')).toBeUndefined();
+  });
+
+  test('ignores negative value', () => {
+    expect(parseMongoConnectionParam('-5000')).toBeUndefined();
+  });
+
+  test('ignores zero', () => {
+    expect(parseMongoConnectionParam('0')).toBeUndefined();
+  });
+
+  test('ignores Infinity', () => {
+    expect(parseMongoConnectionParam('Infinity')).toBeUndefined();
+  });
+
+  test('ignores NaN', () => {
+    expect(parseMongoConnectionParam('NaN')).toBeUndefined();
+  });
+});
+
+describe('parseMongoConnectionParams', () => {
+  test('parses all supported parameters', () => {
+    const params = new URLSearchParams(
+      'connectTimeoutMS=5000&socketTimeoutMS=30000&serverSelectionTimeoutMS=15000&maxPoolSize=20&maxIdleTimeMS=120000'
+    );
+    const result = parseMongoConnectionParams(params);
+    expect(result).toEqual({
+      connectTimeoutMS: 5000,
+      socketTimeoutMS: 30000,
+      serverSelectionTimeoutMS: 15000,
+      maxPoolSize: 20,
+      maxIdleTimeMS: 120000
+    });
+  });
+
+  test('returns empty object when no connection params present', () => {
+    const params = new URLSearchParams('replicaSet=rs0&authSource=admin');
+    const result = parseMongoConnectionParams(params);
+    expect(result).toEqual({});
+  });
+
+  test('ignores invalid values and only includes valid ones', () => {
+    const params = new URLSearchParams('connectTimeoutMS=5000&socketTimeoutMS=abc&maxPoolSize=-10');
+    const result = parseMongoConnectionParams(params);
+    expect(result).toEqual({
+      connectTimeoutMS: 5000
+    });
+  });
+
+  test('handles partial parameter specification', () => {
+    const params = new URLSearchParams('connectTimeoutMS=5000&maxIdleTimeMS=120000');
+    const result = parseMongoConnectionParams(params);
+    expect(result).toEqual({
+      connectTimeoutMS: 5000,
+      maxIdleTimeMS: 120000
     });
   });
 });

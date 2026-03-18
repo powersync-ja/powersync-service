@@ -47,9 +47,9 @@ export interface TableProcessor {
   /**
    * All of these expressions exclusively depend on the {@link sourceTable}.
    *
-   * All of the filters must evaluate to a "true-ish" value for the row to be processed.
+   * All of the filters must evaluate to a truthy (according to SQL definitions) value for the row to be processed.
    */
-  filters: SqlExpression<ColumnSqlParameterValue>[];
+  filters: SqlExpression<TableProcessorData>[];
   /**
    * How to partition rows.
    *
@@ -57,10 +57,55 @@ export interface TableProcessor {
    * input values for the lookup.
    */
   parameters: PartitionKey[];
+  tableValuedFunctions: TableProcessorTableValuedFunction[];
 }
 
+/**
+ * A table-valued partition key evaluates a table-valued function on the source or parameter row to potentially generate
+ * multiple buckets for one input row.
+ *
+ * For instance, `SELECT p.* FROM posts p WHERE subscription.parameter('tag') IN (SELECT value FROM json_each(p.tags))`
+ * would put a row with `tags == '["foo", "bar"]'` into two buckets representing the expanded parameters.
+ *
+ * Note that the buckets a row is put into are derived from the cartesian product of all partition keys. In particular,
+ * this means that:
+ *
+ *   - If a table-valued key evaluates to zero rows, the source row is not put into any buckets regardless of what other
+ *     partition keys might exist.
+ *   - Two table-valued partition keys evaluating two multiple rows leads to a quadratic amount of buckets being
+ *     generated.
+ */
+export interface TableProcessorTableValuedFunction {
+  functionName: string;
+  functionInputs: SqlExpression<ColumnSqlParameterValue>[];
+}
+
+export interface TableProcessorTableValuedFunctionOutput {
+  /**
+   * A reference to the added table-valued function.
+   */
+  function: TableProcessorTableValuedFunction;
+  /**
+   * The column of the table-valued function being referenced.
+   */
+  outputName: string;
+}
+
+/**
+ * External data that can be used in expressions for {@link TableProcessor}s.
+ *
+ * This allows references to the row in the table being processed, and references to outputs of joined
+ * {@link TableProcessor#tableValuedFunctions}.
+ */
+export type TableProcessorData = ColumnSqlParameterValue | TableProcessorTableValuedFunctionOutput;
+
+/**
+ * A scalar partition key evaluates to a single value in the source or parameter row. For instance, a stream definition
+ * like `SELECT * FROM users WHERE id = auth.user_id()` would generate a scalar key to partition users by the `id`
+ * column.
+ */
 export interface PartitionKey {
-  expr: SqlExpression<ColumnSqlParameterValue>;
+  expr: SqlExpression<TableProcessorData>;
 }
 
 /**
@@ -84,7 +129,7 @@ export interface StreamDataSource extends TableProcessor {
   columns: ColumnSource[];
 }
 
-export type ColumnSource = 'star' | { expr: SqlExpression<ColumnSqlParameterValue>; alias: string };
+export type ColumnSource = 'star' | { expr: SqlExpression<TableProcessorData>; alias: string };
 
 /**
  * A mapping describing how {@link StreamDataSource}s are combined into buckets.
@@ -116,7 +161,7 @@ export interface StreamBucketDataSource {
  */
 export interface StreamParameterIndexLookupCreator extends TableProcessor {
   hashCode: number;
-  defaultLookupScope: ParameterLookupScope;
+  defaultLookupScope: Omit<ParameterLookupScope, 'source'>;
 
   /**
    * Outputs to persist in the lookup.
@@ -125,7 +170,7 @@ export interface StreamParameterIndexLookupCreator extends TableProcessor {
    * streams because the output of parameters might be passed through additional stages or transformed by the querier
    * before becoming a parameter value.
    */
-  outputs: SqlExpression<ColumnSqlParameterValue>[];
+  outputs: SqlExpression<TableProcessorData>[];
 }
 
 export interface StreamOptions {
@@ -163,8 +208,6 @@ export interface StreamQuerier {
   sourceInstantiation: ParameterValue[];
 }
 
-export type SqlParameterValue = ColumnSqlParameterValue | RequestSqlParameterValue;
-
 /**
  * A value that resolves to a given column in a row being processed.
  */
@@ -182,10 +225,15 @@ export interface RequestSqlParameterValue {
   request: ConnectionParameterSource;
 }
 
+export type SqlParameterValue =
+  | ColumnSqlParameterValue
+  | RequestSqlParameterValue
+  | TableProcessorTableValuedFunctionOutput;
+
 /**
  * A lookup returning multiple rows when instantiated.
  */
-export type ExpandingLookup = ParameterLookup | EvaluateTableValuedFunction;
+export type ExpandingLookup = ParameterLookup | EvaluateTableValuedFunction<RequestSqlParameterValue>;
 
 export interface ParameterLookup {
   type: 'parameter';
@@ -196,10 +244,10 @@ export interface ParameterLookup {
   instantiation: ParameterValue[];
 }
 
-export interface EvaluateTableValuedFunction {
+export interface EvaluateTableValuedFunction<Input> {
   type: 'table_valued';
   functionName: string;
-  functionInputs: SqlExpression<RequestSqlParameterValue>[];
+  functionInputs: SqlExpression<Input>[];
   outputs: SqlExpression<ColumnSqlParameterValue>[];
   filters: SqlExpression<ColumnSqlParameterValue>[];
 }

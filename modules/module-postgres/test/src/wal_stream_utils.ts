@@ -1,26 +1,31 @@
 import { PgManager } from '@module/replication/PgManager.js';
 import { PUBLICATION_NAME, WalStream, WalStreamOptions } from '@module/replication/WalStream.js';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
   initializeCoreReplicationMetrics,
   InternalOpId,
+  LEGACY_STORAGE_VERSION,
   OplogEntry,
+  settledPromise,
   storage,
-  SyncRulesBucketStorage
+  STORAGE_VERSION_CONFIG,
+  SyncRulesBucketStorage,
+  unsettledPromise,
+  updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
-import { CustomTypeRegistry } from '@module/types/registry.js';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<void>;
+  private syncRulesId?: number;
+  private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
-  private replicationConnection?: pgwire.PgConnection;
-  private snapshotPromise?: Promise<void>;
+  private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
 
   /**
    * Tests operating on the wal stream need to configure the stream and manage asynchronous
@@ -30,7 +35,7 @@ export class WalStreamTestContext implements AsyncDisposable {
    */
   static async open(
     factory: (options: storage.TestStorageOptions) => Promise<BucketStorageFactory>,
-    options?: { doNotClear?: boolean; walStreamOptions?: Partial<WalStreamOptions> }
+    options?: { doNotClear?: boolean; storageVersion?: number; walStreamOptions?: Partial<WalStreamOptions> }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
     const connectionManager = new PgManager(TEST_CONNECTION_OPTIONS, {});
@@ -39,13 +44,18 @@ export class WalStreamTestContext implements AsyncDisposable {
       await clearTestDb(connectionManager.pool);
     }
 
-    return new WalStreamTestContext(f, connectionManager, options?.walStreamOptions);
+    const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
+    const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
+
+    return new WalStreamTestContext(f, connectionManager, options?.walStreamOptions, storageVersion, versionedBuckets);
   }
 
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: PgManager,
-    private walStreamOptions?: Partial<WalStreamOptions>
+    private walStreamOptions?: Partial<WalStreamOptions>,
+    private storageVersion: number = LEGACY_STORAGE_VERSION,
+    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -55,21 +65,10 @@ export class WalStreamTestContext implements AsyncDisposable {
     await this.dispose();
   }
 
-  /**
-   * Clear any errors from startStream, to allow for a graceful dispose when streaming errors
-   * were expected.
-   */
-  async clearStreamError() {
-    if (this.streamPromise != null) {
-      this.streamPromise = this.streamPromise.catch((e) => {});
-    }
-  }
-
   async dispose() {
     this.abortController.abort();
     try {
-      await this.snapshotPromise;
-      await this.streamPromise;
+      await this.settledReplicationPromise;
       await this.connectionManager.destroy();
       await this.factory?.[Symbol.asyncDispose]();
     } catch (e) {
@@ -95,7 +94,11 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules({ content: content, validate: true });
+    const syncRules = await this.factory.updateSyncRules(
+      updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
+    );
+    this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -106,6 +109,8 @@ export class WalStreamTestContext implements AsyncDisposable {
       throw new Error(`Next sync rules not available`);
     }
 
+    this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
   }
@@ -116,8 +121,17 @@ export class WalStreamTestContext implements AsyncDisposable {
       throw new Error(`Active sync rules not available`);
     }
 
+    this.syncRulesId = syncRules.id;
+    this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
+  }
+
+  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+    if (this.syncRulesContent == null) {
+      throw new Error('Sync rules not configured - call updateSyncRules() first');
+    }
+    return this.syncRulesContent;
   }
 
   get walStream() {
@@ -143,43 +157,46 @@ export class WalStreamTestContext implements AsyncDisposable {
    */
   async initializeReplication() {
     await this.replicateSnapshot();
-    this.startStreaming();
     // Make sure we're up to date
     await this.getCheckpoint();
   }
 
+  /**
+   * Replicate the initial snapshot, and start streaming.
+   */
   async replicateSnapshot() {
-    const promise = (async () => {
-      this.replicationConnection = await this.connectionManager.replicationConnection();
-      await this.walStream.initReplication(this.replicationConnection);
-    })();
-    this.snapshotPromise = promise.catch((e) => e);
-    await promise;
-  }
-
-  startStreaming() {
-    if (this.replicationConnection == null) {
-      throw new Error('Call replicateSnapshot() before startStreaming()');
+    // Use a settledPromise to avoid unhandled rejections
+    this.settledReplicationPromise = settledPromise(this.walStream.replicate());
+    try {
+      await Promise.race([unsettledPromise(this.settledReplicationPromise), this.walStream.waitForInitialSnapshot()]);
+    } catch (e) {
+      if (e instanceof ReplicationAbortedError && e.cause != null) {
+        // Edge case for tests: replicate() can throw an error, but we'd receive the ReplicationAbortedError from
+        // waitForInitialSnapshot() first. In that case, prioritize the cause, e.g. MissingReplicationSlotError.
+        // This is not a concern for production use, since we only use waitForInitialSnapshot() in tests.
+        throw e.cause;
+      }
+      throw e;
     }
-    this.streamPromise = this.walStream.streamChanges(this.replicationConnection!);
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.pool, this.factory, { timeout: options?.timeout ?? 15_000 }),
-      this.streamPromise
+      unsettledPromise(this.settledReplicationPromise!)
     ]);
     if (checkpoint == null) {
-      // This indicates an issue with the test setup - streamingPromise completed instead
+      // This indicates an issue with the test setup - replicationPromise completed instead
       // of getClientCheckpoint()
-      throw new Error('Test failure - streamingPromise completed');
+      throw new Error('Test failure - replicationPromise completed');
     }
     return checkpoint;
   }
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>(Object.entries(buckets));
+    const syncRules = this.getSyncRulesContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -191,8 +208,9 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.getSyncRulesContent();
     const checkpoint = await this.getCheckpoint(options);
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    let map = [bucketRequest(syncRules, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -202,9 +220,28 @@ export class WalStreamTestContext implements AsyncDisposable {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map.set(bucket, BigInt(batches[0]!.chunkData.next_after));
+      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
+  }
+
+  async getChecksums(buckets: string[], options?: { timeout?: number }) {
+    const checkpoint = await this.getCheckpoint(options);
+    const syncRules = this.getSyncRulesContent();
+    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
+    const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
+
+    const unversioned = new Map();
+    for (let i = 0; i < buckets.length; i++) {
+      unversioned.set(buckets[i], checksums.get(versionedBuckets[i].bucket)!);
+    }
+
+    return unversioned;
+  }
+
+  async getChecksum(bucket: string, options?: { timeout?: number }) {
+    const checksums = await this.getChecksums([bucket], options);
+    return checksums.get(bucket);
   }
 
   /**
@@ -215,8 +252,9 @@ export class WalStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
+    const syncRules = this.getSyncRulesContent();
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = new Map<string, InternalOpId>([[bucket, start]]);
+    const map = [bucketRequest(syncRules, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

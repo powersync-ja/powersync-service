@@ -22,6 +22,12 @@ export interface ConnectOptions {
   port: number;
   tlsOptions?: tls.ConnectionOptions | false;
   lookup?: net.LookupFunction;
+
+  /**
+   * Connection timeout in milliseconds.
+   * If set, overrides the default POWERSYNC_SOCKET_CONNECT_TIMEOUT.
+   */
+  connect_timeout_ms?: number;
 }
 
 export class SocketAdapter {
@@ -43,9 +49,10 @@ export class SocketAdapter {
       // tcp_keepalive_probes here.
     });
     try {
+      const connectTimeout = options.connect_timeout_ms ?? POWERSYNC_SOCKET_CONNECT_TIMEOUT;
       const timeout = setTimeout(() => {
         socket.destroy(new Error(`Timeout while connecting to ${options.host}:${options.port}`));
-      }, POWERSYNC_SOCKET_CONNECT_TIMEOUT);
+      }, connectTimeout);
       await once(socket, 'connect');
       clearTimeout(timeout);
       return new SocketAdapter(socket, options);

@@ -1,6 +1,7 @@
 export enum CompatibilityEdition {
   LEGACY = 1,
-  SYNC_STREAMS = 2
+  SYNC_STREAMS = 2,
+  COMPILED_STREAMS = 3
 }
 
 export class TimeValuePrecision {

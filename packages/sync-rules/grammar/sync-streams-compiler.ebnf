@@ -1,0 +1,118 @@
+/*
+  PowerSync sync-rules SQL grammar: new sync streams compiler.
+
+  SQL appears in YAML at:
+    - streams.<stream_name>.query
+    - streams.<stream_name>.queries[]
+    - streams.<stream_name>.with.<cte_name>
+
+  Notes:
+    - This grammar is used when config.sync_config_compiler = true (and edition >= 2)
+*/
+
+/* Top-level stream query form: streams.<name>.query / streams.<name>.queries[] */
+SelectStatement ::= "SELECT" SelectList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
+
+SelectList ::= SelectItem ("," SelectItem)*
+
+/* Supports wildcard, table wildcard, or scalar expression columns */
+SelectItem ::= "*" | Reference "." "*" | Expression Alias?
+
+FromClause ::= "," FromSource | JoinClause
+
+FromSource ::= TableValuedSource | SubquerySource | TableSource
+
+/* Table and table-valued sources may be unaliased or AS-aliased */
+TableSource ::= Reference Alias | Reference
+
+TableValuedSource ::= TableValuedCall Alias | TableValuedCall
+
+/* Subqueries require an alias; optional column-name list is supported */
+SubquerySource ::= "(" Subquery ")" Alias ("(" ColumnNameList ")")?
+
+JoinClause ::= "INNER"? "JOIN" FromSource ("ON" WhereClause)?
+
+TableValuedCall ::= Identifier "(" ArgumentList? ")"
+
+WhereClause ::= OrExpr
+
+/* WHERE boolean expression subset */
+OrExpr ::= AndExpr ("OR" AndExpr)*
+
+AndExpr ::= UnaryExpr ("AND" UnaryExpr)*
+
+UnaryExpr ::= "NOT"? Condition
+
+Condition ::= Predicate | "(" WhereClause ")"
+
+Predicate ::= Expression PredicateTail | Expression
+
+/* Includes IN/NOT IN, overlap, null checks, and BETWEEN */
+PredicateTail ::= "=" Expression | "IN" InSource | "NOT" "IN" InSource | "&&" InSource | "IS" "NOT"? "NULL" | "NOT"? "BETWEEN" Expression "AND" Expression
+
+InSource ::= "(" Subquery ")" | CteReference | Expression
+
+/* CTE shorthand supports expressions like: x IN cte_name */
+CteReference ::= Identifier
+
+Subquery ::= "SELECT" SelectList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
+
+/* CTE bodies (streams.<name>.with.<cte_name>) disallow wildcard columns by using Expression columns only */
+CteDefinition ::= "SELECT" CteColumnList "FROM" FromSource FromClause* ("WHERE" WhereClause)?
+
+CteColumnList ::= CteColumn ("," CteColumn)*
+
+CteColumn ::= Expression Alias?
+
+/* Scalar expression subset lowered by compiler/sqlite.ts */
+Expression ::= UnaryExpression BinaryExpression?
+
+BinaryExpression ::= (BinaryOperator UnaryExpression)+
+
+UnaryExpression ::= PrimaryExpression PropertyAccess?
+
+PrimaryExpression ::= StringLiteral | NumericLiteral | "TRUE" | "FALSE" | "NULL" | CaseExpression | CastExpression | FunctionCall | Reference | "(" Expression ")"
+
+PropertyAccess ::= (PropertyAccessOp PropertyAccessKey)+
+
+PropertyAccessOp ::= ("->>" | "->")
+
+PropertyAccessKey ::= (StringLiteral | IntegerLiteral)
+
+CastExpression ::= "CAST" "(" Expression "AS" CastType ")"
+
+/* CASE expression subset supported by compiler parser */
+CaseExpression ::= SearchedCase | SimpleCase
+
+SearchedCase ::= "CASE" WhenClause ("ELSE" Expression)? "END"
+
+WhenClause ::= "WHEN" CaseCondition "THEN" Expression WhenClause?
+
+SimpleCase ::= "CASE" Expression WhenValueClause ("ELSE" Expression)? "END"
+
+WhenValueClause ::= "WHEN" Expression "THEN" Expression WhenValueClause?
+
+CaseCondition ::= OrExpr
+
+FunctionCall ::= Reference "(" ArgumentList? ")"
+
+ArgumentList ::= Expression ("," Expression)*
+
+Reference ::= Identifier ("." Identifier)?
+
+Alias ::= "AS" Identifier
+
+ColumnNameList ::= Identifier ("," Identifier)*
+
+BinaryOperator ::= "=" | "!=" | "<" | ">" | "<=" | ">=" | "+" | "-" | "*" | "/" | "%" | "||" | "|" | "&" | "<<" | ">>"
+
+CastType ::= "TEXT" | "INTEGER" | "REAL" | "NUMERIC" | "BLOB"
+
+/* Identifiers are matched after SQL normalization to uppercase in tests. */
+Identifier ::= [A-Z_][A-Z_0-9]*
+
+StringLiteral ::= "'" ([#x20-#x26] | [#x28-#x7E])* "'"
+
+IntegerLiteral ::= [0-9]+
+
+NumericLiteral ::= [0-9]+ ("." [0-9]+)?

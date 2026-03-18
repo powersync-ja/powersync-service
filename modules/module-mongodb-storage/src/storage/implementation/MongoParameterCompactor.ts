@@ -1,8 +1,8 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
-import { PowerSyncMongo } from './db.js';
-import { mongo } from '@powersync/lib-service-mongodb';
+import { VersionedPowerSyncMongo } from './db.js';
 import { BucketParameterDocument } from './models.js';
 
 /**
@@ -14,14 +14,14 @@ import { BucketParameterDocument } from './models.js';
  */
 export class MongoParameterCompactor {
   constructor(
-    private db: PowerSyncMongo,
+    private db: VersionedPowerSyncMongo,
     private group_id: number,
     private checkpoint: InternalOpId,
     private options: CompactOptions
   ) {}
 
   async compact() {
-    logger.info(`Compacting parameters for group ${this.group_id} up to checkpoint ${this.checkpoint}`);
+    logger.info(`Compacting parameters for sync config ${this.group_id} up to checkpoint ${this.checkpoint}`);
     // This is the currently-active checkpoint.
     // We do not remove any data that may be used by this checkpoint.
     // snapshot queries ensure that if any clients are still using older checkpoints, they would
@@ -49,6 +49,9 @@ export class MongoParameterCompactor {
     });
     let removeIds: InternalOpId[] = [];
     let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
+    let checkedEntries = 0;
+    let checkedEntriesAtLastLog = 0;
+    let lastProgressLogTime = Date.now();
 
     const flush = async (force: boolean) => {
       if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
@@ -66,6 +69,16 @@ export class MongoParameterCompactor {
 
     while (await cursor.hasNext()) {
       const batch = cursor.readBufferedDocuments();
+      checkedEntries += batch.length;
+      const now = Date.now();
+      if (now - lastProgressLogTime >= 60_000) {
+        const elapsedSeconds = (now - lastProgressLogTime) / 1000;
+        const rate = (checkedEntries - checkedEntriesAtLastLog) / elapsedSeconds;
+        logger.info(`Checked ${checkedEntries} parameter index entries for compaction (${rate.toFixed(1)} entries/s)`);
+        lastProgressLogTime = now;
+        checkedEntriesAtLastLog = checkedEntries;
+      }
+
       for (let doc of batch) {
         if (doc._id >= checkpoint) {
           continue;

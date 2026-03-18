@@ -1,5 +1,6 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ResolvedBucket } from './BucketDescription.js';
+import { ParameterIndexLookupCreator } from './BucketSource.js';
 import { ParameterLookupScope } from './HydrationState.js';
 import { RequestedStream } from './SqlSyncRules.js';
 import { RequestParameters, SqliteJsonRow, SqliteJsonValue } from './types.js';
@@ -106,6 +107,7 @@ export function mergeBucketParameterQueriers(queriers: BucketParameterQuerier[])
 export class ScopedParameterLookup {
   // bucket definition name, parameter query index, ...lookup values
   readonly values: readonly SqliteJsonValue[];
+  readonly #source: ParameterIndexLookupCreator;
 
   #cachedSerializedForm?: string;
 
@@ -119,22 +121,34 @@ export class ScopedParameterLookup {
   }
 
   static normalized(scope: ParameterLookupScope, lookup: UnscopedParameterLookup): ScopedParameterLookup {
-    return new ScopedParameterLookup([scope.lookupName, scope.queryId, ...lookup.lookupValues]);
+    return new ScopedParameterLookup(scope.source, [scope.lookupName, scope.queryId, ...lookup.lookupValues]);
   }
 
   /**
    * Primarily for test fixtures.
    */
   static direct(scope: ParameterLookupScope, values: SqliteJsonValue[]): ScopedParameterLookup {
-    return new ScopedParameterLookup([scope.lookupName, scope.queryId, ...values.map(normalizeParameterValue)]);
+    return new ScopedParameterLookup(scope.source, [
+      scope.lookupName,
+      scope.queryId,
+      ...values.map(normalizeParameterValue)
+    ]);
   }
 
   /**
    *
    * @param values must be pre-normalized (any integer converted into bigint)
    */
-  private constructor(values: SqliteJsonValue[]) {
+  private constructor(source: ParameterIndexLookupCreator, values: SqliteJsonValue[]) {
     this.values = Object.freeze(values);
+    this.#source = source;
+  }
+
+  /**
+   * Source, not enumerable (not checked in tests).
+   */
+  get source() {
+    return this.#source;
   }
 }
 

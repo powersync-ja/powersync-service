@@ -50,6 +50,15 @@ export const syncRulesSchema: ajvModule.Schema = {
         }
       }
     },
+    with: {
+      type: 'object',
+      description: 'Common-table expressions available to all sync streams',
+      patternProperties: {
+        '.*': {
+          type: 'string'
+        }
+      }
+    },
     streams: {
       type: 'object',
       description: 'List of stream definitions',
@@ -130,14 +139,11 @@ export const syncRulesSchema: ajvModule.Schema = {
           type: 'integer',
           default: CompatibilityEdition.LEGACY,
           minimum: CompatibilityEdition.LEGACY,
-          exclusiveMaximum: CompatibilityEdition.SYNC_STREAMS + 1
+          exclusiveMaximum: CompatibilityEdition.COMPILED_STREAMS + 1
         },
         timestamp_max_precision: {
           type: 'string',
           enum: Object.values(TimeValuePrecision.byName).map((e) => e.name)
-        },
-        sync_config_compiler: {
-          type: 'boolean'
         },
         ...Object.fromEntries(
           Object.entries(CompatibilityOption.byName).map((e) => {

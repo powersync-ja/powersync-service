@@ -46,7 +46,14 @@ export const BasePostgresConnectionConfig = t.object({
    */
   slot_name_prefix: t.string.optional(),
 
-  max_pool_size: t.number.optional()
+  max_pool_size: t.number.optional(),
+
+  /**
+   * Connection timeout in seconds (following Postgres convention).
+   * Overrides the default socket connect timeout.
+   * Takes precedence over the connect_timeout URL query parameter.
+   */
+  connect_timeout: t.number.optional()
 });
 
 export type BasePostgresConnectionConfig = t.Encoded<typeof BasePostgresConnectionConfig>;
@@ -109,6 +116,10 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     throw new ServiceError(ErrorCode.PSYNC_S1105, `Postgres connection: database required`);
   }
 
+  // Parse connect_timeout from URL query string (in seconds, per Postgres convention)
+  const uriQuery = uri.query ? new URLSearchParams(uri.query) : undefined;
+  const connect_timeout_ms = parseConnectTimeout(options.connect_timeout, uriQuery?.get('connect_timeout'));
+
   const lookupOptions = { reject_ip_ranges: options.reject_ip_ranges ?? [] };
   const lookup = makeHostnameLookupFunction(hostname, lookupOptions);
 
@@ -131,6 +142,8 @@ export function normalizeConnectionConfig(options: BasePostgresConnectionConfigD
     client_certificate: options.client_certificate ?? undefined,
     client_private_key: options.client_private_key ?? undefined,
 
+    connect_timeout_ms,
+
     max_pool_size: options.max_pool_size ?? 8
   } satisfies NormalizedBasePostgresConnectionConfig;
 }
@@ -148,6 +161,39 @@ export function validatePort(port: string | number): number {
     throw new ServiceError(ErrorCode.PSYNC_S1110, `Port ${port} not supported`);
   }
   return port;
+}
+
+/**
+ * Parse connect_timeout from explicit config or URL query parameter.
+ *
+ * - Explicit config value takes precedence over URL query param.
+ * - Value is in seconds (Postgres convention), converted to milliseconds.
+ * - Invalid values (NaN, negative, non-numeric) are silently ignored.
+ * - Returns undefined if no valid value is found.
+ */
+export function parseConnectTimeout(
+  explicitValue: number | undefined,
+  uriQueryValue: string | null | undefined
+): number | undefined {
+  // Explicit config takes precedence
+  if (explicitValue != null) {
+    if (typeof explicitValue === 'number' && isFinite(explicitValue) && explicitValue > 0) {
+      return explicitValue * 1000;
+    }
+    // Invalid explicit value: silently ignore
+    return undefined;
+  }
+
+  if (uriQueryValue != null) {
+    const parsed = Number(uriQueryValue);
+    if (isFinite(parsed) && parsed > 0) {
+      return parsed * 1000;
+    }
+    // Invalid URI value: silently ignore
+    return undefined;
+  }
+
+  return undefined;
 }
 
 /**

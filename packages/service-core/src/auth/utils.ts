@@ -1,4 +1,5 @@
 import { AuthorizationError, ErrorCode } from '@powersync/lib-services-framework';
+import { configFile } from '@powersync/service-types';
 import * as jose from 'jose';
 import * as urijs from 'uri-js';
 import * as uuid from 'uuid';
@@ -124,7 +125,9 @@ export interface SupabaseAuthDetails {
   hostname: string;
 }
 
-export function getSupabaseJwksUrl(connection: any): SupabaseAuthDetails | null {
+export function getSupabaseJwksUrl(
+  connection: configFile.GenericDataSourceConfig | undefined
+): SupabaseAuthDetails | null {
   if (connection == null) {
     return null;
   } else if (connection.type != 'postgresql') {
@@ -139,7 +142,7 @@ export function getSupabaseJwksUrl(connection: any): SupabaseAuthDetails | null 
     return null;
   }
 
-  const match = /db.(\w+).supabase.co/.exec(hostname);
+  const match = /^db\.(\w+)\.supabase\.co$/.exec(hostname);
   if (match == null) {
     return null;
   }

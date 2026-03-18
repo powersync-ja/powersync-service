@@ -1,5 +1,77 @@
 # @powersync/service-core
 
+## 1.20.1
+
+### Patch Changes
+
+- 8c5bb3b: [Internal] Allow using multiple BucketStorageBatch instances concurrently.
+- c15efc7: [Internal] Track and propagate source on buckets and parameter indexes to storage APIs.
+- e150c5c: On the `/sync/stream` endpoint, set `X-Accel-Buffering: no` to prevent nginx from buffering the long-running response.
+- Updated dependencies [8c5bb3b]
+- Updated dependencies [dcddcf1]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e7152ce]
+- Updated dependencies [b410924]
+  - @powersync/lib-services-framework@0.9.0
+  - @powersync/service-sync-rules@0.33.0
+  - @powersync/service-rsocket-router@0.2.16
+
+## 1.20.0
+
+### Minor Changes
+
+- 0998251: For errors related to a sync configuration, report a source offset.
+- 8a4c34e: Refactor `BucketStorageFactory` and `PersistedSyncRulesContent` to be abstract classes instead of interfaces.
+- c683322: Renamed `sync_rules` to `sync_config` in the PowerSync service configuration. The old `sync_rules` field is deprecated but still supported for backwards compatibility.
+- 8bd83e8: Introduce storage versions.
+- 83989b2: Store compiled sync plans in bucket storage.
+
+### Patch Changes
+
+- 65f3c89: Improve Postgres compaction performance by replacing bucket range filtering with incremental discovery and per-bucket exact-match queries, eliminating `COLLATE "C"` and `U+FFFF` sentinel usage.
+
+  - The compactor logic is an internal refactor that improves query performance (no API change)
+  - The CLI change adds validation but is a correction (prefix matching was broken/unused anyway)
+  - The `CompactOptions.compactBuckets` JSDoc is a documentation-only update
+
+  Resolves #400.
+
+- b440093: Add detailed logging for parameter query results to improve debugging when limits are exceeded. Checkpoint logs now include the total number of parameter query results (before deduplication), and error messages show a breakdown of the top 10 sync stream definitions contributing to the count.
+- Updated dependencies [0998251]
+- Updated dependencies [1c45667]
+- Updated dependencies [8785a3f]
+- Updated dependencies [d7ff4ad]
+- Updated dependencies [c683322]
+- Updated dependencies [8bd83e8]
+- Updated dependencies [79a9729]
+- Updated dependencies [5edd95f]
+  - @powersync/service-types@0.15.0
+  - @powersync/service-sync-rules@0.32.0
+  - @powersync/lib-services-framework@0.8.3
+  - @powersync/service-rsocket-router@0.2.15
+
+## 1.19.2
+
+### Patch Changes
+
+- Updated dependencies [a04252d]
+  - @powersync/service-sync-rules@0.31.1
+  - @powersync/lib-services-framework@0.8.2
+  - @powersync/service-rsocket-router@0.2.14
+
+## 1.19.1
+
+### Patch Changes
+
+- 479997b: Introduce `BaseSyncConfig` to represent SQL-based sync rules and precompiled sync plans.
+- d1c2228: [MongoDB Storage] Optimize the compact job, avoiding re-compacting buckets in the same job.
+- 1a1a4cc: Handle non-string JWT sub values consistently
+- Updated dependencies [0e99ce0]
+- Updated dependencies [479997b]
+  - @powersync/service-sync-rules@0.31.0
+  - @powersync/lib-services-framework@0.8.1
+  - @powersync/service-rsocket-router@0.2.13
+
 ## 1.19.0
 
 ### Minor Changes

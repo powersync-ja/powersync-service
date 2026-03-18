@@ -50,7 +50,8 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {
-    const { recordset: results } = await this.connectionManager.query(`
+    const { recordset: results } = await this.connectionManager.query(
+      `
       SELECT 
         sch.name AS schema_name,
         tbl.name AS table_name,
@@ -86,10 +87,12 @@ export class MSSQLRouteAPIAdapter implements api.RouteAPI {
         AND tbl.type = 'U'
         AND col.is_computed = 0
       ORDER BY sch.name, tbl.name, col.column_id
-    `, [
-      { name: 'schema', type: sql.VarChar(sql.MAX), value: this.connectionManager.schema },
-      { name: 'checkpointsTable', type: sql.VarChar(sql.MAX), value: POWERSYNC_CHECKPOINTS_TABLE },
-    ]);
+    `,
+      [
+        { name: 'schema', type: sql.VarChar(sql.MAX), value: this.connectionManager.schema },
+        { name: 'checkpointsTable', type: sql.VarChar(sql.MAX), value: POWERSYNC_CHECKPOINTS_TABLE }
+      ]
+    );
 
     /**
      * Reduces the SQL results into a Record of {@link DatabaseSchema}

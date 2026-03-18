@@ -6,8 +6,7 @@ describe('subqueries', () => {
     test('from inner columns', () => {
       const plan = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:
@@ -25,8 +24,7 @@ streams:
     test('from outer alias', () => {
       const plan = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:
@@ -44,14 +42,14 @@ streams:
 
   describe('errors', () => {
     test('select star', () => {
-      expect(compilationErrorsForSingleStream('SELECT 1 FROM (SELECT * FROM users) AS u')).toStrictEqual([
+      expect(compilationErrorsForSingleStream('SELECT 1 AS id FROM (SELECT * FROM users) AS u')).toStrictEqual([
         {
           message: '* columns are not allowed in subqueries or common table expressions',
           source: '*'
         },
         {
           message: 'Must have a result column selecting from a table',
-          source: 'SELECT 1 FROM (SELECT * FROM users) AS u'
+          source: 'SELECT 1 AS id FROM (SELECT * FROM users) AS u'
         }
       ]);
     });

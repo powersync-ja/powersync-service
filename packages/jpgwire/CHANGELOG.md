@@ -1,5 +1,43 @@
 # @powersync/service-jpgwire
 
+## 0.21.14
+
+### Patch Changes
+
+- Updated dependencies [dcddcf1]
+- Updated dependencies [c15efc7]
+- Updated dependencies [e7152ce]
+- Updated dependencies [b410924]
+  - @powersync/service-sync-rules@0.33.0
+
+## 0.21.13
+
+### Patch Changes
+
+- 15aea77: Support connection parameters via database URL query string. PostgreSQL supports `connect_timeout`. MongoDB supports `connectTimeoutMS`, `socketTimeoutMS`, `serverSelectionTimeoutMS`, `maxPoolSize`, `maxIdleTimeMS`. MySQL supports `connectTimeout`, `connectionLimit`, `queueLimit`.
+- Updated dependencies [1c45667]
+- Updated dependencies [8785a3f]
+- Updated dependencies [d7ff4ad]
+- Updated dependencies [8bd83e8]
+- Updated dependencies [79a9729]
+- Updated dependencies [5edd95f]
+  - @powersync/service-sync-rules@0.32.0
+
+## 0.21.12
+
+### Patch Changes
+
+- Updated dependencies [a04252d]
+  - @powersync/service-sync-rules@0.31.1
+
+## 0.21.11
+
+### Patch Changes
+
+- Updated dependencies [0e99ce0]
+- Updated dependencies [479997b]
+  - @powersync/service-sync-rules@0.31.0
+
 ## 0.21.10
 
 ### Patch Changes

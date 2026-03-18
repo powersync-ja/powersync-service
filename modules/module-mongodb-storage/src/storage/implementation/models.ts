@@ -1,7 +1,8 @@
-import { InternalOpId, storage } from '@powersync/service-core';
+import { InternalOpId, SerializedSyncPlan, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -35,6 +36,19 @@ export interface CurrentDataDocument {
   data: bson.Binary;
   buckets: CurrentBucket[];
   lookups: bson.Binary[];
+}
+
+export interface CurrentDataDocumentV3 {
+  _id: SourceKey;
+  data: bson.Binary;
+  buckets: CurrentBucket[];
+  lookups: bson.Binary[];
+  /**
+   * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
+   *
+   * This must only be set if buckets = [], lookups = [].
+   */
+  pending_delete?: bigint;
 }
 
 export interface CurrentBucket {
@@ -111,12 +125,12 @@ export interface BucketStateDocument {
     op_id: InternalOpId;
     count: number;
     checksum: bigint;
-    bytes: number | null;
+    bytes: number | bigint | null;
   };
 
   estimate_since_compact?: {
     count: number;
-    bytes: number;
+    bytes: number | bigint;
   };
 }
 
@@ -199,11 +213,35 @@ export interface SyncRuleDocument {
   last_fatal_error_ts: Date | null;
 
   content: string;
+  serialized_plan?: SerializedSyncPlan | null;
 
   lock?: {
     id: string;
     expires_at: Date;
   } | null;
+
+  storage_version?: number;
+}
+
+export interface StorageConfig extends storage.StorageVersionConfig {
+  /**
+   * When true, bucket_data.checksum is guaranteed to be persisted as a Long.
+   *
+   * When false, it could also have been persisted as an Int32 or Double, in which case it must be converted to
+   * a Long before summing.
+   */
+  longChecksums: boolean;
+}
+
+const LONG_CHECKSUMS_STORAGE_VERSION = 2;
+
+export function getMongoStorageConfig(storageVersion: number): StorageConfig {
+  const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
+  if (baseConfig == null) {
+    throw new ServiceError(ErrorCode.PSYNC_S1005, `Unsupported storage version ${storageVersion}`);
+  }
+
+  return { ...baseConfig, longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION };
 }
 
 export interface CheckpointEventDocument {

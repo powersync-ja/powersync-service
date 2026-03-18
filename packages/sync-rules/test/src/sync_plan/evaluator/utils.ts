@@ -3,22 +3,24 @@ import {
   BucketParameterQuerier,
   CompatibilityContext,
   CompatibilityEdition,
+  CreateSourceParams,
+  DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   GetQuerierOptions,
   HydratedSyncRules,
   javaScriptExpressionEngine,
   PrecompiledSyncConfig,
   RequestParameters,
-  serializeSyncPlan,
+  RustSyncPlanEvaluator,
   ScopedParameterLookup,
+  serializeSyncPlan,
   SourceTableInterface,
   SqliteRow,
   SqlSyncRules,
-  SyncConfig,
-  versionedHydrationState,
-  RustSyncPlanEvaluator
+  SyncConfig
 } from '../../../../src/index.js';
 import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
+import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
 
 export type SyncRuntime = 'javascript' | 'rust';
 
@@ -52,12 +54,16 @@ function createSyncTest(runtime: SyncRuntime): SyncTest {
     return {
       runtime,
       engine,
-      prepareWithoutHydration(inputs) {
-        const plan = compileJsPlan(inputs);
-        return new PrecompiledSyncConfig(plan, { engine, sourceText: '', defaultSchema: 'test_schema' });
+      prepareWithoutHydration: (inputs) => {
+        const plan = compileToSyncPlanWithoutErrors(inputs);
+        return new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
+          engine,
+          sourceText: '',
+          defaultSchema: 'test_schema'
+        });
       },
-      prepareSyncStreams(inputs) {
-        return this.prepareWithoutHydration(inputs).hydrate({ hydrationState: versionedHydrationState(1) });
+      prepareSyncStreams(inputs, params?: CreateSourceParams) {
+        return this.prepareWithoutHydration(inputs).hydrate(params ?? { hydrationState: DEFAULT_HYDRATION_STATE });
       }
     };
   }
@@ -69,7 +75,11 @@ function createSyncTest(runtime: SyncRuntime): SyncTest {
     prepareWithoutHydration(inputs) {
       const serialized = serializeSyncPlan(compileJsPlan(inputs));
       const plan = deserializeSyncPlan(serialized);
-      return new PrecompiledSyncConfig(plan, { engine, sourceText: '', defaultSchema: 'test_schema' });
+      return new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
+        engine,
+        sourceText: '',
+        defaultSchema: 'test_schema'
+      });
     },
     prepareSyncStreams(inputs) {
       const serialized = serializeSyncPlan(compileJsPlan(inputs));

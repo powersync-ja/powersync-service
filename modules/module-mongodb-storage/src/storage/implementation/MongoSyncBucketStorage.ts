@@ -31,16 +31,25 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { PowerSyncMongo } from './db.js';
-import { BucketDataDocument, BucketDataKey, BucketStateDocument, SourceKey, SourceTableDocument } from './models.js';
+import { VersionedPowerSyncMongo } from './db.js';
+import {
+  BucketDataDocument,
+  BucketDataKey,
+  BucketStateDocument,
+  SourceKey,
+  SourceTableDocument,
+  StorageConfig
+} from './models.js';
 import { MongoBucketBatch } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
+import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
-  checksumOptions?: MongoChecksumOptions;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  storageConfig: StorageConfig;
 }
 
 /**
@@ -58,7 +67,7 @@ export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  private readonly db: PowerSyncMongo;
+  private readonly db: VersionedPowerSyncMongo;
   readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
@@ -67,14 +76,17 @@ export class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    private readonly sync_rules: storage.PersistedSyncRulesContent,
+    private readonly sync_rules: MongoPersistedSyncRulesContent,
     public readonly slot_name: string,
-    writeCheckpointMode?: storage.WriteCheckpointMode,
-    options?: MongoSyncBucketStorageOptions
+    writeCheckpointMode: storage.WriteCheckpointMode | undefined,
+    options: MongoSyncBucketStorageOptions
   ) {
     super();
-    this.db = factory.db;
-    this.checksums = new MongoChecksums(this.db, this.group_id, options?.checksumOptions);
+    this.db = factory.db.versioned(sync_rules.getStorageConfig());
+    this.checksums = new MongoChecksums(this.db, this.group_id, {
+      ...options.checksumOptions,
+      storageConfig: options?.storageConfig
+    });
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
@@ -155,10 +167,7 @@ export class MongoSyncBucketStorage
     });
   }
 
-  async startBatch(
-    options: storage.StartBatchOptions,
-    callback: (batch: storage.BucketStorageBatch) => Promise<void>
-  ): Promise<storage.FlushedResult | null> {
+  async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id
@@ -167,7 +176,7 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    await using batch = new MongoBucketBatch({
+    const writer = new MongoBucketBatch({
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
@@ -175,21 +184,26 @@ export class MongoSyncBucketStorage
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
       resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
-      noCheckpointBeforeLsn: doc?.no_checkpoint_before ?? options.zeroLSN,
       keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable
     });
-    this.iterateListeners((cb) => cb.batchStarted?.(batch));
+    this.iterateListeners((cb) => cb.batchStarted?.(writer));
+    return writer;
+  }
 
-    await callback(batch);
-    await batch.flush();
-    if (batch.last_flushed_op != null) {
-      return { flushed_op: batch.last_flushed_op };
-    } else {
-      return null;
-    }
+  /**
+   * @deprecated Use `createWriter()` with `await using` instead.
+   */
+  async startBatch(
+    options: storage.CreateWriterOptions,
+    callback: (batch: storage.BucketStorageBatch) => Promise<void>
+  ): Promise<storage.FlushedResult | null> {
+    await using writer = await this.createWriter(options);
+    await callback(writer);
+    await writer.flush();
+    return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
   }
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
@@ -361,19 +375,20 @@ export class MongoSyncBucketStorage
 
   async *getBucketDataBatch(
     checkpoint: utils.InternalOpId,
-    dataBuckets: Map<string, InternalOpId>,
+    dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.size == 0) {
+    if (dataBuckets.length == 0) {
       return;
     }
     let filters: mongo.Filter<BucketDataDocument>[] = [];
+    const bucketMap = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
 
     if (checkpoint == null) {
       throw new ServiceAssertionError('checkpoint is null');
     }
     const end = checkpoint;
-    for (let [name, start] of dataBuckets.entries()) {
+    for (let { bucket: name, start } of dataBuckets) {
       filters.push({
         _id: {
           $gt: {
@@ -466,7 +481,7 @@ export class MongoSyncBucketStorage
         }
 
         if (start == null) {
-          const startOpId = dataBuckets.get(bucket);
+          const startOpId = bucketMap.get(bucket);
           if (startOpId == null) {
             throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
           }
@@ -508,7 +523,10 @@ export class MongoSyncBucketStorage
     }
   }
 
-  async getChecksums(checkpoint: utils.InternalOpId, buckets: string[]): Promise<utils.ChecksumMap> {
+  async getChecksums(
+    checkpoint: utils.InternalOpId,
+    buckets: storage.BucketChecksumRequest[]
+  ): Promise<utils.ChecksumMap> {
     return this.checksums.getChecksums(checkpoint, buckets);
   }
 
@@ -565,7 +583,7 @@ export class MongoSyncBucketStorage
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
     while (true) {
       if (options?.signal?.aborted) {
-        throw new ReplicationAbortedError('Aborted clearing data');
+        throw new ReplicationAbortedError('Aborted clearing data', options.signal.reason);
       }
       try {
         await this.clearIteration();
@@ -620,7 +638,7 @@ export class MongoSyncBucketStorage
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
-    await this.db.current_data.deleteMany(
+    await this.db.common_current_data.deleteMany(
       {
         _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
       },

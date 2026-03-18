@@ -14,3 +14,4 @@ export * from './SyncRulesBucketStorage.js';
 export * from './PersistedSyncRulesContent.js';
 export * from './ReplicationLock.js';
 export * from './ReportStorage.js';
+export * from './StorageVersionConfig.js';

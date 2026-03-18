@@ -3,6 +3,7 @@ import { TablePattern } from '@powersync/service-sync-rules';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { MSSQLColumnDescriptor } from '../types/mssql-data-types.js';
 import sql from 'mssql';
+import { logger } from '@powersync/lib-services-framework';
 
 export interface GetColumnsOptions {
   connectionManager: MSSQLConnectionManager;
@@ -13,7 +14,8 @@ export interface GetColumnsOptions {
 async function getColumns(options: GetColumnsOptions): Promise<MSSQLColumnDescriptor[]> {
   const { connectionManager, schema, tableName } = options;
 
-  const { recordset: columnResults } = await connectionManager.query(`
+  const { recordset: columnResults } = await connectionManager.query(
+    `
       SELECT
         col.name AS [name],
         typ.name AS [type],
@@ -26,10 +28,12 @@ async function getColumns(options: GetColumnsOptions): Promise<MSSQLColumnDescri
       WHERE sch.name = @schema
         AND tbl.name = @tableName
       ORDER BY col.column_id;
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
+    ]
+  );
 
   return columnResults.map((row) => {
     return {
@@ -56,7 +60,8 @@ export async function getReplicationIdentityColumns(
   options: GetReplicationIdentityColumnsOptions
 ): Promise<ReplicationIdentityColumnsResult> {
   const { connectionManager, schema, tableName } = options;
-  const { recordset: primaryKeyColumns } = await connectionManager.query(`
+  const { recordset: primaryKeyColumns } = await connectionManager.query(
+    `
       SELECT
         col.name AS [name],
         typ.name AS [type],
@@ -71,10 +76,12 @@ export async function getReplicationIdentityColumns(
       WHERE sch.name = @schema
         AND tbl.name = @tableName
       ORDER BY idx_col.key_ordinal;
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
+    ]
+  );
 
   if (primaryKeyColumns.length > 0) {
     return {
@@ -89,7 +96,8 @@ export async function getReplicationIdentityColumns(
   }
 
   // No primary key, check if any of the columns have a unique constraint we can use
-  const { recordset: uniqueKeyColumns } = await connectionManager.query(`
+  const { recordset: uniqueKeyColumns } = await connectionManager.query(
+    `
       SELECT
         col.name AS [name],
         typ.name AS [type],
@@ -104,10 +112,12 @@ export async function getReplicationIdentityColumns(
       WHERE sch.name = @schema
         AND tbl.name = @tableName
       ORDER BY idx_col.key_ordinal;
-      `, [
-        { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
-        { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName },
-      ]);
+      `,
+    [
+      { name: 'schema', type: sql.VarChar(sql.MAX), value: schema },
+      { name: 'tableName', type: sql.VarChar(sql.MAX), value: tableName }
+    ]
+  );
 
   if (uniqueKeyColumns.length > 0) {
     return {
@@ -136,7 +146,8 @@ export async function getTablesFromPattern(
   tablePattern: TablePattern
 ): Promise<ResolvedTable[]> {
   if (tablePattern.isWildcard) {
-    const { recordset: tableResults } = await connectionManager.query(`
+    const { recordset: tableResults } = await connectionManager.query(
+      `
         SELECT
           tbl.name      AS [table],
           sch.name      AS [schema],
@@ -145,10 +156,12 @@ export async function getTablesFromPattern(
           JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
         WHERE sch.name = @schema
           AND tbl.name LIKE @tablePattern
-      `, [
+      `,
+      [
         { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern },
-      ]);
+        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
+      ]
+    );
 
     return tableResults
       .map((row) => {
@@ -170,10 +183,12 @@ export async function getTablesFromPattern(
           JOIN sys.schemas sch ON tbl.schema_id = sch.schema_id
           WHERE sch.name = @schema
           AND tbl.name = @tablePattern
-      `, [
+      `,
+      [
         { name: 'schema', type: sql.VarChar(sql.MAX), value: tablePattern.schema },
-        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern },
-      ]);
+        { name: 'tablePattern', type: sql.VarChar(sql.MAX), value: tablePattern.tablePattern }
+      ]
+    );
 
     return tableResults.map((row) => {
       return {
@@ -183,4 +198,46 @@ export async function getTablesFromPattern(
       };
     });
   }
+}
+
+export interface GetPendingSchemaChangesOptions {
+  connectionManager: MSSQLConnectionManager;
+  captureInstanceName: string;
+}
+
+/**
+ *  Returns the DDL commands that have been applied to the source table since the capture instance was created.
+ */
+export async function getPendingSchemaChanges(options: GetPendingSchemaChangesOptions): Promise<string[]> {
+  const { connectionManager, captureInstanceName } = options;
+
+  try {
+    const { recordset: results } = await connectionManager.execute('sys.sp_cdc_get_ddl_history', [
+      { name: 'capture_instance', type: sql.VarChar(sql.MAX), value: captureInstanceName }
+    ]);
+    return results.map((row) => row.ddl_command);
+  } catch (e) {
+    if (isObjectNotExistError(e)) {
+      // Defensive check to cover the case where the capture instance metadata is temporarily unavailable.
+      logger.warn(`Unable to retrieve schema changes for capture instance: [${captureInstanceName}].`);
+      return [];
+    }
+    throw e;
+  }
+}
+
+function isObjectNotExistError(error: unknown): boolean {
+  if (error != null && typeof error === 'object' && 'number' in error) {
+    // SQL Server Object does not exist or access is denied error number.
+    return (error as { number: unknown }).number === 22981;
+  }
+  return false;
+}
+
+export async function tableExists(tableId: number, connectionManager: MSSQLConnectionManager): Promise<boolean> {
+  const { recordset: results } = await connectionManager.query(`SELECT 1 FROM sys.tables WHERE object_id = @tableId`, [
+    { name: 'tableId', type: sql.Int, value: tableId }
+  ]);
+
+  return results.length > 0;
 }

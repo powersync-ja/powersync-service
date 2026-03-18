@@ -5,8 +5,7 @@ describe('can reuse elements', () => {
   test('multiple data queries', () => {
     const compiled = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -22,8 +21,7 @@ streams:
   test('between streams', () => {
     const compiled = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:
@@ -39,8 +37,7 @@ streams:
   test('between streams with different outputs', () => {
     const compiled = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:
@@ -55,8 +52,7 @@ streams:
   test('no reuse on streams with different sources', () => {
     const compiled = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:
@@ -74,8 +70,7 @@ streams:
   test('parameters between streams', () => {
     const compiled = compileToSyncPlanWithoutErrors(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   a:

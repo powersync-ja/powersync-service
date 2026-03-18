@@ -73,6 +73,12 @@ export enum ErrorCode {
    */
   PSYNC_S1004 = 'PSYNC_S1004',
 
+  /**
+   * Storage version not supported. This could be caused by a downgrade to a version
+   * that does not support the current storage version.
+   */
+  PSYNC_S1005 = 'PSYNC_S1005',
+
   // ## PSYNC_S11xx: Postgres replication issues
 
   /**
@@ -295,13 +301,26 @@ export enum ErrorCode {
    */
   PSYNC_S1402 = 'PSYNC_S1402',
 
-    /**
+  /**
    *  Required updates in the Change Data Capture (CDC) are no longer available.
    *
    *  Possible causes:
    *  * Older data has been cleaned up due to exceeding the retention period.
    */
-    PSYNC_S1500 = 'PSYNC_S1500',
+  PSYNC_S1500 = 'PSYNC_S1500',
+
+  // ## PSYNC_S16xx: MSSQL replication issues
+
+  /**
+   *  A replicated source table's capture instance has been dropped during a polling cycle.
+   *
+   *  Possible causes:
+   *  * CDC has been disabled for the table.
+   *  * The table has been dropped, which also drops the capture instance.
+   *
+   *  Replication for the table will only resume once CDC has been re-enabled for the table.
+   */
+  PSYNC_S1601 = 'PSYNC_S1601',
 
   // ## PSYNC_S2xxx: Service API
 

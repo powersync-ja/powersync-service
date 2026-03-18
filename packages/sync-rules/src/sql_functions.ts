@@ -10,6 +10,7 @@ import { ExpressionType, SqliteType, SqliteValueType, TYPE_INTEGER } from './Exp
 import * as uuid from 'uuid';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
+import { cast, CAST_TYPES, castAsBlob, castAsText } from './cast.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',
@@ -270,6 +271,37 @@ const iif: DocumentedSqlFunction = {
   detail: 'If x is true then returns y else returns z'
 };
 
+// This matches the behavior of the instr function in SQLite.
+// If both arguments are BLOBs, performs a byte-level search.
+// Otherwise, both arguments are interpreted as text.
+const instr: DocumentedSqlFunction = {
+  debugName: 'instr',
+  call(x: SqliteValue, y: SqliteValue) {
+    if (x == null || y == null) {
+      return null;
+    }
+    // Both BLOBs: byte-level search
+    if (x instanceof Uint8Array && y instanceof Uint8Array) {
+      const pos = Buffer.from(x.buffer, x.byteOffset, x.byteLength).indexOf(y);
+      return BigInt(pos < 0 ? 0 : pos + 1);
+    }
+    // Neither BLOB, or mixed: cast both to text
+    const haystack = castAsText(x)!;
+    const needle = castAsText(y)!;
+    const pos = haystack.indexOf(needle);
+    return BigInt(pos < 0 ? 0 : pos + 1);
+  },
+  parameters: [
+    { name: 'x', type: ExpressionType.ANY, optional: false },
+    { name: 'y', type: ExpressionType.ANY, optional: false }
+  ],
+  getReturnType() {
+    return ExpressionType.INTEGER;
+  },
+  detail:
+    'Returns 1-indexed position of y in x, or 0 if not found. If both are BLOBs, counts bytes; otherwise counts characters.'
+};
+
 const json_valid: DocumentedSqlFunction = {
   debugName: 'json_valid',
   call(json: SqliteValue) {
@@ -495,6 +527,7 @@ export function generateSqlFunctions(compatibility: CompatibilityContext) {
     typeof: fn_typeof,
     ifnull,
     iif,
+    instr,
     json_extract: json.json_extract,
     json_array_length: json.json_array_length,
     json_valid,
@@ -524,89 +557,6 @@ export function generateSqlFunctions(compatibility: CompatibilityContext) {
     operatorJsonExtractJson: json.OPERATOR_JSON_EXTRACT_JSON,
     operatorJsonExtractSql: json.OPERATOR_JSON_EXTRACT_SQL
   };
-}
-
-export const CAST_TYPES = new Set<String>(['text', 'numeric', 'integer', 'real', 'blob']);
-
-const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
-
-export function castAsText(value: SqliteValue): string | null {
-  if (value == null) {
-    return null;
-  } else if (value instanceof Uint8Array) {
-    return textDecoder.decode(value);
-  } else {
-    return value.toString();
-  }
-}
-
-export function castAsBlob(value: SqliteValue): Uint8Array | null {
-  if (value == null) {
-    return null;
-  } else if (value instanceof Uint8Array) {
-    return value!;
-  }
-
-  if (typeof value != 'string') {
-    value = value.toString();
-  }
-  return textEncoder.encode(value);
-}
-
-export function cast(value: SqliteValue, to: string) {
-  if (value == null) {
-    return null;
-  }
-  if (to == 'text') {
-    return castAsText(value);
-  } else if (to == 'numeric') {
-    if (value instanceof Uint8Array) {
-      value = textDecoder.decode(value);
-    }
-    if (typeof value == 'string') {
-      return parseNumeric(value);
-    } else if (typeof value == 'number' || typeof value == 'bigint') {
-      return value;
-    } else {
-      return 0n;
-    }
-  } else if (to == 'real') {
-    if (value instanceof Uint8Array) {
-      value = textDecoder.decode(value);
-    }
-    if (typeof value == 'string') {
-      const nr = parseFloat(value);
-      if (isNaN(nr)) {
-        return 0.0;
-      } else {
-        return nr;
-      }
-    } else if (typeof value == 'number') {
-      return value;
-    } else if (typeof value == 'bigint') {
-      return Number(value);
-    } else {
-      return 0.0;
-    }
-  } else if (to == 'integer') {
-    if (value instanceof Uint8Array) {
-      value = textDecoder.decode(value);
-    }
-    if (typeof value == 'string') {
-      return parseBigInt(value);
-    } else if (typeof value == 'number') {
-      return Number.isInteger(value) ? BigInt(value) : BigInt(Math.floor(value));
-    } else if (typeof value == 'bigint') {
-      return value;
-    } else {
-      return 0n;
-    }
-  } else if (to == 'blob') {
-    return castAsBlob(value);
-  } else {
-    throw new Error(`Type not supported for cast: '${to}'`);
-  }
 }
 
 export function sqliteTypeOf(arg: SqliteInputValue): SqliteValueType {
@@ -642,28 +592,6 @@ export function parseGeometry(value?: SqliteValue) {
 
   const geo = wkx.Geometry.parse(blob);
   return geo;
-}
-
-function parseNumeric(text: string): bigint | number {
-  const match = /^\s*(\d+)(\.\d*)?(e[+\-]?\d+)?/i.exec(text);
-  if (!match) {
-    return 0n;
-  }
-
-  if (match[2] != null || match[3] != null) {
-    const v = parseFloat(match[0]);
-    return isNaN(v) ? 0n : v;
-  } else {
-    return BigInt(match[1]);
-  }
-}
-
-function parseBigInt(text: string): bigint {
-  const match = /^\s*(\d+)/.exec(text);
-  if (!match) {
-    return 0n;
-  }
-  return BigInt(match[1]);
 }
 
 function isNumeric(a: SqliteValue): a is number | bigint {

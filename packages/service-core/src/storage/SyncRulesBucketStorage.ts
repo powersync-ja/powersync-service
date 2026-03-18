@@ -1,5 +1,10 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  HydratedSyncRules,
+  ScopedParameterLookup,
+  SqliteJsonRow
+} from '@powersync/service-sync-rules';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
@@ -25,10 +30,17 @@ export interface SyncRulesBucketStorage
   resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
 
   /**
-   * Use this to get access to update storage data.
+   * Create a new writer.
+   *
+   * The writer must be flushed and disposed when done.
+   */
+  createWriter(options: CreateWriterOptions): Promise<BucketStorageBatch>;
+
+  /**
+   * @deprecated Use `createWriter()` with `await using` instead.
    */
   startBatch(
-    options: StartBatchOptions,
+    options: CreateWriterOptions,
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
@@ -103,7 +115,7 @@ export interface SyncRulesBucketStorage
    */
   getBucketDataBatch(
     checkpoint: util.InternalOpId,
-    dataBuckets: Map<string, util.InternalOpId>,
+    dataBuckets: BucketDataRequest[],
     options?: BucketDataBatchOptions
   ): AsyncIterable<SyncBucketDataChunk>;
 
@@ -115,7 +127,7 @@ export interface SyncRulesBucketStorage
    * This may be slow, depending on the size of the buckets.
    * The checksums are cached internally to compensate for this, but does not cover all cases.
    */
-  getChecksums(checkpoint: util.InternalOpId, buckets: string[]): Promise<util.ChecksumMap>;
+  getChecksums(checkpoint: util.InternalOpId, buckets: BucketChecksumRequest[]): Promise<util.ChecksumMap>;
 
   /**
    * Clear checksum cache. Primarily intended for tests.
@@ -125,6 +137,16 @@ export interface SyncRulesBucketStorage
 
 export interface SyncRulesBucketStorageListener {
   batchStarted: (batch: BucketStorageBatch) => void;
+}
+
+export interface BucketDataRequest {
+  bucket: string;
+  start: util.InternalOpId;
+  source: BucketDataSource;
+}
+export interface BucketChecksumRequest {
+  bucket: string;
+  source: BucketDataSource;
 }
 
 export interface SyncRuleStatus {
@@ -147,7 +169,7 @@ export interface ResolveTableResult {
   dropTables: SourceTable[];
 }
 
-export interface StartBatchOptions extends ParseSyncRulesOptions {
+export interface CreateWriterOptions extends ParseSyncRulesOptions {
   zeroLSN: string;
   /**
    * Whether or not to store a copy of the current data.
@@ -177,6 +199,11 @@ export interface StartBatchOptions extends ParseSyncRulesOptions {
   logger?: Logger;
 }
 
+/**
+ * @deprecated Use `CreateWriterOptions`.
+ */
+export interface StartBatchOptions extends CreateWriterOptions {}
+
 export interface CompactOptions {
   /**
    * Heap memory limit for the compact process.
@@ -202,7 +229,8 @@ export interface CompactOptions {
    *
    * If not specified, compacts all buckets.
    *
-   * These can be individual bucket names, or bucket definition names.
+   * These must be full bucket names (e.g., "global[]", "mybucket[\"user1\"]").
+   * Bucket definition names (e.g., "global") are not supported.
    */
   compactBuckets?: string[];
 

@@ -9,7 +9,33 @@ on:
     tags-ignore:
       - '**'
 
+permissions:
+  contents: read
+
 jobs:
+  format-check:
+    name: Linting
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Validate tsconfig references
+        run: pnpm validate:tsconfig-references
+
+      - name: Check formatting
+        run: pnpm format:check
+
   test-service-container-build:
     name: Build and Test PowerSync Service
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
@@ -48,48 +74,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Login to Docker Hub
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
-      # We pre-pull, so that the image is cached.
-      - name: Pre-pull Mongo image
-        run: docker pull mongo:8.0
-
-      - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.1
-        with:
-          mongodb-version: '8.0'
-          mongodb-replica-set: test-rs
-
-      - name: Enable Corepack
-        run: corepack enable
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: '.nvmrc'
-          cache: pnpm
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Validate tsconfig references
-        run: pnpm validate:tsconfig-references
-
-      - name: Build
-        shell: bash
-        run: pnpm build
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
       - name: Test
         run: pnpm test:core
 
-  run-postgres-tests:
-    name: Postgres Test
+  run-postgres-replication-tests:
+    name: Postgres Replication Test
     runs-on: ubuntu-latest
     needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
@@ -120,6 +116,42 @@ jobs:
             -c wal_level=logical
 
       - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
+        with:
+          postgres-version: ${{ matrix.postgres-version }}
+
+      - name: Start MongoDB
+        uses: ./.github/actions/start-mongodb
+
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+
+      - name: Test Replication
+        run: pnpm --filter='./modules/module-postgres' test
+
+  run-postgres-storage-tests:
+    name: Postgres Storage Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start PostgreSQL
         run: |
           docker run \
             --health-cmd pg_isready \
@@ -127,38 +159,18 @@ jobs:
             --health-timeout 5s \
             --health-retries 5 \
             -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=powersync_storage_test \
-            -p 5431:5432 \
-            -d postgres:${{ matrix.postgres-version }}
+            -e POSTGRES_DB=powersync_test \
+            -p 5432:5432 \
+            -d postgres:${{ matrix.postgres-version }} \
+            -c wal_level=logical
 
-      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
-      # We pre-pull, so that the image is cached.
-      - name: Pre-pull Mongo image
-        run: docker pull mongo:8.0
-
-      - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.1
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
         with:
-          mongodb-version: '8.0'
-          mongodb-replica-set: test-rs
+          postgres-version: ${{ matrix.postgres-version }}
 
-      - name: Enable Corepack
-        run: corepack enable
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: '.nvmrc'
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build
-        shell: bash
-        run: pnpm build
-
-      - name: Test Replication
-        run: pnpm --filter='./modules/module-postgres' test
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
       - name: Test Storage
         run: pnpm --filter='./modules/module-postgres-storage' test
@@ -167,6 +179,8 @@ jobs:
     name: MySQL Test
     runs-on: ubuntu-latest
     needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
@@ -196,49 +210,56 @@ jobs:
           --enforce_gtid_consistency=ON \
           --server-id=1
 
-      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
-      # We pre-pull, so that the image is cached.
-      - name: Pre-pull Mongo image
-        run: docker pull mongo:8.0
-
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.1
-        with:
-          mongodb-version: '8.0'
-          mongodb-replica-set: test-rs
+        uses: ./.github/actions/start-mongodb
 
       - name: Start PostgreSQL (Storage)
-        run: |
-          docker run \
-            --health-cmd pg_isready \
-            --health-interval 10s \
-            --health-timeout 5s \
-            --health-retries 5 \
-            -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=powersync_storage_test \
-            -p 5431:5432 \
-            -d postgres:18
+        uses: ./.github/actions/start-postgres-storage
 
-      - name: Enable Corepack
-        run: corepack enable
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: '.nvmrc'
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build
-        shell: bash
-        run: pnpm build
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-mysql' test
 
-  run-mongodb-tests:
-    name: MongoDB Test
+  run-mongodb-replication-tests:
+    name: MongoDB Replication Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+
+    strategy:
+      fail-fast: false
+      matrix:
+        mongodb-version: ['6.0', '7.0', '8.0']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start MongoDB
+        uses: ./.github/actions/start-mongodb
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
+
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
+
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+
+      - name: Test Replication
+        run: pnpm --filter='./modules/module-mongodb' test
+
+  run-mongodb-storage-tests:
+    name: MongoDB Storage Test
     runs-on: ubuntu-latest
     needs: run-core-tests
 
@@ -257,47 +278,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
-      # We pre-pull, so that the image is cached.
-      - name: Pre-pull Mongo image
-        run: docker pull mongo:${{ matrix.mongodb-version }}
-
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.1
+        uses: ./.github/actions/start-mongodb
         with:
           mongodb-version: ${{ matrix.mongodb-version }}
-          mongodb-replica-set: test-rs
 
-      - name: Start PostgreSQL (Storage)
-        run: |
-          docker run \
-            --health-cmd pg_isready \
-            --health-interval 10s \
-            --health-timeout 5s \
-            --health-retries 5 \
-            -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=powersync_storage_test \
-            -p 5431:5432 \
-            -d postgres:18
-
-      - name: Enable Corepack
-        run: corepack enable
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: '.nvmrc'
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build
-        shell: bash
-        run: pnpm build
-
-      - name: Test Replication
-        run: pnpm --filter='./modules/module-mongodb' test
-
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
       - name: Test Storage
         run: pnpm --filter='./modules/module-mongodb-storage' test
 
@@ -308,6 +295,7 @@ jobs:
 
     env:
       MSSQL_SA_PASSWORD: 321strong_ROOT_password
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
     strategy:
       fail-fast: false
@@ -353,43 +341,14 @@ jobs:
             mcr.microsoft.com/mssql/server:${{ matrix.mssql-version }}-latest \
             /bin/bash -c "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"${{ env.MSSQL_SA_PASSWORD }}\" -v DATABASE=powersync -v DB_USER=sa -i /scripts/init-mssql.sql"
 
-      # The mongodb-github-action below doesn't use the Docker credentials for the pull.
-      # We pre-pull, so that the image is cached.
-      - name: Pre-pull Mongo image
-        run: docker pull mongo:8.0
-
       - name: Start MongoDB
-        uses: supercharge/mongodb-github-action@1.12.1
-        with:
-          mongodb-version: '8.0'
-          mongodb-replica-set: test-rs
+        uses: ./.github/actions/start-mongodb
 
       - name: Start PostgreSQL (Storage)
-        run: |
-          docker run \
-            --health-cmd pg_isready \
-            --health-interval 10s \
-            --health-timeout 5s \
-            --health-retries 5 \
-            -e POSTGRES_PASSWORD=postgres \
-            -e POSTGRES_DB=powersync_storage_test \
-            -p 5431:5432 \
-            -d postgres:18
+        uses: ./.github/actions/start-postgres-storage
 
-      - name: Enable Corepack
-        run: corepack enable
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version-file: '.nvmrc'
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build
-        shell: bash
-        run: pnpm build
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
       - name: Test Replication
         run: pnpm --filter='./modules/module-mssql' test

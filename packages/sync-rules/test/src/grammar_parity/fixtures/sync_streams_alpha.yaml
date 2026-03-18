@@ -1,0 +1,89 @@
+query:
+  accepted:
+    - sql: SELECT * FROM comments
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+    - sql: SELECT id FROM comments
+    - sql: SELECT comments.id FROM comments
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND id IS NOT NULL)
+    - sql: SELECT * FROM comments WHERE auth.user_id() IS NOT NULL
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.parameter('owner_id'))
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = connection.parameter('owner_id'))
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = subscription.parameter('owner_id'))
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND owner_id = auth.user_id())
+    - sql: SELECT * FROM comments WHERE issue_id = issue_id
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND name = 'x')
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() AND id = id)
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM test_schema.issues WHERE owner_id = auth.user_id())
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND auth.user_id() IS NOT NULL
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND connection.parameter('x') IS NULL
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND subscription.parameter('plan') IS NOT NULL
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND auth.parameter('tenant') IS NOT NULL
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()) AND id = id
+    - sql: SELECT * FROM comments WHERE status = 'active'
+    - sql: SELECT * FROM comments WHERE deleted_at IS NULL
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id()
+    - sql: SELECT * FROM comments WHERE region = connection.parameter('region')
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() AND org_id = auth.parameter('org_id')
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() AND status = 'active'
+    - sql: SELECT * FROM comments WHERE list_id = subscription.parameter('list_id') AND list_id IN (SELECT id FROM lists WHERE owner_id = auth.user_id())
+    - sql: SELECT * FROM comments WHERE owner_id = auth.user_id() OR shared_with = auth.user_id()
+    - sql: SELECT * FROM comments WHERE status = 'active' AND (owner_id = auth.user_id() OR shared_with = auth.user_id())
+    - sql: SELECT * FROM comments WHERE status != 'archived'
+    - sql: SELECT * FROM comments WHERE deleted_at IS NOT NULL
+    - sql: SELECT * FROM comments WHERE category IN '["draft", "hidden"]'
+    - sql: SELECT * FROM comments WHERE category NOT IN '["draft", "hidden"]'
+
+  rejected_syntax:
+    # double quotes denote identifiers, not string literals
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.parameter("owner_id"))
+
+    # parser: GROUP BY is not supported
+    - sql: SELECT id FROM comments GROUP BY id
+      err: GROUP BY
+
+    # parser: Only SELECT statements are supported
+    - sql: INSERT INTO comments (id) VALUES ('c1')
+      err: SELECT
+
+    # parser: Only a single SELECT statement is supported
+    - sql: SELECT * FROM comments; SELECT * FROM issues
+      err: single
+
+    # parser: Must SELECT from a single table
+    - sql: SELECT * FROM json_each(auth.parameter('x'))
+      err: single table
+
+    # parser: Stream subqueries can't use OR filters
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id() OR name = 'test')
+      err: OR
+
+    # NOT IN with fixed value list
+    # parser: list not supported here
+    - sql: SELECT * FROM comments WHERE category NOT IN ('draft', 'hidden')
+      err: list not supported here
+
+  rejected_semantic:
+    # parser: Negations are not allowed here
+    - sql: SELECT * FROM comments WHERE issue_id NOT IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+      err: negations are not allowed
+
+    # parser: Unsupported subquery without parameter, must depend on request parameters
+    - sql: SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues)
+      err: unsupported subquery without parameter
+
+    # parser: Negations are not allowed here
+    - sql: SELECT * FROM comments WHERE NOT (issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id()))
+      err: negations are not allowed
+
+    # parser: For IN subqueries, the left operand must either depend on the row to sync or stream parameters.
+    - sql: SELECT * FROM comments WHERE 'static' IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
+      err: left operand
+
+    # parser: Function 'request.user_id' is not defined
+    - sql: SELECT * FROM issues WHERE owner_id = request.user_id()
+      err: not defined
+
+    # NOT IN with parameter source
+    # parser: Negations are not allowed here
+    - sql: SELECT * FROM comments WHERE id NOT IN subscription.parameter('excluded_ids')
+      err: negations are not allowed

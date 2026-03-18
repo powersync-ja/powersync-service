@@ -25,21 +25,51 @@ const COMPACT_MEMORY_LIMIT_MB = Math.min(HEAP_LIMIT / 1024 / 1024 - 128, 1024);
 export function registerCompactAction(program: Command) {
   const compactCommand = program
     .command(COMMAND_NAME)
-    .option(`-b, --buckets [buckets]`, 'Bucket name (optional, comma-separate multiple names)');
+    .option(`-b, --buckets [buckets]`, 'Full bucket names, comma-separated (e.g., "global[],mybucket[\\"user1\\"]")')
+    .option('-p, --parameter-indexes', 'Compacting parameter indexes. Defaults to set unless --buckets is provided.')
+    .option('--no-parameter-indexes', 'Disabling compacting parameter indexes.');
 
   wrapConfigCommand(compactCommand);
 
   return compactCommand.description('Compact storage').action(async (options) => {
-    const buckets = options.buckets?.split(',');
+    const buckets = options.buckets
+      ?.split(',')
+      .map((b: string) => b.trim())
+      .filter(Boolean);
+    if (buckets) {
+      const invalid = buckets.filter((b: string) => !b.includes('['));
+      if (invalid.length > 0) {
+        logger.error(
+          `Invalid bucket names: ${invalid.join(', ')}. ` +
+            `Pass full bucket names (e.g., "global[]"), not bucket definition names (e.g., "global").`
+        );
+        process.exit(1);
+      }
+    }
+
+    let compactParameters: boolean | null = options.parameterIndexes;
+
     if (buckets == null) {
       logger.info('Compacting storage for all buckets...');
+    } else if (buckets.length == 0) {
+      logger.info('Skipping bucket compaction');
     } else {
       logger.info(`Compacting storage for ${buckets?.join(', ')}...`);
     }
+
     const config = await utils.loadConfig(extractRunnerOptions(options));
     const serviceContext = new system.ServiceContextContainer({
       serviceMode: system.ServiceContextMode.COMPACT,
       configuration: config
+    });
+    const abortController = new AbortController();
+    const completion = Promise.withResolvers<void>();
+
+    serviceContext.lifeCycleEngine.withLifecycle(null, {
+      stop: async () => {
+        abortController.abort();
+        await completion.promise;
+      }
     });
 
     // Register modules in order to allow custom module compacting
@@ -58,22 +88,29 @@ export function registerCompactAction(program: Command) {
         logger.info('No active instance to compact');
         return;
       }
-      logger.info('Performing compaction...');
       if (buckets != null) {
+        logger.info('Performing compaction...');
         await active.compact({
           memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
           compactBuckets: buckets,
-          compactParameterData: false
+          compactParameterData: compactParameters ?? false,
+          signal: abortController.signal
         });
       } else {
-        await active.compact({ memoryLimitMB: COMPACT_MEMORY_LIMIT_MB, compactParameterData: true });
+        await active.compact({
+          memoryLimitMB: COMPACT_MEMORY_LIMIT_MB,
+          compactParameterData: compactParameters ?? true,
+          signal: abortController.signal
+        });
       }
       logger.info('Successfully compacted storage.');
     } catch (e) {
-      logger.error(`Failed to compact: ${e.toString()}`);
+      logger.error(`Failed to compact:`, e);
       // Indirectly triggers lifeCycleEngine.stop
       process.exit(1);
     } finally {
+      // No need to propagate errors on completion - this merely signals that the process can exit.
+      completion.resolve();
       // Indirectly triggers lifeCycleEngine.stop
       process.exit(0);
     }

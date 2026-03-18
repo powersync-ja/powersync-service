@@ -1,8 +1,8 @@
-import { Equatable, HashSet, StableHasher } from './equality.js';
+import { Equality, Equatable, HashSet, StableHasher, unorderedEquality } from './equality.js';
 import { equalsIgnoringResultSetList, equalsIgnoringResultSetUnordered } from './compatibility.js';
 import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
-import { RequestTableValuedResultSet } from './table.js';
+import { TableValuedResultSet } from './table.js';
 import { StreamOptions } from '../sync_plan/plan.js';
 
 /**
@@ -19,6 +19,7 @@ export class StreamResolver {
 
   buildInstantiationHash(hasher: StableHasher) {
     equalsIgnoringResultSetUnordered.hash(hasher, this.requestFilters);
+    StreamResolver.lookupStageEquality.hash(hasher, this.lookupStages);
     this.resolvedBucket.buildInstantiationHash(hasher);
   }
 
@@ -31,8 +32,33 @@ export class StreamResolver {
       return false;
     }
 
+    if (!StreamResolver.lookupStageEquality.equals(other.lookupStages, this.lookupStages)) {
+      return false;
+    }
+
     return other.resolvedBucket.hasIdenticalInstantiation(this.resolvedBucket);
   }
+
+  // When comparing lookup stages, we don't care about the order and how lookups have been assigned into stages.
+  // Each inner lookup would include its input in its equality/hashcode implementation, so we get the ordering through
+  // that. And as long as that input structure matches, two resolvers with the same lookups in a different order are
+  // still equal.
+  private static readonly flatLookupEquality = unorderedEquality(StableHasher.defaultEquality);
+
+  private static readonly lookupStageEquality: Equality<ExpandingLookup[][]> = {
+    equals: function (a: ExpandingLookup[][], b: ExpandingLookup[][]): boolean {
+      return StreamResolver.flatLookupEquality.equals(
+        a.flatMap((s) => s),
+        b.flatMap((s) => s)
+      );
+    },
+    hash: function (hasher: StableHasher, value: ExpandingLookup[][]): void {
+      return StreamResolver.flatLookupEquality.hash(
+        hasher,
+        value.flatMap((s) => s)
+      );
+    }
+  };
 }
 
 /**
@@ -62,7 +88,7 @@ export class ParameterLookup implements Equatable {
 
 export class EvaluateTableValuedFunction implements Equatable {
   constructor(
-    readonly tableValuedFunction: RequestTableValuedResultSet,
+    readonly tableValuedFunction: TableValuedResultSet,
     readonly outputs: RowExpression[],
     readonly filters: RowExpression[]
   ) {}

@@ -3,9 +3,14 @@ import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 
 import * as types from '@module/types/types.js';
-import { env } from './env.js';
-import { BSON_DESERIALIZE_DATA_OPTIONS, TestStorageFactory } from '@powersync/service-core';
+import {
+  BSON_DESERIALIZE_DATA_OPTIONS,
+  SUPPORTED_STORAGE_VERSIONS,
+  TestStorageConfig,
+  TestStorageFactory
+} from '@powersync/service-core';
 import { describe, TestOptions } from 'vitest';
+import { env } from './env.js';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;
 
@@ -19,18 +24,38 @@ export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoT
   isCI: env.CI
 });
 
-export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestStorageFactoryGenerator({
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestSetup({
   url: env.PG_STORAGE_TEST_URL
 });
 
-export function describeWithStorage(options: TestOptions, fn: (factory: TestStorageFactory) => void) {
-  describe.skipIf(!env.TEST_MONGO_STORAGE)(`mongodb storage`, options, function () {
-    fn(INITIALIZED_MONGO_STORAGE_FACTORY);
-  });
+export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
 
-  describe.skipIf(!env.TEST_POSTGRES_STORAGE)(`postgres storage`, options, function () {
-    fn(INITIALIZED_POSTGRES_STORAGE_FACTORY);
-  });
+export interface StorageVersionTestContext {
+  factory: TestStorageFactory;
+  storageVersion: number;
+}
+
+export function describeWithStorage(options: TestOptions, fn: (context: StorageVersionTestContext) => void) {
+  const describeFactory = (storageName: string, config: TestStorageConfig) => {
+    describe(`${storageName} storage`, options, function () {
+      for (const storageVersion of TEST_STORAGE_VERSIONS) {
+        describe(`storage v${storageVersion}`, function () {
+          fn({
+            factory: config.factory,
+            storageVersion
+          });
+        });
+      }
+    });
+  };
+
+  if (env.TEST_MONGO_STORAGE) {
+    describeFactory('mongodb', INITIALIZED_MONGO_STORAGE_FACTORY);
+  }
+
+  if (env.TEST_POSTGRES_STORAGE) {
+    describeFactory('postgres', INITIALIZED_POSTGRES_STORAGE_FACTORY);
+  }
 }
 
 export async function clearTestDb(db: mongo.Db) {

@@ -1,11 +1,9 @@
 import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
-import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
+import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { HydratedSyncRules } from './HydratedSyncRules.js';
-import { DEFAULT_HYDRATION_STATE } from './HydrationState.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
-import { SyncPlan } from './sync_plan/plan.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
 import { applyRowContext } from './utils.js';
@@ -33,17 +31,15 @@ export abstract class SyncConfig {
   /**
    * Hydrate the sync rule definitions with persisted state into runnable sync rules.
    *
-   * @param params.hydrationState Transforms bucket ids based on persisted state. May omit for tests.
+   * Note: versionedBucketIds is not checked here: It is set at a higher level based
+   * on the storage version of the persisted sync rules, and used in hydrationState.
+   *
+   * @param params.hydrationState Transforms bucket ids based on persisted state.
    */
-  hydrate(params?: CreateSourceParams): HydratedSyncRules {
-    let hydrationState = params?.hydrationState;
-    if (hydrationState == null || !this.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)) {
-      hydrationState = DEFAULT_HYDRATION_STATE;
-    }
-    const resolvedParams = { hydrationState };
+  hydrate(params: CreateSourceParams): HydratedSyncRules {
     return new HydratedSyncRules({
       definition: this,
-      createParams: resolvedParams,
+      createParams: params,
       bucketDataSources: this.bucketDataSources,
       bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
       eventDescriptors: this.eventDescriptors,

@@ -8,8 +8,7 @@ describe('compilation errors', () => {
   test('parsing error in query', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -24,8 +23,7 @@ streams:
   test('parsing error in CTE', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -42,20 +40,19 @@ streams:
   test('missing query', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
     with:
-      foo: SELECT 1
+      foo: SELECT id FROM users
 `);
 
     expect(errors).toStrictEqual([
       {
         message: 'One of `queries` or `query` must be given.',
         source: `with:
-      foo: SELECT 1
+      foo: SELECT id FROM users
 `
       }
     ]);
@@ -71,10 +68,10 @@ streams:
   });
 
   test('not selecting from anything', () => {
-    expect(compilationErrorsForSingleStream('SELECT 1, 2, 3')).toStrictEqual([
+    expect(compilationErrorsForSingleStream('SELECT 1 AS a, 2 AS b, 3 AS c')).toStrictEqual([
       {
         message: 'Must have a result column selecting from a table',
-        source: 'SELECT 1, 2, 3'
+        source: 'SELECT 1 AS a, 2 AS b, 3 AS c'
       }
     ]);
   });
@@ -92,6 +89,19 @@ streams:
     ]);
   });
 
+  test('selecting column from table-valued function', () => {
+    expect(compilationErrorsForSingleStream("SELECT value FROM json_each(auth.parameter('x'))")).toStrictEqual([
+      {
+        message: 'Sync streams can only select from actual tables',
+        source: 'value'
+      },
+      {
+        message: 'Must have a result column selecting from a table',
+        source: "SELECT value FROM json_each(auth.parameter('x'))"
+      }
+    ]);
+  });
+
   test('join with using', () => {
     expect(compilationErrorsForSingleStream('SELECT u.* FROM users u INNER JOIN orgs USING (org_id)')).toStrictEqual([
       {
@@ -102,7 +112,7 @@ streams:
   });
 
   test('selecting connection value', () => {
-    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') FROM users u;")).toStrictEqual([
+    expect(compilationErrorsForSingleStream("SELECT u.*, auth.parameter('x') AS p FROM users u;")).toStrictEqual([
       {
         message: 'This attempts to sync a connection parameter. Only values from the source database can be synced.',
         source: "auth.parameter('x')"
@@ -161,17 +171,6 @@ streams:
     ]);
   });
 
-  test('IN operator with static left clause', () => {
-    expect(
-      compilationErrorsForSingleStream("SELECT * FROM issues WHERE 'static' IN (SELECT id FROM users WHERE is_admin)")
-    ).toStrictEqual([
-      {
-        message: 'This filter is unrelated to the request or the table being synced, and not supported.',
-        source: "'static' IN (SELECT id FROM users WHERE is_admin"
-      }
-    ]);
-  });
-
   test('negated subquery', () => {
     expect(
       compilationErrorsForSingleStream(
@@ -206,6 +205,23 @@ streams:
         message:
           "This expression already references row data, so it can't also reference connection parameters unless the two are compared with an equals operator.",
         source: 'auth.user_id()'
+      }
+    ]);
+  });
+
+  test('partitioning table-valued result set', () => {
+    // This is kind of an implementation detail and we could be smarter in querier_graph.ts, but currently we can't have
+    // table-valued functions of request data in the middle of a parameter chain. At least we want a decent error
+    // message.
+    expect(
+      compilationErrorsForSingleStream(
+        `select comments.* from comments, json_each(connection.parameter('items')), user_access WHERE comments.item_id = json_each.value AND user_access.item_id = json_each.value AND user_access.user_id = auth.user_id()`
+      )
+    ).toStrictEqual([
+      {
+        message:
+          "This table-valued function depends on request data and can't be partitioned. If possible, try rewriting the query to not use = operators on this function and multiple other tables.",
+        source: `json_each(connection.parameter('items'))`
       }
     ]);
   });
@@ -265,6 +281,83 @@ streams:
     ]);
   });
 
+  test('warns about missing alias', () => {
+    expect(compilationErrorsForSingleStream('select id, lower(name) from users')).toStrictEqual([
+      {
+        message: 'The name of this column is unspecified, consider adding an alias.',
+        source: 'lower(name)',
+        isWarning: true
+      }
+    ]);
+
+    // Should not warn for subqueries with fixed column names.
+    expect(
+      compilationErrorsForSingleStream(
+        'select id, name from (select id, lower(name) from users) as my_table (id, name)'
+      )
+    ).toStrictEqual([]);
+  });
+
+  test('error location', () => {
+    // Verify that error locations are correctly mapped back to the raw YAML source for all
+    // scalar types. Each query has a syntax error at the word 'broken'.
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - SELECT * FROM users WHERE something is broken
+      - 'SELECT * FROM users WHERE something is broken'
+      - "SELECT * FROM users WHERE something is broken"
+      - SELECT * FROM users
+        WHERE something is broken
+      - |
+          SELECT * FROM users
+          WHERE something is broken
+      - >
+          SELECT * FROM users WHERE something is broken
+`);
+
+    expect(errors).toHaveLength(6);
+    for (const error of errors) {
+      expect(error.source).toEqual('broken');
+    }
+  });
+
+  test('error location: double-quoted escape sequences', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - "SELECT * FROM users\\nWHERE something is broken"
+      - "SELECT * FROM \\x75sers WHERE something is broken"
+      - "SELECT * FROM \\u0075sers WHERE something is broken"
+      - "SELECT * FROM \\U00000075sers WHERE something is broken"
+`);
+
+    expect(errors).toHaveLength(4);
+    for (const error of errors) {
+      expect(error.source).toEqual('broken');
+    }
+  });
+
+  test('error location: single-quoted escape sequences', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - 'SELECT * FROM users WHERE ''something'' is broken'
+`);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].source).toEqual('broken');
+  });
+
   describe('schema errors', () => {
     function schemaFromTables(...tables: SourceTableDefinition[]): StaticSchema {
       return new StaticSchema([{ tag: DEFAULT_TAG, schemas: [{ name: 'test_schema', tables }] }]);
@@ -274,8 +367,7 @@ streams:
       const [errors] = yamlToSyncPlan(
         `
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   stream:
@@ -331,8 +423,7 @@ streams:
   test('does not allow bucket_definitions', () => {
     const [errors] = yamlToSyncPlan(`
 config:
-  edition: 2
-  sync_config_compiler: true
+  edition: 3
 
 streams:
   foo:
@@ -351,5 +442,69 @@ bucket_definitions:
     data:
       - SELECT * FROM users
 `);
+  });
+
+  describe('warns about potentially dangerous queries', () => {
+    function checkDangerousQueryWarning(query: string, expectedError: boolean) {
+      const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  foo:
+    query: ${query}
+`);
+
+      if (expectedError) {
+        expect(errors).toHaveLength(1);
+        const [error] = errors;
+        expect(error.message).toContain('this is unsuitable for authorization');
+        expect(error.isWarning).toBeTruthy();
+
+        // Should not report the dangerous queries warning with the tag applied.
+        const [errorsWithOptIn] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  foo:
+    accept_potentially_dangerous_queries: true
+    query: ${query}
+`);
+        expect(errorsWithOptIn).toStrictEqual([]);
+      } else {
+        expect(errors).toStrictEqual([]);
+      }
+    }
+
+    // These examples are taken from SqlParameterQuery.usesDangerousRequestParameters
+    test('safe', () => {
+      checkDangerousQueryWarning('SELECT * FROM users WHERE user_id = auth.user_id()', false);
+      checkDangerousQueryWarning(
+        `SELECT * FROM notes WHERE org = auth.parameter('org') AND project = subscription.parameter('project')`,
+        false
+      );
+      checkDangerousQueryWarning(
+        `SELECT * FROM notes WHERE org = auth.parameter('org') AND project = connection.parameter('project')`,
+        false
+      );
+      checkDangerousQueryWarning('SELECT * FROM users', false);
+
+      checkDangerousQueryWarning(`SELECT * FROM projects WHERE is_public OR owner = auth.user_id()`, false);
+    });
+
+    test('dangerous', () => {
+      checkDangerousQueryWarning(`SELECT * FROM projects WHERE id = subscription.parameter('project')`, true);
+      checkDangerousQueryWarning(
+        `SELECT * FROM projects WHERE id = subscription.parameter('project') AND auth.parameter('role') = 'authenticated'`,
+        true
+      );
+      checkDangerousQueryWarning(`SELECT * FROM categories WHERE connection.parameters('include_categories')`, true);
+
+      checkDangerousQueryWarning(
+        `SELECT * FROM projects WHERE id = subscription.parameter('id') OR owner = auth.user_id()`,
+        true
+      );
+    });
   });
 });

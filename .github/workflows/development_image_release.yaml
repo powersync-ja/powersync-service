@@ -6,6 +6,9 @@ on: workflow_dispatch
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
+permissions:
+  contents: read
+
 jobs:
   release-docker-image:
     name: Build and Release powersync-service Docker Image

@@ -1,6 +1,5 @@
-import { storage, utils } from '@powersync/service-core';
-import { GetQuerierOptions, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
-import { versionedHydrationState } from '@powersync/service-sync-rules/src/HydrationState.js';
+import { BucketDataRequest, InternalOpId, JwtPayload, storage, utils } from '@powersync/service-core';
+import { GetQuerierOptions, RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
@@ -9,38 +8,47 @@ export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
   defaultSchema: 'public'
 };
 
-export const BATCH_OPTIONS: storage.StartBatchOptions = {
+export const BATCH_OPTIONS: storage.CreateWriterOptions = {
   ...PARSE_OPTIONS,
   zeroLSN: ZERO_LSN,
   storeCurrentData: true
 };
 
-export function testRules(content: string): storage.PersistedSyncRulesContent {
-  return {
-    id: 1,
-    sync_rules_content: content,
-    slot_name: 'test',
-    active: true,
-    last_checkpoint_lsn: '',
-    parsed(options) {
-      return {
-        id: 1,
-        sync_rules: SqlSyncRules.fromYaml(content, options),
-        slot_name: 'test',
-        hydratedSyncRules() {
-          return this.sync_rules.config.hydrate({ hydrationState: versionedHydrationState(1) });
-        }
-      };
-    },
-    lock() {
-      throw new Error('Not implemented');
-    }
-  };
-}
-
-export function makeTestTable(name: string, replicaIdColumns?: string[] | undefined) {
+export function makeTestTable(
+  name: string,
+  replicaIdColumns?: string[] | undefined,
+  options?: { tableIdStrings: boolean }
+) {
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  const id = new bson.ObjectId('6544e3899293153fa7b38331');
+  const id =
+    options?.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
+  return new storage.SourceTable({
+    id: id,
+    connectionTag: storage.SourceTable.DEFAULT_TAG,
+    objectId: relId,
+    schema: 'public',
+    name: name,
+    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
+    snapshotComplete: true
+  });
+}
+/**
+ * With incremental reprocessing, we need actual test tables, resolved via the writer.
+ *
+ * This prepares for it.
+ */
+export async function resolveTestTable(
+  _writer: storage.BucketStorageBatch,
+  name: string,
+  replicaIdColumns: string[] | undefined,
+  options: { tableIdStrings: boolean },
+  idIndex: number = 1
+) {
+  const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
+  // Generate unique ids per test table (if idIndex is specified), without completely
+  // breaking all the existing tests.
+  const idString = '6544e3899293153fa7b383' + (30 + idIndex).toString().padStart(2, '0');
+  const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;
   return new storage.SourceTable({
     id: id,
     connectionTag: storage.SourceTable.DEFAULT_TAG,
@@ -67,6 +75,39 @@ export function getBatchData(
       checksum: d.checksum
     };
   });
+}
+
+function isParsedSyncRules(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
+): syncRules is storage.PersistedSyncRules {
+  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
+}
+
+/**
+ * Bucket names no longer purely depend on the sync rules.
+ * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
+ */
+export function bucketRequest(
+  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
+  bucket: string,
+  start?: InternalOpId | string | number
+): BucketDataRequest {
+  const parsed = isParsedSyncRules(syncRules) ? syncRules : syncRules.parsed(PARSE_OPTIONS);
+  const hydrationState = parsed.hydrationState;
+  const parameterStart = bucket.indexOf('[');
+  const definitionName = bucket.substring(0, parameterStart);
+  const parameters = bucket.substring(parameterStart);
+  const source = parsed.sync_rules.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
+
+  if (source == null) {
+    throw new Error(`Failed to find global bucket ${bucket}`);
+  }
+  const bucketName = hydrationState.getBucketSourceScope(source).bucketPrefix + parameters;
+  return {
+    bucket: bucketName,
+    start: BigInt(start ?? 0n),
+    source: source
+  };
 }
 
 export function getBatchMeta(
@@ -113,4 +154,16 @@ export function querierOptions(globalParameters: RequestParameters): GetQuerierO
     hasDefaultStreams: true,
     streams: {}
   };
+}
+
+export function requestParameters(
+  jwtPayload: Record<string, any>,
+  clientParameters?: Record<string, any>
+): RequestParameters {
+  return new RequestParameters(new JwtPayload(jwtPayload), clientParameters ?? {});
+}
+
+export function removeSource<T extends { source?: any }>(obj: T): Omit<T, 'source'> {
+  const { source, ...rest } = obj;
+  return rest;
 }
