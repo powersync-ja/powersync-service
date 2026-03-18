@@ -216,7 +216,7 @@ describe('ConvexApiClient', () => {
       .mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200 }));
     const lookup = vi.fn((_hostname: string, _options: any, callback: (error: Error) => void) => {
       callback(new Error('blocked by reject_ip_ranges'));
-    });
+    }) as unknown as import('node:net').LookupFunction;
 
     const client = new ConvexApiClient({
       ...baseConfig,
