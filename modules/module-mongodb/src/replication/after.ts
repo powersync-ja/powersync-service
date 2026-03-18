@@ -227,7 +227,7 @@ function serializeNestedObjectToJson(bytes: Buffer, offset: number, depth: numbe
   const totalLength = readInt32LE(bytes, offset);
   const bodyEnd = offset + totalLength - 1;
   let cursor = offset + 4;
-  const parts = ['{'];
+  let out = '{';
   let first = true;
 
   while (cursor < bodyEnd) {
@@ -243,14 +243,14 @@ function serializeNestedObjectToJson(bytes: Buffer, offset: number, depth: numbe
     }
 
     if (!first) {
-      parts.push(',');
+      out += ',';
     }
     first = false;
-    parts.push(quoteJsonFast(key), ':', serialized);
+    out += `${quoteJsonFast(key)}:${serialized}`;
   }
 
-  parts.push('}');
-  return parts.join('');
+  out += '}';
+  return out;
 }
 
 function serializeNestedArrayToJson(bytes: Buffer, offset: number, depth: number) {
@@ -261,7 +261,7 @@ function serializeNestedArrayToJson(bytes: Buffer, offset: number, depth: number
   const totalLength = readInt32LE(bytes, offset);
   const bodyEnd = offset + totalLength - 1;
   let cursor = offset + 4;
-  const parts = ['['];
+  let out = '[';
   let first = true;
 
   while (cursor < bodyEnd) {
@@ -272,14 +272,14 @@ function serializeNestedArrayToJson(bytes: Buffer, offset: number, depth: number
     cursor = afterValue;
 
     if (!first) {
-      parts.push(',');
+      out += ',';
     }
     first = false;
-    parts.push(defined ? serialized : 'null');
+    out += defined ? serialized : 'null';
   }
 
-  parts.push(']');
-  return parts.join('');
+  out += ']';
+  return out;
 }
 
 function serializeNestedElementValue(
