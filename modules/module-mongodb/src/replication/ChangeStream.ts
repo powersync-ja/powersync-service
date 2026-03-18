@@ -10,6 +10,7 @@ import {
   ServiceError
 } from '@powersync/lib-services-framework';
 import {
+  bson,
   MetricsEngine,
   RelationCache,
   SaveOperationTag,
@@ -38,6 +39,8 @@ import {
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { MongoAfterRecordConverter } from '@powersync/mongo-after-record-rs';
+import { bufferToSqlite } from './after.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -496,7 +499,10 @@ export class ChangeStream {
       this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
     }
 
+    const converter = new MongoAfterRecordConverter();
     let lastBatch = performance.now();
+    let lastAt = at;
+    let batchSize = 0;
     let nextChunkPromise = query.nextChunk();
     while (true) {
       const { docs: docBatch, lastKey } = await nextChunkPromise;
@@ -511,8 +517,12 @@ export class ChangeStream {
 
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
-      for (let document of docBatch) {
-        const record = this.constructAfterRecord(document);
+      for (let { _id, raw: buffer } of docBatch) {
+        batchSize += buffer.byteLength;
+        // const record = converter.constructAfterRecordObject(buffer);
+        const record = bufferToSqlite(buffer);
+        // const document = bson.deserialize(buffer);
+        // const record = this.constructAfterRecord(document);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -521,7 +531,7 @@ export class ChangeStream {
           before: undefined,
           beforeReplicaId: undefined,
           after: record,
-          afterReplicaId: document._id
+          afterReplicaId: _id
         });
       }
 
@@ -539,9 +549,14 @@ export class ChangeStream {
 
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
+      const ops = at - lastAt;
+      lastAt = at;
+      const opsPerSec = Math.round((ops / duration) * 1000);
+      const kbPerSec = Math.round(((batchSize / duration) * 1000) / 1024);
       this.logger.info(
-        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms`
+        `Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()} in ${duration.toFixed(0)}ms, ${opsPerSec} ops/s, ${kbPerSec} KiB/s`
       );
+      batchSize = 0;
       this.touch();
     }
     // In case the loop was interrupted, make sure we await the last promise.

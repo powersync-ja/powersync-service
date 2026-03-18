@@ -10,7 +10,7 @@ import { bson } from '@powersync/service-core';
  */
 export class ChunkedSnapshotQuery implements AsyncDisposable {
   lastKey: any = null;
-  private lastCursor: mongo.FindCursor | null = null;
+  private lastCursor: mongo.FindCursor<Buffer> | null = null;
   private collection: mongo.Collection;
   private batchSize: number;
 
@@ -21,7 +21,7 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
     this.batchSize = options.batchSize;
   }
 
-  async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {
+  async nextChunk(): Promise<{ docs: { _id: any; raw: Buffer }[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {
     let cursor = this.lastCursor;
     let newCursor = false;
     if (cursor == null || cursor.closed) {
@@ -37,13 +37,14 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       // https://www.mongodb.com/docs/manual/release-notes/5.0/#general-aggregation-improvements
       const filter: mongo.Filter<mongo.Document> =
         this.lastKey == null ? {} : { $expr: { $gt: ['$_id', { $literal: this.lastKey }] } };
-      cursor = this.collection.find(filter, {
+      cursor = this.collection.find<Buffer>(filter, {
         readConcern: 'majority',
         limit: this.batchSize,
         // batchSize is 1 more than limit to auto-close the cursor.
         // See https://github.com/mongodb/node-mongodb-native/pull/4580
         batchSize: this.batchSize + 1,
-        sort: { _id: 1 }
+        sort: { _id: 1 },
+        raw: true
       });
       newCursor = true;
     }
@@ -59,16 +60,62 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       }
     }
     const docBatch = cursor.readBufferedDocuments();
+    const mapped = docBatch.map((doc) => {
+      return {
+        _id: extractIdFromBson(doc),
+        raw: doc
+      };
+    });
     this.lastCursor = cursor;
     if (docBatch.length == 0) {
       throw new ReplicationAssertionError(`MongoDB snapshot query returned an empty batch, but hasNext() was true.`);
     }
-    const lastKey = docBatch[docBatch.length - 1]._id;
+    const lastKey = mapped[mapped.length - 1]._id;
     this.lastKey = lastKey;
-    return { docs: docBatch, lastKey: bson.serialize({ _id: lastKey }) };
+    return { docs: mapped, lastKey: bson.serialize({ _id: lastKey }) };
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.lastCursor?.close();
   }
+}
+
+export function extractIdFromBson(source: Buffer) {
+  const { parseToElements, ByteUtils } = mongo.BSON.onDemand;
+
+  for (const [type, nameOffset, nameLength, valueOffset, valueLength] of parseToElements(source)) {
+    const name = ByteUtils.toUTF8(source, nameOffset, nameOffset + nameLength, false);
+    if (name !== '_id') {
+      continue;
+    }
+
+    // Fast path for ObjectId
+    if (type === 0x07) {
+      return new mongo.ObjectId(source.subarray(valueOffset, valueOffset + 12));
+    }
+
+    // Re-wrap only the raw _id value as: { _id: <value> }
+    const key = Buffer.from('_id\0', 'utf8');
+    const docLength = 4 + 1 + key.length + valueLength + 1;
+    const doc = Buffer.allocUnsafe(docLength);
+
+    let offset = 0;
+    doc.writeInt32LE(docLength, offset);
+    offset += 4;
+
+    doc[offset++] = type;
+    key.copy(doc, offset);
+    offset += key.length;
+
+    doc.set(source.subarray(valueOffset, valueOffset + valueLength), offset);
+    offset += valueLength;
+
+    doc[offset] = 0;
+
+    return mongo.BSON.deserialize(doc, {
+      useBigInt64: true
+    })._id;
+  }
+
+  return undefined;
 }

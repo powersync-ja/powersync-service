@@ -1,9 +1,10 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { SqliteRow } from '@powersync/service-sync-rules';
 
 const NESTED_DEPTH_LIMIT = 20;
 
-export function runJsStreamingNestedForBuffer(bytes) {
-  const row = {};
+export function bufferToSqlite(bytes: Buffer): SqliteRow {
+  const row: SqliteRow = {};
   const bodyEnd = readInt32LE(bytes, 0) - 1;
   let offset = 4;
 
@@ -101,11 +102,11 @@ export function runJsStreamingNestedForBuffer(bytes) {
   return row;
 }
 
-function readInt32LE(bytes, offset) {
+function readInt32LE(bytes: Buffer, offset: number): number {
   return bytes.readInt32LE(offset);
 }
 
-function readCString(bytes, offset) {
+function readCString(bytes: Buffer, offset: number): [string, number] {
   const end = bytes.indexOf(0, offset);
   if (end < 0) {
     throw new Error('Invalid BSON: missing cstring terminator');
@@ -113,7 +114,7 @@ function readCString(bytes, offset) {
   return [bytes.toString('utf8', offset, end), end + 1];
 }
 
-function skipCString(bytes, offset) {
+function skipCString(bytes: Buffer, offset: number): number {
   const end = bytes.indexOf(0, offset);
   if (end < 0) {
     throw new Error('Invalid BSON: missing cstring terminator');
@@ -121,7 +122,7 @@ function skipCString(bytes, offset) {
   return end + 1;
 }
 
-function quoteJsonFast(text) {
+function quoteJsonFast(text: string) {
   if (text.length > 64) {
     return JSON.stringify(text);
   }
@@ -134,7 +135,7 @@ function quoteJsonFast(text) {
   return `"${text}"`;
 }
 
-function parseRegex(bytes, offset) {
+function parseRegex(bytes: Buffer, offset: number): [string, string, number] {
   const patternEnd = bytes.indexOf(0, offset);
   const optionsEnd = bytes.indexOf(0, patternEnd + 1);
   if (patternEnd < 0 || optionsEnd < 0) {
@@ -145,11 +146,11 @@ function parseRegex(bytes, offset) {
   return [pattern, regexOptionsToJsFlags(optionsRaw), optionsEnd + 1];
 }
 
-function decimal128ToString(bytes, offset) {
+function decimal128ToString(bytes: Buffer, offset: number): string {
   return new mongo.Decimal128(bytes.subarray(offset, offset + 16)).toString();
 }
 
-function uuidOrHex(bytes) {
+function uuidOrHex(bytes: Buffer): string {
   const hex = bytes.toString('hex');
   if (bytes.length != 16) {
     return hex;
@@ -157,7 +158,7 @@ function uuidOrHex(bytes) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function parseTopLevelBinary(bytes, offset) {
+function parseTopLevelBinary(bytes: Buffer, offset: number): [Buffer | string, number] {
   const length = readInt32LE(bytes, offset);
   const subtype = bytes[offset + 4];
   const dataStart = offset + 5;
@@ -171,7 +172,7 @@ function parseTopLevelBinary(bytes, offset) {
   return [data, dataEnd];
 }
 
-function skipBsonValue(bytes, offset, type) {
+function skipBsonValue(bytes: Buffer, offset: number, type: number) {
   switch (type) {
     case 0x01:
       return offset + 8;
@@ -218,7 +219,7 @@ function skipBsonValue(bytes, offset, type) {
   }
 }
 
-function serializeNestedValueToJson(bytes, offset, isArray, depth) {
+function serializeNestedValueToJson(bytes: Buffer, offset: number, isArray: boolean, depth: number) {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
   }
@@ -261,7 +262,12 @@ function serializeNestedValueToJson(bytes, offset, isArray, depth) {
   return parts.join('');
 }
 
-function serializeNestedElementValue(bytes, offset, type, depth) {
+function serializeNestedElementValue(
+  bytes: Buffer,
+  offset: number,
+  type: number,
+  depth: number
+): [string, number, boolean] {
   switch (type) {
     case 0x01: {
       const value = bytes.readDoubleLE(offset);
@@ -327,12 +333,12 @@ function serializeNestedElementValue(bytes, offset, type, depth) {
   }
 }
 
-function legacyDateTimeString(millis) {
+function legacyDateTimeString(millis: number) {
   const iso = new Date(millis).toISOString();
   return `${iso.slice(0, 10)} ${iso.slice(11)}`;
 }
 
-function regexOptionsToJsFlags(options) {
+function regexOptionsToJsFlags(options: string) {
   let out = '';
   if (options.includes('s')) out += 'g';
   if (options.includes('i')) out += 'i';
@@ -340,6 +346,6 @@ function regexOptionsToJsFlags(options) {
   return out;
 }
 
-function hexLower(bytes, offset, length) {
+function hexLower(bytes: Buffer, offset: number, length: number): string {
   return bytes.toString('hex', offset, offset + length);
 }

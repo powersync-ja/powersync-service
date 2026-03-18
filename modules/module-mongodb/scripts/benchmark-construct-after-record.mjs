@@ -2,14 +2,14 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { CompatibilityContext, applyRowContext } from '@powersync/service-sync-rules';
 import { constructAfterRecord } from '../dist/replication/MongoRelation.js';
 import { MongoAfterRecordConverter } from '@powersync/mongo-after-record-rs';
-import { runJsStreamingNestedForBuffer } from './benchmark-construct-after-record-streaming.mjs';
+import { bufferToSqlite } from '../dist/replication/after.js';
 import { performance, PerformanceObserver, constants as perfConstants } from 'node:perf_hooks';
 
 const numericArgs = process.argv.slice(2).filter((arg) => /^-?\d+$/.test(arg));
-const ITERATIONS = Number.isFinite(Number(numericArgs[0])) ? Number(numericArgs[0]) : 2000;
-const WARMUP = Number.isFinite(Number(numericArgs[1])) ? Number(numericArgs[1]) : 200;
+const ITERATIONS = Number.isFinite(Number(numericArgs[0])) ? Number(numericArgs[0]) : 200;
+const WARMUP = Number.isFinite(Number(numericArgs[1])) ? Number(numericArgs[1]) : 50;
 const DOC_VARIANTS = Number.isFinite(Number(numericArgs[2])) ? Number(numericArgs[2]) : 64;
-const TARGET_DOC_BYTES = Number.isFinite(Number(numericArgs[3])) ? Number(numericArgs[3]) : 100 * 1024;
+const TARGET_DOC_BYTES = Number.isFinite(Number(numericArgs[3])) ? Number(numericArgs[3]) : 500 * 1024;
 const EXPLICIT_GC_ENABLED = typeof global.gc == 'function';
 
 const rustConverter = new MongoAfterRecordConverter();
@@ -39,13 +39,20 @@ if (!EXPLICIT_GC_ENABLED) {
   console.log('[note] Run with --expose-gc for normalized GC baselines before each benchmark case.');
 }
 
-const wideBaseDocument = buildLargeBaseDocument(TARGET_DOC_BYTES);
-const wideDocuments = buildDocumentVariants(wideBaseDocument, DOC_VARIANTS);
-await runScenario('wide-doc', wideDocuments);
+// const wideBaseDocument = buildLargeBaseDocument(TARGET_DOC_BYTES);
+// const wideDocuments = buildDocumentVariants(wideBaseDocument, DOC_VARIANTS);
+// await runScenario('wide-doc', wideDocuments);
 
-const nestedArrayBaseDocument = buildNestedArrayBaseDocument(TARGET_DOC_BYTES);
-const nestedArrayDocuments = buildNestedArrayVariants(nestedArrayBaseDocument, DOC_VARIANTS);
-await runScenario('nested-array', nestedArrayDocuments);
+// const nestedArrayBaseDocument = buildNestedArrayBaseDocument(TARGET_DOC_BYTES);
+// const nestedArrayDocuments = buildNestedArrayVariants(nestedArrayBaseDocument, DOC_VARIANTS);
+// await runScenario('nested-array', nestedArrayDocuments);
+
+const oldModelTimeSheetBase = buildOldModelTimeSheetBaseDocument(TARGET_DOC_BYTES);
+const oldModelTimeSheetDocuments = buildOldModelTimeSheetVariants(oldModelTimeSheetBase.shape, DOC_VARIANTS);
+await runScenario('old-model-timesheet', oldModelTimeSheetDocuments, {
+  driveEventsPerTimeSheet: oldModelTimeSheetBase.shape.driveEventsPerTimeSheet,
+  gpsPointsPerDriveEvent: oldModelTimeSheetBase.shape.gpsPointsPerDriveEvent
+});
 
 function runJsForBuffer(bytes, compatibility) {
   const decoded = mongo.BSON.deserialize(bytes, {
@@ -56,21 +63,28 @@ function runJsForBuffer(bytes, compatibility) {
   return applyRowContext(row, compatibility);
 }
 
-async function runScenario(name, documents) {
+async function runScenario(name, documents, metadata = null) {
   const bsonBuffers = documents.map((document) => mongo.BSON.serialize(document));
   const jsFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsForBuffer(bytes, jsCompatibility));
   const rustFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => rustConverter.constructAfterRecordObject(bytes));
-  const jsStreamingNestedFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => runJsStreamingNestedForBuffer(bytes));
+  const jsStreamingNestedFromBson = makeRoundRobinEvaluator(bsonBuffers, (bytes) => bufferToSqlite(bytes));
 
   const sampleInput = bsonBuffers[0];
   const sampleJs = runJsForBuffer(sampleInput, jsCompatibility);
   const sampleRust = rustConverter.constructAfterRecordObject(sampleInput);
-  const sampleJsStreamingNested = runJsStreamingNestedForBuffer(sampleInput);
+  const sampleJsStreamingNested = bufferToSqlite(sampleInput);
   const parity = compareRows(sampleJs, sampleRust);
   const streamingParity = compareRows(sampleJs, sampleJsStreamingNested);
 
   console.log('');
   console.log(`[scenario=${name}]`);
+  if (metadata != null) {
+    console.log(
+      Object.entries(metadata)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(' ')
+    );
+  }
   console.log(
     `sizes bson_input=${sampleInput.length}B output[js]=${estimateObjectBytes(sampleJs)}B output[rust]=${estimateObjectBytes(sampleRust)}B variants=${bsonBuffers.length} parity_sample=${parity} parity_js_streaming_sample=${streamingParity}`
   );
@@ -165,7 +179,7 @@ function valueSignature(value) {
   }
 
   if (typeof value == 'number') {
-    return Number.isFinite(value) ? (Math.trunc(value * 1000) | 0) : 0;
+    return Number.isFinite(value) ? Math.trunc(value * 1000) | 0 : 0;
   }
 
   if (typeof value == 'bigint') {
@@ -302,9 +316,7 @@ function buildLargeBaseDocument(targetBytes) {
       base[`score_${index}`] = Number(((index % 1000) / 10).toFixed(1));
     }
     if (index % 7 === 0) {
-      base[`updated_at_${index}`] = new Date(
-        `2026-03-${String((index % 28) + 1).padStart(2, '0')}T08:00:00.000Z`
-      );
+      base[`updated_at_${index}`] = new Date(`2026-03-${String((index % 28) + 1).padStart(2, '0')}T08:00:00.000Z`);
     }
     if (index % 11 === 0) {
       base[`payload_${index}`] = {
@@ -384,6 +396,174 @@ function buildNestedArrayVariants(baseDocument, count) {
   }
 
   return variants;
+}
+
+function buildOldModelTimeSheetBaseDocument(targetBytes) {
+  const shape = {
+    driveEventsPerTimeSheet: 4,
+    gpsPointsPerDriveEvent: 16
+  };
+
+  let document = buildOldModelTimeSheet(1, shape);
+  let encoded = mongo.BSON.serialize(document);
+
+  while (encoded.length < targetBytes) {
+    if (shape.gpsPointsPerDriveEvent < 96) {
+      shape.gpsPointsPerDriveEvent += 8;
+    } else {
+      shape.driveEventsPerTimeSheet += 2;
+    }
+
+    document = buildOldModelTimeSheet(1, shape);
+    encoded = mongo.BSON.serialize(document);
+  }
+
+  return { document, shape };
+}
+
+function buildOldModelTimeSheetVariants(shape, count) {
+  const variants = [];
+
+  for (let i = 0; i < count; i++) {
+    variants.push(buildOldModelTimeSheet(i + 1, shape));
+  }
+
+  return variants;
+}
+
+function buildOldModelTimeSheet(uid, shape) {
+  const shiftStart = new Date('2026-03-12T13:00:00.000Z');
+  const shiftEnd = new Date('2026-03-13T05:30:00.000Z');
+  const startLng = benchmarkJitter(uid * 11 + 1, -122.7741127, 0.5);
+  const startLat = benchmarkJitter(uid * 11 + 2, 49.2389075, 0.5);
+  const events = [];
+
+  events.push({
+    _id: new mongo.ObjectId(),
+    eventType: 'StartShift.Drive',
+    dtStart: shiftStart,
+    status: 'TMEVT_FINAL',
+    location: {
+      date: new Date(shiftStart.getTime() + 2_000),
+      type: 'Point',
+      coordinates: [startLng, startLat],
+      accuracy: benchmarkFloat(uid * 11 + 3, 10, 20),
+      provider: 'googlePlayServices'
+    },
+    objectType: null
+  });
+
+  for (let index = 0; index < shape.driveEventsPerTimeSheet; index++) {
+    const seedBase = uid * 1_000 + index * 97;
+    const eventStart = new Date(shiftStart.getTime() + index * 3_600_000);
+    const eventLng = benchmarkJitter(seedBase + 1, startLng, 0.1);
+    const eventLat = benchmarkJitter(seedBase + 2, startLat, 0.1);
+
+    events.push({
+      _id: new mongo.ObjectId(),
+      eventType: 'Drive.PaidDistancePaidTime',
+      dtStart: eventStart,
+      status: 'TMEVT_FINAL',
+      location: {
+        date: new Date(eventStart.getTime() + 60_000),
+        type: 'Point',
+        coordinates: [eventLng, eventLat],
+        accuracy: benchmarkFloat(seedBase + 3, 10, 20),
+        provider: null
+      },
+      objectType: null,
+      flAutomaticEvent: true,
+      timeSheetEventRoute: {
+        vlDistance: benchmarkFloat(seedBase + 4, 10_000, 200_000),
+        locations: generateBenchmarkLocationTrack(
+          shape.gpsPointsPerDriveEvent,
+          eventLng,
+          eventLat,
+          new Date('2026-03-12T13:00:05.000Z').getTime(),
+          seedBase + 5
+        )
+      }
+    });
+  }
+
+  events.push({
+    _id: new mongo.ObjectId(),
+    eventType: 'Drive.EndShift',
+    dtStart: shiftEnd,
+    status: 'TMEVT_FINAL',
+    location: {
+      date: shiftEnd,
+      type: 'Point',
+      coordinates: [benchmarkJitter(uid * 11 + 4, startLng, 0.5), benchmarkJitter(uid * 11 + 5, startLat, 0.5)],
+      accuracy: benchmarkFloat(uid * 11 + 6, 5, 15),
+      provider: 'googlePlayServices'
+    },
+    objectType: null
+  });
+
+  return {
+    _id: new mongo.ObjectId(),
+    idUser: uid,
+    workDistanceStatus: 'OK',
+    workTimeStatus: 'OK',
+    dtLastWorkDistanceStatus: new Date('2026-03-13T05:30:07.429Z'),
+    dtLastWorkTimeStatus: new Date('2026-03-13T05:30:11.335Z'),
+    vlTotalPayableWorkTime: benchmarkFloat(uid * 11 + 7, 6, 10),
+    vlTotalPayableWorkDistance: benchmarkFloat(uid * 11 + 8, 10_000, 200_000),
+    vlTotalWorkTime: benchmarkFloat(uid * 11 + 9, 6, 10),
+    vlTotalWorkDistance: benchmarkFloat(uid * 11 + 10, 10_000, 200_000),
+    vlTotalPayableAdjustTime: 0,
+    vlTotalPayableAdjustDistance: 0,
+    vlTotalPayableCapturedTime: benchmarkFloat(uid * 11 + 12, 5, 9),
+    vlTotalPayableCapturedDistance: benchmarkFloat(uid * 11 + 13, 8_000, 180_000),
+    events,
+    dtStart: shiftStart,
+    dtEnd: shiftEnd,
+    signature: null,
+    timeReview: null,
+    distanceReview: null,
+    vlSkippedReview: 0,
+    region: uid % 2 === 0 ? 'REGION_001' : 'REGION_002',
+    flRemoteDelete: 0
+  };
+}
+
+function generateBenchmarkLocationTrack(count, startLng, startLat, startTimeMs, seedBase) {
+  const locations = [];
+  let lng = startLng;
+  let lat = startLat;
+  let time = startTimeMs;
+
+  for (let index = 0; index < count; index++) {
+    lng = Number((lng + benchmarkFloat(seedBase + index * 5 + 1, -0.0005, 0.0005)).toFixed(6));
+    lat = Number((lat + benchmarkFloat(seedBase + index * 5 + 2, -0.0005, 0.0005)).toFixed(6));
+    time += benchmarkInt(seedBase + index * 5 + 3, 6_000, 60_000);
+    locations.push({
+      date: new Date(time),
+      type: 'Point',
+      coordinates: [lng, lat],
+      accuracy: benchmarkFloat(seedBase + index * 5 + 4, 1.5, 20.0)
+    });
+  }
+
+  return locations;
+}
+
+function benchmarkUnit(seed) {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453123;
+  return value - Math.floor(value);
+}
+
+function benchmarkFloat(seed, min, max, decimals = 6) {
+  return Number((benchmarkUnit(seed) * (max - min) + min).toFixed(decimals));
+}
+
+function benchmarkInt(seed, min, max) {
+  return min + Math.floor(benchmarkUnit(seed) * (max - min + 1));
+}
+
+function benchmarkJitter(seed, value, range) {
+  return Number((value + (benchmarkUnit(seed) - 0.5) * range).toFixed(6));
 }
 
 function digestFor(index) {
