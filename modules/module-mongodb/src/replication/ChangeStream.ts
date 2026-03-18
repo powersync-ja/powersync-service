@@ -819,6 +819,21 @@ export class ChangeStream {
     };
   }
 
+  private getBufferedChangeCount(stream: mongo.ChangeStream<mongo.Document>): number {
+    // The driver keeps fetched change stream documents on the underlying cursor, but does
+    // not expose that through the public ChangeStream API. We use this to detect backlog
+    // building up before we have processed the corresponding source changes locally.
+    const cursor = (
+      stream as mongo.ChangeStream<mongo.Document> & {
+        cursor: mongo.AbstractCursor<mongo.ChangeStreamDocument<mongo.Document>>;
+      }
+    ).cursor;
+    if (cursor == null) {
+      throw new ReplicationAssertionError('MongoDB ChangeStream no longer exposes an internal cursor');
+    }
+    return cursor.bufferedCount();
+  }
+
   async streamChangesInternal() {
     await this.storage.startBatch(
       {
@@ -1008,17 +1023,17 @@ export class ChangeStream {
 
             if (checkpointId == STANDALONE_CHECKPOINT_ID) {
               // Standalone / write checkpoint received.
-              // In some cases, there could be a _lot_ of these.
-              // We use the same batching logic to handle them.
-              // This does introduce some delay - write checkpoint latency during low load could be doubled.
-              // However, during high load, this will increase throughput significantly.
-              if (waitForCheckpointLsn == null) {
-                waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+              // When we are caught up, commit immediately to keep write checkpoint latency low.
+              // Once there is already a batch checkpoint pending, or the driver has buffered more
+              // change stream events, collapse standalone checkpoints into the normal batch
+              // checkpoint flow to avoid commit churn under sustained load.
+              if (waitForCheckpointLsn != null || this.getBufferedChangeCount(stream) > 0) {
+                if (waitForCheckpointLsn == null) {
+                  waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+                }
+                continue;
               }
-              continue;
-            }
-
-            if (!this.checkpointStreamId.equals(checkpointId)) {
+            } else if (!this.checkpointStreamId.equals(checkpointId)) {
               continue;
             }
             const { comparable: lsn } = new MongoLSN({
