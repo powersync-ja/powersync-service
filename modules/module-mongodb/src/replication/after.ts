@@ -2,6 +2,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { SqliteRow } from '@powersync/service-sync-rules';
 
 const NESTED_DEPTH_LIMIT = 20;
+const TWO_DIGITS = Array.from({ length: 100 }, (_value, index) => index.toString().padStart(2, '0'));
+const THREE_DIGITS = Array.from({ length: 1000 }, (_value, index) => index.toString().padStart(3, '0'));
 
 export function bufferToSqlite(bytes: Buffer): SqliteRow {
   const row: SqliteRow = {};
@@ -401,8 +403,34 @@ function serializeNestedElementValue(
 }
 
 function legacyDateTimeString(millis: number) {
-  const iso = new Date(millis).toISOString();
-  return `${iso.slice(0, 10)} ${iso.slice(11)}`;
+  const date = new Date(millis);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new RangeError('Invalid time value');
+  }
+
+  const year = date.getUTCFullYear();
+  if (year < 0 || year > 9999) {
+    const iso = date.toISOString();
+    return `${iso.slice(0, 10)} ${iso.slice(11)}`;
+  }
+
+  return (
+    String(year).padStart(4, '0') +
+    '-' +
+    TWO_DIGITS[date.getUTCMonth() + 1] +
+    '-' +
+    TWO_DIGITS[date.getUTCDate()] +
+    ' ' +
+    TWO_DIGITS[date.getUTCHours()] +
+    ':' +
+    TWO_DIGITS[date.getUTCMinutes()] +
+    ':' +
+    TWO_DIGITS[date.getUTCSeconds()] +
+    '.' +
+    THREE_DIGITS[date.getUTCMilliseconds()] +
+    'Z'
+  );
 }
 
 function regexOptionsToJsFlags(options: string) {
