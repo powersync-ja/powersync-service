@@ -604,25 +604,14 @@ function serializeNestedElementValue(
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
   switch (type) {
-    case 0x01: {
-      const value = bytes.readDoubleLE(offset);
-      writer.writeAscii(Number.isInteger(value) ? Math.trunc(value).toString() : Number(value).toString());
-      return { nextOffset: offset + 8, defined: true };
-    }
-    case 0x02: {
-      const length = readInt32LE(bytes, offset);
-      const stringStart = offset + 4;
-      writer.writeQuotedUtf8Slice(bytes, stringStart, stringStart + length - 1);
-      return { nextOffset: stringStart + length, defined: true };
-    }
-    case 0x03: {
-      const result = serializeNestedObjectToJson(bytes, offset, depth + 1, writer);
-      return { nextOffset: result.nextOffset, defined: true };
-    }
-    case 0x04: {
-      const result = serializeNestedArrayToJson(bytes, offset, depth + 1, writer);
-      return { nextOffset: result.nextOffset, defined: true };
-    }
+    case 0x01:
+      return serializeNestedDoubleElement(bytes, offset, writer);
+    case 0x02:
+      return serializeNestedStringElement(bytes, offset, writer);
+    case 0x03:
+      return serializeNestedObjectElement(bytes, offset, depth, writer);
+    case 0x04:
+      return serializeNestedArrayElement(bytes, offset, depth, writer);
     case 0x05: {
       const next = skipBsonValue(bytes, offset, type);
       return { nextOffset: next, defined: false };
@@ -636,25 +625,15 @@ function serializeNestedElementValue(
     case 0x08:
       writer.writeByte(bytes[offset] ? 0x31 : 0x30);
       return { nextOffset: offset + 1, defined: true };
-    case 0x09: {
-      const millis = Number(bytes.readBigInt64LE(offset));
-      appendLegacyDateTimeToWriter(writer, millis);
-      return { nextOffset: offset + 8, defined: true };
-    }
+    case 0x09:
+      return serializeNestedDateTimeElement(bytes, offset, writer);
     case 0x0a:
     case 0xff:
     case 0x7f:
       writer.writeAscii('null');
       return { nextOffset: offset, defined: true };
-    case 0x0b: {
-      const { pattern, options, nextOffset } = parseRegex(bytes, offset);
-      writer.writeAscii('{"pattern":');
-      writer.writeQuotedJsonString(pattern);
-      writer.writeAscii(',"options":');
-      writer.writeQuotedJsonString(options);
-      writer.writeByte(0x7d);
-      return { nextOffset, defined: true };
-    }
+    case 0x0b:
+      return serializeNestedRegexElement(bytes, offset, writer);
     case 0x10: {
       writer.writeAscii(String(readInt32LE(bytes, offset)));
       return { nextOffset: offset + 4, defined: true };
@@ -679,6 +658,70 @@ function serializeNestedElementValue(
     default:
       throw new Error(`Unsupported BSON nested type: 0x${type.toString(16)}`);
   }
+}
+
+function serializeNestedDoubleElement(
+  bytes: Buffer,
+  offset: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  const value = bytes.readDoubleLE(offset);
+  writer.writeAscii(value.toString());
+  return { nextOffset: offset + 8, defined: true };
+}
+
+function serializeNestedStringElement(
+  bytes: Buffer,
+  offset: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  const length = readInt32LE(bytes, offset);
+  const stringStart = offset + 4;
+  writer.writeQuotedUtf8Slice(bytes, stringStart, stringStart + length - 1);
+  return { nextOffset: stringStart + length, defined: true };
+}
+
+function serializeNestedObjectElement(
+  bytes: Buffer,
+  offset: number,
+  depth: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  const result = serializeNestedObjectToJson(bytes, offset, depth + 1, writer);
+  return { nextOffset: result.nextOffset, defined: true };
+}
+
+function serializeNestedArrayElement(
+  bytes: Buffer,
+  offset: number,
+  depth: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  const result = serializeNestedArrayToJson(bytes, offset, depth + 1, writer);
+  return { nextOffset: result.nextOffset, defined: true };
+}
+
+function serializeNestedDateTimeElement(
+  bytes: Buffer,
+  offset: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  appendLegacyDateTimeToWriter(writer, Number(bytes.readBigInt64LE(offset)));
+  return { nextOffset: offset + 8, defined: true };
+}
+
+function serializeNestedRegexElement(
+  bytes: Buffer,
+  offset: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  const { pattern, options, nextOffset } = parseRegex(bytes, offset);
+  writer.writeAscii('{"pattern":');
+  writer.writeQuotedJsonString(pattern);
+  writer.writeAscii(',"options":');
+  writer.writeQuotedJsonString(options);
+  writer.writeByte(0x7d);
+  return { nextOffset, defined: true };
 }
 
 function legacyDateTimeString(millis: number) {
