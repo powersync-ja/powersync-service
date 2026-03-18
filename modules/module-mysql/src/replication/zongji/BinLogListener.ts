@@ -360,12 +360,12 @@ export class BinLogListener {
         case zongji_utils.eventIsXid(evt):
           this.isTransactionOpen = false;
           this.binLogPosition.offset = evt.nextPosition;
-          const LSN = new common.ReplicatedGTID({
+          this.currentGTID = new common.ReplicatedGTID({
             raw_gtid: this.currentGTID.raw,
             position: this.binLogPosition
-          }).comparable;
-          await this.eventHandler.onCommit(LSN);
-          this.logger.info(`Processed Xid event - transaction complete. LSN: ${LSN}.`);
+          });
+          await this.eventHandler.onCommit(this.currentGTID.comparable);
+          this.logger.info(`Processed Xid event - transaction complete. LSN: ${this.currentGTID.comparable}.`);
           break;
         case zongji_utils.eventIsQuery(evt):
           await this.processQueryEvent(evt);

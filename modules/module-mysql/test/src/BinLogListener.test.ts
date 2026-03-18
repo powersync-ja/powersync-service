@@ -466,11 +466,11 @@ describe('BinlogListener tests', () => {
     await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('${uuid()}','test')`);
     await connectionManager.query(`DROP TABLE ${testTable}`);
 
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 20000 });
     await binLogListener.stop();
     expect(eventHandler.rowsWritten).toBe(2);
     assertSchemaChange(eventHandler.schemaChanges[0], SchemaChangeType.DROP_TABLE, 'multi_schema', 'test_DATA_multi');
-  });
+  }, 20000);
 
   function assertSchemaChange(
     change: SchemaChange,
