@@ -8,11 +8,23 @@ import {
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { ConvexRawDocument } from '../client/ConvexApiClient.js';
 
+
+/**
+ * From Convex docs:
+ * Every document in Convex automatically has two system fields:
+
+    _id - a unique document ID with validator v.id("tableName")
+    _creationTime - a creation timestamp with validator v.number()
+
+    Technically _creationTime should be handlded differently as the other metadata excludes defined below, but we include it here for convenience since it's not necessary for replication.
+ */
+const INTERNAL_KEYS = new Set(['_table', '_deleted', '_ts', '_component', '_creationTime']); 
+
 export function toSqliteInputRow(change: ConvexRawDocument, properties?: Record<string, unknown>): SqliteInputRow {
   const row: DatabaseInputRow = {};
 
   for (const [key, value] of Object.entries(change)) {
-    if (key == '_table' || key == '_deleted') {
+    if (INTERNAL_KEYS.has(key)) {
       continue;
     }
 
