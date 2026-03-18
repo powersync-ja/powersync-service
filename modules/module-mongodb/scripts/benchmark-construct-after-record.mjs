@@ -9,7 +9,7 @@ const numericArgs = process.argv.slice(2).filter((arg) => /^-?\d+$/.test(arg));
 const ITERATIONS = Number.isFinite(Number(numericArgs[0])) ? Number(numericArgs[0]) : 200;
 const WARMUP = Number.isFinite(Number(numericArgs[1])) ? Number(numericArgs[1]) : 50;
 const DOC_VARIANTS = Number.isFinite(Number(numericArgs[2])) ? Number(numericArgs[2]) : 64;
-const TARGET_DOC_BYTES = Number.isFinite(Number(numericArgs[3])) ? Number(numericArgs[3]) : 500 * 1024;
+const TARGET_DOC_BYTES = Number.isFinite(Number(numericArgs[3])) ? Number(numericArgs[3]) : 200 * 1024;
 const EXPLICIT_GC_ENABLED = typeof global.gc == 'function';
 
 const rustConverter = new MongoAfterRecordConverter();
@@ -39,13 +39,13 @@ if (!EXPLICIT_GC_ENABLED) {
   console.log('[note] Run with --expose-gc for normalized GC baselines before each benchmark case.');
 }
 
-// const wideBaseDocument = buildLargeBaseDocument(TARGET_DOC_BYTES);
-// const wideDocuments = buildDocumentVariants(wideBaseDocument, DOC_VARIANTS);
-// await runScenario('wide-doc', wideDocuments);
+const wideBaseDocument = buildLargeBaseDocument(TARGET_DOC_BYTES);
+const wideDocuments = buildDocumentVariants(wideBaseDocument, DOC_VARIANTS);
+await runScenario('wide-doc', wideDocuments);
 
-// const nestedArrayBaseDocument = buildNestedArrayBaseDocument(TARGET_DOC_BYTES);
-// const nestedArrayDocuments = buildNestedArrayVariants(nestedArrayBaseDocument, DOC_VARIANTS);
-// await runScenario('nested-array', nestedArrayDocuments);
+const nestedArrayBaseDocument = buildNestedArrayBaseDocument(TARGET_DOC_BYTES);
+const nestedArrayDocuments = buildNestedArrayVariants(nestedArrayBaseDocument, DOC_VARIANTS);
+await runScenario('nested-array', nestedArrayDocuments);
 
 const oldModelTimeSheetBase = buildOldModelTimeSheetBaseDocument(TARGET_DOC_BYTES);
 const oldModelTimeSheetDocuments = buildOldModelTimeSheetVariants(oldModelTimeSheetBase.shape, DOC_VARIANTS);
