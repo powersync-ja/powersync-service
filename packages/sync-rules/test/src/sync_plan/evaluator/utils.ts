@@ -9,6 +9,7 @@ import {
   GetQuerierOptions,
   HydratedSyncRules,
   javaScriptExpressionEngine,
+  ParameterIndexLookupCreator,
   PrecompiledSyncConfig,
   RequestParameters,
   RustSyncPlanEvaluator,
@@ -26,7 +27,7 @@ export type SyncRuntime = 'javascript' | 'rust';
 
 interface SyncTest {
   runtime: SyncRuntime;
-  engine: ScalarExpressionEngine | null;
+  engine: ScalarExpressionEngine;
   prepareWithoutHydration(yaml: string): SyncConfig;
   prepareSyncStreams(yaml: string): HydratedSyncRules;
 }
@@ -40,7 +41,7 @@ export function syncTest(name: string, fn: (context: { sync: SyncTest }) => unkn
       try {
         await fn({ sync });
       } finally {
-        sync.engine?.close();
+        sync.engine.close();
       }
     });
   }
@@ -189,13 +190,38 @@ function toRustRequestParameters(parameters: RequestParameters) {
 }
 
 function rustLookupToScopedLookup(lookup: { values: unknown[] }) {
+  const source = createLookupSource(String(lookup.values[0]), String(lookup.values[1]));
   return ScopedParameterLookup.direct(
     {
+      source,
       lookupName: String(lookup.values[0]),
       queryId: String(lookup.values[1])
     },
     lookup.values.slice(2) as any[]
   );
+}
+
+function createLookupSource(lookupName: string, queryId: string): ParameterIndexLookupCreator {
+  const source: ParameterIndexLookupCreator = {
+    get defaultLookupScope() {
+      return {
+        lookupName,
+        queryId,
+        source
+      };
+    },
+    getSourceTables() {
+      return new Set();
+    },
+    evaluateParameterRow() {
+      return [];
+    },
+    tableSyncsParameters() {
+      return false;
+    }
+  };
+
+  return source;
 }
 
 function tableMatchesPattern(pattern: any, table: SourceTableInterface) {
@@ -255,7 +281,7 @@ async function resolveDynamicLookupResults({
         });
       }
 
-      const lookups = values.map(rustLookupToScopedLookup);
+      const lookups = values.map((value) => rustLookupToScopedLookup(value));
       const rows = await source.getParameterSets(lookups);
       stagedRows.set(key, rows.map(indexedRowToArray));
 
@@ -340,8 +366,7 @@ function stageKey(stageId: number, idInStage: number) {
 function compileJsPlan(source: string) {
   const { config, errors } = SqlSyncRules.fromYaml(source, {
     throwOnError: false,
-    defaultSchema: 'test_schema',
-    allowNewSyncCompiler: true
+    defaultSchema: 'test_schema'
   });
 
   if (errors.length != 0) {

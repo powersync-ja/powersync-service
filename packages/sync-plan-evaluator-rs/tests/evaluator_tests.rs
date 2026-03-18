@@ -55,6 +55,22 @@ fn evaluates_data_rows_for_simple_partition() {
 }
 
 #[test]
+fn accepts_numeric_sync_plan_version() {
+    let plan_json = json!({
+      "version": 1,
+      "dataSources": [],
+      "buckets": [],
+      "parameterIndexes": [],
+      "streams": []
+    })
+    .to_string();
+
+    let evaluator =
+        SyncPlanEvaluator::from_serialized_json(&plan_json, EvaluatorOptions::default()).unwrap();
+    assert_eq!(evaluator.plan().data_sources.len(), 0);
+}
+
+#[test]
 fn star_projection_keeps_underscore_columns_when_json_scalar() {
     let plan_json = json!({
       "version": "unstable",

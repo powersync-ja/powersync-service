@@ -49,8 +49,8 @@ impl SyncPlanEvaluator {
     }
 
     pub fn from_plan(plan: SerializedSyncPlan, options: EvaluatorOptions) -> EvaluatorResult<Self> {
-        if plan.version != "unstable" {
-            return Err(EvaluatorError::UnknownPlanVersion(plan.version));
+        if !plan.version.is_supported() {
+            return Err(EvaluatorError::UnknownPlanVersion(plan.version.to_string()));
         }
 
         Ok(Self { plan, options })

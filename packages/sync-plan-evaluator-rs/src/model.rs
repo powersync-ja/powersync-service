@@ -1,11 +1,38 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt;
 
 pub type JsonMap = serde_json::Map<String, Value>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum SerializedSyncPlanVersion {
+    Number(u32),
+    String(String),
+}
+
+impl SerializedSyncPlanVersion {
+    pub fn is_supported(&self) -> bool {
+        match self {
+            Self::Number(1) => true,
+            Self::String(version) if version == "unstable" => true,
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for SerializedSyncPlanVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Number(version) => write!(f, "{version}"),
+            Self::String(version) => write!(f, "{version}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SerializedSyncPlan {
-    pub version: String,
+    pub version: SerializedSyncPlanVersion,
     #[serde(rename = "dataSources")]
     pub data_sources: Vec<SerializedDataSource>,
     pub buckets: Vec<SerializedBucketDataSource>,
