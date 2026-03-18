@@ -621,8 +621,8 @@ export class MongoCompactor {
       const mapped = (result?.buckets ?? []).map((b) => {
         // The numbers, specifically the bytes, could be a bigint. We convert to Number to allow calculating the ratios.
         // BigInt precision is not needed here since it's just an estimate.
-        const updatedCount = Number(b.estimate_since_compact?.count ?? 0);
-        const totalCount = Number(b.compacted_state?.count ?? 0) + updatedCount;
+        const updatedCount = b.estimate_since_compact?.count ?? 0;
+        const totalCount = (b.compacted_state?.count ?? 0) + updatedCount;
         const updatedBytes = Number(b.estimate_since_compact?.bytes ?? 0);
         const totalBytes = Number(b.compacted_state?.bytes ?? 0) + updatedBytes;
         const dirtyChangeNumber = totalCount > 0 ? updatedCount / totalCount : 0;
