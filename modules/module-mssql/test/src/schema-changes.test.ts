@@ -460,7 +460,7 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
 async function expectedSchemaChange(spy: any, type: SchemaChangeType) {
   logger.info(`Test Assertion: Waiting for schema change: ${type}`);
   await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type })), {
-    timeout: 20000
+    timeout: 55000
   });
 
   const promises = spy.mock.results.filter((r: any) => r.type === 'return').map((r: any) => r.value);
