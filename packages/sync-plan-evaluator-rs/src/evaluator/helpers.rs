@@ -71,6 +71,67 @@ pub(crate) fn collect_column_references(
     }
 }
 
+pub(crate) fn evaluate_table_valued_function(
+    function_name: &str,
+    args: &[Value],
+) -> EvaluatorResult<Vec<JsonMap>> {
+    match function_name {
+        "json_each" => {
+            if args.len() != 1 {
+                return Err(EvaluatorError::UnsupportedExpression(format!(
+                    "json_each expects 1 argument, got {}",
+                    args.len()
+                )));
+            }
+
+            crate::value::json_each_rows(&args[0]).map_err(EvaluatorError::UnsupportedExpression)
+        }
+        unsupported => Err(EvaluatorError::UnsupportedExpression(format!(
+            "unsupported table-valued function: {unsupported}"
+        ))),
+    }
+}
+
+pub(crate) fn evaluate_table_valued_inputs(
+    functions: &[crate::model::SerializedTableValuedFunction],
+    context: &EvalContext<'_>,
+) -> EvaluatorResult<Vec<HashMap<usize, JsonMap>>> {
+    if functions.is_empty() {
+        return Ok(vec![HashMap::new()]);
+    }
+
+    let mut combinations = vec![HashMap::new()];
+
+    for (index, function) in functions.iter().enumerate() {
+        let mut next = Vec::new();
+        for combination in &combinations {
+            let scoped = EvalContext {
+                row: context.row,
+                request: context.request,
+                table_rows: Some(combination),
+            };
+            let args = function
+                .function_inputs
+                .iter()
+                .map(|expr| evaluate_expression(expr, &scoped))
+                .collect::<EvaluatorResult<Vec<_>>>()?;
+            let rows = evaluate_table_valued_function(&function.function_name, &args)?;
+            for row in rows {
+                let mut expanded = combination.clone();
+                expanded.insert(index, row);
+                next.push(expanded);
+            }
+        }
+
+        combinations = next;
+        if combinations.is_empty() {
+            break;
+        }
+    }
+
+    Ok(combinations)
+}
+
 pub(crate) fn table_matches(
     pattern: &crate::model::SerializedTablePattern,
     table: &SourceTable,
@@ -111,6 +172,14 @@ fn indexed_row_to_vec(row: &JsonMap) -> Vec<Value> {
     }
 
     parsed.into_values().collect()
+}
+
+fn vec_to_indexed_row(values: &[Value]) -> JsonMap {
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| (index.to_string(), value.clone()))
+        .collect()
 }
 
 fn intersection(groups: Vec<Vec<Value>>) -> Vec<Value> {
@@ -175,6 +244,7 @@ fn cartesian_product(values: Vec<Vec<Value>>) -> Vec<Vec<Value>> {
 pub(crate) struct EvalContext<'a> {
     pub row: Option<&'a JsonMap>,
     pub request: &'a RequestParameters,
+    pub table_rows: Option<&'a HashMap<usize, JsonMap>>,
 }
 
 impl<'a> EvalContext<'a> {

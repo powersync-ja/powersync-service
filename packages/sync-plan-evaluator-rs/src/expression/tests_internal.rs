@@ -7,6 +7,7 @@
             &EvalContext {
                 row: None,
                 request: &RequestParameters::default(),
+                table_rows: None,
             },
         )
         .unwrap()

@@ -132,6 +132,7 @@ pub fn compile_sync_plan(
                 hash: 0,
                 columns,
                 filters: compiled_bindings.data_filters.clone(),
+                table_valued_functions: Vec::new(),
                 partition_by: compiled_bindings.partition_by.clone(),
             };
             data_source.hash = hash_json(&data_source)?;
@@ -195,7 +196,7 @@ pub fn compile_sync_plan(
     canonicalize_sources_and_buckets(&mut data_sources, &mut buckets, &mut streams)?;
 
     let plan = SerializedSyncPlan {
-        version: "unstable".to_string(),
+        version: sync_plan_evaluator_rs::model::SerializedSyncPlanVersion::Number(1),
         data_sources,
         buckets,
         parameter_indexes,

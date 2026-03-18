@@ -80,6 +80,75 @@ pub fn normalize_parameter_value(value: &Value) -> Option<Value> {
     }
 }
 
+pub fn json_value_to_sqlite(value: &Value) -> Value {
+    match value {
+        Value::Bool(v) => Value::Number(Number::from(if *v { 1 } else { 0 })),
+        Value::Array(_) | Value::Object(_) => Value::String(value.to_string()),
+        _ => value.clone(),
+    }
+}
+
+pub fn json_array_contains(target: &Value, source: &Value) -> Value {
+    if target.is_null() {
+        return Value::Null;
+    }
+
+    let items = match source {
+        Value::Null => return Value::Null,
+        Value::Array(items) => items.clone(),
+        Value::String(text) => match serde_json::from_str::<Value>(text) {
+            Ok(Value::Array(items)) => items,
+            _ => return Value::Null,
+        },
+        _ => return Value::Null,
+    };
+
+    let mut has_null = false;
+    for item in items {
+        let candidate = json_value_to_sqlite(&item);
+        if candidate.is_null() {
+            has_null = true;
+            continue;
+        }
+
+        if compare_sql_values(target, &candidate) == Some(Ordering::Equal) {
+            return Value::Number(Number::from(1));
+        }
+    }
+
+    if has_null {
+        Value::Null
+    } else {
+        Value::Number(Number::from(0))
+    }
+}
+
+pub fn json_each_rows(source: &Value) -> Result<Vec<Map<String, Value>>, String> {
+    let items = match source {
+        Value::Null => return Ok(Vec::new()),
+        Value::Array(items) => items.clone(),
+        Value::String(text) => match serde_json::from_str::<Value>(text) {
+            Ok(Value::Array(items)) => items,
+            Ok(other) => {
+                return Err(format!("Expected an array, got {other}"));
+            }
+            Err(_) => return Err("Expected JSON string".to_string()),
+        },
+        other => {
+            return Err(format!("Expected json_each to be called with a string, got {other}"));
+        }
+    };
+
+    Ok(items
+        .into_iter()
+        .map(|value| {
+            let mut row = Map::new();
+            row.insert("value".to_string(), json_value_to_sqlite(&value));
+            row
+        })
+        .collect())
+}
+
 pub fn cast_as_text(value: &Value) -> Option<String> {
     match value {
         Value::Null => None,

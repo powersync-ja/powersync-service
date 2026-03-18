@@ -1,8 +1,8 @@
 use crate::evaluator::{EvalContext, EvaluatorError, EvaluatorResult};
 use crate::model::{CaseWhenBranch, ExternalSource, SqlExpression};
 use crate::value::{
-    cast_as_f64, cast_as_i64, cast_as_text, cast_numeric, compare_sql_values, sqlite_bool,
-    sqlite_not, NumericValue,
+    cast_as_f64, cast_as_i64, cast_as_text, cast_numeric, compare_sql_values,
+    json_array_contains, sqlite_bool, sqlite_not, NumericValue,
 };
 use serde_json::{Number, Value};
 use std::cmp::Ordering;

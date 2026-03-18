@@ -15,7 +15,17 @@ impl SyncPlanEvaluator {
         }
 
         for query in &prepared.dynamic_queries {
-            let mut staged_rows: HashMap<(usize, usize), Vec<Vec<Value>>> = HashMap::new();
+            let mut staged_rows: HashMap<(usize, usize), Vec<Vec<Value>>> = query
+                .resolved_rows
+                .iter()
+                .map(|resolved| {
+                    (
+                        (resolved.stage_id, resolved.id_in_stage),
+                        resolved.rows.iter().map(indexed_row_to_vec).collect(),
+                    )
+                })
+                .collect();
+            let mut query_uninstantiable = false;
             let request_values: HashMap<(usize, usize), Vec<ScopedParameterLookup>> = query
                 .lookup_requests
                 .iter()
@@ -24,6 +34,10 @@ impl SyncPlanEvaluator {
 
             for (stage_id, stage) in query.lookup_stages.iter().enumerate() {
                 for (id_in_stage, lookup) in stage.iter().enumerate() {
+                    if staged_rows.contains_key(&(stage_id, id_in_stage)) {
+                        continue;
+                    }
+
                     let scoped_values = if let Some(values) = request_values.get(&(stage_id, id_in_stage))
                     {
                         values.clone()
@@ -59,6 +73,11 @@ impl SyncPlanEvaluator {
                         }
                     };
 
+                    if scoped_values.is_empty() {
+                        query_uninstantiable = true;
+                        break;
+                    }
+
                     let mut rows = Vec::new();
                     for lookup in &scoped_values {
                         if let Some(found) = lookup_rows_by_key.get(&lookup.serialized_representation)
@@ -68,8 +87,21 @@ impl SyncPlanEvaluator {
                             }
                         }
                     }
+
+                    if rows.is_empty() {
+                        query_uninstantiable = true;
+                        break;
+                    }
                     staged_rows.insert((stage_id, id_in_stage), rows);
                 }
+
+                if query_uninstantiable {
+                    break;
+                }
+            }
+
+            if query_uninstantiable {
+                continue;
             }
 
             let instantiated =
@@ -189,6 +221,46 @@ impl SyncPlanEvaluator {
         Ok(requests)
     }
 
+    fn try_resolve_parameter_values(
+        &self,
+        source_instantiation: &[SerializedParameterValue],
+        context: &EvalContext<'_>,
+        staged_rows: &HashMap<(usize, usize), Vec<Vec<Value>>>,
+    ) -> EvaluatorResult<Option<Vec<Vec<Value>>>> {
+        let mut values = Vec::new();
+
+        for value in source_instantiation {
+            let candidates = match value {
+                SerializedParameterValue::Request { expr } => {
+                    let value = evaluate_expression(expr, context)?;
+                    Some(
+                        normalize_parameter_value(&value)
+                            .map(|v| vec![v])
+                            .unwrap_or_default(),
+                    )
+                }
+                SerializedParameterValue::Lookup {
+                    lookup,
+                    result_index,
+                } => staged_rows.get(&(lookup.stage_id, lookup.id_in_stage)).map(|rows| {
+                    rows.iter()
+                        .map(|row| row.get(*result_index).cloned().unwrap_or(Value::Null))
+                        .collect()
+                }),
+                SerializedParameterValue::Intersection { values } => self
+                    .try_resolve_parameter_values(values, context, staged_rows)?
+                    .map(intersection),
+            };
+
+            let Some(candidates) = candidates else {
+                return Ok(None);
+            };
+            values.push(candidates);
+        }
+
+        Ok(Some(values))
+    }
+
     fn resolve_parameter_values(
         &self,
         source_instantiation: &[SerializedParameterValue],
@@ -214,9 +286,7 @@ impl SyncPlanEvaluator {
 
                     let mut out = Vec::new();
                     for row in rows {
-                        if let Some(value) = row.get(*result_index) {
-                            out.push(value.clone());
-                        }
+                        out.push(row.get(*result_index).cloned().unwrap_or(Value::Null));
                     }
                     out
                 }

@@ -28,6 +28,7 @@ fn register_parameter_index(
         },
         output,
         filters: builder.filters.clone(),
+        table_valued_functions: Vec::new(),
         partition_by,
     };
     parameter_index.hash = hash_json(&parameter_index)?;

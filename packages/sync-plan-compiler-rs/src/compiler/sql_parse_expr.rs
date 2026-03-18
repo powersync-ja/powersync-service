@@ -152,10 +152,19 @@ fn parse_a_expr(a_expr: &protobuf::AExpr) -> Result<ExprAst, CompilerError> {
             })?;
 
             let values = parse_list_node(right.as_ref())?;
-            Ok(ExprAst::ScalarIn {
+            let in_expr = ExprAst::ScalarIn {
                 target: Box::new(target),
                 values,
-            })
+            };
+
+            if matches!(operator.as_deref(), Ok("<>") | Ok("!=") | Ok("not")) {
+                Ok(ExprAst::Unary {
+                    op: "not".to_string(),
+                    operand: Box::new(in_expr),
+                })
+            } else {
+                Ok(in_expr)
+            }
         }
         protobuf::AExprKind::AexprBetween | protobuf::AExprKind::AexprNotBetween => {
             let value = a_expr

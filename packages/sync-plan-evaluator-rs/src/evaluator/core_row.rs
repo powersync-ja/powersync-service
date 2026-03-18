@@ -17,6 +17,7 @@ impl SyncPlanEvaluator {
         let context = EvalContext {
             row: Some(record),
             request: &request,
+            table_rows: None,
         };
 
         for bucket in &self.plan.buckets {
@@ -31,59 +32,68 @@ impl SyncPlanEvaluator {
                     continue;
                 }
 
-                if !all_filters_match(&source.filters, &context)? {
-                    continue;
-                }
+                let table_rows = evaluate_table_valued_inputs(&source.table_valued_functions, &context)?;
+                for binding in table_rows {
+                    let scoped = EvalContext {
+                        row: Some(record),
+                        request: &request,
+                        table_rows: Some(&binding),
+                    };
 
-                let mut data = Map::new();
-                for column in &source.columns {
-                    match column {
-                        crate::model::ColumnSource::Star(v) if v == "star" => {
-                            extend_filtered_json_row(&mut data, record);
-                        }
-                        crate::model::ColumnSource::Expression { expr, alias } => {
-                            let value = evaluate_expression(expr, &context)?;
-                            if matches!(value, Value::Null | Value::String(_) | Value::Number(_)) {
-                                data.insert(alias.clone(), value);
+                    if !all_filters_match(&source.filters, &scoped)? {
+                        continue;
+                    }
+
+                    let mut data = Map::new();
+                    for column in &source.columns {
+                        match column {
+                            crate::model::ColumnSource::Star(v) if v == "star" => {
+                                extend_filtered_json_row(&mut data, record);
                             }
+                            crate::model::ColumnSource::Expression { expr, alias } => {
+                                let value = evaluate_expression(expr, &scoped)?;
+                                if matches!(value, Value::Null | Value::String(_) | Value::Number(_)) {
+                                    data.insert(alias.clone(), value);
+                                }
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
-                }
 
-                let mut partition_values = Vec::new();
-                let mut partition_valid = true;
-                for partition in &source.partition_by {
-                    let value = evaluate_expression(&partition.expr, &context)?;
-                    if let Some(normalized) = normalize_parameter_value(&value) {
-                        partition_values.push(normalized);
-                    } else {
-                        partition_valid = false;
-                        break;
+                    let mut partition_values = Vec::new();
+                    let mut partition_valid = true;
+                    for partition in &source.partition_by {
+                        let value = evaluate_expression(&partition.expr, &scoped)?;
+                        if let Some(normalized) = normalize_parameter_value(&value) {
+                            partition_values.push(normalized);
+                        } else {
+                            partition_valid = false;
+                            break;
+                        }
                     }
+
+                    if !partition_valid {
+                        continue;
+                    }
+
+                    let bucket = format!(
+                        "{}{}",
+                        bucket.unique_name,
+                        serialize_value_array(&partition_values)
+                    );
+                    let id = id_from_data(&data);
+                    let output_table = source
+                        .output_table_name
+                        .clone()
+                        .unwrap_or_else(|| source_table.name.clone());
+
+                    results.push(EvaluatedRow {
+                        bucket,
+                        table: output_table,
+                        id,
+                        data,
+                    });
                 }
-
-                if !partition_valid {
-                    continue;
-                }
-
-                let bucket = format!(
-                    "{}{}",
-                    bucket.unique_name,
-                    serialize_value_array(&partition_values)
-                );
-                let id = id_from_data(&data);
-                let output_table = source
-                    .output_table_name
-                    .clone()
-                    .unwrap_or_else(|| source_table.name.clone());
-
-                results.push(EvaluatedRow {
-                    bucket,
-                    table: output_table,
-                    id,
-                    data,
-                });
             }
         }
 
@@ -105,6 +115,11 @@ impl SyncPlanEvaluator {
 
                 for filter in &source.filters {
                     collect_column_references(filter, &mut requirements.full_columns);
+                }
+                for function in &source.table_valued_functions {
+                    for input in &function.function_inputs {
+                        collect_column_references(input, &mut requirements.full_columns);
+                    }
                 }
                 for partition in &source.partition_by {
                     collect_column_references(&partition.expr, &mut requirements.full_columns);

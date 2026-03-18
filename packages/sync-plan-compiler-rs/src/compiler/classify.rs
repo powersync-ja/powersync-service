@@ -10,6 +10,7 @@ fn classify_expression(expr: &SqlExpression) -> ReferenceKind {
     match expr {
         SqlExpression::Data { source } => match source {
             ExternalSource::Column { .. } => ReferenceKind::Row,
+            ExternalSource::FunctionOutput { .. } => ReferenceKind::Row,
             ExternalSource::Request { .. } => ReferenceKind::Request,
             ExternalSource::Other(_) => ReferenceKind::Mixed,
         },

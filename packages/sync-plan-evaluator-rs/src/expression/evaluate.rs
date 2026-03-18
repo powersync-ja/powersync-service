@@ -9,6 +9,14 @@ pub fn evaluate_expression(
                 .and_then(|row| row.get(column).cloned())
                 .unwrap_or(Value::Null)),
             ExternalSource::Request { request } => Ok(context.request_source(request)),
+            ExternalSource::FunctionOutput {
+                function,
+                output_name,
+            } => Ok(context
+                .table_rows
+                .and_then(|rows| rows.get(function))
+                .and_then(|row| row.get(output_name).cloned())
+                .unwrap_or(Value::Null)),
             ExternalSource::Other(v) => Ok(v.clone()),
         },
         SqlExpression::Unary { operand, operator } => {
@@ -224,6 +232,14 @@ fn evaluate_function(function: &str, args: &[Value]) -> EvaluatorResult<Value> {
                 }
             }
             Ok(Value::Null)
+        }
+        "ps_json_contains" => {
+            if args.len() != 2 {
+                return Err(EvaluatorError::UnsupportedExpression(
+                    "ps_json_contains() expects two arguments".to_string(),
+                ));
+            }
+            Ok(json_array_contains(&args[0], &args[1]))
         }
         "substr" | "substring" => substr(args),
         unsupported => Err(EvaluatorError::UnsupportedExpression(format!(

@@ -3,6 +3,7 @@ use crate::model::{
     BucketInclusionReason, DynamicBucketQuery, EvaluateRowOptions, EvaluatedParameters,
     EvaluatedRow, JsonMap, LookupRequest, LookupResults, ParameterLookupScope,
     PrepareBucketQueryOptions, PreparedBucketQueries, RequestParameters, ResolvedBucket,
+    ResolvedLookupRows,
     ScopedParameterLookup, SerializedExpandingLookup, SerializedParameterValue,
     SerializedSyncPlan, SourceTable,
 };

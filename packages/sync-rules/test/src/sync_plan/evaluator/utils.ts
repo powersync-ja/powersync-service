@@ -18,7 +18,8 @@ import {
   SourceTableInterface,
   SqliteRow,
   SqlSyncRules,
-  SyncConfig
+  SyncConfig,
+  withBucketSource
 } from '../../../../src/index.js';
 import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
@@ -84,7 +85,13 @@ function createSyncTest(runtime: SyncRuntime): SyncTest {
     },
     prepareSyncStreams(inputs) {
       const serialized = serializeSyncPlan(compileJsPlan(inputs));
-      return new RustHydratedSyncRulesFacade(serialized) as unknown as HydratedSyncRules;
+      const plan = deserializeSyncPlan(serialized);
+      const hydrated = new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
+        engine,
+        sourceText: '',
+        defaultSchema: 'test_schema'
+      }).hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      return new RustHydratedSyncRulesFacade(serialized, hydrated) as unknown as HydratedSyncRules;
     }
   };
 }
@@ -92,17 +99,33 @@ function createSyncTest(runtime: SyncRuntime): SyncTest {
 class RustHydratedSyncRulesFacade {
   readonly #plan: any;
   readonly #evaluator: RustSyncPlanEvaluator;
+  readonly #bucketSourcesByPrefix: Map<string, any>;
+  readonly #lookupSourcesByScope: Map<string, ParameterIndexLookupCreator>;
+  readonly definition: SyncConfig;
 
-  constructor(plan: unknown) {
+  constructor(plan: unknown, metadata: HydratedSyncRules) {
     this.#plan = plan as any;
     this.#evaluator = new RustSyncPlanEvaluator(plan, { defaultSchema: 'test_schema' });
+    this.definition = metadata.definition;
+    this.#bucketSourcesByPrefix = new Map(
+      metadata.definition.bucketSources.flatMap((bucketSource) =>
+        bucketSource.dataSources.map((source) => [source.uniqueName, source] as const)
+      )
+    );
+    this.#lookupSourcesByScope = new Map(
+      metadata.definition.bucketParameterLookupSources.map((source) => [
+        `${source.defaultLookupScope.lookupName}:${source.defaultLookupScope.queryId}`,
+        source
+      ])
+    );
   }
 
   evaluateRow(options: { sourceTable: SourceTableInterface; record: SqliteRow }) {
-    return this.#evaluator.evaluateRow({
+    const rows = this.#evaluator.evaluateRow({
       sourceTable: toRustSourceTable(options.sourceTable),
       record: options.record
     }) as any[];
+    return rows.map((entry) => withBucketSource(entry, this.#sourceForBucket(entry.bucket)));
   }
 
   tableSyncsData(table: SourceTableInterface) {
@@ -117,7 +140,7 @@ class RustHydratedSyncRulesFacade {
     const rows = this.#evaluator.evaluateParameterRow(toRustSourceTable(sourceTable), row) as any[];
     return rows.map((entry) => ({
       ...entry,
-      lookup: rustLookupToScopedLookup(entry.lookup)
+      lookup: rustLookupToScopedLookup(entry.lookup, this.#lookupSource(entry.lookup))
     }));
   }
 
@@ -128,10 +151,11 @@ class RustHydratedSyncRulesFacade {
         hasDefaultStreams: options.hasDefaultStreams,
         streams: options.streams
       }) as any;
-      const staticBuckets = prepared.staticBuckets as any[];
+      const staticBuckets = (prepared.staticBuckets as any[]).map((bucket) => this.#normalizeBucket(bucket));
       const staticCount = staticBuckets.length;
       const evaluator = this.#evaluator;
       const plan = this.#plan;
+      const normalizeBucket = (bucket: any) => this.#normalizeBucket(bucket);
 
       const querier: BucketParameterQuerier = {
         staticBuckets,
@@ -153,7 +177,7 @@ class RustHydratedSyncRulesFacade {
           }
 
           const allResolved = evaluator.resolveBucketQueries(prepared, lookupResults) as any[];
-          return allResolved.slice(staticCount);
+          return allResolved.slice(staticCount).map(normalizeBucket);
         }
       };
 
@@ -170,6 +194,30 @@ class RustHydratedSyncRulesFacade {
         errors: [{ descriptor: 'rust', message: (error as Error).message }]
       };
     }
+  }
+
+  #normalizeBucket(bucket: any) {
+    return withBucketSource(
+      {
+        ...bucket,
+        priority: typeof bucket.priority == 'bigint' ? Number(bucket.priority) : bucket.priority
+      },
+      this.#sourceForBucket(bucket.bucket)
+    );
+  }
+
+  #sourceForBucket(bucket: string) {
+    const prefix = bucket.slice(0, bucket.indexOf('['));
+    const source = this.#bucketSourcesByPrefix.get(prefix);
+    if (source == null) {
+      throw new Error(`Missing bucket source metadata for ${bucket}`);
+    }
+    return source;
+  }
+
+  #lookupSource(lookup: { values: unknown[] }) {
+    const key = `${String(lookup.values[0])}:${String(lookup.values[1])}`;
+    return this.#lookupSourcesByScope.get(key);
   }
 }
 
@@ -189,11 +237,11 @@ function toRustRequestParameters(parameters: RequestParameters) {
   };
 }
 
-function rustLookupToScopedLookup(lookup: { values: unknown[] }) {
-  const source = createLookupSource(String(lookup.values[0]), String(lookup.values[1]));
+function rustLookupToScopedLookup(lookup: { values: unknown[] }, source?: ParameterIndexLookupCreator) {
+  const resolvedSource = source ?? createLookupSource(String(lookup.values[0]), String(lookup.values[1]));
   return ScopedParameterLookup.direct(
     {
-      source,
+      source: resolvedSource,
       lookupName: String(lookup.values[0]),
       queryId: String(lookup.values[1])
     },
@@ -254,6 +302,10 @@ async function resolveDynamicLookupResults({
   const stagedRows = new Map<string, unknown[][]>();
   const requestValues = new Map<string, any[]>();
 
+  for (const resolved of query.resolvedRows ?? []) {
+    stagedRows.set(stageKey(resolved.stageId, resolved.idInStage), resolved.rows.map(indexedRowToArray));
+  }
+
   for (const request of query.lookupRequests as any[]) {
     requestValues.set(stageKey(request.stageId, request.idInStage), request.values);
   }
@@ -264,10 +316,15 @@ async function resolveDynamicLookupResults({
       const lookup = stage[idInStage];
       const key = stageKey(stageId, idInStage);
 
+      if (stagedRows.has(key)) {
+        continue;
+      }
+
       let values = requestValues.get(key);
       if (values == null) {
         if (lookup.type != 'parameter') {
-          throw new Error('Rust test facade only supports parameter lookup stages.');
+          stagedRows.set(key, []);
+          continue;
         }
 
         const scope = plan.parameterIndexes[lookup.lookup].lookupScope;
@@ -279,6 +336,11 @@ async function resolveDynamicLookupResults({
             serializedRepresentation: JSON.stringify(scoped)
           };
         });
+      }
+
+      if (values.length == 0) {
+        stagedRows.set(key, []);
+        continue;
       }
 
       const lookups = values.map((value) => rustLookupToScopedLookup(value));
@@ -302,7 +364,7 @@ function instantiateLookupValues(values: any[], stagedRows: Map<string, unknown[
 function resolveParameterCandidates(value: any, stagedRows: Map<string, unknown[][]>): unknown[] {
   if (value.type == 'lookup') {
     const rows = stagedRows.get(stageKey(value.lookup.stageId, value.lookup.idInStage)) ?? [];
-    const result = rows.map((row) => row[value.resultIndex]).filter((entry) => entry !== undefined && entry !== null);
+    const result = rows.map((row) => (row[value.resultIndex] === undefined ? null : row[value.resultIndex]));
     return result;
   }
 

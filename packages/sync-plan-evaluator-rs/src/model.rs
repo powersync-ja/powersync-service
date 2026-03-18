@@ -64,6 +64,8 @@ pub struct SerializedDataSource {
     pub hash: u32,
     pub columns: Vec<ColumnSource>,
     pub filters: Vec<SqlExpression>,
+    #[serde(default, rename = "tableValuedFunctions")]
+    pub table_valued_functions: Vec<SerializedTableValuedFunction>,
     #[serde(rename = "partitionBy")]
     pub partition_by: Vec<PartitionKey>,
 }
@@ -83,8 +85,18 @@ pub struct SerializedParameterIndexLookupCreator {
     pub lookup_scope: ParameterLookupScope,
     pub output: Vec<SqlExpression>,
     pub filters: Vec<SqlExpression>,
+    #[serde(default, rename = "tableValuedFunctions")]
+    pub table_valued_functions: Vec<SerializedTableValuedFunction>,
     #[serde(rename = "partitionBy")]
     pub partition_by: Vec<PartitionKey>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SerializedTableValuedFunction {
+    #[serde(rename = "functionName")]
+    pub function_name: String,
+    #[serde(rename = "functionInputs")]
+    pub function_inputs: Vec<SqlExpression>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -236,6 +248,11 @@ pub struct CaseWhenBranch {
 pub enum ExternalSource {
     Column { column: String },
     Request { request: String },
+    FunctionOutput {
+        function: usize,
+        #[serde(rename = "outputName")]
+        output_name: String,
+    },
     Other(Value),
 }
 
@@ -346,12 +363,23 @@ pub struct DynamicBucketQuery {
     pub bucket_prefix: String,
     #[serde(rename = "inclusionReason")]
     pub inclusion_reason: BucketInclusionReason,
+    #[serde(default, rename = "resolvedRows")]
+    pub resolved_rows: Vec<ResolvedLookupRows>,
     #[serde(rename = "lookupStages")]
     pub lookup_stages: Vec<Vec<SerializedExpandingLookup>>,
     #[serde(rename = "lookupRequests")]
     pub lookup_requests: Vec<LookupRequest>,
     #[serde(rename = "sourceInstantiation")]
     pub source_instantiation: Vec<SerializedParameterValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResolvedLookupRows {
+    #[serde(rename = "stageId")]
+    pub stage_id: usize,
+    #[serde(rename = "idInStage")]
+    pub id_in_stage: usize,
+    pub rows: Vec<JsonMap>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
