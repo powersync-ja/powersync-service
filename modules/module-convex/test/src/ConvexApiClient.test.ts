@@ -209,4 +209,22 @@ describe('ConvexApiClient', () => {
       retryable: false
     });
   });
+
+  it('checks the hostname policy before creating checkpoint markers', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ status: 'success' }), { status: 200 })
+    );
+    const lookup = vi.fn((_hostname: string, _options: any, callback: (error: Error) => void) => {
+      callback(new Error('blocked by reject_ip_ranges'));
+    });
+
+    const client = new ConvexApiClient({
+      ...baseConfig,
+      lookup
+    });
+
+    await expect(client.createWriteCheckpointMarker()).rejects.toThrow('blocked by reject_ip_ranges');
+    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

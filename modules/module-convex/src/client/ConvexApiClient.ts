@@ -131,6 +131,8 @@ export class ConvexApiClient {
   }
 
   async createWriteCheckpointMarker(options?: { signal?: AbortSignal }): Promise<void> {
+    await this.assertHostAllowed();
+
     await this.performRequest({
       method: 'POST',
       path: '/api/mutation',
