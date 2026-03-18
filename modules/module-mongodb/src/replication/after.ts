@@ -27,12 +27,12 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x04: {
-        row[key] = serializeNestedValueToJson(bytes, offset, true, 1);
+        row[key] = serializeNestedArrayToJson(bytes, offset, 1);
         offset += readInt32LE(bytes, offset);
         break;
       }
       case 0x03: {
-        row[key] = serializeNestedValueToJson(bytes, offset, false, 1);
+        row[key] = serializeNestedObjectToJson(bytes, offset, 1);
         offset += readInt32LE(bytes, offset);
         break;
       }
@@ -219,7 +219,7 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
   }
 }
 
-function serializeNestedValueToJson(bytes: Buffer, offset: number, isArray: boolean, depth: number) {
+function serializeNestedObjectToJson(bytes: Buffer, offset: number, depth: number) {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
   }
@@ -227,22 +227,18 @@ function serializeNestedValueToJson(bytes: Buffer, offset: number, isArray: bool
   const totalLength = readInt32LE(bytes, offset);
   const bodyEnd = offset + totalLength - 1;
   let cursor = offset + 4;
-  const parts = [isArray ? '[' : '{'];
+  const parts = ['{'];
   let first = true;
 
   while (cursor < bodyEnd) {
     const type = bytes[cursor++];
-    let key = '';
-    if (isArray) {
-      cursor = skipCString(bytes, cursor);
-    } else {
-      [key, cursor] = readCString(bytes, cursor);
-    }
+    const [key, afterKey] = readCString(bytes, cursor);
+    cursor = afterKey;
 
-    const [serialized, nextCursor, defined] = serializeNestedElementValue(bytes, cursor, type, depth);
-    cursor = nextCursor;
+    const [serialized, afterValue, defined] = serializeNestedElementValue(bytes, cursor, type, depth);
+    cursor = afterValue;
 
-    if (!defined && !isArray) {
+    if (!defined) {
       continue;
     }
 
@@ -250,15 +246,39 @@ function serializeNestedValueToJson(bytes: Buffer, offset: number, isArray: bool
       parts.push(',');
     }
     first = false;
-
-    if (isArray) {
-      parts.push(defined ? serialized : 'null');
-    } else {
-      parts.push(quoteJsonFast(key), ':', serialized);
-    }
+    parts.push(quoteJsonFast(key), ':', serialized);
   }
 
-  parts.push(isArray ? ']' : '}');
+  parts.push('}');
+  return parts.join('');
+}
+
+function serializeNestedArrayToJson(bytes: Buffer, offset: number, depth: number) {
+  if (depth > NESTED_DEPTH_LIMIT) {
+    throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
+  }
+
+  const totalLength = readInt32LE(bytes, offset);
+  const bodyEnd = offset + totalLength - 1;
+  let cursor = offset + 4;
+  const parts = ['['];
+  let first = true;
+
+  while (cursor < bodyEnd) {
+    const type = bytes[cursor++];
+    cursor = skipCString(bytes, cursor);
+
+    const [serialized, afterValue, defined] = serializeNestedElementValue(bytes, cursor, type, depth);
+    cursor = afterValue;
+
+    if (!first) {
+      parts.push(',');
+    }
+    first = false;
+    parts.push(defined ? serialized : 'null');
+  }
+
+  parts.push(']');
   return parts.join('');
 }
 
@@ -281,11 +301,11 @@ function serializeNestedElementValue(
       return [quoteJsonFast(text), stringStart + length, true];
     }
     case 0x03: {
-      const serialized = serializeNestedValueToJson(bytes, offset, false, depth + 1);
+      const serialized = serializeNestedObjectToJson(bytes, offset, depth + 1);
       return [serialized, offset + readInt32LE(bytes, offset), true];
     }
     case 0x04: {
-      const serialized = serializeNestedValueToJson(bytes, offset, true, depth + 1);
+      const serialized = serializeNestedArrayToJson(bytes, offset, depth + 1);
       return [serialized, offset + readInt32LE(bytes, offset), true];
     }
     case 0x05: {
