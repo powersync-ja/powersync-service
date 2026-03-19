@@ -38,7 +38,7 @@ import {
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
-import { trackChangeStreamBsonBytes } from './internal-change-stream-utils.js';
+import { trackChangeStreamBsonBytes } from './internal-mongodb-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -480,6 +480,9 @@ export class ChangeStream {
   }
 
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+    const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
+    const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
+
     const totalEstimatedCount = await this.estimatedCountNumber(table);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
@@ -500,7 +503,8 @@ export class ChangeStream {
     let lastBatch = performance.now();
     let nextChunkPromise = query.nextChunk();
     while (true) {
-      const { docs: docBatch, lastKey } = await nextChunkPromise;
+      const { docs: docBatch, lastKey, bytes: chunkBytes } = await nextChunkPromise;
+      bytesReplicatedMetric.add(chunkBytes);
       if (docBatch.length == 0) {
         // No more data - stop iterating
         break;
@@ -529,7 +533,7 @@ export class ChangeStream {
       // Important: flush before marking progress
       await batch.flush();
       at += docBatch.length;
-      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(docBatch.length);
+      rowsReplicatedMetric.add(docBatch.length);
 
       table = await batch.updateTableProgress(table, {
         lastKey,

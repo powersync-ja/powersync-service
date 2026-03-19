@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
-import { trackChangeStreamBsonBytes } from '@module/replication/replication-index.js';
+import { getCursorBatchBytes, trackChangeStreamBsonBytes } from '@module/replication/replication-index.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { clearTestDb, connectMongoData } from './util.js';
 
-describe('change stream utils', () => {
+describe('internal mongodb utils', () => {
   // The implementation relies on internal APIs, so we verify this works as expected for various types of change streams.
   test('collection change stream size tracking', async () => {
     await testChangeStreamBsonBytes('collection');
@@ -16,6 +16,30 @@ describe('change stream utils', () => {
 
   test('cluster change stream size tracking', async () => {
     await testChangeStreamBsonBytes('cluster');
+  });
+
+  test('cursor batch size tracking', async () => {
+    const { db, client } = await connectMongoData();
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+    await collection.insertMany([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }, { test: 5 }]);
+
+    const cursor = collection.find({}, { batchSize: 2 });
+    let batchBytes: number[] = [];
+    let totalBytes = 0;
+    // We use this in the same way as ChunkedSnapshotQuery
+    while (await cursor.hasNext()) {
+      batchBytes.push(getCursorBatchBytes(cursor));
+      totalBytes += batchBytes[batchBytes.length - 1];
+      cursor.readBufferedDocuments();
+    }
+
+    // 3 batches: [2, 2, 1] documents. Should not change
+    expect(batchBytes.length).toEqual(3);
+    // Current tests show 839, but this may change depending on the MongoDB version and other conditions.
+    expect(totalBytes).toBeGreaterThan(400);
+    expect(totalBytes).toBeLessThan(1200);
   });
 
   async function testChangeStreamBsonBytes(type: 'db' | 'collection' | 'cluster') {
