@@ -13,7 +13,7 @@ import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/
 import crypto from 'crypto';
 import { TablePattern } from '@powersync/service-sync-rules';
 
-describe('BinlogListener tests', () => {
+describe('BinlogListener tests', { timeout: 20_000 }, () => {
   const MAX_QUEUE_CAPACITY_MB = 1;
   const BINLOG_LISTENER_CONNECTION_OPTIONS = {
     ...TEST_CONNECTION_OPTIONS,
@@ -470,7 +470,7 @@ describe('BinlogListener tests', () => {
     await binLogListener.stop();
     expect(eventHandler.rowsWritten).toBe(2);
     assertSchemaChange(eventHandler.schemaChanges[0], SchemaChangeType.DROP_TABLE, 'multi_schema', 'test_DATA_multi');
-  }, 20000);
+  });
 
   function assertSchemaChange(
     change: SchemaChange,
