@@ -8,7 +8,6 @@ Convex replication module for PowerSync.
 replication:
   connections:
     - type: convex
-      id: default
       deployment_url: https://<your-deployment>.convex.cloud
       deploy_key: <your-deploy-key>
       polling_interval_ms: 1000
@@ -28,6 +27,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - This module replicates Convex data into PowerSync bucket storage.
 - Source APIs used are Convex [Streaming Export](https://docs.convex.dev/streaming-export-api): (`json_schemas`, `list_snapshot`, `document_deltas`).
 - Initial scope is default Convex component only, but we could consider support for custom components in the future if we can figure out consistency.
+- Deploy keys grant root access (read/write on all tables), components could address this later.
 
 ## 2) Canonical Behavior
 
@@ -58,18 +58,14 @@ The content below is written in an agents.md style describing the behavior of `m
 ## 4) LSN and Cursor Rules
 
 - Convex snapshot and delta cursors are always `i64` timestamps (serialized as decimal numeric strings in JSON).
-- The `list_snapshot` pagination cursor is a separate JSON-serialized `{tablet, id}` string — it is pagination state, not a replication cursor.
+- The `list_snapshot` pagination cursor is a separate JSON-serialized `{table, id}` string — it is pagination state, not a replication cursor.
 - Persisted Convex LSNs must be canonical 19-digit numeric cursor strings. `ZERO_LSN = "0"` remains the internal sentinel.
 
 ## 5) API Client Contract
 
 - Auth header: `Authorization: Convex <deploy_key>`.
 - Always request `format=json`.
-- Fallback path support: `/api/streaming_export/...` when `/api/...` returns `404`.
 - Parse large numeric JSON using `JSONBig`.
-- `json_schemas` must support:
-  - array/object under `tables`,
-  - self-host top-level table map shape.
 - Retry classification:
   - retryable: network, timeout, 429, 5xx.
   - non-retryable: malformed responses, auth/config issues.
@@ -110,14 +106,15 @@ The content below is written in an agents.md style describing the behavior of `m
 - Source marker table: `powersync_checkpoints`
   - Convex rejects table names starting with `_`, so no leading-underscore variant is used.
   - The table has a single `last_updated` field; the mutation upserts one row (bounded to one row total).
-  - The developer must deploy the `powersync_checkpoints` schema and mutation to their Convex project (see README).
+  - The developer must deploy the `powersync_checkpoints` schema and mutation to their Convex project.
 - Stream handling requirement:
   - checkpoint marker tables must always be excluded from replicated source tables and ignored in delta row application.
   - marker-only delta pages must trigger immediate `keepalive` checkpoint advancement (do not wait for 60s throttle).
 
-## 9) Convex-specific notes
+## 9) Other Convex-specific notes
 
 - The default schema is `convex`
+- On an idle system, multiple successive calls to `/api/document_deltas` will return the same cursor value i.e. the cursor is not wall clock based.
 
 - **Mutation Transaction Atomicity in** `document_deltas`
   - The `cursor` in `/api/document_deltas` is a Convex commit **timestamp** (`i64`), not a per-operation counter.
