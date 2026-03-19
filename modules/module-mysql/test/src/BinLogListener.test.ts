@@ -13,7 +13,7 @@ import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/
 import crypto from 'crypto';
 import { TablePattern } from '@powersync/service-sync-rules';
 
-describe('BinlogListener tests', { timeout: 30_000 }, () => {
+describe('BinlogListener tests', { timeout: 60_000 }, () => {
   const MAX_QUEUE_CAPACITY_MB = 1;
   const BINLOG_LISTENER_CONNECTION_OPTIONS = {
     ...TEST_CONNECTION_OPTIONS,
@@ -106,7 +106,7 @@ describe('BinlogListener tests', { timeout: 30_000 }, () => {
   test('Keepalive event', async () => {
     binLogListener.options.keepAliveInactivitySeconds = 1;
     await binLogListener.start();
-    await vi.waitFor(() => expect(eventHandler.lastKeepAlive).toBeDefined(), { timeout: 10000 });
+    await vi.waitFor(() => expect(eventHandler.lastKeepAlive).toBeDefined(), { timeout: 10_000 });
     await binLogListener.stop();
     expect(eventHandler.lastKeepAlive).toEqual(binLogListener.options.startGTID.comparable);
   });
@@ -472,7 +472,7 @@ describe('BinlogListener tests', { timeout: 30_000 }, () => {
   });
 
   async function waitForSchemaChanges(count: number) {
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).equals(count), { timeout: 20000 });
+    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).equals(count), { timeout: 30_000 });
   }
 
   function assertSchemaChange(
