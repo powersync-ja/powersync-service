@@ -482,6 +482,7 @@ export class ChangeStream {
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
+    const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     const totalEstimatedCount = await this.estimatedCountNumber(table);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
@@ -504,11 +505,12 @@ export class ChangeStream {
     let nextChunkPromise = query.nextChunk();
     while (true) {
       const { docs: docBatch, lastKey, bytes: chunkBytes } = await nextChunkPromise;
-      bytesReplicatedMetric.add(chunkBytes);
       if (docBatch.length == 0) {
         // No more data - stop iterating
         break;
       }
+      bytesReplicatedMetric.add(chunkBytes);
+      chunksReplicatedMetric.add(1);
 
       if (this.abort_signal.aborted) {
         throw new ReplicationAbortedError(`Aborted initial replication`, this.abort_signal.reason);
@@ -827,6 +829,7 @@ export class ChangeStream {
   async streamChangesInternal() {
     const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
+    const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
     await this.storage.startBatch(
       {
@@ -858,6 +861,8 @@ export class ChangeStream {
         }
         trackChangeStreamBsonBytes(stream, (bytes) => {
           bytesReplicatedMetric.add(bytes);
+          // Each of these represent a single response message from MongoDB.
+          chunksReplicatedMetric.add(1);
         });
 
         // Always start with a checkpoint.
