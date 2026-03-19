@@ -864,6 +864,8 @@ export class ChangeStream {
         let changesSinceLastCheckpoint = 0;
 
         let lastEmptyResume = performance.now();
+        let lastTxnNumber: number | bigint | null = null;
+        const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
 
         while (true) {
           if (this.abort_signal.aborted) {
@@ -1044,6 +1046,7 @@ export class ChangeStream {
             if (waitForCheckpointLsn == null) {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
             }
+
             const rel = getMongoRelation(changeDocument.ns);
             const table = await this.getRelation(batch, rel, {
               // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
@@ -1056,6 +1059,14 @@ export class ChangeStream {
               if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
                 this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
               }
+
+              if (changeDocument.txnNumber != null && lastTxnNumber != changeDocument.txnNumber) {
+                // Very crude metric for counting transactions replicated.
+                // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
+                lastTxnNumber = changeDocument.txnNumber;
+                transactionsReplicatedMetric.add(1);
+              }
+
               const flushResult = await this.writeChange(batch, table, changeDocument);
               changesSinceLastCheckpoint += 1;
               if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
