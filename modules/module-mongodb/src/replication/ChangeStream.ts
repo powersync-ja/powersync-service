@@ -875,7 +875,7 @@ export class ChangeStream {
         let changesSinceLastCheckpoint = 0;
 
         let lastEmptyResume = performance.now();
-        let lastTxnNumber: number | bigint | null = null;
+        let lastTxnKey: string | null = null;
 
         while (true) {
           if (this.abort_signal.aborted) {
@@ -1070,11 +1070,13 @@ export class ChangeStream {
                 this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
               }
 
-              if (changeDocument.txnNumber == null || lastTxnNumber != changeDocument.txnNumber) {
+              const transactionKeyValue = transactionKey(changeDocument);
+
+              if (transactionKeyValue == null || lastTxnKey != transactionKeyValue) {
                 // Very crude metric for counting transactions replicated.
                 // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
                 // Individual writes may not have a txnNumber, in which case we count them as separate transactions.
-                lastTxnNumber = changeDocument.txnNumber ?? null;
+                lastTxnKey = transactionKeyValue;
                 transactionsReplicatedMetric.add(1);
               }
 
@@ -1174,4 +1176,14 @@ function mapChangeStreamError(e: any) {
   } else {
     throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
   }
+}
+
+/**
+ * Transaction key for a change stream event, used to detect transaction boundaries. Returns null if the event is not part of a transaction.
+ */
+function transactionKey(doc: mongo.ChangeStreamDocument): string | null {
+  if (doc.txnNumber == null || doc.lsid == null) {
+    return null;
+  }
+  return `${doc.lsid.id.toString('hex')}:${doc.txnNumber}`;
 }
