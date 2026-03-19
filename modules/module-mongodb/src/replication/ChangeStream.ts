@@ -38,6 +38,7 @@ import {
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { trackChangeStreamBsonBytes } from './internal-change-stream-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -820,6 +821,9 @@ export class ChangeStream {
   }
 
   async streamChangesInternal() {
+    const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
+    const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
+
     await this.storage.startBatch(
       {
         logger: this.logger,
@@ -848,6 +852,9 @@ export class ChangeStream {
           await stream.close();
           return;
         }
+        trackChangeStreamBsonBytes(stream, (bytes) => {
+          bytesReplicatedMetric.add(bytes);
+        });
 
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
@@ -865,7 +872,6 @@ export class ChangeStream {
 
         let lastEmptyResume = performance.now();
         let lastTxnNumber: number | bigint | null = null;
-        const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
 
         while (true) {
           if (this.abort_signal.aborted) {
