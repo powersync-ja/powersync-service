@@ -1070,10 +1070,11 @@ export class ChangeStream {
                 this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
               }
 
-              if (changeDocument.txnNumber != null && lastTxnNumber != changeDocument.txnNumber) {
+              if (changeDocument.txnNumber == null || lastTxnNumber != changeDocument.txnNumber) {
                 // Very crude metric for counting transactions replicated.
                 // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
-                lastTxnNumber = changeDocument.txnNumber;
+                // Individual writes may not have a txnNumber, in which case we count them as separate transactions.
+                lastTxnNumber = changeDocument.txnNumber ?? null;
                 transactionsReplicatedMetric.add(1);
               }
 
