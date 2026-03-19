@@ -823,14 +823,17 @@ export class ChangeStream {
     // The driver keeps fetched change stream documents on the underlying cursor, but does
     // not expose that through the public ChangeStream API. We use this to detect backlog
     // building up before we have processed the corresponding source changes locally.
-    // If the driver API changes, we'll have a hard error here (better than a silent change in behavior).
+    // If the driver API changes, we'll have a hard error here.
+    // We specifically want to avoid a silent performance regression if the driver behavior changes.
     const cursor = (
       stream as mongo.ChangeStream<mongo.Document> & {
         cursor: mongo.AbstractCursor<mongo.ChangeStreamDocument<mongo.Document>>;
       }
     ).cursor;
-    if (cursor == null) {
-      throw new ReplicationAssertionError('MongoDB ChangeStream no longer exposes an internal cursor');
+    if (cursor == null || typeof cursor.bufferedCount != 'function') {
+      throw new ReplicationAssertionError(
+        'MongoDB ChangeStream no longer exposes an internal cursor with bufferedCount'
+      );
     }
     return cursor.bufferedCount();
   }
