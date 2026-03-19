@@ -1,5 +1,13 @@
 # @powersync/service-module-mongodb
 
+## 0.15.2
+
+### Patch Changes
+
+- 9f30b26: [MongoDB] Fix replication batching/performance under high write checkpoint load.
+- c546708: Track bytes replicated and transactions replicated for MongoDB.
+  - @powersync/service-core@1.20.3
+
 ## 0.15.1
 
 ### Patch Changes
