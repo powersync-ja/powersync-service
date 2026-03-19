@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 import {
   DEFAULT_TAG,
   DartSchemaGenerator,
+  DotNetClassSchemaGenerator,
   DotNetSchemaGenerator,
   JsLegacySchemaGenerator,
   KotlinSchemaGenerator,
@@ -462,6 +463,135 @@ class AppSchema
     };
 
     public static Schema PowerSyncSchema = new Schema(Assets1, Assets2);
+}
+
+public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)
+{
+    private PowerSyncDatabase db { get; } = db;
+    public ISyncStream AssetsOne()
+    {
+        var parameters = new Dictionary<string, object>() {};
+        return db.SyncStream("assets_one", parameters);
+    }
+    public ISyncStream Assets2(string name)
+    {
+        var parameters = new Dictionary<string, object>() {
+            { "name", name }
+        };
+        return db.SyncStream("assets_2", parameters);
+    }
+}
+`);
+  });
+
+  test('dotnet classes', () => {
+    expect(new DotNetClassSchemaGenerator().generate(rules, schema)).toEqual(`using PowerSync.Common.DB.Schema;
+using PowerSync.Common.DB.Schema.Attributes;
+
+[Table("assets1")]
+public class Assets1Item
+{
+    // An "id" property is required when using a class-based schema.
+    [Column("id")]
+    public string Id { get; set; }
+
+    [Column("name")]
+    public string Name { get; set; }
+
+    [Column("count")]
+    public int Count { get; set; }
+
+    [Column("owner_id")]
+    public string OwnerId { get; set; }
+}
+
+[Table("assets2")]
+public class Assets2Item
+{
+    // An "id" property is required when using a class-based schema.
+    [Column("id")]
+    public string Id { get; set; }
+
+    [Column("name")]
+    public string Name { get; set; }
+
+    [Column("count")]
+    public int Count { get; set; }
+
+    [Column("other_id")]
+    public string OtherId { get; set; }
+
+    [Column("foo")]
+    public string Foo { get; set; }
+}
+
+public class AppSchema
+{
+    public static Schema PowerSyncSchema = new Schema(typeof(Assets1Item), typeof(Assets2Item));
+}
+
+public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)
+{
+    private PowerSyncDatabase db { get; } = db;
+    public ISyncStream AssetsOne()
+    {
+        var parameters = new Dictionary<string, object>() {};
+        return db.SyncStream("assets_one", parameters);
+    }
+    public ISyncStream Assets2(string name)
+    {
+        var parameters = new Dictionary<string, object>() {
+            { "name", name }
+        };
+        return db.SyncStream("assets_2", parameters);
+    }
+}
+`);
+
+    expect(new DotNetClassSchemaGenerator().generate(rules, schema, { includeTypeComments: true }))
+      .toEqual(`using PowerSync.Common.DB.Schema;
+using PowerSync.Common.DB.Schema.Attributes;
+
+[Table("assets1")]
+public class Assets1Item
+{
+    // An "id" property is required when using a class-based schema.
+    [Column("id")]
+    public string Id { get; set; }
+
+    [Column("name")]
+    public string Name { get; set; } // text
+
+    [Column("count")]
+    public int Count { get; set; } // int4
+
+    [Column("owner_id")]
+    public string OwnerId { get; set; } // uuid
+}
+
+[Table("assets2")]
+public class Assets2Item
+{
+    // An "id" property is required when using a class-based schema.
+    [Column("id")]
+    public string Id { get; set; }
+
+    [Column("name")]
+    public string Name { get; set; } // text
+
+    [Column("count")]
+    public int Count { get; set; } // int4
+
+    [Column("other_id")]
+    public string OtherId { get; set; } // uuid
+
+    [Column("foo")]
+    public string Foo { get; set; }
+}
+
+public class AppSchema
+{
+    public static Schema PowerSyncSchema = new Schema(typeof(Assets1Item), typeof(Assets2Item));
 }
 
 public readonly ref struct TypedSyncStreams(PowerSyncDatabase db)

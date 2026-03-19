@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { compileToSyncPlanWithoutErrors, yamlToSyncPlan } from './utils.js';
-import { serializeSyncPlan } from '../../../src/index.js';
+import { DEFAULT_TAG, serializeSyncPlan, SourceTableDefinition, StaticSchema } from '../../../src/index.js';
 
 describe('common table expressions', () => {
   test('as data source', () => {
@@ -116,5 +116,94 @@ streams:
     queries:
       - SELECT "Project".* FROM "Project", user_items_param AS bucket WHERE "Project"."orgId" = bucket."orgId"
 `);
+  });
+
+  describe('global', () => {
+    test('can be used', () => {
+      const compiled = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+with:
+  owned_orgs: SELECT id FROM orgs WHERE owner = auth.user_id()
+
+streams:
+  orgs:
+    query: SELECT * FROM orgs WHERE id IN owned_orgs
+  notes:
+    query: SELECT notes.* FROM notes INNER JOIN owned_orgs ON owned_orgs.id = notes.org_id
+`);
+
+      expect(compiled.parameterIndexes).toHaveLength(1);
+    });
+
+    test('local ctes take precedence', () => {
+      compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+with:
+  owned_orgs: SELECT id FROM orgs WHERE owner = auth.user_id()
+
+streams:
+  orgs:
+    with:
+      owned_orgs: SELECT id AS org_id FROM orgs WHERE owner = auth.user_id()
+    # This would emit an error about a missing org_id column if the global definition was used.
+    query: SELECT * FROM orgs WHERE id IN (SELECT org_id FROM owned_orgs)
+`);
+    });
+  });
+
+  test('warns if CTE matches table name', () => {
+    const schema = new StaticSchema([
+      {
+        tag: DEFAULT_TAG,
+        schemas: [
+          {
+            name: 'test_schema',
+            tables: [
+              {
+                name: 'orgs',
+                columns: [
+                  { name: 'id', sqlite_type: 'text', internal_type: 'uuid' },
+                  { name: 'owner', sqlite_type: 'text', internal_type: 'uuid' }
+                ]
+              },
+              {
+                name: 'owned_orgs',
+                columns: [
+                  { name: 'id', sqlite_type: 'text', internal_type: 'uuid' },
+                  { name: 'owner', sqlite_type: 'text', internal_type: 'uuid' }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]);
+
+    const [errors] = yamlToSyncPlan(
+      `
+config:
+  edition: 3
+
+with:
+  owned_orgs: SELECT id FROM orgs WHERE owner = auth.user_id()
+
+streams:
+  orgs:
+    query: SELECT * FROM orgs WHERE id IN owned_orgs
+`,
+      { defaultSchema: 'test_schema', schema }
+    );
+
+    expect(errors).toStrictEqual([
+      {
+        isWarning: true,
+        message: 'This common table expression shadows the name of a table in the source schema.',
+        source: 'owned_orgs'
+      }
+    ]);
   });
 });

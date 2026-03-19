@@ -1133,10 +1133,13 @@ streams:
 config:
   edition: 2
 
+with:
+  foo: SELECT 1 AS id
+
 streams:
   a:
     with:
-      foo: SELECT 1
+      bar: SELECT 1 AS id
     query: SELECT * FROM users
     `,
       {
@@ -1144,6 +1147,7 @@ streams:
         throwOnError: false
       }
     );
-    expect(errors[1].message).toContain('Common table expressions are not supported');
+    expect(errors[0].message).toContain('Common table expressions are not supported');
+    expect(errors[2].message).toContain('Common table expressions are not supported');
   });
 });

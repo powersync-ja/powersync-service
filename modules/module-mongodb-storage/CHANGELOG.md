@@ -1,5 +1,35 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.15.2
+
+### Patch Changes
+
+- @powersync/service-core@1.20.3
+
+## 0.15.1
+
+### Patch Changes
+
+- 7ee87d4: [MongoDB Storage] Add option to explicitly enable/disable parameter compacting, and improve abort behavior when compacting.
+- 4c92c24: [Internal] Add a createWriter() API to replace startBatch().
+- 206633f: [MongoDB Storage] Fix compact failing for buckets over 2GB in size.
+- Updated dependencies [224c35e]
+- Updated dependencies [acf1486]
+- Updated dependencies [391c5ef]
+- Updated dependencies [7ee87d4]
+- Updated dependencies [99de8be]
+- Updated dependencies [9daf965]
+- Updated dependencies [4c92c24]
+- Updated dependencies [3d230c2]
+- Updated dependencies [206633f]
+- Updated dependencies [3a0627e]
+- Updated dependencies [275fd5f]
+- Updated dependencies [7ce1b8e]
+  - @powersync/service-sync-rules@0.34.0
+  - @powersync/service-core@1.20.2
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/lib-service-mongodb@0.6.22
+
 ## 0.15.0
 
 ### Minor Changes

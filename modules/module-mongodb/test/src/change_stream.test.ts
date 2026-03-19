@@ -3,11 +3,14 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
+import { createWriteCheckpoint } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
+import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
-import { describeWithStorage, StorageVersionTestContext } from './util.js';
+import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
+import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
@@ -366,6 +369,59 @@ bucket_definitions:
 
     const data = await context.getBucketData('global[]');
     expect(data).toMatchObject([test_utils.putOp('test_data', { id: test_id, description: 'test1' })]);
+  });
+
+  test('coalesces standalone checkpoints when backlog is buffered', async () => {
+    await using context = await openContext();
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+    await context.replicateSnapshot();
+    await context.markSnapshotConsistent();
+    await using api = new MongoRouteAPIAdapter({
+      type: 'mongodb',
+      ...TEST_CONNECTION_OPTIONS
+    });
+
+    let commitCount = 0;
+    // This relies on internals to count how often checkpoints are committed
+    context.storage!.registerListener({
+      batchStarted: (batch) => {
+        const originalCommit = batch.commit.bind(batch);
+        batch.commit = async (...args) => {
+          commitCount += 1;
+          return await originalCommit(...args);
+        };
+      }
+    });
+
+    context.startStreaming();
+
+    // Wait until the stream is active and caught up, then start counting from zero.
+    await context.getCheckpoint();
+    commitCount = 0;
+
+    // Create a large number of write checkpoints together.
+    // We could alternatively use createCheckpoint() directly, but this gives more of
+    // an end-to-end test of the checkpointing behavior under load.
+    const checkpointCount = 30;
+    await Promise.all(
+      Array.from({ length: checkpointCount }, (i) =>
+        createWriteCheckpoint({
+          userId: 'test_user',
+          clientId: 'test_client' + i,
+          api,
+          storage: context.factory
+        })
+      )
+    );
+
+    // Wait for the checkpoints to be processed.
+    await context.getCheckpoint();
+
+    // We need at least 1 commit.
+    expect(commitCount).toBeGreaterThan(0);
+    // The previous implementation greated 1 commit per checkpoint, which is bad for performance.
+    // We expect a small number here - typically 2-10, but allow for anything less than the total number of checkpoints.
+    expect(commitCount).toBeLessThan(checkpointCount + 1);
   });
 
   test('large record', async () => {

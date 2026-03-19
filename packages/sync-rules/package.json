@@ -1,7 +1,7 @@
 {
   "name": "@powersync/service-sync-rules",
   "repository": "https://github.com/powersync-ja/powersync-service",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "license": "FSL-1.1-ALv2",
@@ -19,7 +19,8 @@
     "build": "pnpm build:tsc && pnpm run build:extra",
     "build:extra": "node scripts/compile-schema.js",
     "build:tests": "tsc -b test/tsconfig.json",
-    "test": "vitest"
+    "test": "vitest",
+    "generate:grammar": "node --experimental-strip-types scripts/generate-grammar-docs.ts"
   },
   "dependencies": {
     "@powersync/service-jsonbig": "workspace:^",
@@ -32,6 +33,7 @@
   "devDependencies": {
     "@types/node": "^22.16.2",
     "ebnf": "^1.9.1",
+    "railroad-diagrams": "^1.0.0",
     "vitest": "catalog:"
   }
 }

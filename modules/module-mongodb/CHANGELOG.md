@@ -1,5 +1,36 @@
 # @powersync/service-module-mongodb
 
+## 0.15.2
+
+### Patch Changes
+
+- 9f30b26: [MongoDB] Fix replication batching/performance under high write checkpoint load.
+- c546708: Track bytes replicated and transactions replicated for MongoDB.
+  - @powersync/service-core@1.20.3
+
+## 0.15.1
+
+### Patch Changes
+
+- 4b2b776: Remove a 1s delay in MongoDB initial replication.
+- 4c92c24: [Internal] Add a createWriter() API to replace startBatch().
+- Updated dependencies [224c35e]
+- Updated dependencies [acf1486]
+- Updated dependencies [391c5ef]
+- Updated dependencies [7ee87d4]
+- Updated dependencies [99de8be]
+- Updated dependencies [9daf965]
+- Updated dependencies [4c92c24]
+- Updated dependencies [3d230c2]
+- Updated dependencies [206633f]
+- Updated dependencies [3a0627e]
+- Updated dependencies [275fd5f]
+- Updated dependencies [7ce1b8e]
+  - @powersync/service-sync-rules@0.34.0
+  - @powersync/service-core@1.20.2
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/lib-service-mongodb@0.6.22
+
 ## 0.15.0
 
 ### Minor Changes
