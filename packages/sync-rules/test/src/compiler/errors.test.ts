@@ -521,7 +521,7 @@ streams:
     expect(errors).toMatchObject([
       {
         message:
-          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. For this query, doing that lead to too many inner nodes.'
+          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. Applying that to this query results in too many inner nodes.'
       }
     ]);
   });

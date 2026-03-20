@@ -551,7 +551,7 @@ export class StreamQueryParser {
     } catch (e) {
       if (e instanceof TooManyInnerTermsError) {
         this.errors.report(
-          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. For this query, doing that lead to too many inner nodes.',
+          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. Applying that to this query results in too many inner nodes.',
           stmt.where ?? stmt
         );
 
