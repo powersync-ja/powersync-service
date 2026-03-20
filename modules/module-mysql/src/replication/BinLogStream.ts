@@ -114,6 +114,10 @@ export class BinLogStream {
     return this.abortSignal.aborted;
   }
 
+  get isStartingReplication() {
+    return this.replicationLag.isStartingReplication;
+  }
+
   get defaultSchema() {
     return this.connections.databaseName;
   }

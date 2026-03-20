@@ -156,7 +156,6 @@ export class CDCStreamTestContext implements AsyncDisposable {
       throw new Error('Call replicateSnapshot() before startStreaming()');
     }
 
-    this.cdcStream.isStartingReplication = true;
     this.streamPromise = this.cdcStream.streamChanges();
     // Wait for the replication to start before returning.
     // This avoids a bunch of unpredictable race conditions that appear in testing
