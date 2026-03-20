@@ -13,7 +13,7 @@ import {
   getUuidReplicaIdentityBson,
   MetricsEngine,
   RelationCache,
-  RollingBucketMax,
+  ReplicationLagTracker,
   SaveUpdate,
   SourceEntityDescriptor,
   SourceTable,
@@ -134,18 +134,7 @@ export class WalStream {
 
   private snapshotChunkLength: number;
 
-  /**
-   * Time of the oldest uncommitted change, according to the source db.
-   * This is used to determine the replication lag.
-   */
-  private oldestUncommittedChange: Date | null = null;
-  /**
-   * Keep track of whether we have done a commit or keepalive yet.
-   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
-   */
-  private isStartingReplication = true;
-
-  private rollingReplicationLag = new RollingBucketMax();
+  private replicationLag = new ReplicationLagTracker();
 
   private initialSnapshotPromise: Promise<void> | null = null;
 
@@ -972,9 +961,7 @@ WHERE  oid = $1::regclass`,
             } else if (msg.tag == 'begin') {
               // This may span multiple transactions in the same chunk, or even across chunks.
               skipKeepalive = true;
-              if (this.oldestUncommittedChange == null) {
-                this.oldestUncommittedChange = new Date(Number(msg.commitTime / 1000n));
-              }
+              this.replicationLag.trackUncommittedChange(new Date(Number(msg.commitTime / 1000n)));
             } else if (msg.tag == 'commit') {
               this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
               if (msg == lastCommit) {
@@ -984,7 +971,7 @@ WHERE  oid = $1::regclass`,
                 skipKeepalive = false;
                 // flush() must be before the resnapshot check - that is
                 // typically what reports the resnapshot records.
-                await batch.flush({ oldestUncommittedChange: this.oldestUncommittedChange });
+                await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
                 // This _must_ be checked after the flush(), and before
                 // commit() or ack(). We never persist the resnapshot list,
                 // so we have to process it before marking our progress.
@@ -994,15 +981,11 @@ WHERE  oid = $1::regclass`,
                 }
                 const { checkpointBlocked } = await batch.commit(msg.lsn!, {
                   createEmptyCheckpoints,
-                  oldestUncommittedChange: this.oldestUncommittedChange
+                  oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
                 });
                 await this.ack(msg.lsn!, replicationStream);
                 if (!checkpointBlocked) {
-                  if (this.oldestUncommittedChange != null) {
-                    this.rollingReplicationLag.report(Date.now() - this.oldestUncommittedChange.getTime());
-                  }
-                  this.oldestUncommittedChange = null;
-                  this.isStartingReplication = false;
+                  this.replicationLag.markCommitted();
                 }
               }
             } else {
@@ -1044,10 +1027,10 @@ WHERE  oid = $1::regclass`,
               // It must only be used to associate checkpoints with LSNs.
               const { checkpointBlocked } = await batch.keepalive(chunkLastLsn);
               if (!checkpointBlocked) {
-                this.oldestUncommittedChange = null;
+                this.replicationLag.clearUncommittedChange();
               }
 
-              this.isStartingReplication = false;
+              this.replicationLag.markStarted();
             }
 
             // We receive chunks with empty messages often (about each second).
@@ -1118,22 +1101,8 @@ WHERE  oid = $1::regclass`,
     return version ? version.compareMain('14.0.0') >= 0 : false;
   }
 
-  private currentReplicationLagMillis(): number | undefined {
-    if (this.oldestUncommittedChange == null) {
-      if (this.isStartingReplication) {
-        // We don't have anything to compute replication lag with yet.
-        return undefined;
-      } else {
-        // We don't have any uncommitted changes, so replication is up-to-date.
-        return 0;
-      }
-    }
-    return Date.now() - this.oldestUncommittedChange.getTime();
-  }
-
   getReplicationLagMillis(): number | undefined {
-    this.rollingReplicationLag.report(this.currentReplicationLagMillis());
-    return this.rollingReplicationLag.getRollingMax();
+    return this.replicationLag.getLagMillis();
   }
 
   private touch() {
