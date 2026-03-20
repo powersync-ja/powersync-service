@@ -507,4 +507,55 @@ streams:
       );
     });
   });
+
+  test('avoids OOM when transforming to disjunctive normal form', () => {
+    let terms = '';
+    // Generate a filter that would require 2^60 nodes to represent in DNF.
+    for (let i = 0; i < 60; i++) {
+      if (i != 0) terms += ' AND ';
+
+      terms += `(subscription.parameter('skip_cond_${i}') OR tbl.column${i} = subscription.parameter('filter_${i}'))`;
+    }
+
+    const errors = compilationErrorsForSingleStream(`SELECT * FROM tbl WHERE ${terms}`);
+    expect(errors).toMatchObject([
+      {
+        message:
+          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. Applying that to this query results in too many inner nodes.'
+      }
+    ]);
+  });
+
+  test('restricts bucket sources per stream', () => {
+    function generateFilter(table: string) {
+      let terms = '';
+
+      for (let i = 0; i < 6; i++) {
+        if (i != 0) terms += ' AND ';
+
+        terms += `(subscription.parameter('skip_${table}_${i}') OR ${table}.column${i} = subscription.parameter('filter_${table}_${i}'))`;
+      }
+
+      return terms;
+    }
+
+    const [errors, _] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  manybuckets:
+    accept_potentially_dangerous_queries: true
+    queries:
+      - SELECT * FROM tbl0 WHERE ${generateFilter('tbl0')}
+      - SELECT * FROM tbl1 WHERE ${generateFilter('tbl1')}
+`);
+
+    expect(errors).toMatchObject([
+      {
+        message:
+          'This stream defines too many buckets (128, at most 100 are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.'
+      }
+    ]);
+  });
 });
