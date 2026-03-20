@@ -66,119 +66,119 @@ jobs:
           push: false
           file: ./service/Dockerfile
 
-  # run-core-tests:
-  #   name: Core Test
-  #   if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
-  #   runs-on: ubuntu-latest
+  run-core-tests:
+    name: Core Test
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
 
-  #   steps:
-  #     - uses: actions/checkout@v5
+    steps:
+      - uses: actions/checkout@v5
 
-  #     - name: Setup Node and build
-  #       uses: ./.github/actions/setup-node-build
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
-  #     - name: Test
-  #       run: pnpm test:core
+      - name: Test
+        run: pnpm test:core
 
-  # run-postgres-replication-tests:
-  #   name: Postgres Replication Test
-  #   runs-on: ubuntu-latest
-  #   needs: run-core-tests
-  #   env:
-  #     PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+  run-postgres-replication-tests:
+    name: Postgres Replication Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
 
-  #   steps:
-  #     - uses: actions/checkout@v5
+    steps:
+      - uses: actions/checkout@v5
 
-  #     - name: Login to Docker Hub
-  #       if: github.event_name != 'pull_request'
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  #     - name: Start PostgreSQL
-  #       run: |
-  #         docker run \
-  #           --health-cmd pg_isready \
-  #           --health-interval 10s \
-  #           --health-timeout 5s \
-  #           --health-retries 5 \
-  #           -e POSTGRES_PASSWORD=postgres \
-  #           -e POSTGRES_DB=powersync_test \
-  #           -p 5432:5432 \
-  #           -d postgres:${{ matrix.postgres-version }} \
-  #           -c wal_level=logical
+      - name: Start PostgreSQL
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_test \
+            -p 5432:5432 \
+            -d postgres:${{ matrix.postgres-version }} \
+            -c wal_level=logical
 
-  #     - name: Start PostgreSQL (Storage)
-  #       uses: ./.github/actions/start-postgres-storage
-  #       with:
-  #         postgres-version: ${{ matrix.postgres-version }}
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
+        with:
+          postgres-version: ${{ matrix.postgres-version }}
 
-  #     - name: Start MongoDB
-  #       uses: ./.github/actions/start-mongodb
+      - name: Start MongoDB
+        uses: ./.github/actions/start-mongodb
 
-  #     - name: Setup Node and build
-  #       uses: ./.github/actions/setup-node-build
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
-  #     - name: Test Replication
-  #       run: pnpm --filter='./modules/module-postgres' test
+      - name: Test Replication
+        run: pnpm --filter='./modules/module-postgres' test
 
-  # run-postgres-storage-tests:
-  #   name: Postgres Storage Test
-  #   runs-on: ubuntu-latest
-  #   needs: run-core-tests
-  #   env:
-  #     PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+  run-postgres-storage-tests:
+    name: Postgres Storage Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres-version: [11, 12, 13, 14, 15, 16, 17, 18]
 
-  #   steps:
-  #     - uses: actions/checkout@v5
+    steps:
+      - uses: actions/checkout@v5
 
-  #     - name: Login to Docker Hub
-  #       if: github.event_name != 'pull_request'
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  #     - name: Start PostgreSQL
-  #       run: |
-  #         docker run \
-  #           --health-cmd pg_isready \
-  #           --health-interval 10s \
-  #           --health-timeout 5s \
-  #           --health-retries 5 \
-  #           -e POSTGRES_PASSWORD=postgres \
-  #           -e POSTGRES_DB=powersync_test \
-  #           -p 5432:5432 \
-  #           -d postgres:${{ matrix.postgres-version }} \
-  #           -c wal_level=logical
+      - name: Start PostgreSQL
+        run: |
+          docker run \
+            --health-cmd pg_isready \
+            --health-interval 10s \
+            --health-timeout 5s \
+            --health-retries 5 \
+            -e POSTGRES_PASSWORD=postgres \
+            -e POSTGRES_DB=powersync_test \
+            -p 5432:5432 \
+            -d postgres:${{ matrix.postgres-version }} \
+            -c wal_level=logical
 
-  #     - name: Start PostgreSQL (Storage)
-  #       uses: ./.github/actions/start-postgres-storage
-  #       with:
-  #         postgres-version: ${{ matrix.postgres-version }}
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
+        with:
+          postgres-version: ${{ matrix.postgres-version }}
 
-  #     - name: Setup Node and build
-  #       uses: ./.github/actions/setup-node-build
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
-  #     - name: Test Storage
-  #       run: pnpm --filter='./modules/module-postgres-storage' test
+      - name: Test Storage
+        run: pnpm --filter='./modules/module-postgres-storage' test
 
   run-mysql-tests:
     name: MySQL Test
     runs-on: ubuntu-latest
-    # needs: run-core-tests
+    needs: run-core-tests
     env:
       PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
@@ -186,7 +186,6 @@ jobs:
       fail-fast: false
       matrix:
         mysql-version: [5.7, 8.0, 8.4]
-        run: [1, 2, 3, 4, 5]
 
     steps:
       - uses: actions/checkout@v5
@@ -221,78 +220,78 @@ jobs:
         uses: ./.github/actions/setup-node-build
 
       - name: Test Replication
-        run: pnpm --filter='./modules/module-mysql' test -- test/src/binlog-listener.test.ts
+        run: pnpm --filter='./modules/module-mysql' test
 
-  # run-mongodb-replication-tests:
-  #   name: MongoDB Replication Test
-  #   runs-on: ubuntu-latest
-  #   needs: run-core-tests
-  #   env:
-  #     PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+  run-mongodb-replication-tests:
+    name: MongoDB Replication Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+    env:
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
 
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       mongodb-version: ['6.0', '7.0', '8.0']
+    strategy:
+      fail-fast: false
+      matrix:
+        mongodb-version: ['6.0', '7.0', '8.0']
 
-  #   steps:
-  #     - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - name: Login to Docker Hub
-  #       if: github.event_name != 'pull_request'
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  #     - name: Start MongoDB
-  #       uses: ./.github/actions/start-mongodb
-  #       with:
-  #         mongodb-version: ${{ matrix.mongodb-version }}
+      - name: Start MongoDB
+        uses: ./.github/actions/start-mongodb
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
 
-  #     - name: Start PostgreSQL (Storage)
-  #       uses: ./.github/actions/start-postgres-storage
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
 
-  #     - name: Setup Node and build
-  #       uses: ./.github/actions/setup-node-build
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
 
-  #     - name: Test Replication
-  #       run: pnpm --filter='./modules/module-mongodb' test
+      - name: Test Replication
+        run: pnpm --filter='./modules/module-mongodb' test
 
-  # run-mongodb-storage-tests:
-  #   name: MongoDB Storage Test
-  #   runs-on: ubuntu-latest
-  #   needs: run-core-tests
+  run-mongodb-storage-tests:
+    name: MongoDB Storage Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
 
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       mongodb-version: ['6.0', '7.0', '8.0']
+    strategy:
+      fail-fast: false
+      matrix:
+        mongodb-version: ['6.0', '7.0', '8.0']
 
-  #   steps:
-  #     - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  #     - name: Login to Docker Hub
-  #       if: github.event_name != 'pull_request'
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  #     - name: Start MongoDB
-  #       uses: ./.github/actions/start-mongodb
-  #       with:
-  #         mongodb-version: ${{ matrix.mongodb-version }}
+      - name: Start MongoDB
+        uses: ./.github/actions/start-mongodb
+        with:
+          mongodb-version: ${{ matrix.mongodb-version }}
 
-  #     - name: Setup Node and build
-  #       uses: ./.github/actions/setup-node-build
-  #     - name: Test Storage
-  #       run: pnpm --filter='./modules/module-mongodb-storage' test
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+      - name: Test Storage
+        run: pnpm --filter='./modules/module-mongodb-storage' test
 
   run-mssql-tests:
     name: MSSQL Test
     runs-on: ubuntu-latest
-    # needs: run-core-tests
+    needs: run-core-tests
 
     env:
       MSSQL_SA_PASSWORD: 321strong_ROOT_password
@@ -302,7 +301,6 @@ jobs:
       fail-fast: false
       matrix:
         mssql-version: [2019, 2022, 2025]
-        run: [1, 2, 3, 4, 5]
 
     steps:
       - uses: actions/checkout@v5
@@ -353,4 +351,4 @@ jobs:
         uses: ./.github/actions/setup-node-build
 
       - name: Test Replication
-        run: pnpm --filter='./modules/module-mssql' test -- test/src/schema-changes.test.ts
+        run: pnpm --filter='./modules/module-mssql' test
