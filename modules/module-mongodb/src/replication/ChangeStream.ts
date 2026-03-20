@@ -12,6 +12,7 @@ import {
 import {
   MetricsEngine,
   RelationCache,
+  RollingBucketMax,
   SaveOperationTag,
   SourceEntityDescriptor,
   SourceTable,
@@ -109,6 +110,8 @@ export class ChangeStream {
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
   private isStartingReplication = true;
+
+  private rollingReplicationLag = new RollingBucketMax();
 
   private checkpointStreamId = new mongo.ObjectId();
 
@@ -1080,8 +1083,12 @@ export class ChangeStream {
             });
 
             if (!checkpointBlocked) {
-              this.oldestUncommittedChange = null;
+              if (this.oldestUncommittedChange != null) {
+                // This is the replication lag at/right after time of commit, which is the longest lag we get.
+                this.rollingReplicationLag.report(Date.now() - this.oldestUncommittedChange.getTime());
+              }
               this.isStartingReplication = false;
+              this.oldestUncommittedChange = null;
               changesSinceLastCheckpoint = 0;
             }
           } else if (
@@ -1167,7 +1174,12 @@ export class ChangeStream {
     );
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
+  /**
+   * This returns the current uncommitted replication lag.
+   *
+   * This helps to report the lag while a large batch is in progress.
+   */
+  private currentReplicationLagMillis(): number | undefined {
     if (this.oldestUncommittedChange == null) {
       if (this.isStartingReplication) {
         // We don't have anything to compute replication lag with yet.
@@ -1178,6 +1190,11 @@ export class ChangeStream {
       }
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
+  }
+
+  getReplicationLagMillis(): number | undefined {
+    this.rollingReplicationLag.report(this.currentReplicationLagMillis());
+    return this.rollingReplicationLag.getRollingMax();
   }
 
   private lastTouchedAt = performance.now();

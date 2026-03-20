@@ -12,6 +12,7 @@ import {
   getUuidReplicaIdentityBson,
   InternalOpId,
   MetricsEngine,
+  RollingBucketMax,
   SourceTable,
   storage
 } from '@powersync/service-core';
@@ -84,6 +85,8 @@ export class BinLogStream {
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
   isStartingReplication = true;
+
+  private rollingReplicationLag = new RollingBucketMax();
 
   constructor(private options: BinLogStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -483,6 +486,9 @@ export class BinLogStream {
           oldestUncommittedChange: this.oldestUncommittedChange
         });
         if (!checkpointBlocked) {
+          if (this.oldestUncommittedChange != null) {
+            this.rollingReplicationLag.report(Date.now() - this.oldestUncommittedChange.getTime());
+          }
           this.oldestUncommittedChange = null;
           this.isStartingReplication = false;
         }
@@ -661,7 +667,7 @@ export class BinLogStream {
     }
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
+  private currentReplicationLagMillis(): number | undefined {
     if (this.oldestUncommittedChange == null) {
       if (this.isStartingReplication) {
         // We don't have anything to compute replication lag with yet.
@@ -672,6 +678,11 @@ export class BinLogStream {
       }
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
+  }
+
+  getReplicationLagMillis(): number | undefined {
+    this.rollingReplicationLag.report(this.currentReplicationLagMillis());
+    return this.rollingReplicationLag.getRollingMax();
   }
 
   async tryRollback(promiseConnection: mysqlPromise.Connection) {

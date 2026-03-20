@@ -7,7 +7,13 @@ import {
   ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import {
+  getUuidReplicaIdentityBson,
+  MetricsEngine,
+  RollingBucketMax,
+  SourceEntityDescriptor,
+  storage
+} from '@powersync/service-core';
 
 import { HydratedSyncRules, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 
@@ -111,6 +117,8 @@ export class CDCStream {
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
   public isStartingReplication = true;
+
+  private rollingReplicationLag = new RollingBucketMax();
 
   constructor(private options: CDCStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -672,9 +680,15 @@ export class CDCStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
       },
       onCommit: async (lsn: string, transactionCount: number) => {
-        const { checkpointBlocked } = await batch.commit(lsn);
+        const { checkpointBlocked } = await batch.commit(lsn, {
+          oldestUncommittedChange: this.oldestUncommittedChange
+        });
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionCount);
         if (!checkpointBlocked) {
+          if (this.oldestUncommittedChange != null) {
+            this.rollingReplicationLag.report(Date.now() - this.oldestUncommittedChange.getTime());
+          }
+          this.oldestUncommittedChange = null;
           this.isStartingReplication = false;
         }
       },
@@ -800,7 +814,7 @@ export class CDCStream {
     return this.syncRules.applyRowContext<never>(inputRow);
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
+  private currentReplicationLagMillis(): number | undefined {
     if (this.oldestUncommittedChange == null) {
       if (this.isStartingReplication) {
         // We don't have anything to compute replication lag with yet.
@@ -811,6 +825,11 @@ export class CDCStream {
       }
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
+  }
+
+  getReplicationLagMillis(): number | undefined {
+    this.rollingReplicationLag.report(this.currentReplicationLagMillis());
+    return this.rollingReplicationLag.getRollingMax();
   }
 
   private touch() {

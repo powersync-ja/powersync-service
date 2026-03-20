@@ -13,6 +13,7 @@ import {
   getUuidReplicaIdentityBson,
   MetricsEngine,
   RelationCache,
+  RollingBucketMax,
   SaveUpdate,
   SourceEntityDescriptor,
   SourceTable,
@@ -143,6 +144,8 @@ export class WalStream {
    * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
    */
   private isStartingReplication = true;
+
+  private rollingReplicationLag = new RollingBucketMax();
 
   private initialSnapshotPromise: Promise<void> | null = null;
 
@@ -995,6 +998,9 @@ WHERE  oid = $1::regclass`,
                 });
                 await this.ack(msg.lsn!, replicationStream);
                 if (!checkpointBlocked) {
+                  if (this.oldestUncommittedChange != null) {
+                    this.rollingReplicationLag.report(Date.now() - this.oldestUncommittedChange.getTime());
+                  }
                   this.oldestUncommittedChange = null;
                   this.isStartingReplication = false;
                 }
@@ -1112,7 +1118,7 @@ WHERE  oid = $1::regclass`,
     return version ? version.compareMain('14.0.0') >= 0 : false;
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
+  private currentReplicationLagMillis(): number | undefined {
     if (this.oldestUncommittedChange == null) {
       if (this.isStartingReplication) {
         // We don't have anything to compute replication lag with yet.
@@ -1123,6 +1129,11 @@ WHERE  oid = $1::regclass`,
       }
     }
     return Date.now() - this.oldestUncommittedChange.getTime();
+  }
+
+  getReplicationLagMillis(): number | undefined {
+    this.rollingReplicationLag.report(this.currentReplicationLagMillis());
+    return this.rollingReplicationLag.getRollingMax();
   }
 
   private touch() {
