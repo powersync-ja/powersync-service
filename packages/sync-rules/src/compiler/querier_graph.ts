@@ -67,7 +67,7 @@ export class QuerierGraphBuilder {
         `This streams defines too many buckets (${buckets.length}, at most ${maxBucketsPerStream} are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.`,
         location
       );
-      return;
+      return [];
     }
 
     this.compiler.output.resolvers.push(...buckets);
