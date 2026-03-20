@@ -18,7 +18,7 @@ import {
   BaseSourceResultSet
 } from './table.js';
 import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
-import { ColumnInRow, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
+import { ColumnInRow, ExpressionInput, NodeLocations, SourceLocation, SyncExpression } from './expression.js';
 import {
   BaseTerm,
   EqualsClause,
@@ -79,6 +79,7 @@ export interface ParsedStreamQuery {
    * All filters, in disjunctive normal form (an OR of ANDs).
    */
   where: Or;
+  span: SourceLocation;
 }
 
 export interface StreamQueryParserOptions {
@@ -173,7 +174,11 @@ export class StreamQueryParser {
         resultColumns: this.resultColumns,
         sourceTable: this.primaryResultSet,
         joined,
-        where: where
+        where: where,
+        span: {
+          location: stmt,
+          errors: this.errors
+        }
       };
     } else {
       return null;
