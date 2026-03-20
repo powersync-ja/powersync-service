@@ -64,7 +64,7 @@ export class QuerierGraphBuilder {
     if (buckets.length > maxBucketsPerStream) {
       const { location, errors } = this.spanForGlobalErrors!;
       errors.report(
-        `This streams defines too many buckets (${buckets.length}, at most ${maxBucketsPerStream} are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.`,
+        `This stream defines too many buckets (${buckets.length}, at most ${maxBucketsPerStream} are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.`,
         location
       );
       return [];
