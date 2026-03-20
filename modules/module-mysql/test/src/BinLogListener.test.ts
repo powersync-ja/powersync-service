@@ -472,7 +472,11 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
   });
 
   async function waitForSchemaChanges(count: number) {
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).equals(count), { timeout: 30_000 });
+    try {
+      await vi.waitFor(() => expect(eventHandler.schemaChanges.length).equals(count), { timeout: 30_000 });
+    } catch (error) {
+      throw new Error(`Timeout while waiting for [${count}] schema changes.`);
+    }
   }
 
   function assertSchemaChange(
