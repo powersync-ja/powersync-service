@@ -25,7 +25,7 @@ import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { HashMap, HashSet, StableHasher } from './equality.js';
 import { ParsedStreamQuery } from './parser.js';
 import { StreamOptions } from '../sync_plan/plan.js';
-import { ColumnInRow } from './expression.js';
+import { ColumnInRow, SourceLocation } from './expression.js';
 
 /**
  * Builds stream resolvers for a single stream, potentially consisting of multiple queries.
@@ -33,6 +33,8 @@ import { ColumnInRow } from './expression.js';
 export class QuerierGraphBuilder {
   private readonly resolvers: StreamResolver[] = [];
   readonly counter: UniqueCounter;
+
+  private spanForGlobalErrors?: SourceLocation;
 
   constructor(
     readonly compiler: SyncStreamsCompiler,
@@ -45,6 +47,8 @@ export class QuerierGraphBuilder {
    * Adds a given query to the stream compiled by this builder.
    */
   process(query: ParsedStreamQuery, errors: ParsingErrorListener) {
+    this.spanForGlobalErrors ??= query.span;
+
     for (const variant of query.where.terms) {
       const resolved = new PendingQuerierPath(this, query, errors, variant).resolvePrimaryInput();
       this.resolvers.push(resolved);
@@ -56,6 +60,16 @@ export class QuerierGraphBuilder {
    */
   finish() {
     const buckets = this.mergeBuckets();
+    const maxBucketsPerStream = 100;
+    if (buckets.length > maxBucketsPerStream) {
+      const { location, errors } = this.spanForGlobalErrors!;
+      errors.report(
+        `This streams defines too many buckets (${buckets.length}, at most ${maxBucketsPerStream} are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.`,
+        location
+      );
+      return [];
+    }
+
     this.compiler.output.resolvers.push(...buckets);
     return buckets;
   }

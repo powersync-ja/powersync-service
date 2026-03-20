@@ -507,4 +507,21 @@ streams:
       );
     });
   });
+
+  test('restricts bucket sources per stream', () => {
+    let terms = '';
+    for (let i = 0; i < 10; i++) {
+      if (i != 0) terms += ' AND ';
+
+      terms += `(subscription.parameter('skip_cond_${i}') OR tbl.column${i} = subscription.parameter('filter_${i}'))`;
+    }
+
+    const errors = compilationErrorsForSingleStream(`SELECT * FROM tbl WHERE ${terms}`);
+    expect(errors).toMatchObject([
+      {
+        message:
+          'This streams defines too many buckets (1024, at most 100 are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.'
+      }
+    ]);
+  });
 });
