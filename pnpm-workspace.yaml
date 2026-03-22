@@ -16,3 +16,7 @@ catalog:
 allowBuilds:
   # These need install scripts to download/build native modules
   '@mongodb-js/zstd': true
+
+overrides:
+  # Transitive dependency only. Upgrade to avoid vulnerable versions
+  'minimatch': '^10.2.4'

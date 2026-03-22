@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.8",
-    "@pnpm/workspace.find-packages": "^1000.0.54",
+    "@pnpm/workspace.find-packages": "^1000.0.64",
     "@types/node": "^22.16.2",
     "@vitest/coverage-v8": "catalog:",
     "@vitest/ui": "catalog:",
