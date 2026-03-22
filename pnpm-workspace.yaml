@@ -11,6 +11,7 @@ catalog:
   vitest: ^4.0.16
   '@vitest/ui': ^4.0.16
   '@vitest/coverage-v8': ^4.0.16
+  typescript: ~5.9.3
 
 allowBuilds:
   # These need install scripts to download/build native modules
