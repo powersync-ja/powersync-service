@@ -47,7 +47,7 @@
     "semver": "^7.5.4",
     "ts-node-dev": "^2.0.0",
     "tsc-watch": "^6.2.0",
-    "typescript": "^5.7.3",
+    "typescript": "^5.9.3",
     "vitest": "catalog:",
     "ws": "^8.2.3"
   },

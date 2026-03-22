@@ -79,13 +79,13 @@ importers:
         version: 7.6.2
       ts-node-dev:
         specifier: ^2.0.0
-        version: 2.0.0(@types/node@22.16.2)(typescript@5.7.3)
+        version: 2.0.0(@types/node@22.16.2)(typescript@5.9.3)
       tsc-watch:
         specifier: ^6.2.0
-        version: 6.2.0(typescript@5.7.3)
+        version: 6.2.0(typescript@5.9.3)
       typescript:
-        specifier: ^5.7.3
-        version: 5.7.3
+        specifier: ^5.9.3
+        version: 5.9.3
       vitest:
         specifier: 'catalog:'
         version: 4.0.16(@opentelemetry/api@1.9.0)(@types/node@22.16.2)(@vitest/ui@4.0.16)(tsx@4.21.0)(yaml@2.8.2)
@@ -484,8 +484,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/service-core-tests
       typescript:
-        specifier: ^5.7.3
-        version: 5.7.3
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/jpgwire:
     dependencies:
@@ -698,8 +698,8 @@ importers:
         specifier: ^1.30.1
         version: 1.30.1(@opentelemetry/api@1.9.0)
       typescript:
-        specifier: ^5.7.3
-        version: 5.7.3
+        specifier: ^5.9.3
+        version: 5.9.3
 
   packages/service-errors: {}
 
@@ -799,7 +799,7 @@ importers:
         version: 16.14.20
       ts-node:
         specifier: ^10.9.1
-        version: 10.9.2(@types/node@22.16.2)(typescript@5.7.3)
+        version: 10.9.2(@types/node@24.10.9)(typescript@5.9.3)
 
   test-client:
     dependencies:
@@ -829,8 +829,8 @@ importers:
         specifier: ~8.2.0
         version: 8.2.3
       typescript:
-        specifier: ^5.7.3
-        version: 5.7.3
+        specifier: ^5.9.3
+        version: 5.9.3
 
 packages:
 
@@ -6001,8 +6001,8 @@ packages:
   typedarray-to-buffer@3.1.5:
     resolution: {integrity: sha512-zdu8XMNEDepKKR+XYOXAVPtWui0ly0NtohUscw+UmaHiAWT8hrV1rr//H6V+0DvJ3OQ19S979M0laLfX8rm82Q==}
 
-  typescript@5.7.3:
-    resolution: {integrity: sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw==}
+  typescript@5.9.3:
+    resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -12324,7 +12324,7 @@ snapshots:
 
   ts-codec@1.3.0: {}
 
-  ts-node-dev@2.0.0(@types/node@22.16.2)(typescript@5.7.3):
+  ts-node-dev@2.0.0(@types/node@22.16.2)(typescript@5.9.3):
     dependencies:
       chokidar: 3.6.0
       dynamic-dedupe: 0.3.0
@@ -12334,15 +12334,15 @@ snapshots:
       rimraf: 2.7.1
       source-map-support: 0.5.21
       tree-kill: 1.2.2
-      ts-node: 10.9.2(@types/node@22.16.2)(typescript@5.7.3)
+      ts-node: 10.9.2(@types/node@22.16.2)(typescript@5.9.3)
       tsconfig: 7.0.0
-      typescript: 5.7.3
+      typescript: 5.9.3
     transitivePeerDependencies:
       - '@swc/core'
       - '@swc/wasm'
       - '@types/node'
 
-  ts-node@10.9.2(@types/node@22.16.2)(typescript@5.7.3):
+  ts-node@10.9.2(@types/node@22.16.2)(typescript@5.9.3):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.11
@@ -12356,17 +12356,35 @@ snapshots:
       create-require: 1.1.1
       diff: 4.0.2
       make-error: 1.3.6
-      typescript: 5.7.3
+      typescript: 5.9.3
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
 
-  tsc-watch@6.2.0(typescript@5.7.3):
+  ts-node@10.9.2(@types/node@24.10.9)(typescript@5.9.3):
+    dependencies:
+      '@cspotcode/source-map-support': 0.8.1
+      '@tsconfig/node10': 1.0.11
+      '@tsconfig/node12': 1.0.11
+      '@tsconfig/node14': 1.0.3
+      '@tsconfig/node16': 1.0.4
+      '@types/node': 24.10.9
+      acorn: 8.12.1
+      acorn-walk: 8.3.3
+      arg: 4.1.3
+      create-require: 1.1.1
+      diff: 4.0.2
+      make-error: 1.3.6
+      typescript: 5.9.3
+      v8-compile-cache-lib: 3.0.1
+      yn: 3.1.1
+
+  tsc-watch@6.2.0(typescript@5.9.3):
     dependencies:
       cross-spawn: 7.0.3
       node-cleanup: 2.1.2
       ps-tree: 1.2.0
       string-argv: 0.3.2
-      typescript: 5.7.3
+      typescript: 5.9.3
 
   tsconfig@7.0.0:
     dependencies:
@@ -12419,7 +12437,7 @@ snapshots:
     dependencies:
       is-typedarray: 1.0.0
 
-  typescript@5.7.3: {}
+  typescript@5.9.3: {}
 
   uid-number@0.0.6: {}
 
