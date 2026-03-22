@@ -26,7 +26,6 @@
     "@sentry/types": "^10.2.0",
     "copyfiles": "^2.4.1",
     "nodemon": "^3.0.1",
-    "npm-check-updates": "^16.14.4",
     "ts-node": "^10.9.1"
   }
 }

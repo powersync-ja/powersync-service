@@ -37,7 +37,6 @@
     "fast-glob": "^3.3.3",
     "husky": "^9.1.7",
     "inquirer": "^9.2.7",
-    "lint-staged": "^16.1.0",
     "npm-check-updates": "^17.1.2",
     "prettier": "^3.4.1",
     "prettier-plugin-embed": "^0.4.15",
@@ -45,7 +44,6 @@
     "rsocket-core": "1.0.0-alpha.3",
     "rsocket-websocket-client": "1.0.0-alpha.3",
     "semver": "^7.5.4",
-    "tsc-watch": "^6.2.0",
     "typescript": "^5.9.3",
     "vitest": "catalog:",
     "ws": "^8.2.3"
