@@ -19,4 +19,5 @@ allowBuilds:
 
 overrides:
   # Override to remove vitest production dependency
+  # Remove once this is released: https://github.com/journeyapps-labs/common/pull/15
   '@journeyapps-labs/common-sdk@1.0.x>@journeyapps-labs/micro-streaming': '^1.0.2'
