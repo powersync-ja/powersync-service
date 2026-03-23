@@ -16,3 +16,5 @@ catalog:
 allowBuilds:
   # These need install scripts to download/build native modules
   '@mongodb-js/zstd': true
+  # Dependency of vitest>vite
+  esbuild: true
