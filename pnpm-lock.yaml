@@ -807,8 +807,8 @@ importers:
         specifier: ^4.15.1
         version: 4.15.9
       undici:
-        specifier: ^7.15.0
-        version: 7.15.0
+        specifier: ^7.24.5
+        version: 7.24.5
       ws:
         specifier: ^8.18.0
         version: 8.18.0
@@ -3783,8 +3783,8 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@7.15.0:
-    resolution: {integrity: sha512-7oZJCPvvMvTd0OlqWsIxTuItTpJBpU1tcbVl24FMn3xt3+VSunwUasmfPJRE57oNO1KsZ4PgA1xTdAX4hq8NyQ==}
+  undici@7.24.5:
+    resolution: {integrity: sha512-3IWdCpjgxp15CbJnsi/Y9TCDE7HWVN19j1hmzVhoAkY/+CJx449tVxT5wZc1Gwg8J+P0LWvzlBzxYRnHJ+1i7Q==}
     engines: {node: '>=20.18.1'}
 
   unicorn-magic@0.3.0:
@@ -7162,7 +7162,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@7.15.0: {}
+  undici@7.24.5: {}
 
   unicorn-magic@0.3.0: {}
 
