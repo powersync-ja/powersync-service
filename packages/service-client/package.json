@@ -14,7 +14,7 @@
     "clean": "rm -rf ./dist && tsc -b --clean"
   },
   "dependencies": {
-    "@journeyapps-labs/common-sdk": "^1.0.2",
+    "@journeyapps-labs/common-sdk": "^1.0.3",
     "@powersync/service-types": "workspace:*"
   }
 }

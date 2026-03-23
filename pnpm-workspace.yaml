@@ -8,13 +8,15 @@ packages:
   - '!**/test/**'
 
 catalog:
-  vitest: ^4.0.16
-  '@vitest/ui': ^4.0.16
-  '@vitest/coverage-v8': ^4.0.16
+  vitest: ^4.1.0
+  '@vitest/ui': ^4.1.0
+  '@vitest/coverage-v8': ^4.1.0
   typescript: ~5.9.3
 
 allowBuilds:
   # These need install scripts to download/build native modules
   '@mongodb-js/zstd': true
-  # Dependency of vitest>vite
-  esbuild: true
+
+overrides:
+  # Override to remove vitest production dependency
+  '@journeyapps-labs/common-sdk@1.0.x>@journeyapps-labs/micro-streaming': '^1.0.2'
