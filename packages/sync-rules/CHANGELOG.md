@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.34.1
+
+### Patch Changes
+
+- dea1e00: Fix SQL-in-YAML error reporting edge cases
+- ada86f2: Report an error when defining a Sync Stream which would require more than 100 equivalent bucket_definitions to represent it.
+
 ## 0.34.0
 
 ### Minor Changes

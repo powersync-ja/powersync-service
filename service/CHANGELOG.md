@@ -1,5 +1,23 @@
 # @powersync/service-image
 
+## 1.20.4
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- Updated dependencies [df451c6]
+- Updated dependencies [11b4deb]
+  - @powersync/service-module-postgres-storage@0.13.3
+  - @powersync/service-core@1.20.4
+  - @powersync/service-module-mssql@0.6.2
+  - @powersync/service-module-core@0.2.24
+  - @powersync/service-module-postgres@0.19.3
+  - @powersync/service-module-mongodb@0.15.3
+  - @powersync/service-module-mysql@0.12.3
+  - @powersync/service-module-mongodb-storage@0.15.3
+  - @powersync/lib-services-framework@0.9.2
+  - @powersync/service-rsocket-router@0.2.18
+
 ## 1.20.3
 
 ### Patch Changes

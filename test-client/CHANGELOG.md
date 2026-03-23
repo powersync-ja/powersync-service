@@ -1,5 +1,14 @@
 # test-client
 
+## 0.1.71
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- Updated dependencies [df451c6]
+- Updated dependencies [11b4deb]
+  - @powersync/service-core@1.20.4
+
 ## 0.1.70
 
 ### Patch Changes

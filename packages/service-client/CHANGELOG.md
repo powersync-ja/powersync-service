@@ -1,5 +1,11 @@
 # @powersync/service-client
 
+## 0.0.4
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+
 ## 0.0.3
 
 ### Patch Changes
