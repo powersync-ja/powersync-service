@@ -1,5 +1,16 @@
 # @powersync/service-module-core
 
+## 0.2.24
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- Updated dependencies [df451c6]
+- Updated dependencies [11b4deb]
+  - @powersync/service-core@1.20.4
+  - @powersync/lib-services-framework@0.9.2
+  - @powersync/service-rsocket-router@0.2.18
+
 ## 0.2.23
 
 ### Patch Changes
