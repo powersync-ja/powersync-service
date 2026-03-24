@@ -295,7 +295,6 @@ export class PowerSyncMongo {
 
     await this.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId).createIndex(
       {
-        '_id.g': 1,
         pending_delete: 1
       },
       {

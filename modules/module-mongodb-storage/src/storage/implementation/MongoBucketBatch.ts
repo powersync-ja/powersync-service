@@ -37,6 +37,7 @@ import {
   CommonCurrentBucket,
   CommonCurrentLookup,
   CommonCurrentDataDocument,
+  CurrentDataDocumentId,
   SourceKey,
   SyncRuleDocument
 } from './models.js';
@@ -164,12 +165,28 @@ export abstract class MongoBucketBatch
 
   protected abstract mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CommonCurrentLookup[];
 
+  protected abstract createCurrentDataId(
+    sourceTableId: bson.ObjectId,
+    replicaId: storage.ReplicaId
+  ): CurrentDataDocumentId;
+
   protected abstract createCurrentDataDocument(
-    id: SourceKey,
+    id: CurrentDataDocumentId,
     data: bson.Binary,
     buckets: CommonCurrentBucket[],
     lookups: CommonCurrentLookup[]
   ): CommonCurrentDataDocument;
+
+  protected abstract createCurrentDataLookupFilter(
+    sourceTableId: bson.ObjectId,
+    replicaIds: storage.ReplicaId[]
+  ): mongo.Filter<CommonCurrentDataDocument>;
+
+  protected abstract currentDataCacheKey(sourceTableId: bson.ObjectId, document: CommonCurrentDataDocument): string;
+
+  protected abstract currentDataReplicaId(document: CommonCurrentDataDocument): storage.ReplicaId;
+
+  protected abstract activeCurrentDataFilter(sourceTableId: bson.ObjectId): mongo.Filter<CommonCurrentDataDocument>;
 
   protected abstract cleanupCurrentData(lastCheckpoint: bigint): Promise<void>;
 
@@ -238,20 +255,21 @@ export abstract class MongoBucketBatch
       // (automatically limited to 48MB(?) per batch by MongoDB). The issue is that it changes
       // the order of processing, which then becomes really tricky to manage.
       // This now takes 2+ queries, but doesn't have any issues with order of operations.
-      const sizeLookups: SourceKey[] = batch.batch.map((r) => {
-        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
-      });
+      const sizeLookups = batch.batch.map((r) => ({
+        sourceTableId: mongoTableId(r.record.sourceTable.id),
+        replicaId: r.beforeId
+      }));
 
       sizes = new Map<string, number>();
 
-      for (const [sourceTableId, sourceKeys] of this.groupSourceKeysByTable(sizeLookups)) {
-        const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db
+      for (const [sourceTableId, replicaIds] of this.groupReplicaIdsByTable(sizeLookups)) {
+        const sizeCursor: mongo.AggregationCursor<CommonCurrentDataDocument & { size: number }> = this.db
           .common_current_data(this.group_id, sourceTableId)
           .aggregate(
             [
               {
                 $match: {
-                  _id: { $in: sourceKeys }
+                  ...this.createCurrentDataLookupFilter(sourceTableId, replicaIds)
                 }
               },
               {
@@ -264,7 +282,7 @@ export abstract class MongoBucketBatch
             { session }
           );
         for await (let doc of sizeCursor.stream()) {
-          const key = cacheKey(doc._id.t, doc._id.k);
+          const key = this.currentDataCacheKey(sourceTableId, doc);
           sizes.set(key, doc.size);
         }
       }
@@ -285,21 +303,19 @@ export abstract class MongoBucketBatch
         }
         continue;
       }
-      const lookups: SourceKey[] = b.map((r) => {
-        return { g: this.group_id, t: mongoTableId(r.record.sourceTable.id), k: r.beforeId };
-      });
+      const lookups = b.map((r) => ({
+        sourceTableId: mongoTableId(r.record.sourceTable.id),
+        replicaId: r.beforeId
+      }));
       let current_data_lookup = new Map<string, CommonCurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
       const projection = this.skipExistingRows ? { _id: 1 } : undefined;
-      for (const [sourceTableId, sourceKeys] of this.groupSourceKeysByTable(lookups)) {
-        const cursor = this.db.common_current_data(this.group_id, sourceTableId).find(
-          {
-            _id: { $in: sourceKeys }
-          },
-          { session, projection }
-        );
+      for (const [sourceTableId, replicaIds] of this.groupReplicaIdsByTable(lookups)) {
+        const cursor = this.db
+          .common_current_data(this.group_id, sourceTableId)
+          .find(this.createCurrentDataLookupFilter(sourceTableId, replicaIds), { session, projection });
         for await (let doc of cursor.stream()) {
-          current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
+          current_data_lookup.set(this.currentDataCacheKey(sourceTableId, doc), doc);
         }
       }
 
@@ -366,7 +382,8 @@ export abstract class MongoBucketBatch
     let existing_lookups: CommonCurrentLookup[] = [];
     let new_lookups: CommonCurrentLookup[] = [];
 
-    const before_key: SourceKey = { g: this.group_id, t: mongoTableId(record.sourceTable.id), k: beforeId };
+    const sourceTableId = mongoTableId(record.sourceTable.id);
+    const before_key = this.createCurrentDataId(sourceTableId, beforeId);
 
     if (this.skipExistingRows) {
       if (record.tag == SaveOperationTag.INSERT) {
@@ -569,8 +586,9 @@ export abstract class MongoBucketBatch
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key: SourceKey = { g: this.group_id, t: mongoTableId(sourceTable.id), k: afterId };
+      const after_key = this.createCurrentDataId(sourceTableId, afterId);
       batch.upsertCurrentData({
+        sourceTableId,
         id: after_key,
         data: afterData,
         buckets: new_buckets,
@@ -584,7 +602,7 @@ export abstract class MongoBucketBatch
       // Note that this is a soft delete.
       // We don't specifically need a new or unique op_id here, but it must be greater than the
       // last checkpoint, so we use next().
-      batch.softDeleteCurrentData(before_key, opSeq.next());
+      batch.softDeleteCurrentData(sourceTableId, before_key, opSeq.next());
     }
     return result;
   }
@@ -1027,12 +1045,7 @@ export abstract class MongoBucketBatch
     let lastBatchCount = BATCH_LIMIT;
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
-        const current_data_filter: mongo.Filter<CommonCurrentDataDocument> = {
-          _id: idPrefixFilter<SourceKey>({ g: this.group_id, t: mongoTableId(sourceTable.id) }, ['k']),
-          // Skip soft-deleted data
-          // Works for both v1 and v3 current_data schemas
-          pending_delete: { $exists: false }
-        };
+        const current_data_filter = this.activeCurrentDataFilter(mongoTableId(sourceTable.id));
 
         const cursor = this.db
           .common_current_data(this.group_id, mongoTableId(sourceTable.id))
@@ -1054,18 +1067,18 @@ export abstract class MongoBucketBatch
             before_buckets: value.buckets,
             evaluated: [],
             table: sourceTable,
-            sourceKey: value._id.k
+            sourceKey: this.currentDataReplicaId(value)
           });
           persistedBatch.saveParameterData({
             op_seq: opSeq,
             existing_lookups: value.lookups,
             evaluated: [],
             sourceTable: sourceTable,
-            sourceKey: value._id.k
+            sourceKey: this.currentDataReplicaId(value)
           });
 
           // Since this is not from streaming replication, we can do a hard delete
-          persistedBatch.hardDeleteCurrentData(value._id);
+          persistedBatch.hardDeleteCurrentData(mongoTableId(sourceTable.id), value._id);
         }
         await persistedBatch.flush(session);
         lastBatchCount = batch.length;
@@ -1211,12 +1224,14 @@ export abstract class MongoBucketBatch
     );
   }
 
-  private groupSourceKeysByTable(sourceKeys: SourceKey[]): Map<mongo.ObjectId, SourceKey[]> {
-    const grouped = new Map<mongo.ObjectId, SourceKey[]>();
+  private groupReplicaIdsByTable(
+    sourceKeys: { sourceTableId: bson.ObjectId; replicaId: storage.ReplicaId }[]
+  ): Map<mongo.ObjectId, storage.ReplicaId[]> {
+    const grouped = new Map<mongo.ObjectId, storage.ReplicaId[]>();
     for (const sourceKey of sourceKeys) {
-      const existing = grouped.get(sourceKey.t) ?? [];
-      existing.push(sourceKey);
-      grouped.set(sourceKey.t, existing);
+      const existing = grouped.get(sourceKey.sourceTableId) ?? [];
+      existing.push(sourceKey.replicaId);
+      grouped.set(sourceKey.sourceTableId, existing);
     }
     return grouped;
   }

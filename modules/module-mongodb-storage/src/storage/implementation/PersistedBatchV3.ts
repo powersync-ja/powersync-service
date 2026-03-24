@@ -15,17 +15,18 @@ import {
 import {
   BucketParameterDocumentV3,
   CurrentBucketV3,
+  CurrentDataDocumentId,
   CurrentDataDocumentV3,
   isCurrentBucketV3,
   isRecordedLookupV3,
   RecordedLookupV3,
-  SourceKey,
+  SourceTableKey,
   taggedBucketParameterDocumentToV3,
   taggedBucketDataDocumentToV3
 } from './models.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
-  currentData: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3>[] = [];
+  currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
 
   saveBucketData(options: SaveBucketDataOptions) {
     const remaining_buckets = new Map<string, CurrentBucketV3>();
@@ -115,10 +116,9 @@ export class PersistedBatchV3 extends PersistedBatch {
       const values: BucketParameterDocumentV3 = {
         _id: op_id,
         key: {
-          g: this.group_id,
           t: mongoTableId(sourceTable.id),
           k: sourceKey
-        },
+        } satisfies SourceTableKey,
         lookup: binLookup,
         bucket_parameters: result.bucketParameters
       };
@@ -136,10 +136,9 @@ export class PersistedBatchV3 extends PersistedBatch {
       const values: BucketParameterDocumentV3 = {
         _id: op_id,
         key: {
-          g: this.group_id,
           t: mongoTableId(sourceTable.id),
           k: sourceKey
-        },
+        } satisfies SourceTableKey,
         lookup: lookup.l,
         bucket_parameters: []
       };
@@ -152,28 +151,34 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
   }
 
-  hardDeleteCurrentData(id: SourceKey) {
+  hardDeleteCurrentData(sourceTableId: bson.ObjectId, id: CurrentDataDocumentId) {
     this.currentData.push({
-      deleteOne: {
-        filter: { _id: id }
+      sourceTableId,
+      operation: {
+        deleteOne: {
+          filter: { _id: id }
+        }
       }
     });
     this.currentSize += 50;
   }
 
-  softDeleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint) {
+  softDeleteCurrentData(sourceTableId: bson.ObjectId, id: CurrentDataDocumentId, checkpointGreaterThan: bigint) {
     this.currentData.push({
-      updateOne: {
-        filter: { _id: id },
-        update: {
-          $set: {
-            data: null,
-            buckets: [] as CurrentDataDocumentV3['buckets'],
-            lookups: [] as CurrentDataDocumentV3['lookups'],
-            pending_delete: checkpointGreaterThan
-          }
-        },
-        upsert: true
+      sourceTableId,
+      operation: {
+        updateOne: {
+          filter: { _id: id },
+          update: {
+            $set: {
+              data: null,
+              buckets: [] as CurrentDataDocumentV3['buckets'],
+              lookups: [] as CurrentDataDocumentV3['lookups'],
+              pending_delete: checkpointGreaterThan
+            }
+          },
+          upsert: true
+        }
       }
     });
     this.currentSize += 50;
@@ -194,17 +199,20 @@ export class PersistedBatchV3 extends PersistedBatch {
     });
 
     this.currentData.push({
-      updateOne: {
-        filter: { _id: values.id },
-        update: {
-          $set: {
-            data: values.data,
-            buckets,
-            lookups
+      sourceTableId: values.sourceTableId,
+      operation: {
+        updateOne: {
+          filter: { _id: values.id },
+          update: {
+            $set: {
+              data: values.data,
+              buckets,
+              lookups
+            },
+            $unset: { pending_delete: 1 }
           },
-          $unset: { pending_delete: 1 }
-        },
-        upsert: true
+          upsert: true
+        }
       }
     });
     this.currentSize += (values.data?.length() ?? 0) + 100;
@@ -263,44 +271,26 @@ export class PersistedBatchV3 extends PersistedBatch {
   protected async flushCurrentData(session: mongo.ClientSession) {
     const operationsBySourceTable = new Map<string, typeof this.currentData>();
     for (const operation of this.currentData) {
-      const sourceTableId = this.getSourceTableIdHex(operation);
-      if (sourceTableId == null) {
-        throw new ReplicationAssertionError('Missing source table id for current_data operation');
-      }
+      const sourceTableId = operation.sourceTableId.toHexString();
       const existing = operationsBySourceTable.get(sourceTableId) ?? [];
       existing.push(operation);
       operationsBySourceTable.set(sourceTableId, existing);
     }
 
     for (const operations of operationsBySourceTable.values()) {
-      const firstOperation = operations[0]!;
-      const sourceTableId = this.getSourceTableId(firstOperation);
-      if (sourceTableId == null) {
-        throw new ReplicationAssertionError('Missing source table id for current_data bulkWrite');
-      }
+      const sourceTableId = operations[0]!.sourceTableId;
       await this.db.initializeCurrentDataCollection(this.group_id, sourceTableId);
-      await this.db.v3_current_data(this.group_id, sourceTableId).bulkWrite(operations, {
-        session,
-        ordered: true
-      });
+      await this.db.v3_current_data(this.group_id, sourceTableId).bulkWrite(
+        operations.map((entry) => entry.operation),
+        {
+          session,
+          ordered: true
+        }
+      );
     }
   }
 
   protected resetCurrentData() {
     this.currentData = [];
-  }
-
-  private getSourceTableIdHex(operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3>): string | undefined {
-    return this.getSourceTableId(operation)?.toHexString();
-  }
-
-  private getSourceTableId(operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3>): bson.ObjectId | undefined {
-    if ('updateOne' in operation) {
-      return operation.updateOne.filter._id?.t;
-    }
-    if ('deleteOne' in operation) {
-      return operation.deleteOne.filter._id?.t;
-    }
-    return undefined;
   }
 }

@@ -11,7 +11,7 @@ import {
   BucketStateDocument,
   CommonCurrentBucket,
   CommonCurrentLookup,
-  SourceKey,
+  CurrentDataDocumentId,
   TaggedBucketParameterDocument,
   TaggedBucketDataDocument
 } from './models.js';
@@ -56,7 +56,8 @@ export interface SaveParameterDataOptions {
 }
 
 export interface UpsertCurrentDataOptions {
-  id: SourceKey;
+  sourceTableId: bson.ObjectId;
+  id: CurrentDataDocumentId;
   data: bson.Binary | null;
   buckets: CommonCurrentBucket[];
   lookups: CommonCurrentLookup[];
@@ -103,9 +104,13 @@ export abstract class PersistedBatch {
 
   abstract saveParameterData(data: SaveParameterDataOptions): void;
 
-  abstract hardDeleteCurrentData(id: SourceKey): void;
+  abstract hardDeleteCurrentData(sourceTableId: bson.ObjectId, id: CurrentDataDocumentId): void;
 
-  abstract softDeleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint): void;
+  abstract softDeleteCurrentData(
+    sourceTableId: bson.ObjectId,
+    id: CurrentDataDocumentId,
+    checkpointGreaterThan: bigint
+  ): void;
 
   abstract upsertCurrentData(values: UpsertCurrentDataOptions): void;
 

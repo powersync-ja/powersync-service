@@ -4,15 +4,16 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 
 import { MongoBucketBatch, MongoBucketBatchOptions } from './MongoBucketBatch.js';
+import { cacheKey } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import {
   CommonCurrentBucket,
   CommonCurrentLookup,
+  CurrentDataDocumentId,
   CurrentBucketV3,
   CurrentDataDocumentV3,
   RecordedLookupV3,
-  SourceKey,
   isCurrentBucketV3,
   isRecordedLookupV3
 } from './models.js';
@@ -47,8 +48,12 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     });
   }
 
+  protected createCurrentDataId(_sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): CurrentDataDocumentId {
+    return replicaId;
+  }
+
   protected createCurrentDataDocument(
-    id: SourceKey,
+    id: CurrentDataDocumentId,
     data: bson.Binary,
     buckets: CommonCurrentBucket[],
     lookups: CommonCurrentLookup[]
@@ -74,11 +79,30 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     };
   }
 
+  protected createCurrentDataLookupFilter(_sourceTableId: bson.ObjectId, replicaIds: storage.ReplicaId[]) {
+    return {
+      _id: { $in: replicaIds }
+    };
+  }
+
+  protected currentDataCacheKey(sourceTableId: bson.ObjectId, document: CurrentDataDocumentV3): string {
+    return cacheKey(sourceTableId, document._id);
+  }
+
+  protected currentDataReplicaId(document: CurrentDataDocumentV3): storage.ReplicaId {
+    return document._id;
+  }
+
+  protected activeCurrentDataFilter(_sourceTableId: bson.ObjectId) {
+    return {
+      pending_delete: { $exists: false }
+    };
+  }
+
   protected async cleanupCurrentData(lastCheckpoint: bigint): Promise<void> {
     let deletedCount = 0;
     for (const collection of await this.db.listCommonCurrentDataCollections(this.group_id)) {
       const result = await collection.deleteMany({
-        '_id.g': this.group_id,
         pending_delete: { $exists: true, $lte: lastCheckpoint }
       });
       deletedCount += result.deletedCount;

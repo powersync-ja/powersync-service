@@ -23,6 +23,13 @@ export interface SourceKey {
   k: ReplicaId;
 }
 
+export interface SourceTableKey {
+  /** source table id */
+  t: bson.ObjectId;
+  /** source key */
+  k: ReplicaId;
+}
+
 export interface BucketDataKeyV1 {
   /** group_id */
   g: number;
@@ -56,7 +63,7 @@ export interface RecordedLookupV3 {
 }
 
 export interface CurrentDataDocumentV3 {
-  _id: SourceKey;
+  _id: ReplicaId;
   data: bson.Binary | null;
   buckets: CurrentBucketV3[];
   lookups: RecordedLookupV3[];
@@ -81,9 +88,15 @@ export interface BucketParameterDocument {
   bucket_parameters: Record<string, SqliteJsonValue>[];
 }
 
-export interface BucketParameterDocumentV3 extends BucketParameterDocument {}
+export interface BucketParameterDocumentV3 extends Omit<BucketParameterDocument, 'key'> {
+  key: SourceTableKey;
+}
 
-export interface TaggedBucketParameterDocument extends BucketParameterDocumentV3 {
+export interface TaggedBucketParameterDocument {
+  _id: bigint;
+  key: BucketParameterDocument['key'] | BucketParameterDocumentV3['key'];
+  lookup: bson.Binary;
+  bucket_parameters: Record<string, SqliteJsonValue>[];
   index: ParameterIndexId;
 }
 
@@ -170,12 +183,12 @@ export function bucketParameterDocumentToTagged(
 
 export function taggedBucketParameterDocumentToV1(document: TaggedBucketParameterDocument): BucketParameterDocument {
   const { index: _index, ...rest } = document;
-  return rest;
+  return rest as BucketParameterDocument;
 }
 
 export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {
   const { index: _index, ...rest } = document;
-  return rest;
+  return rest as BucketParameterDocumentV3;
 }
 
 export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
@@ -407,6 +420,7 @@ export interface InstanceDocument {
 
 export interface ClientConnectionDocument extends event_types.ClientConnection {}
 
+export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
 export type CommonCurrentDataDocument = CurrentDataDocument | CurrentDataDocumentV3;
 export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
 export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;

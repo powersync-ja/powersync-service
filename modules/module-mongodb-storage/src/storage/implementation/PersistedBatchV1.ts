@@ -150,7 +150,7 @@ export class PersistedBatchV1 extends PersistedBatch {
     }
   }
 
-  hardDeleteCurrentData(id: SourceKey) {
+  hardDeleteCurrentData(_sourceTableId: bson.ObjectId, id: SourceKey) {
     this.currentData.push({
       deleteOne: {
         filter: { _id: id }
@@ -159,8 +159,8 @@ export class PersistedBatchV1 extends PersistedBatch {
     this.currentSize += 50;
   }
 
-  softDeleteCurrentData(id: SourceKey, _checkpointGreaterThan: bigint) {
-    this.hardDeleteCurrentData(id);
+  softDeleteCurrentData(sourceTableId: bson.ObjectId, id: SourceKey, _checkpointGreaterThan: bigint) {
+    this.hardDeleteCurrentData(sourceTableId, id);
   }
 
   upsertCurrentData(values: UpsertCurrentDataOptions) {

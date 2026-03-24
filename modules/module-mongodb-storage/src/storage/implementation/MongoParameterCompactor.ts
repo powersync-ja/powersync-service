@@ -39,7 +39,7 @@ export class MongoParameterCompactor {
     }
   }
 
-  private async compactCollection(collection: mongo.Collection<BucketParameterDocument | BucketParameterDocumentV3>) {
+  private async compactCollection(collection: mongo.Collection<any>) {
     // This is the currently-active checkpoint.
     // We do not remove any data that may be used by this checkpoint.
     // snapshot queries ensure that if any clients are still using older checkpoints, they would
@@ -51,9 +51,11 @@ export class MongoParameterCompactor {
     // in MongoDB already. However, that risks running into cases where MongoDB needs to process
     // very large amounts of data before returning results, which could lead to timeouts.
     const cursor = collection.find(
-      {
-        'key.g': this.group_id
-      },
+      this.db.storageConfig.incrementalReprocessing
+        ? {}
+        : {
+            'key.g': this.group_id
+          },
       {
         sort: { lookup: 1, _id: 1 },
         batchSize: 10_000,
@@ -66,7 +68,7 @@ export class MongoParameterCompactor {
       max: this.options.compactParameterCacheLimit ?? 10_000
     });
     let removeIds: InternalOpId[] = [];
-    let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument | BucketParameterDocumentV3>[] = [];
+    let removeDeleted: mongo.AnyBulkWriteOperation<any>[] = [];
     let checkedEntries = 0;
     let checkedEntriesAtLastLog = 0;
     let lastProgressLogTime = Date.now();
@@ -121,7 +123,14 @@ export class MongoParameterCompactor {
           // in the cache due to cache size limits. So we need to explicitly remove all earlier operations.
           removeDeleted.push({
             deleteMany: {
-              filter: { 'key.g': doc.key.g, lookup: doc.lookup, _id: { $lte: doc._id }, key: doc.key }
+              filter: this.db.storageConfig.incrementalReprocessing
+                ? { lookup: doc.lookup, _id: { $lte: doc._id }, key: doc.key }
+                : {
+                    'key.g': (doc.key as BucketParameterDocument['key']).g,
+                    lookup: doc.lookup,
+                    _id: { $lte: doc._id },
+                    key: doc.key
+                  }
             }
           });
         }
