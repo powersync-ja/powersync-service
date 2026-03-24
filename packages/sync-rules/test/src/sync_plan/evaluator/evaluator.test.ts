@@ -303,7 +303,7 @@ streams:
       globalParameters: requestParameters({ sub: 'u1' }),
       hasDefaultStreams: false,
       streams: {
-        stream: [{ opaque_id: 0, parameters: { issue: 'i1' } }]
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: { issue: 'i1' } }]
       }
     });
     expect(errors).toHaveLength(0);

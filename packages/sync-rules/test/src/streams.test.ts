@@ -81,7 +81,11 @@ describe('streams', () => {
     const pending = { queriers, errors };
     source.pushBucketParameterQueriers(
       pending,
-      normalizeQuerierOptions({ parameters: { test: 'foo' } }, {}, { stream: [{ opaque_id: 0, parameters: null }] })
+      normalizeQuerierOptions(
+        { parameters: { test: 'foo' } },
+        {},
+        { stream: [{ priorityOverride: null, opaque_id: 0, parameters: null }] }
+      )
     );
 
     expect(mergeBucketParameterQueriers(queriers).staticBuckets).toEqual([
@@ -1191,7 +1195,7 @@ async function createQueriers(
   const querierOptions: GetQuerierOptions = {
     hasDefaultStreams: true,
     globalParameters: requestParameters(options?.tokenPayload ?? {}, options?.globalParameters ?? {}),
-    streams: { [stream.name]: [{ opaque_id: 0, parameters: options?.parameters ?? null }] }
+    streams: { [stream.name]: [{ priorityOverride: null, opaque_id: 0, parameters: options?.parameters ?? null }] }
   };
 
   const hydrated = stream.hydrate(
