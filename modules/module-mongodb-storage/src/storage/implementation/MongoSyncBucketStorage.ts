@@ -179,6 +179,8 @@ export class MongoSyncBucketStorage
       return;
     }
 
+    await this.db.initializeStreamStorage(this.group_id);
+
     const mapping = this.sync_rules.mapping;
     for (let source of mapping.allBucketDefinitionIds()) {
       const collection = this.db.bucket_data_v3(this.group_id, source).collectionName;
@@ -261,7 +263,6 @@ export class MongoSyncBucketStorage
       type: column.type,
       type_oid: column.typeId
     }));
-    await this.db.initializeSourceTablesCollection(group_id);
     const mapping = this.sync_rules.mapping;
     let result: storage.ResolveTableResult | null = null;
     let initializeSourceRecordsFor: bson.ObjectId | null = null;
@@ -379,7 +380,7 @@ export class MongoSyncBucketStorage
       };
     });
     if (initializeSourceRecordsFor != null) {
-      await this.db.initializeCurrentDataCollection(group_id, initializeSourceRecordsFor);
+      await this.db.initializeSourceRecordsCollection(group_id, initializeSourceRecordsFor);
     }
     return result!;
   }

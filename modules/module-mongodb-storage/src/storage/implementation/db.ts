@@ -294,36 +294,6 @@ export class PowerSyncMongo {
       { name: 'dirty_count' }
     );
   }
-
-  async initializeStorageVersion(storageConfig: StorageConfig) {
-    // Per-stream collections are initialized lazily when first accessed.
-  }
-
-  async initializeSourceTablesCollection(replicationStreamId: number) {
-    await this.sourceTables<CommonSourceTableDocument>(replicationStreamId).createIndex(
-      {
-        connection_id: 1,
-        schema_name: 1,
-        table_name: 1,
-        relation_id: 1
-      },
-      {
-        name: 'source_lookup'
-      }
-    );
-  }
-
-  async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
-    await this.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId).createIndex(
-      {
-        pending_delete: 1
-      },
-      {
-        partialFilterExpression: { pending_delete: { $exists: true } },
-        name: 'pending_delete'
-      }
-    );
-  }
 }
 
 /**
@@ -377,21 +347,39 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.listSourceRecordCollections(replicationStreamId);
   }
 
-  initializeCurrentDataCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+  async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'source_records collection initialization should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.initializeSourceRecordsCollection(replicationStreamId, sourceTableId);
+    await this.#upstream.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId).createIndex(
+      {
+        pending_delete: 1
+      },
+      {
+        partialFilterExpression: { pending_delete: { $exists: true } },
+        name: 'pending_delete'
+      }
+    );
   }
 
   source_tables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
     return this.#upstream.sourceTables<CommonSourceTableDocument>(replicationStreamId);
   }
 
-  initializeSourceTablesCollection(replicationStreamId: number) {
-    return this.#upstream.initializeSourceTablesCollection(replicationStreamId);
+  async initializeStreamStorage(replicationStreamId: number) {
+    await this.source_tables(replicationStreamId).createIndex(
+      {
+        connection_id: 1,
+        schema_name: 1,
+        table_name: 1,
+        relation_id: 1
+      },
+      {
+        name: 'source_lookup'
+      }
+    );
   }
 
   get bucket_data() {
