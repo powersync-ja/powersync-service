@@ -18,7 +18,7 @@ import {
   BaseSourceResultSet
 } from './table.js';
 import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
-import { ColumnInRow, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
+import { ColumnInRow, ExpressionInput, NodeLocations, SourceLocation, SyncExpression } from './expression.js';
 import {
   BaseTerm,
   EqualsClause,
@@ -79,6 +79,7 @@ export interface ParsedStreamQuery {
    * All filters, in disjunctive normal form (an OR of ANDs).
    */
   where: Or;
+  span: SourceLocation;
 }
 
 export interface StreamQueryParserOptions {
@@ -161,7 +162,10 @@ export class StreamQueryParser {
         return null;
       }
 
-      const where = this.compileFilterClause();
+      const where = this.compileFilterClause(
+        // The statement must be a select statement, as processAst would have returned false otherwise.
+        stmt as SelectFromStatement
+      );
       const joined: SourceResultSet[] = [];
       for (const source of this.resultSets.values()) {
         if (source != this.primaryResultSet) {
@@ -173,7 +177,11 @@ export class StreamQueryParser {
         resultColumns: this.resultColumns,
         sourceTable: this.primaryResultSet,
         joined,
-        where: where
+        where: where,
+        span: {
+          location: stmt,
+          errors: this.errors
+        }
       };
     } else {
       return null;
@@ -531,13 +539,27 @@ export class StreamQueryParser {
     }
   }
 
-  private compileFilterClause(): Or {
+  private compileFilterClause(stmt: SelectFromStatement): Or {
     const andTerms: PendingFilterExpression[] = [];
     for (const expr of this.where) {
       andTerms.push(this.extractBooleanOperators(expr));
     }
 
-    const pendingDnf = toDisjunctiveNormalForm({ type: 'and', inner: andTerms }, this.nodeLocations);
+    let pendingDnf: PendingOr;
+    try {
+      pendingDnf = toDisjunctiveNormalForm({ type: 'and', inner: andTerms }, this.nodeLocations);
+    } catch (e) {
+      if (e instanceof TooManyInnerTermsError) {
+        this.errors.report(
+          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. Applying that to this query results in too many inner nodes.',
+          stmt.where ?? stmt
+        );
+
+        return { terms: [{ terms: [] }] };
+      }
+
+      throw e;
+    }
 
     // Within the DNF, each base expression (that is, anything not an OR or AND) is either:
     //
@@ -730,6 +752,7 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
     case 'and': {
       const baseFactors: PendingBaseTerm[] = [];
       const orTerms: PendingOr[] = [];
+      let expandedLength = 1;
 
       for (const originalTerm of expr.inner) {
         const normalized = prepareToDNF(originalTerm, locations);
@@ -738,6 +761,7 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
           baseFactors.push(...(normalized.inner as PendingBaseTerm[]));
         } else if (normalized.type == 'or') {
           orTerms.push(normalized);
+          expandedLength *= normalized.inner.length;
         } else {
           // prepareToDNF would have eliminated NOT operators
           baseFactors.push(normalized as PendingBaseTerm);
@@ -746,6 +770,10 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
 
       if (orTerms.length == 0) {
         return { type: 'and', inner: baseFactors };
+      }
+
+      if (expandedLength > 100) {
+        throw new TooManyInnerTermsError();
       }
 
       // If there's an OR term within the AND, apply the distributive law to turn the term into an AND within an outer
@@ -778,5 +806,11 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
     case 'base':
       // There are no boolean operators to adopt.
       return expr;
+  }
+}
+
+class TooManyInnerTermsError extends Error {
+  constructor() {
+    super('Too many inner terms when transforming to DNF');
   }
 }

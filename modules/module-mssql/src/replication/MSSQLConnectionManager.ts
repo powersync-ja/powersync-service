@@ -87,13 +87,23 @@ export class MSSQLConnectionManager extends BaseObserver<MSSQLConnectionManagerL
 
   async execute(procedure: string, parameters?: MSSQLParameter[]): Promise<sql.IProcedureResult<any>> {
     await this.ensureConnected();
-    let request = this.pool.request();
-    if (parameters) {
-      if (parameters) {
-        request = addParameters(request, parameters);
+    for (let tries = 2; ; tries--) {
+      try {
+        logger.debug(`Executing procedure: ${procedure}`);
+        let request = this.pool.request();
+        if (parameters) {
+          if (parameters) {
+            request = addParameters(request, parameters);
+          }
+        }
+        return request.execute(procedure);
+      } catch (e) {
+        if (tries == 1) {
+          throw e;
+        }
+        logger.warn(`Error executing stored procedure: ${procedure}, retrying..`, e);
       }
     }
-    return request.execute(procedure);
   }
 
   async end(): Promise<void> {

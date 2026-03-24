@@ -12,6 +12,7 @@ import {
 import {
   MetricsEngine,
   RelationCache,
+  ReplicationLagTracker,
   SaveOperationTag,
   SourceEntityDescriptor,
   SourceTable,
@@ -19,15 +20,16 @@ import {
 } from '@powersync/service-core';
 import {
   DatabaseInputRow,
+  HydratedSyncRules,
   SqliteInputRow,
   SqliteRow,
-  HydratedSyncRules,
   TablePattern
 } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { trackChangeStreamBsonBytes } from './internal-mongodb-utils.js';
 import { MongoManager } from './MongoManager.js';
 import {
   constructAfterRecord,
@@ -98,16 +100,7 @@ export class ChangeStream {
 
   private relationCache = new RelationCache(getCacheIdentifier);
 
-  /**
-   * Time of the oldest uncommitted change, according to the source db.
-   * This is used to determine the replication lag.
-   */
-  private oldestUncommittedChange: Date | null = null;
-  /**
-   * Keep track of whether we have done a commit or keepalive yet.
-   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
-   */
-  private isStartingReplication = true;
+  private replicationLag = new ReplicationLagTracker();
 
   private checkpointStreamId = new mongo.ObjectId();
 
@@ -479,6 +472,10 @@ export class ChangeStream {
   }
 
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+    const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
+    const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
+    const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
+
     const totalEstimatedCount = await this.estimatedCountNumber(table);
     let at = table.snapshotStatus?.replicatedCount ?? 0;
     const db = this.client.db(table.schema);
@@ -499,11 +496,13 @@ export class ChangeStream {
     let lastBatch = performance.now();
     let nextChunkPromise = query.nextChunk();
     while (true) {
-      const { docs: docBatch, lastKey } = await nextChunkPromise;
+      const { docs: docBatch, lastKey, bytes: chunkBytes } = await nextChunkPromise;
       if (docBatch.length == 0) {
         // No more data - stop iterating
         break;
       }
+      bytesReplicatedMetric.add(chunkBytes);
+      chunksReplicatedMetric.add(1);
 
       if (this.abort_signal.aborted) {
         throw new ReplicationAbortedError(`Aborted initial replication`, this.abort_signal.reason);
@@ -528,7 +527,7 @@ export class ChangeStream {
       // Important: flush before marking progress
       await batch.flush();
       at += docBatch.length;
-      this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(docBatch.length);
+      rowsReplicatedMetric.add(docBatch.length);
 
       table = await batch.updateTableProgress(table, {
         lastKey,
@@ -819,7 +818,30 @@ export class ChangeStream {
     };
   }
 
+  private getBufferedChangeCount(stream: mongo.ChangeStream<mongo.Document>): number {
+    // The driver keeps fetched change stream documents on the underlying cursor, but does
+    // not expose that through the public ChangeStream API. We use this to detect backlog
+    // building up before we have processed the corresponding source changes locally.
+    // If the driver API changes, we'll have a hard error here.
+    // We specifically want to avoid a silent performance regression if the driver behavior changes.
+    const cursor = (
+      stream as mongo.ChangeStream<mongo.Document> & {
+        cursor: mongo.AbstractCursor<mongo.ChangeStreamDocument<mongo.Document>>;
+      }
+    ).cursor;
+    if (cursor == null || typeof cursor.bufferedCount != 'function') {
+      throw new ReplicationAssertionError(
+        'MongoDB ChangeStream no longer exposes an internal cursor with bufferedCount'
+      );
+    }
+    return cursor.bufferedCount();
+  }
+
   async streamChangesInternal() {
+    const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
+    const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
+    const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
+
     await this.storage.startBatch(
       {
         logger: this.logger,
@@ -848,6 +870,11 @@ export class ChangeStream {
           await stream.close();
           return;
         }
+        trackChangeStreamBsonBytes(stream, (bytes) => {
+          bytesReplicatedMetric.add(bytes);
+          // Each of these represent a single response message from MongoDB.
+          chunksReplicatedMetric.add(1);
+        });
 
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
@@ -864,6 +891,7 @@ export class ChangeStream {
         let changesSinceLastCheckpoint = 0;
 
         let lastEmptyResume = performance.now();
+        let lastTxnKey: string | null = null;
 
         while (true) {
           if (this.abort_signal.aborted) {
@@ -903,7 +931,7 @@ export class ChangeStream {
               this.logger.info(
                 `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
               );
-              this.isStartingReplication = false;
+              this.replicationLag.markStarted();
             }
             continue;
           }
@@ -1005,7 +1033,20 @@ export class ChangeStream {
             // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
 
             const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
-            if (!(checkpointId == STANDALONE_CHECKPOINT_ID || this.checkpointStreamId.equals(checkpointId))) {
+
+            if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+              // Standalone / write checkpoint received.
+              // When we are caught up, commit immediately to keep write checkpoint latency low.
+              // Once there is already a batch checkpoint pending, or the driver has buffered more
+              // change stream events, collapse standalone checkpoints into the normal batch
+              // checkpoint flow to avoid commit churn under sustained load.
+              if (waitForCheckpointLsn != null || this.getBufferedChangeCount(stream) > 0) {
+                if (waitForCheckpointLsn == null) {
+                  waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+                }
+                continue;
+              }
+            } else if (!this.checkpointStreamId.equals(checkpointId)) {
               continue;
             }
             const { comparable: lsn } = new MongoLSN({
@@ -1027,12 +1068,11 @@ export class ChangeStream {
               waitForCheckpointLsn = null;
             }
             const { checkpointBlocked } = await batch.commit(lsn, {
-              oldestUncommittedChange: this.oldestUncommittedChange
+              oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
             });
 
             if (!checkpointBlocked) {
-              this.oldestUncommittedChange = null;
-              this.isStartingReplication = false;
+              this.replicationLag.markCommitted();
               changesSinceLastCheckpoint = 0;
             }
           } else if (
@@ -1044,6 +1084,7 @@ export class ChangeStream {
             if (waitForCheckpointLsn == null) {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
             }
+
             const rel = getMongoRelation(changeDocument.ns);
             const table = await this.getRelation(batch, rel, {
               // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
@@ -1053,9 +1094,20 @@ export class ChangeStream {
               snapshot: true
             });
             if (table.syncAny) {
-              if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
-                this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
+              this.replicationLag.trackUncommittedChange(
+                changeDocument.clusterTime == null ? null : timestampToDate(changeDocument.clusterTime)
+              );
+
+              const transactionKeyValue = transactionKey(changeDocument);
+
+              if (transactionKeyValue == null || lastTxnKey != transactionKeyValue) {
+                // Very crude metric for counting transactions replicated.
+                // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
+                // Individual writes may not have a txnNumber, in which case we count them as separate transactions.
+                lastTxnKey = transactionKeyValue;
+                transactionsReplicatedMetric.add(1);
               }
+
               const flushResult = await this.writeChange(batch, table, changeDocument);
               changesSinceLastCheckpoint += 1;
               if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
@@ -1106,17 +1158,8 @@ export class ChangeStream {
     );
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
-    if (this.oldestUncommittedChange == null) {
-      if (this.isStartingReplication) {
-        // We don't have anything to compute replication lag with yet.
-        return undefined;
-      } else {
-        // We don't have any uncommitted changes, so replication is up-to-date.
-        return 0;
-      }
-    }
-    return Date.now() - this.oldestUncommittedChange.getTime();
+  getReplicationLagMillis(): number | undefined {
+    return this.replicationLag.getLagMillis();
   }
 
   private lastTouchedAt = performance.now();
@@ -1152,4 +1195,14 @@ function mapChangeStreamError(e: any) {
   } else {
     throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
   }
+}
+
+/**
+ * Transaction key for a change stream event, used to detect transaction boundaries. Returns null if the event is not part of a transaction.
+ */
+function transactionKey(doc: mongo.ChangeStreamDocument): string | null {
+  if (doc.txnNumber == null || doc.lsid == null) {
+    return null;
+  }
+  return `${doc.lsid.id.toString('hex')}:${doc.txnNumber}`;
 }

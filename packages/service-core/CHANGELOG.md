@@ -1,5 +1,39 @@
 # @powersync/service-core
 
+## 1.20.4
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- 11b4deb: Restructure `powersync_replication_lag_seconds` metric.
+- Updated dependencies [dea1e00]
+- Updated dependencies [ada86f2]
+  - @powersync/service-sync-rules@0.34.1
+  - @powersync/lib-services-framework@0.9.2
+  - @powersync/service-rsocket-router@0.2.18
+
+## 1.20.3
+
+## 1.20.2
+
+### Patch Changes
+
+- 7ee87d4: [MongoDB Storage] Add option to explicitly enable/disable parameter compacting, and improve abort behavior when compacting.
+- 4c92c24: [Internal] Add a createWriter() API to replace startBatch().
+- 206633f: [MongoDB Storage] Fix compact failing for buckets over 2GB in size.
+- 275fd5f: Tighten Supabase URI regular expression.
+- Updated dependencies [224c35e]
+- Updated dependencies [acf1486]
+- Updated dependencies [391c5ef]
+- Updated dependencies [99de8be]
+- Updated dependencies [9daf965]
+- Updated dependencies [3d230c2]
+- Updated dependencies [3a0627e]
+- Updated dependencies [7ce1b8e]
+  - @powersync/service-sync-rules@0.34.0
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/service-rsocket-router@0.2.17
+
 ## 1.20.1
 
 ### Patch Changes

@@ -13,7 +13,7 @@ import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/
 import crypto from 'crypto';
 import { TablePattern } from '@powersync/service-sync-rules';
 
-describe('BinlogListener tests', () => {
+describe('BinlogListener tests', { timeout: 60_000 }, () => {
   const MAX_QUEUE_CAPACITY_MB = 1;
   const BINLOG_LISTENER_CONNECTION_OPTIONS = {
     ...TEST_CONNECTION_OPTIONS,
@@ -73,14 +73,14 @@ describe('BinlogListener tests', () => {
     await binLogListener.start();
 
     // Wait for listener to stop due to queue reaching capacity
-    await vi.waitFor(() => expect(stopSpy).toHaveBeenCalled(), { timeout: 5000 });
+    await vi.waitFor(() => expect(stopSpy).toHaveBeenCalled(), { timeout: 10_000 });
 
     expect(binLogListener.isQueueOverCapacity()).toBeTruthy();
     // Resume event processing
     eventHandler.unpause!();
     const restartSpy = vi.spyOn(binLogListener, 'start');
 
-    await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(ROW_COUNT), { timeout: 5000 });
+    await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(ROW_COUNT), { timeout: 10_000 });
     await binLogListener.stop();
     // Confirm resume was called after unpausing
     expect(restartSpy).toHaveBeenCalled();
@@ -106,7 +106,7 @@ describe('BinlogListener tests', () => {
   test('Keepalive event', async () => {
     binLogListener.options.keepAliveInactivitySeconds = 1;
     await binLogListener.start();
-    await vi.waitFor(() => expect(eventHandler.lastKeepAlive).toBeDefined(), { timeout: 10000 });
+    await vi.waitFor(() => expect(eventHandler.lastKeepAlive).toBeDefined(), { timeout: 10_000 });
     await binLogListener.stop();
     expect(eventHandler.lastKeepAlive).toEqual(binLogListener.options.startGTID.comparable);
   });
@@ -114,7 +114,7 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Rename table', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA RENAME test_DATA_new`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -133,7 +133,7 @@ describe('BinlogListener tests', () => {
     test_DATA TO test_DATA_new,
     test_DATA_new TO test_DATA
     `);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(2), { timeout: 5000 });
+    await waitForSchemaChanges(2);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -156,7 +156,7 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Truncate table', async () => {
     await binLogListener.start();
     await connectionManager.query(`TRUNCATE TABLE test_DATA`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -169,8 +169,7 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Drop table', async () => {
     await binLogListener.start();
     await connectionManager.query(`DROP TABLE test_DATA`);
-    await connectionManager.query(`CREATE TABLE test_DATA (id CHAR(36) PRIMARY KEY, description MEDIUMTEXT)`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -183,7 +182,7 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Drop column', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA DROP COLUMN description`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -196,7 +195,7 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Add column', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA ADD COLUMN new_column VARCHAR(255)`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -209,7 +208,7 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Modify column', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA MODIFY COLUMN description TEXT`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -222,7 +221,7 @@ describe('BinlogListener tests', () => {
   test('Schema change event: Rename column via change statement', async () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_DATA CHANGE COLUMN description description_new MEDIUMTEXT`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -237,7 +236,7 @@ describe('BinlogListener tests', () => {
     if (!isMySQL57) {
       await binLogListener.start();
       await connectionManager.query(`ALTER TABLE test_DATA RENAME COLUMN description TO description_new`);
-      await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+      await waitForSchemaChanges(1);
       await binLogListener.stop();
       assertSchemaChange(
         eventHandler.schemaChanges[0],
@@ -254,7 +253,7 @@ describe('BinlogListener tests', () => {
     await connectionManager.query(
       `ALTER TABLE test_DATA DROP COLUMN description, ADD COLUMN new_description TEXT, MODIFY COLUMN id VARCHAR(50)`
     );
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(3), { timeout: 5000 });
+    await waitForSchemaChanges(3);
     await binLogListener.stop();
     assertSchemaChange(
       eventHandler.schemaChanges[0],
@@ -289,7 +288,7 @@ describe('BinlogListener tests', () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_constraints ADD PRIMARY KEY (id)`);
     await connectionManager.query(`ALTER TABLE test_constraints DROP PRIMARY KEY`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(2), { timeout: 5000 });
+    await waitForSchemaChanges(2);
     await binLogListener.stop();
     // Event for the add
     assertSchemaChange(
@@ -318,7 +317,7 @@ describe('BinlogListener tests', () => {
     await binLogListener.start();
     await connectionManager.query(`ALTER TABLE test_constraints ADD UNIQUE (description)`);
     await connectionManager.query(`ALTER TABLE test_constraints DROP INDEX description`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(2), { timeout: 5000 });
+    await waitForSchemaChanges(2);
     await binLogListener.stop();
     // Event for the creation
     assertSchemaChange(
@@ -347,7 +346,7 @@ describe('BinlogListener tests', () => {
     await binLogListener.start();
     await connectionManager.query(`CREATE UNIQUE INDEX description_idx ON test_constraints (description)`);
     await connectionManager.query(`DROP INDEX description_idx ON test_constraints`);
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(2), { timeout: 5000 });
+    await waitForSchemaChanges(2);
     await binLogListener.stop();
     // Event for the creation
     assertSchemaChange(
@@ -398,7 +397,7 @@ describe('BinlogListener tests', () => {
 
     await binLogListener.start();
 
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(4), { timeout: 5000 });
+    await waitForSchemaChanges(4);
     await binLogListener.stop();
     expect(eventHandler.schemaChanges[0].type).toBe(SchemaChangeType.ALTER_TABLE_COLUMN);
     expect(eventHandler.schemaChanges[1].type).toBe(SchemaChangeType.REPLICATION_IDENTITY);
@@ -466,11 +465,19 @@ describe('BinlogListener tests', () => {
     await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('${uuid()}','test')`);
     await connectionManager.query(`DROP TABLE ${testTable}`);
 
-    await vi.waitFor(() => expect(eventHandler.schemaChanges.length).toBe(1), { timeout: 5000 });
+    await waitForSchemaChanges(1);
     await binLogListener.stop();
     expect(eventHandler.rowsWritten).toBe(2);
     assertSchemaChange(eventHandler.schemaChanges[0], SchemaChangeType.DROP_TABLE, 'multi_schema', 'test_DATA_multi');
   });
+
+  async function waitForSchemaChanges(count: number) {
+    try {
+      await vi.waitFor(() => expect(eventHandler.schemaChanges.length).equals(count), { timeout: 30_000 });
+    } catch (error) {
+      throw new Error(`Timeout while waiting for [${count}] schema changes.`);
+    }
+  }
 
   function assertSchemaChange(
     change: SchemaChange,

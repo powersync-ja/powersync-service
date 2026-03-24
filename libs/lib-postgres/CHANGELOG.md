@@ -1,5 +1,20 @@
 # @powersync/lib-service-postgres
 
+## 0.4.25
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+  - @powersync/lib-services-framework@0.9.2
+  - @powersync/service-jpgwire@0.21.16
+
+## 0.4.24
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.9.1
+- @powersync/service-jpgwire@0.21.15
+
 ## 0.4.23
 
 ### Patch Changes

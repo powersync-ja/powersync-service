@@ -1,6 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { bson } from '@powersync/service-core';
+import { getCursorBatchBytes } from './internal-mongodb-utils.js';
 
 /**
  * Performs a collection snapshot query, chunking by ranges of _id.
@@ -21,7 +22,9 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
     this.batchSize = options.batchSize;
   }
 
-  async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {
+  async nextChunk(): Promise<
+    { docs: mongo.Document[]; lastKey: Uint8Array; bytes: number } | { docs: []; lastKey: null; bytes: 0 }
+  > {
     let cursor = this.lastCursor;
     let newCursor = false;
     if (cursor == null || cursor.closed) {
@@ -52,12 +55,13 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       this.lastCursor = null;
       if (newCursor) {
         // We just created a new cursor and it has no results - we have finished the end of the query.
-        return { docs: [], lastKey: null };
+        return { docs: [], lastKey: null, bytes: 0 };
       } else {
         // The cursor may have hit the batch limit - retry
         return this.nextChunk();
       }
     }
+    const bytes = getCursorBatchBytes(cursor);
     const docBatch = cursor.readBufferedDocuments();
     this.lastCursor = cursor;
     if (docBatch.length == 0) {
@@ -65,7 +69,7 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
     }
     const lastKey = docBatch[docBatch.length - 1]._id;
     this.lastKey = lastKey;
-    return { docs: docBatch, lastKey: bson.serialize({ _id: lastKey }) };
+    return { docs: docBatch, lastKey: bson.serialize({ _id: lastKey }), bytes };
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

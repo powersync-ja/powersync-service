@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.8",
-    "@pnpm/workspace.find-packages": "^1000.0.54",
+    "@pnpm/workspace.projects-reader": "^1000.0.43",
     "@types/node": "^22.16.2",
     "@vitest/coverage-v8": "catalog:",
     "@vitest/ui": "catalog:",
@@ -37,7 +37,6 @@
     "fast-glob": "^3.3.3",
     "husky": "^9.1.7",
     "inquirer": "^9.2.7",
-    "lint-staged": "^16.1.0",
     "npm-check-updates": "^17.1.2",
     "prettier": "^3.4.1",
     "prettier-plugin-embed": "^0.4.15",
@@ -45,10 +44,9 @@
     "rsocket-core": "1.0.0-alpha.3",
     "rsocket-websocket-client": "1.0.0-alpha.3",
     "semver": "^7.5.4",
-    "ts-node-dev": "^2.0.0",
-    "tsc-watch": "^6.2.0",
-    "typescript": "^5.7.3",
+    "typescript": "catalog:",
     "vitest": "catalog:",
+    "vite": "^8.0.1",
     "ws": "^8.2.3"
   },
   "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264"

@@ -3,6 +3,14 @@ import { compilationErrorsForSingleStream, yamlToSyncPlan } from './utils.js';
 import { SourceSchema } from '../../../src/types.js';
 import { SourceTableDefinition, StaticSchema } from '../../../src/StaticSchema.js';
 import { DEFAULT_TAG } from '../../../src/TablePattern.js';
+import { SqlSyncRules } from '../../../src/SqlSyncRules.js';
+
+function expectSingleErrorSource(yaml: string, source: string) {
+  const { errors } = SqlSyncRules.fromYaml(yaml, { throwOnError: false, defaultSchema: 'test_schema' });
+  const sources = errors.map((e) => yaml.substring(e.location.start, e.location.end));
+  expect(sources).toHaveLength(1);
+  expect(sources[0]).toEqual(source);
+}
 
 describe('compilation errors', () => {
   test('parsing error in query', () => {
@@ -298,6 +306,230 @@ streams:
     ).toStrictEqual([]);
   });
 
+  test('error location', () => {
+    // Verify that error locations are correctly mapped back to the raw YAML source for all
+    // scalar types. Each query has a syntax error at the word 'broken'.
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - SELECT * FROM users WHERE something is broken
+      - 'SELECT * FROM users WHERE something is broken'
+      - "SELECT * FROM users WHERE something is broken"
+      - SELECT * FROM users
+        WHERE something is broken
+      - |
+          SELECT * FROM users
+          WHERE something is broken
+      - >
+          SELECT * FROM users WHERE something is broken
+`);
+
+    expect(errors).toHaveLength(6);
+    for (const error of errors) {
+      expect(error.source).toEqual('broken');
+    }
+  });
+
+  test('error location: double-quoted escape sequences', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - "SELECT * FROM users\\nWHERE something is broken"
+      - "SELECT * FROM \\x75sers WHERE something is broken"
+      - "SELECT * FROM \\u0075sers WHERE something is broken"
+      - "SELECT * FROM \\U00000075sers WHERE something is broken"
+`);
+
+    expect(errors).toHaveLength(4);
+    for (const error of errors) {
+      expect(error.source).toEqual('broken');
+    }
+  });
+
+  test('error location: single-quoted escape sequences', () => {
+    const [errors] = yamlToSyncPlan(`
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - 'SELECT * FROM users WHERE ''something'' is broken'
+`);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].source).toEqual('broken');
+  });
+
+  test('error location: BLOCK_LITERAL with initial newline', () => {
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - |
+
+          SELECT * FROM users
+          WHERE something is broken
+`,
+      'broken'
+    );
+  });
+
+  test('error location: BLOCK_FOLDED with initial newline', () => {
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - >
+
+          SELECT * FROM users
+          WHERE something is broken
+`,
+      'broken'
+    );
+  });
+
+  test('error location: BLOCK_FOLDED with blank lines', () => {
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - >
+          SELECT * FROM users
+
+
+          WHERE something is broken
+`,
+      'broken'
+    );
+  });
+
+  test('error location: plain multiline scalar with blank lines', () => {
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - SELECT * FROM users
+
+
+        WHERE something is broken
+`,
+      'broken'
+    );
+  });
+
+  test('error location: double-quoted legacy scalar', () => {
+    expectSingleErrorSource(
+      `
+bucket_definitions:
+  foo:
+    data:
+      - "SELECT * FROM users\\nWHERE something is broken"
+`,
+      'broken'
+    );
+  });
+
+  test('error location: BLOCK_FOLDED with more-indented line', () => {
+    // A more-indented line (extra spaces beyond base indent) must keep its surrounding \n literal.
+    // The error at "broken" must still map back correctly through the non-folded boundaries.
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - >
+          SELECT * FROM users
+            WHERE 1=1
+          AND something is broken
+`,
+      'broken'
+    );
+  });
+
+  test('error location: multiline double-quoted scalar', () => {
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - "SELECT *
+        FROM users
+        WHERE something is broken"
+`,
+      'broken'
+    );
+  });
+
+  test('error location: multiline single-quoted scalar', () => {
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - 'SELECT * FROM users
+        WHERE something is broken'
+`,
+      'broken'
+    );
+  });
+
+  test('error location: double-quoted scalar with escaped line break', () => {
+    // \ + newline + leading whitespace → nothing (no space inserted)
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - "SELECT * FROM users \
+        WHERE something is broken"
+`,
+      'broken'
+    );
+  });
+
+  test('error location: double-quoted scalar with blank lines', () => {
+    expectSingleErrorSource(
+      `
+config:
+  edition: 3
+streams:
+  foo:
+    queries:
+      - "SELECT * FROM users
+
+
+        WHERE something is broken"
+`,
+      'broken'
+    );
+  });
+
   describe('schema errors', () => {
     function schemaFromTables(...tables: SourceTableDefinition[]): StaticSchema {
       return new StaticSchema([{ tag: DEFAULT_TAG, schemas: [{ name: 'test_schema', tables }] }]);
@@ -446,5 +678,56 @@ streams:
         true
       );
     });
+  });
+
+  test('avoids OOM when transforming to disjunctive normal form', () => {
+    let terms = '';
+    // Generate a filter that would require 2^60 nodes to represent in DNF.
+    for (let i = 0; i < 60; i++) {
+      if (i != 0) terms += ' AND ';
+
+      terms += `(subscription.parameter('skip_cond_${i}') OR tbl.column${i} = subscription.parameter('filter_${i}'))`;
+    }
+
+    const errors = compilationErrorsForSingleStream(`SELECT * FROM tbl WHERE ${terms}`);
+    expect(errors).toMatchObject([
+      {
+        message:
+          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. Applying that to this query results in too many inner nodes.'
+      }
+    ]);
+  });
+
+  test('restricts bucket sources per stream', () => {
+    function generateFilter(table: string) {
+      let terms = '';
+
+      for (let i = 0; i < 6; i++) {
+        if (i != 0) terms += ' AND ';
+
+        terms += `(subscription.parameter('skip_${table}_${i}') OR ${table}.column${i} = subscription.parameter('filter_${table}_${i}'))`;
+      }
+
+      return terms;
+    }
+
+    const [errors, _] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  manybuckets:
+    accept_potentially_dangerous_queries: true
+    queries:
+      - SELECT * FROM tbl0 WHERE ${generateFilter('tbl0')}
+      - SELECT * FROM tbl1 WHERE ${generateFilter('tbl1')}
+`);
+
+    expect(errors).toMatchObject([
+      {
+        message:
+          'This stream defines too many buckets (128, at most 100 are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.'
+      }
+    ]);
   });
 });

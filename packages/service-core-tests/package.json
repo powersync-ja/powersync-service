@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.15.0",
+  "version": "0.15.3",
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
@@ -22,7 +22,7 @@
     "vitest": "catalog:"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
+    "typescript": "catalog:",
     "@opentelemetry/sdk-metrics": "^1.30.1"
   }
 }

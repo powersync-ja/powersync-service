@@ -1,5 +1,28 @@
 # @powersync/service-sync-rules
 
+## 0.34.1
+
+### Patch Changes
+
+- dea1e00: Fix SQL-in-YAML error reporting edge cases
+- ada86f2: Report an error when defining a Sync Stream which would require more than 100 equivalent bucket_definitions to represent it.
+
+## 0.34.0
+
+### Minor Changes
+
+- 7ce1b8e: add instr function to sync streams operators
+
+### Patch Changes
+
+- 224c35e: Support a global `with` block defining common table expressions usable in all Sync Streams.
+- acf1486: Fix a compiler crash when using a column of a CTE in another subquery.
+- 391c5ef: Improve error messages when a query attempts to partition a table-valued function depending on request data.
+- 99de8be: Fix output names of columns in sync streams for quoted identifiers.
+- 9daf965: Added support for generating .NET class-based schemas.
+- 3d230c2: Fix SQL errors being reported in incorrect locations in YAML source
+- 3a0627e: Fix sync streams ignoring parts of `OR` conditions for subqueries not contributing bucket parameters.
+
 ## 0.33.0
 
 ### Minor Changes

@@ -232,12 +232,12 @@ export interface BucketStateDocument {
     op_id: InternalOpId;
     count: number;
     checksum: bigint;
-    bytes: number | null;
+    bytes: number | bigint | null;
   };
 
   estimate_since_compact?: {
     count: number;
-    bytes: number;
+    bytes: number | bigint;
   };
 }
 

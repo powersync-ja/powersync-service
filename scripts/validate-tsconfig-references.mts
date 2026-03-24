@@ -3,7 +3,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import fg from 'fast-glob';
-import { findWorkspacePackages, type Project } from '@pnpm/workspace.find-packages';
+import { findWorkspaceProjects, type Project } from '@pnpm/workspace.projects-reader';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROD_DEP_SECTIONS = ['dependencies', 'peerDependencies', 'optionalDependencies'] as const;
@@ -112,7 +112,7 @@ async function main() {
 
   const missingTsconfigRefs = [...tsconfigRefPaths].filter((refPath) => !referencePaths.has(refPath));
 
-  const workspacePackages = await findWorkspacePackages(ROOT_DIR);
+  const workspacePackages = await findWorkspaceProjects(ROOT_DIR);
 
   const workspaceByName = new Map<string, WorkspacePackageInfo>();
   const duplicatePackageNames = new Map<string, string[]>();
