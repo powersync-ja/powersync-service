@@ -1,33 +1,39 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
+import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { CommonCurrentBucket, CommonCurrentLookup, CurrentDataDocumentId } from './models.js';
+import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
 
 export interface CurrentDataLookupEntry {
   sourceTableId: bson.ObjectId;
   replicaId: storage.ReplicaId;
 }
 
+export interface CurrentDataBucketState {
+  definitionId: BucketDefinitionId | null;
+  bucket: string;
+  table: string;
+  id: string;
+}
+
+export interface CurrentDataLookupState {
+  indexId: ParameterIndexId | null;
+  lookup: bson.Binary;
+}
+
 export interface LoadedCurrentData {
   sourceTableId: bson.ObjectId;
-  id: CurrentDataDocumentId;
   replicaId: storage.ReplicaId;
   data: bson.Binary | null;
-  buckets: CommonCurrentBucket[];
-  lookups: CommonCurrentLookup[];
+  buckets: CurrentDataBucketState[];
+  lookups: CurrentDataLookupState[];
   cacheKey: string;
 }
 
 export interface CurrentDataStore {
-  createId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): CurrentDataDocumentId;
-  createLoadedDocument(
-    sourceTableId: bson.ObjectId,
-    id: CurrentDataDocumentId,
-    data: bson.Binary | null,
-    buckets: CommonCurrentBucket[],
-    lookups: CommonCurrentLookup[]
-  ): LoadedCurrentData;
+  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): CurrentDataBucketState[];
+  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CurrentDataLookupState[];
   loadSizes(session: mongo.ClientSession, entries: CurrentDataLookupEntry[]): Promise<Map<string, number>>;
   loadDocuments(
     session: mongo.ClientSession,

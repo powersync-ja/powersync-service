@@ -1,12 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import {
-  EvaluatedParameters,
-  EvaluatedRow,
-  HydratedSyncRules,
-  SqlEventDescriptor,
-  SqliteRow,
-  SqliteValue
-} from '@powersync/service-sync-rules';
+import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -33,14 +26,14 @@ import {
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
 import { VersionedPowerSyncMongo } from './db.js';
-import { CommonCurrentBucket, CommonCurrentLookup, SyncRuleDocument } from './models.js';
+import { SyncRuleDocument } from './models.js';
 import { CurrentDataStore, LoadedCurrentData } from './CurrentDataStore.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
+import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 
 // Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
 // While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex
@@ -154,10 +147,6 @@ export abstract class MongoBucketBatch
   }
 
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
-
-  protected abstract mapEvaluatedBuckets(evaluated: EvaluatedRow[]): CommonCurrentBucket[];
-
-  protected abstract mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CommonCurrentLookup[];
 
   protected abstract get currentDataStore(): CurrentDataStore;
 
@@ -313,13 +302,12 @@ export abstract class MongoBucketBatch
     let after = record.after;
     const sourceTable = record.sourceTable;
 
-    let existing_buckets: CommonCurrentBucket[] = [];
-    let new_buckets: CommonCurrentBucket[] = [];
-    let existing_lookups: CommonCurrentLookup[] = [];
-    let new_lookups: CommonCurrentLookup[] = [];
+    let existing_buckets: LoadedCurrentData['buckets'] = [];
+    let new_buckets: LoadedCurrentData['buckets'] = [];
+    let existing_lookups: LoadedCurrentData['lookups'] = [];
+    let new_lookups: LoadedCurrentData['lookups'] = [];
 
     const sourceTableId = mongoTableId(record.sourceTable.id);
-    const before_key = this.currentDataStore.createId(sourceTableId, beforeId);
 
     if (this.skipExistingRows) {
       if (record.tag == SaveOperationTag.INSERT) {
@@ -480,7 +468,7 @@ export abstract class MongoBucketBatch
           table: sourceTable,
           before_buckets: existing_buckets
         });
-        new_buckets = this.mapEvaluatedBuckets(evaluated);
+        new_buckets = this.currentDataStore.mapEvaluatedBuckets(evaluated);
       }
 
       if (sourceTable.syncParameters) {
@@ -513,7 +501,7 @@ export abstract class MongoBucketBatch
           evaluated: paramEvaluated,
           existing_lookups
         });
-        new_lookups = this.mapParameterLookups(paramEvaluated);
+        new_lookups = this.currentDataStore.mapParameterLookups(paramEvaluated);
       }
     }
 
@@ -522,21 +510,21 @@ export abstract class MongoBucketBatch
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key = this.currentDataStore.createId(sourceTableId, afterId);
       batch.upsertCurrentData({
         sourceTableId,
-        id: after_key,
+        replicaId: afterId,
         data: afterData,
         buckets: new_buckets,
         lookups: new_lookups
       });
-      result = this.currentDataStore.createLoadedDocument(
+      result = {
         sourceTableId,
-        after_key,
-        afterData,
-        new_buckets,
-        new_lookups
-      );
+        replicaId: afterId,
+        data: afterData,
+        buckets: new_buckets,
+        lookups: new_lookups,
+        cacheKey: operation.internalAfterKey!
+      };
     }
 
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
@@ -544,7 +532,7 @@ export abstract class MongoBucketBatch
       // Note that this is a soft delete.
       // We don't specifically need a new or unique op_id here, but it must be greater than the
       // last checkpoint, so we use next().
-      batch.softDeleteCurrentData(sourceTableId, before_key, opSeq.next());
+      batch.softDeleteCurrentData(sourceTableId, beforeId, opSeq.next());
     }
     return result;
   }
@@ -1008,7 +996,7 @@ export abstract class MongoBucketBatch
           });
 
           // Since this is not from streaming replication, we can do a hard delete
-          persistedBatch.hardDeleteCurrentData(sourceTableId, value.id);
+          persistedBatch.hardDeleteCurrentData(sourceTableId, value.replicaId);
         }
         await persistedBatch.flush(session);
         lastBatchCount = batch.length;

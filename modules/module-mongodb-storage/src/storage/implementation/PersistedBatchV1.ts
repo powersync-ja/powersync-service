@@ -13,15 +13,12 @@ import {
 } from './PersistedBatch.js';
 import {
   BucketParameterDocument,
-  CurrentBucket,
   CurrentDataDocument,
   LEGACY_BUCKET_DATA_DEFINITION_ID,
   LEGACY_BUCKET_PARAMETER_INDEX_ID,
   SourceKey,
   taggedBucketParameterDocumentToV1,
-  taggedBucketDataDocumentToV1,
-  isCurrentBucketV3,
-  isRecordedLookupV3
+  taggedBucketDataDocumentToV1
 } from './models.js';
 import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
 
@@ -29,9 +26,9 @@ export class PersistedBatchV1 extends PersistedBatch {
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
 
   saveBucketData(options: SaveBucketDataOptions) {
-    const remaining_buckets = new Map<string, CurrentBucket>();
+    const remaining_buckets = new Map<string, SaveBucketDataOptions['before_buckets'][number]>();
     for (let bucket of options.before_buckets) {
-      if (isCurrentBucketV3(bucket)) {
+      if (bucket.definitionId != null) {
         throw new ReplicationAssertionError('Unexpected v3 bucket when incrementalReprocessing is disabled');
       }
       remaining_buckets.set(currentBucketKey(bucket), bucket);
@@ -41,6 +38,7 @@ export class PersistedBatchV1 extends PersistedBatch {
 
     for (const evaluated of options.evaluated) {
       const key = currentBucketKey({
+        definitionId: null,
         bucket: evaluated.bucket,
         table: evaluated.table,
         id: evaluated.id
@@ -98,10 +96,10 @@ export class PersistedBatchV1 extends PersistedBatch {
     const remaining_lookups = new Map<string, bson.Binary>();
 
     for (let lookup of data.existing_lookups) {
-      if (isRecordedLookupV3(lookup)) {
+      if (lookup.indexId != null) {
         throw new ReplicationAssertionError('Unexpected v3 lookup when incrementalReprocessing is disabled');
       }
-      remaining_lookups.set(lookup.toString('base64'), lookup);
+      remaining_lookups.set(lookup.lookup.toString('base64'), lookup.lookup);
     }
 
     for (let result of evaluated) {
@@ -150,36 +148,40 @@ export class PersistedBatchV1 extends PersistedBatch {
     }
   }
 
-  hardDeleteCurrentData(_sourceTableId: bson.ObjectId, id: SourceKey) {
+  hardDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId) {
     this.currentData.push({
       deleteOne: {
-        filter: { _id: id }
+        filter: { _id: this.currentDataId(sourceTableId, replicaId) }
       }
     });
     this.currentSize += 50;
   }
 
-  softDeleteCurrentData(sourceTableId: bson.ObjectId, id: SourceKey, _checkpointGreaterThan: bigint) {
-    this.hardDeleteCurrentData(sourceTableId, id);
+  softDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId, _checkpointGreaterThan: bigint) {
+    this.hardDeleteCurrentData(sourceTableId, replicaId);
   }
 
   upsertCurrentData(values: UpsertCurrentDataOptions) {
     const buckets = values.buckets.map((bucket) => {
-      if (isCurrentBucketV3(bucket)) {
+      if (bucket.definitionId != null) {
         throw new ReplicationAssertionError('Unexpected v3 bucket when incrementalReprocessing is disabled');
       }
-      return bucket;
+      return {
+        bucket: bucket.bucket,
+        table: bucket.table,
+        id: bucket.id
+      };
     });
     const lookups = values.lookups.map((lookup) => {
-      if (isRecordedLookupV3(lookup)) {
+      if (lookup.indexId != null) {
         throw new ReplicationAssertionError('Unexpected v3 lookup when incrementalReprocessing is disabled');
       }
-      return lookup;
+      return lookup.lookup;
     });
 
     this.currentData.push({
       updateOne: {
-        filter: { _id: values.id },
+        filter: { _id: this.currentDataId(values.sourceTableId, values.replicaId) },
         update: {
           $set: {
             data: values.data ?? EMPTY_DATA,
@@ -258,6 +260,14 @@ export class PersistedBatchV1 extends PersistedBatch {
 
   private getSourceTableIdHex(operation: mongo.AnyBulkWriteOperation<CurrentDataDocument>): string | undefined {
     return this.getSourceTableId(operation)?.toHexString();
+  }
+
+  private currentDataId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): SourceKey {
+    return {
+      g: this.group_id,
+      t: sourceTableId,
+      k: replicaId
+    };
   }
 
   private getSourceTableId(operation: mongo.AnyBulkWriteOperation<CurrentDataDocument>): bson.ObjectId | undefined {

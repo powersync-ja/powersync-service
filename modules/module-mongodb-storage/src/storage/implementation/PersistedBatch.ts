@@ -7,16 +7,10 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import {
-  BucketStateDocument,
-  CommonCurrentBucket,
-  CommonCurrentLookup,
-  CurrentDataDocumentId,
-  TaggedBucketParameterDocument,
-  TaggedBucketDataDocument
-} from './models.js';
+import { BucketStateDocument, TaggedBucketParameterDocument, TaggedBucketDataDocument } from './models.js';
 import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 import { mongoTableId } from '../../utils/util.js';
+import { CurrentDataBucketState, CurrentDataLookupState } from './CurrentDataStore.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -44,7 +38,7 @@ export interface SaveBucketDataOptions {
   sourceKey: storage.ReplicaId;
   table: storage.SourceTable;
   evaluated: EvaluatedRow[];
-  before_buckets: CommonCurrentBucket[];
+  before_buckets: CurrentDataBucketState[];
 }
 
 export interface SaveParameterDataOptions {
@@ -52,15 +46,15 @@ export interface SaveParameterDataOptions {
   sourceKey: storage.ReplicaId;
   sourceTable: storage.SourceTable;
   evaluated: EvaluatedParameters[];
-  existing_lookups: CommonCurrentLookup[];
+  existing_lookups: CurrentDataLookupState[];
 }
 
 export interface UpsertCurrentDataOptions {
   sourceTableId: bson.ObjectId;
-  id: CurrentDataDocumentId;
+  replicaId: storage.ReplicaId;
   data: bson.Binary | null;
-  buckets: CommonCurrentBucket[];
-  lookups: CommonCurrentLookup[];
+  buckets: CurrentDataBucketState[];
+  lookups: CurrentDataLookupState[];
 }
 
 export interface PersistedBatchOptions {
@@ -104,11 +98,11 @@ export abstract class PersistedBatch {
 
   abstract saveParameterData(data: SaveParameterDataOptions): void;
 
-  abstract hardDeleteCurrentData(sourceTableId: bson.ObjectId, id: CurrentDataDocumentId): void;
+  abstract hardDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): void;
 
   abstract softDeleteCurrentData(
     sourceTableId: bson.ObjectId,
-    id: CurrentDataDocumentId,
+    replicaId: storage.ReplicaId,
     checkpointGreaterThan: bigint
   ): void;
 

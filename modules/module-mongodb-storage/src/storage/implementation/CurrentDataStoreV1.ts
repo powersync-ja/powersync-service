@@ -5,8 +5,14 @@ import * as bson from 'bson';
 import { idPrefixFilter } from '../../utils/util.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { cacheKey } from './OperationBatch.js';
-import { CurrentDataStore, CurrentDataLookupEntry, LoadedCurrentData } from './CurrentDataStore.js';
-import { CurrentDataDocument, CurrentDataDocumentId, SourceKey } from './models.js';
+import {
+  CurrentDataStore,
+  CurrentDataLookupEntry,
+  CurrentDataLookupState,
+  LoadedCurrentData
+} from './CurrentDataStore.js';
+import { CurrentDataDocument, SourceKey } from './models.js';
+import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 
 export class CurrentDataStoreV1 implements CurrentDataStore {
   constructor(
@@ -14,7 +20,23 @@ export class CurrentDataStoreV1 implements CurrentDataStore {
     private readonly groupId: number
   ) {}
 
-  createId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): CurrentDataDocumentId {
+  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedCurrentData['buckets'] {
+    return evaluated.map((entry) => ({
+      definitionId: null,
+      bucket: entry.bucket,
+      table: entry.table,
+      id: entry.id
+    }));
+  }
+
+  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CurrentDataLookupState[] {
+    return paramEvaluated.map((entry) => ({
+      indexId: null,
+      lookup: storage.serializeLookup(entry.lookup)
+    }));
+  }
+
+  private createId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): SourceKey {
     return {
       g: this.groupId,
       t: sourceTableId,
@@ -22,22 +44,28 @@ export class CurrentDataStoreV1 implements CurrentDataStore {
     } satisfies SourceKey;
   }
 
-  createLoadedDocument(
+  private createLoadedDocument(
     sourceTableId: bson.ObjectId,
-    id: CurrentDataDocumentId,
+    id: SourceKey,
     data: bson.Binary | null,
-    buckets: LoadedCurrentData['buckets'],
-    lookups: LoadedCurrentData['lookups']
+    buckets: CurrentDataDocument['buckets'],
+    lookups: CurrentDataDocument['lookups']
   ): LoadedCurrentData {
-    const typedId = id as SourceKey;
     return {
       sourceTableId,
-      id: typedId,
-      replicaId: typedId.k,
+      replicaId: id.k,
       data,
-      buckets,
-      lookups,
-      cacheKey: cacheKey(sourceTableId, typedId.k)
+      buckets: buckets.map((bucket) => ({
+        definitionId: null,
+        bucket: bucket.bucket,
+        table: bucket.table,
+        id: bucket.id
+      })),
+      lookups: lookups.map((lookup) => ({
+        indexId: null,
+        lookup
+      })),
+      cacheKey: cacheKey(sourceTableId, id.k)
     };
   }
 

@@ -14,12 +14,7 @@ import {
 } from './PersistedBatch.js';
 import {
   BucketParameterDocumentV3,
-  CurrentBucketV3,
-  CurrentDataDocumentId,
   CurrentDataDocumentV3,
-  isCurrentBucketV3,
-  isRecordedLookupV3,
-  RecordedLookupV3,
   SourceTableKey,
   taggedBucketParameterDocumentToV3,
   taggedBucketDataDocumentToV3
@@ -29,9 +24,9 @@ export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
 
   saveBucketData(options: SaveBucketDataOptions) {
-    const remaining_buckets = new Map<string, CurrentBucketV3>();
+    const remaining_buckets = new Map<string, SaveBucketDataOptions['before_buckets'][number]>();
     for (let bucket of options.before_buckets) {
-      if (!isCurrentBucketV3(bucket)) {
+      if (bucket.definitionId == null) {
         throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
       }
       remaining_buckets.set(currentBucketKey(bucket), bucket);
@@ -42,7 +37,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     for (const evaluated of options.evaluated) {
       const sourceDefinitionId = this.mapping.bucketSourceId(evaluated.source);
       const key = currentBucketKey({
-        def: sourceDefinitionId,
+        definitionId: sourceDefinitionId,
         bucket: evaluated.bucket,
         table: evaluated.table,
         id: evaluated.id
@@ -79,10 +74,14 @@ export class PersistedBatchV3 extends PersistedBatch {
     for (let bucket of remaining_buckets.values()) {
       const op_id = options.op_seq.next();
       this.debugLastOpId = op_id;
+      const definitionId = bucket.definitionId;
+      if (definitionId == null) {
+        throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
+      }
 
       this.addBucketDataRemove({
         op_id,
-        definitionId: bucket.def,
+        definitionId,
         bucket: bucket.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
@@ -97,13 +96,13 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   saveParameterData(data: SaveParameterDataOptions) {
     const { sourceTable, sourceKey, evaluated } = data;
-    const remaining_lookups = new Map<string, RecordedLookupV3>();
+    const remaining_lookups = new Map<string, SaveParameterDataOptions['existing_lookups'][number]>();
 
     for (let lookup of data.existing_lookups) {
-      if (!isRecordedLookupV3(lookup)) {
+      if (lookup.indexId == null) {
         throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
       }
-      remaining_lookups.set(`${lookup.i}.${lookup.l.toString('base64')}`, lookup);
+      remaining_lookups.set(`${lookup.indexId}.${lookup.lookup.toString('base64')}`, lookup);
     }
 
     for (let result of evaluated) {
@@ -133,42 +132,46 @@ export class PersistedBatchV3 extends PersistedBatch {
     for (let lookup of remaining_lookups.values()) {
       const op_id = data.op_seq.next();
       this.debugLastOpId = op_id;
+      const indexId = lookup.indexId;
+      if (indexId == null) {
+        throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+      }
       const values: BucketParameterDocumentV3 = {
         _id: op_id,
         key: {
           t: mongoTableId(sourceTable.id),
           k: sourceKey
         } satisfies SourceTableKey,
-        lookup: lookup.l,
+        lookup: lookup.lookup,
         bucket_parameters: []
       };
       this.bucketParameters.push({
         ...values,
-        index: lookup.i
+        index: indexId
       });
 
       this.currentSize += 200;
     }
   }
 
-  hardDeleteCurrentData(sourceTableId: bson.ObjectId, id: CurrentDataDocumentId) {
+  hardDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId) {
     this.currentData.push({
       sourceTableId,
       operation: {
         deleteOne: {
-          filter: { _id: id }
+          filter: { _id: replicaId }
         }
       }
     });
     this.currentSize += 50;
   }
 
-  softDeleteCurrentData(sourceTableId: bson.ObjectId, id: CurrentDataDocumentId, checkpointGreaterThan: bigint) {
+  softDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId, checkpointGreaterThan: bigint) {
     this.currentData.push({
       sourceTableId,
       operation: {
         updateOne: {
-          filter: { _id: id },
+          filter: { _id: replicaId },
           update: {
             $set: {
               data: null,
@@ -186,23 +189,31 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   upsertCurrentData(values: UpsertCurrentDataOptions) {
     const buckets = values.buckets.map((bucket) => {
-      if (!isCurrentBucketV3(bucket)) {
+      if (bucket.definitionId == null) {
         throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
       }
-      return bucket;
+      return {
+        def: bucket.definitionId,
+        bucket: bucket.bucket,
+        table: bucket.table,
+        id: bucket.id
+      };
     });
     const lookups = values.lookups.map((lookup) => {
-      if (!isRecordedLookupV3(lookup)) {
+      if (lookup.indexId == null) {
         throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
       }
-      return lookup;
+      return {
+        i: lookup.indexId,
+        l: lookup.lookup
+      };
     });
 
     this.currentData.push({
       sourceTableId: values.sourceTableId,
       operation: {
         updateOne: {
-          filter: { _id: values.id },
+          filter: { _id: values.replicaId },
           update: {
             $set: {
               data: values.data,

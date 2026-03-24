@@ -2,35 +2,57 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
+import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import { VersionedPowerSyncMongo } from './db.js';
 import { cacheKey } from './OperationBatch.js';
 import { CurrentDataStore, CurrentDataLookupEntry, LoadedCurrentData } from './CurrentDataStore.js';
-import { CurrentDataDocumentV3, CurrentDataDocumentId } from './models.js';
+import { CurrentDataDocumentV3 } from './models.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
 export class CurrentDataStoreV3 implements CurrentDataStore {
   constructor(
     private readonly db: VersionedPowerSyncMongo,
-    private readonly groupId: number
+    private readonly groupId: number,
+    private readonly mapping: BucketDefinitionMapping
   ) {}
 
-  createId(_sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): CurrentDataDocumentId {
-    return replicaId;
+  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedCurrentData['buckets'] {
+    return evaluated.map((entry) => ({
+      definitionId: this.mapping.bucketSourceId(entry.source),
+      bucket: entry.bucket,
+      table: entry.table,
+      id: entry.id
+    }));
   }
 
-  createLoadedDocument(
+  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): LoadedCurrentData['lookups'] {
+    return paramEvaluated.map((entry) => ({
+      indexId: this.mapping.parameterLookupId(entry.lookup.source),
+      lookup: storage.serializeLookup(entry.lookup)
+    }));
+  }
+
+  private createLoadedDocument(
     sourceTableId: bson.ObjectId,
-    id: CurrentDataDocumentId,
+    id: storage.ReplicaId,
     data: bson.Binary | null,
-    buckets: LoadedCurrentData['buckets'],
-    lookups: LoadedCurrentData['lookups']
+    buckets: CurrentDataDocumentV3['buckets'],
+    lookups: CurrentDataDocumentV3['lookups']
   ): LoadedCurrentData {
     return {
       sourceTableId,
-      id,
       replicaId: id,
       data,
-      buckets,
-      lookups,
+      buckets: buckets.map((bucket) => ({
+        definitionId: bucket.def,
+        bucket: bucket.bucket,
+        table: bucket.table,
+        id: bucket.id
+      })),
+      lookups: lookups.map((lookup) => ({
+        indexId: lookup.i,
+        lookup: lookup.l
+      })),
       cacheKey: cacheKey(sourceTableId, id)
     };
   }
