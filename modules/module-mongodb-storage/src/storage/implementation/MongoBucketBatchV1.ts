@@ -1,15 +1,15 @@
 import { MongoBucketBatch, MongoBucketBatchOptions } from './MongoBucketBatch.js';
-import { CurrentDataStore } from './CurrentDataStore.js';
-import { CurrentDataStoreV1 } from './CurrentDataStoreV1.js';
+import { SourceRecordStore } from './SourceRecordStore.js';
+import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
-  private readonly store: CurrentDataStore;
+  private readonly store: SourceRecordStore;
 
   constructor(options: MongoBucketBatchOptions) {
     super(options);
-    this.store = new CurrentDataStoreV1(this.db, this.group_id);
+    this.store = new SourceRecordStoreV1(this.db, this.group_id);
   }
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
@@ -18,7 +18,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     });
   }
 
-  protected get currentDataStore(): CurrentDataStore {
+  protected get sourceRecordStore(): SourceRecordStore {
     return this.store;
   }
 }

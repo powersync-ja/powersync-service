@@ -5,45 +5,45 @@ import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules
 import * as bson from 'bson';
 import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
 
-export interface CurrentDataLookupEntry {
+export interface SourceRecordLookupEntry {
   sourceTableId: bson.ObjectId;
   replicaId: storage.ReplicaId;
 }
 
-export interface CurrentDataBucketState {
+export interface SourceRecordBucketState {
   definitionId: BucketDefinitionId | null;
   bucket: string;
   table: string;
   id: string;
 }
 
-export interface CurrentDataLookupState {
+export interface SourceRecordLookupState {
   indexId: ParameterIndexId | null;
   lookup: bson.Binary;
 }
 
-export interface LoadedCurrentData {
+export interface LoadedSourceRecord {
   sourceTableId: bson.ObjectId;
   replicaId: storage.ReplicaId;
   data: bson.Binary | null;
-  buckets: CurrentDataBucketState[];
-  lookups: CurrentDataLookupState[];
+  buckets: SourceRecordBucketState[];
+  lookups: SourceRecordLookupState[];
   cacheKey: string;
 }
 
-export interface CurrentDataStore {
-  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): CurrentDataBucketState[];
-  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CurrentDataLookupState[];
-  loadSizes(session: mongo.ClientSession, entries: CurrentDataLookupEntry[]): Promise<Map<string, number>>;
+export interface SourceRecordStore {
+  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): SourceRecordBucketState[];
+  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): SourceRecordLookupState[];
+  loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>>;
   loadDocuments(
     session: mongo.ClientSession,
-    entries: CurrentDataLookupEntry[],
+    entries: SourceRecordLookupEntry[],
     idsOnly: boolean
-  ): Promise<Map<string, LoadedCurrentData>>;
+  ): Promise<Map<string, LoadedSourceRecord>>;
   loadTruncateBatch(
     session: mongo.ClientSession,
     sourceTableId: bson.ObjectId,
     limit: number
-  ): Promise<LoadedCurrentData[]>;
+  ): Promise<LoadedSourceRecord[]>;
   cleanup(lastCheckpoint: bigint, logger: Logger): Promise<void>;
 }

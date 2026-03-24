@@ -27,7 +27,7 @@ import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { SyncRuleDocument } from './models.js';
-import { CurrentDataStore, LoadedCurrentData } from './CurrentDataStore.js';
+import { LoadedSourceRecord, SourceRecordStore } from './SourceRecordStore.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
@@ -148,7 +148,7 @@ export abstract class MongoBucketBatch
 
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
 
-  protected abstract get currentDataStore(): CurrentDataStore;
+  protected abstract get sourceRecordStore(): SourceRecordStore;
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
@@ -220,7 +220,7 @@ export abstract class MongoBucketBatch
         replicaId: r.beforeId
       }));
 
-      sizes = await this.currentDataStore.loadSizes(session, sizeLookups);
+      sizes = await this.sourceRecordStore.loadSizes(session, sizeLookups);
     }
 
     // If set, we need to start a new transaction with this batch.
@@ -242,7 +242,7 @@ export abstract class MongoBucketBatch
         sourceTableId: mongoTableId(r.record.sourceTable.id),
         replicaId: r.beforeId
       }));
-      let current_data_lookup = await this.currentDataStore.loadDocuments(session, lookups, this.skipExistingRows);
+      let sourceRecordLookup = await this.sourceRecordStore.loadDocuments(session, lookups, this.skipExistingRows);
 
       let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
 
@@ -251,15 +251,15 @@ export abstract class MongoBucketBatch
           resumeBatch.push(op);
           continue;
         }
-        const currentData = current_data_lookup.get(op.internalBeforeKey) ?? null;
-        if (currentData != null) {
+        const sourceRecord = sourceRecordLookup.get(op.internalBeforeKey) ?? null;
+        if (sourceRecord != null) {
           // If it will be used again later, it will be set again using nextData below
-          current_data_lookup.delete(op.internalBeforeKey);
+          sourceRecordLookup.delete(op.internalBeforeKey);
         }
-        const nextData = this.saveOperation(persistedBatch!, op, currentData, op_seq);
+        const nextData = this.saveOperation(persistedBatch!, op, sourceRecord, op_seq);
         if (nextData != null) {
           // Update our current_data and size cache
-          current_data_lookup.set(op.internalAfterKey!, nextData);
+          sourceRecordLookup.set(op.internalAfterKey!, nextData);
           sizes?.set(op.internalAfterKey!, nextData.data?.length() ?? 0);
         }
 
@@ -293,7 +293,7 @@ export abstract class MongoBucketBatch
   private saveOperation(
     batch: PersistedBatch,
     operation: RecordOperation,
-    current_data: LoadedCurrentData | null,
+    sourceRecord: LoadedSourceRecord | null,
     opSeq: MongoIdSequence
   ) {
     const record = operation.record;
@@ -302,16 +302,16 @@ export abstract class MongoBucketBatch
     let after = record.after;
     const sourceTable = record.sourceTable;
 
-    let existing_buckets: LoadedCurrentData['buckets'] = [];
-    let new_buckets: LoadedCurrentData['buckets'] = [];
-    let existing_lookups: LoadedCurrentData['lookups'] = [];
-    let new_lookups: LoadedCurrentData['lookups'] = [];
+    let existing_buckets: LoadedSourceRecord['buckets'] = [];
+    let new_buckets: LoadedSourceRecord['buckets'] = [];
+    let existing_lookups: LoadedSourceRecord['lookups'] = [];
+    let new_lookups: LoadedSourceRecord['lookups'] = [];
 
     const sourceTableId = mongoTableId(record.sourceTable.id);
 
     if (this.skipExistingRows) {
       if (record.tag == SaveOperationTag.INSERT) {
-        if (current_data != null) {
+        if (sourceRecord != null) {
           // Initial replication, and we already have the record.
           // This may be a different version of the record, but streaming replication
           // will take care of that.
@@ -324,7 +324,7 @@ export abstract class MongoBucketBatch
     }
 
     if (record.tag == SaveOperationTag.UPDATE) {
-      const result = current_data;
+      const result = sourceRecord;
       if (result == null) {
         // Not an error if we re-apply a transaction
         existing_buckets = [];
@@ -351,7 +351,7 @@ export abstract class MongoBucketBatch
         }
       }
     } else if (record.tag == SaveOperationTag.DELETE) {
-      const result = current_data;
+      const result = sourceRecord;
       if (result == null) {
         // Not an error if we re-apply a transaction
         existing_buckets = [];
@@ -468,7 +468,7 @@ export abstract class MongoBucketBatch
           table: sourceTable,
           before_buckets: existing_buckets
         });
-        new_buckets = this.currentDataStore.mapEvaluatedBuckets(evaluated);
+        new_buckets = this.sourceRecordStore.mapEvaluatedBuckets(evaluated);
       }
 
       if (sourceTable.syncParameters) {
@@ -501,11 +501,11 @@ export abstract class MongoBucketBatch
           evaluated: paramEvaluated,
           existing_lookups
         });
-        new_lookups = this.currentDataStore.mapParameterLookups(paramEvaluated);
+        new_lookups = this.sourceRecordStore.mapParameterLookups(paramEvaluated);
       }
     }
 
-    let result: LoadedCurrentData | null = null;
+    let result: LoadedSourceRecord | null = null;
 
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
@@ -814,7 +814,7 @@ export abstract class MongoBucketBatch
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
       if (newLastCheckpoint != null) {
-        await this.currentDataStore.cleanup(newLastCheckpoint, this.logger);
+        await this.sourceRecordStore.cleanup(newLastCheckpoint, this.logger);
       }
     }
     return { checkpointBlocked, checkpointCreated };
@@ -976,7 +976,7 @@ export abstract class MongoBucketBatch
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
         const sourceTableId = mongoTableId(sourceTable.id);
-        const batch = await this.currentDataStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
+        const batch = await this.sourceRecordStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
         const persistedBatch = this.createPersistedBatch(0);
 
         for (let value of batch) {

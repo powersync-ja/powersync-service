@@ -10,7 +10,7 @@ import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { BucketStateDocument, TaggedBucketParameterDocument, TaggedBucketDataDocument } from './models.js';
 import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 import { mongoTableId } from '../../utils/util.js';
-import { CurrentDataBucketState, CurrentDataLookupState } from './CurrentDataStore.js';
+import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -38,7 +38,7 @@ export interface SaveBucketDataOptions {
   sourceKey: storage.ReplicaId;
   table: storage.SourceTable;
   evaluated: EvaluatedRow[];
-  before_buckets: CurrentDataBucketState[];
+  before_buckets: SourceRecordBucketState[];
 }
 
 export interface SaveParameterDataOptions {
@@ -46,15 +46,15 @@ export interface SaveParameterDataOptions {
   sourceKey: storage.ReplicaId;
   sourceTable: storage.SourceTable;
   evaluated: EvaluatedParameters[];
-  existing_lookups: CurrentDataLookupState[];
+  existing_lookups: SourceRecordLookupState[];
 }
 
 export interface UpsertCurrentDataOptions {
   sourceTableId: bson.ObjectId;
   replicaId: storage.ReplicaId;
   data: bson.Binary | null;
-  buckets: CurrentDataBucketState[];
-  lookups: CurrentDataLookupState[];
+  buckets: SourceRecordBucketState[];
+  lookups: SourceRecordLookupState[];
 }
 
 export interface PersistedBatchOptions {

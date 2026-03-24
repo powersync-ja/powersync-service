@@ -2,86 +2,73 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
-import { idPrefixFilter } from '../../utils/util.js';
+import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import { VersionedPowerSyncMongo } from './db.js';
 import { cacheKey } from './OperationBatch.js';
-import {
-  CurrentDataStore,
-  CurrentDataLookupEntry,
-  CurrentDataLookupState,
-  LoadedCurrentData
-} from './CurrentDataStore.js';
-import { CurrentDataDocument, SourceKey } from './models.js';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from './SourceRecordStore.js';
+import { CurrentDataDocumentV3 } from './models.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 
-export class CurrentDataStoreV1 implements CurrentDataStore {
+export class SourceRecordStoreV3 implements SourceRecordStore {
   constructor(
     private readonly db: VersionedPowerSyncMongo,
-    private readonly groupId: number
+    private readonly groupId: number,
+    private readonly mapping: BucketDefinitionMapping
   ) {}
 
-  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedCurrentData['buckets'] {
+  mapEvaluatedBuckets(evaluated: EvaluatedRow[]): LoadedSourceRecord['buckets'] {
     return evaluated.map((entry) => ({
-      definitionId: null,
+      definitionId: this.mapping.bucketSourceId(entry.source),
       bucket: entry.bucket,
       table: entry.table,
       id: entry.id
     }));
   }
 
-  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CurrentDataLookupState[] {
+  mapParameterLookups(paramEvaluated: EvaluatedParameters[]): LoadedSourceRecord['lookups'] {
     return paramEvaluated.map((entry) => ({
-      indexId: null,
+      indexId: this.mapping.parameterLookupId(entry.lookup.source),
       lookup: storage.serializeLookup(entry.lookup)
     }));
   }
 
-  private createId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): SourceKey {
-    return {
-      g: this.groupId,
-      t: sourceTableId,
-      k: replicaId
-    } satisfies SourceKey;
-  }
-
   private createLoadedDocument(
     sourceTableId: bson.ObjectId,
-    id: SourceKey,
+    id: storage.ReplicaId,
     data: bson.Binary | null,
-    buckets: CurrentDataDocument['buckets'],
-    lookups: CurrentDataDocument['lookups']
-  ): LoadedCurrentData {
+    buckets: CurrentDataDocumentV3['buckets'],
+    lookups: CurrentDataDocumentV3['lookups']
+  ): LoadedSourceRecord {
     return {
       sourceTableId,
-      replicaId: id.k,
+      replicaId: id,
       data,
       buckets: buckets.map((bucket) => ({
-        definitionId: null,
+        definitionId: bucket.def,
         bucket: bucket.bucket,
         table: bucket.table,
         id: bucket.id
       })),
       lookups: lookups.map((lookup) => ({
-        indexId: null,
-        lookup
+        indexId: lookup.i,
+        lookup: lookup.l
       })),
-      cacheKey: cacheKey(sourceTableId, id.k)
+      cacheKey: cacheKey(sourceTableId, id)
     };
   }
 
-  async loadSizes(session: mongo.ClientSession, entries: CurrentDataLookupEntry[]): Promise<Map<string, number>> {
+  async loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>> {
     const sizes = new Map<string, number>();
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const sizeCursor: mongo.AggregationCursor<CurrentDataDocument & { size: number }> = this.db
-        .v1_current_data(this.groupId, sourceTableId)
+      const filter = {
+        _id: { $in: replicaIds as any[] }
+      } as unknown as mongo.Filter<CurrentDataDocumentV3>;
+      const sizeCursor: mongo.AggregationCursor<CurrentDataDocumentV3 & { size: number }> = this.db
+        .v3_current_data(this.groupId, sourceTableId)
         .aggregate(
           [
             {
-              $match: {
-                _id: {
-                  $in: replicaIds.map((replicaId) => this.createId(sourceTableId, replicaId) as SourceKey)
-                }
-              }
+              $match: filter
             },
             {
               $project: {
@@ -93,7 +80,7 @@ export class CurrentDataStoreV1 implements CurrentDataStore {
           { session }
         );
       for await (const doc of sizeCursor.stream()) {
-        sizes.set(cacheKey(sourceTableId, doc._id.k), doc.size);
+        sizes.set(cacheKey(sourceTableId, doc._id), doc.size);
       }
     }
     return sizes;
@@ -101,20 +88,16 @@ export class CurrentDataStoreV1 implements CurrentDataStore {
 
   async loadDocuments(
     session: mongo.ClientSession,
-    entries: CurrentDataLookupEntry[],
+    entries: SourceRecordLookupEntry[],
     idsOnly: boolean
-  ): Promise<Map<string, LoadedCurrentData>> {
-    const documents = new Map<string, LoadedCurrentData>();
+  ): Promise<Map<string, LoadedSourceRecord>> {
+    const documents = new Map<string, LoadedSourceRecord>();
     const projection = idsOnly ? { _id: 1 } : undefined;
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const cursor = this.db.v1_current_data(this.groupId, sourceTableId).find(
-        {
-          _id: {
-            $in: replicaIds.map((replicaId) => this.createId(sourceTableId, replicaId) as SourceKey)
-          }
-        },
-        { session, projection }
-      );
+      const filter = {
+        _id: { $in: replicaIds as any[] }
+      } as unknown as mongo.Filter<CurrentDataDocumentV3>;
+      const cursor = this.db.v3_current_data(this.groupId, sourceTableId).find(filter, { session, projection });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(
           sourceTableId,
@@ -133,10 +116,9 @@ export class CurrentDataStoreV1 implements CurrentDataStore {
     session: mongo.ClientSession,
     sourceTableId: bson.ObjectId,
     limit: number
-  ): Promise<LoadedCurrentData[]> {
-    const cursor = this.db.v1_current_data(this.groupId, sourceTableId).find(
+  ): Promise<LoadedSourceRecord[]> {
+    const cursor = this.db.v3_current_data(this.groupId, sourceTableId).find(
       {
-        _id: idPrefixFilter<SourceKey>({ g: this.groupId, t: sourceTableId }, ['k']),
         pending_delete: { $exists: false }
       },
       {
@@ -154,9 +136,20 @@ export class CurrentDataStoreV1 implements CurrentDataStore {
     );
   }
 
-  async cleanup(_lastCheckpoint: bigint, _logger: Logger): Promise<void> {}
+  async cleanup(lastCheckpoint: bigint, logger: Logger): Promise<void> {
+    let deletedCount = 0;
+    for (const collection of await this.db.listCommonCurrentDataCollections(this.groupId)) {
+      const result = await collection.deleteMany({
+        pending_delete: { $exists: true, $lte: lastCheckpoint }
+      });
+      deletedCount += result.deletedCount;
+    }
+    if (deletedCount > 0) {
+      logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);
+    }
+  }
 
-  private groupEntries(entries: CurrentDataLookupEntry[]): Map<bson.ObjectId, storage.ReplicaId[]> {
+  private groupEntries(entries: SourceRecordLookupEntry[]): Map<bson.ObjectId, storage.ReplicaId[]> {
     const grouped = new Map<bson.ObjectId, storage.ReplicaId[]>();
     for (const entry of entries) {
       const existing = grouped.get(entry.sourceTableId) ?? [];
