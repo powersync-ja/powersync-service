@@ -1,10 +1,10 @@
-import { deserializeParameterLookup, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { RequestParameters } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
-import { ScopedParameterLookup } from '@powersync/service-sync-rules';
-import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { CurrentBucketV3, CurrentDataDocumentV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
+import { CurrentBucketV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
@@ -160,14 +160,15 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     bucket_definitions:
       global:
         parameters:
-          - SELECT owner_id FROM "%" WHERE id = token_parameters.id
+          - SELECT owner_id FROM test WHERE id = token_parameters.test
         data:
-          - SELECT id, description, owner_id FROM "%"
+          - SELECT id, description, owner_id FROM test WHERE id = bucket.owner_id
     `,
         { storageVersion }
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
@@ -181,13 +182,23 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       },
       afterReplicaId: test_utils.rid('shape-check')
     });
+    await writer.markAllSnapshotDone('1/1');
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct({ lookupName: 'global', queryId: '1', source: null as any }, ['shape-check'])
-    ]);
-    expect(parameters).toEqual([{ owner_id: 'user-1' }]);
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'u1', parameters: { test: 'shape-check' } }), {});
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['shape-check']]);
+        expect(lookups[0].indexId).toEqual('1');
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ owner_id: 'user-1' }]);
+        return parameter_sets;
+      }
+    });
+    expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'global["user-1"]').bucket]);
 
     const mongoFactory = factory as MongoBucketStorage;
     const currentDataCollections = await mongoFactory.db.listSourceRecordCollections(syncRules.id);
