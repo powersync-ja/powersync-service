@@ -264,6 +264,7 @@ export class MongoSyncBucketStorage
     await this.db.initializeSourceTablesCollection(group_id);
     const mapping = this.sync_rules.mapping;
     let result: storage.ResolveTableResult | null = null;
+    let initializeSourceRecordsFor: bson.ObjectId | null = null;
     await this.db.client.withSession(async (session) => {
       const col = this.db.source_tables(group_id);
       let filter: Partial<CommonSourceTableDocument> = {
@@ -315,6 +316,9 @@ export class MongoSyncBucketStorage
         doc = createDoc;
 
         await col.insertOne(doc, { session });
+        if (this.db.storageConfig.incrementalReprocessing) {
+          initializeSourceRecordsFor = doc._id;
+        }
       }
       const sourceTable = new storage.SourceTable({
         id: doc._id,
@@ -374,6 +378,9 @@ export class MongoSyncBucketStorage
         dropTables: dropTables
       };
     });
+    if (initializeSourceRecordsFor != null) {
+      await this.db.initializeCurrentDataCollection(group_id, initializeSourceRecordsFor);
+    }
     return result!;
   }
 
