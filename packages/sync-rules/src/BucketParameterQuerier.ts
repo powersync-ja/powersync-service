@@ -120,6 +120,11 @@ export class ScopedParameterLookup {
     return (this.#cachedSerializedForm ??= JSONBig.stringify(this.values));
   }
 
+  /**
+   * Index id.
+   *
+   * This depends on the lookup being constructed with lookupName = indexId, and queryId = ''.
+   */
   get indexId(): string {
     const indexId = this.values[0];
     // TODO: Consider restructuring so that these values aren't present at all
@@ -129,6 +134,15 @@ export class ScopedParameterLookup {
       throw new Error('Unexpected indexId');
     }
     return indexId;
+  }
+
+  /**
+   * Returns the "key" portion of the lookup values.
+   *
+   * This is this.values, excluding the first "lookupName" and "queryId".
+   */
+  get indexKey(): SqliteJsonValue[] {
+    return this.values.slice(2);
   }
 
   static normalized(scope: ParameterLookupScope, lookup: UnscopedParameterLookup): ScopedParameterLookup {
