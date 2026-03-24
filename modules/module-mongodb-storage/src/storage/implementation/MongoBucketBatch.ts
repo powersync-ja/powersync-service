@@ -31,19 +31,13 @@ import {
   utils
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
-import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
+import { mongoTableId } from '../../utils/util.js';
 import { VersionedPowerSyncMongo } from './db.js';
-import {
-  CommonCurrentBucket,
-  CommonCurrentLookup,
-  CommonCurrentDataDocument,
-  CurrentDataDocumentId,
-  SourceKey,
-  SyncRuleDocument
-} from './models.js';
+import { CommonCurrentBucket, CommonCurrentLookup, SyncRuleDocument } from './models.js';
+import { CurrentDataStore, LoadedCurrentData } from './CurrentDataStore.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
-import { cacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
+import { OperationBatch, RecordOperation } from './OperationBatch.js';
 import { PersistedBatch } from './PersistedBatch.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
@@ -165,30 +159,7 @@ export abstract class MongoBucketBatch
 
   protected abstract mapParameterLookups(paramEvaluated: EvaluatedParameters[]): CommonCurrentLookup[];
 
-  protected abstract createCurrentDataId(
-    sourceTableId: bson.ObjectId,
-    replicaId: storage.ReplicaId
-  ): CurrentDataDocumentId;
-
-  protected abstract createCurrentDataDocument(
-    id: CurrentDataDocumentId,
-    data: bson.Binary,
-    buckets: CommonCurrentBucket[],
-    lookups: CommonCurrentLookup[]
-  ): CommonCurrentDataDocument;
-
-  protected abstract createCurrentDataLookupFilter(
-    sourceTableId: bson.ObjectId,
-    replicaIds: storage.ReplicaId[]
-  ): mongo.Filter<CommonCurrentDataDocument>;
-
-  protected abstract currentDataCacheKey(sourceTableId: bson.ObjectId, document: CommonCurrentDataDocument): string;
-
-  protected abstract currentDataReplicaId(document: CommonCurrentDataDocument): storage.ReplicaId;
-
-  protected abstract activeCurrentDataFilter(sourceTableId: bson.ObjectId): mongo.Filter<CommonCurrentDataDocument>;
-
-  protected abstract cleanupCurrentData(lastCheckpoint: bigint): Promise<void>;
+  protected abstract get currentDataStore(): CurrentDataStore;
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
@@ -260,32 +231,7 @@ export abstract class MongoBucketBatch
         replicaId: r.beforeId
       }));
 
-      sizes = new Map<string, number>();
-
-      for (const [sourceTableId, replicaIds] of this.groupReplicaIdsByTable(sizeLookups)) {
-        const sizeCursor: mongo.AggregationCursor<CommonCurrentDataDocument & { size: number }> = this.db
-          .common_current_data(this.group_id, sourceTableId)
-          .aggregate(
-            [
-              {
-                $match: {
-                  ...this.createCurrentDataLookupFilter(sourceTableId, replicaIds)
-                }
-              },
-              {
-                $project: {
-                  _id: 1,
-                  size: { $bsonSize: '$$ROOT' }
-                }
-              }
-            ],
-            { session }
-          );
-        for await (let doc of sizeCursor.stream()) {
-          const key = this.currentDataCacheKey(sourceTableId, doc);
-          sizes.set(key, doc.size);
-        }
-      }
+      sizes = await this.currentDataStore.loadSizes(session, sizeLookups);
     }
 
     // If set, we need to start a new transaction with this batch.
@@ -307,17 +253,7 @@ export abstract class MongoBucketBatch
         sourceTableId: mongoTableId(r.record.sourceTable.id),
         replicaId: r.beforeId
       }));
-      let current_data_lookup = new Map<string, CommonCurrentDataDocument>();
-      // With skipExistingRows, we only need to know whether or not the row exists.
-      const projection = this.skipExistingRows ? { _id: 1 } : undefined;
-      for (const [sourceTableId, replicaIds] of this.groupReplicaIdsByTable(lookups)) {
-        const cursor = this.db
-          .common_current_data(this.group_id, sourceTableId)
-          .find(this.createCurrentDataLookupFilter(sourceTableId, replicaIds), { session, projection });
-        for await (let doc of cursor.stream()) {
-          current_data_lookup.set(this.currentDataCacheKey(sourceTableId, doc), doc);
-        }
-      }
+      let current_data_lookup = await this.currentDataStore.loadDocuments(session, lookups, this.skipExistingRows);
 
       let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
 
@@ -368,7 +304,7 @@ export abstract class MongoBucketBatch
   private saveOperation(
     batch: PersistedBatch,
     operation: RecordOperation,
-    current_data: CommonCurrentDataDocument | null,
+    current_data: LoadedCurrentData | null,
     opSeq: MongoIdSequence
   ) {
     const record = operation.record;
@@ -383,7 +319,7 @@ export abstract class MongoBucketBatch
     let new_lookups: CommonCurrentLookup[] = [];
 
     const sourceTableId = mongoTableId(record.sourceTable.id);
-    const before_key = this.createCurrentDataId(sourceTableId, beforeId);
+    const before_key = this.currentDataStore.createId(sourceTableId, beforeId);
 
     if (this.skipExistingRows) {
       if (record.tag == SaveOperationTag.INSERT) {
@@ -581,12 +517,12 @@ export abstract class MongoBucketBatch
       }
     }
 
-    let result: CommonCurrentDataDocument | null = null;
+    let result: LoadedCurrentData | null = null;
 
     // 5. TOAST: Update current data and bucket list.
     if (afterId) {
       // Insert or update
-      const after_key = this.createCurrentDataId(sourceTableId, afterId);
+      const after_key = this.currentDataStore.createId(sourceTableId, afterId);
       batch.upsertCurrentData({
         sourceTableId,
         id: after_key,
@@ -594,7 +530,13 @@ export abstract class MongoBucketBatch
         buckets: new_buckets,
         lookups: new_lookups
       });
-      result = this.createCurrentDataDocument(after_key, afterData!, new_buckets, new_lookups);
+      result = this.currentDataStore.createLoadedDocument(
+        sourceTableId,
+        after_key,
+        afterData,
+        new_buckets,
+        new_lookups
+      );
     }
 
     if (afterId == null || !storage.replicaIdEquals(beforeId, afterId)) {
@@ -884,7 +826,7 @@ export abstract class MongoBucketBatch
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
       if (newLastCheckpoint != null) {
-        await this.cleanupCurrentData(newLastCheckpoint);
+        await this.currentDataStore.cleanup(newLastCheckpoint, this.logger);
       }
     }
     return { checkpointBlocked, checkpointCreated };
@@ -1045,20 +987,8 @@ export abstract class MongoBucketBatch
     let lastBatchCount = BATCH_LIMIT;
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
-        const current_data_filter = this.activeCurrentDataFilter(mongoTableId(sourceTable.id));
-
-        const cursor = this.db
-          .common_current_data(this.group_id, mongoTableId(sourceTable.id))
-          .find(current_data_filter, {
-            projection: {
-              _id: 1,
-              buckets: 1,
-              lookups: 1
-            },
-            limit: BATCH_LIMIT,
-            session: session
-          });
-        const batch = await cursor.toArray();
+        const sourceTableId = mongoTableId(sourceTable.id);
+        const batch = await this.currentDataStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
         const persistedBatch = this.createPersistedBatch(0);
 
         for (let value of batch) {
@@ -1067,18 +997,18 @@ export abstract class MongoBucketBatch
             before_buckets: value.buckets,
             evaluated: [],
             table: sourceTable,
-            sourceKey: this.currentDataReplicaId(value)
+            sourceKey: value.replicaId
           });
           persistedBatch.saveParameterData({
             op_seq: opSeq,
             existing_lookups: value.lookups,
             evaluated: [],
             sourceTable: sourceTable,
-            sourceKey: this.currentDataReplicaId(value)
+            sourceKey: value.replicaId
           });
 
           // Since this is not from streaming replication, we can do a hard delete
-          persistedBatch.hardDeleteCurrentData(mongoTableId(sourceTable.id), value._id);
+          persistedBatch.hardDeleteCurrentData(sourceTableId, value.id);
         }
         await persistedBatch.flush(session);
         lastBatchCount = batch.length;
@@ -1222,17 +1152,5 @@ export abstract class MongoBucketBatch
     return this.sync_rules.eventDescriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
     );
-  }
-
-  private groupReplicaIdsByTable(
-    sourceKeys: { sourceTableId: bson.ObjectId; replicaId: storage.ReplicaId }[]
-  ): Map<mongo.ObjectId, storage.ReplicaId[]> {
-    const grouped = new Map<mongo.ObjectId, storage.ReplicaId[]>();
-    for (const sourceKey of sourceKeys) {
-      const existing = grouped.get(sourceKey.sourceTableId) ?? [];
-      existing.push(sourceKey.replicaId);
-      grouped.set(sourceKey.sourceTableId, existing);
-    }
-    return grouped;
   }
 }
