@@ -1,22 +1,16 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { InternalOpId, storage, utils } from '@powersync/service-core';
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
+import { InternalOpId, storage } from '@powersync/service-core';
 import { MongoIdSequence } from './MongoIdSequence.js';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
-import {
-  BucketDataDocument,
-  BucketParameterDocument,
-  BucketStateDocument,
-  CurrentBucket,
-  CurrentDataDocument,
-  SourceKey
-} from './models.js';
-import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+import { VersionedPowerSyncMongo } from './db.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { BucketStateDocument, TaggedBucketParameterDocument, TaggedBucketDataDocument } from './models.js';
+import { BucketDefinitionId } from './BucketDefinitionMapping.js';
+import { mongoTableId } from '../../utils/util.js';
+import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 /**
  * Maximum size of operations we write in a single transaction.
@@ -39,17 +33,44 @@ const MAX_TRANSACTION_BATCH_SIZE = 30_000_000;
  */
 const MAX_TRANSACTION_DOC_COUNT = 2_000;
 
+export interface SaveBucketDataOptions {
+  op_seq: MongoIdSequence;
+  sourceKey: storage.ReplicaId;
+  table: storage.SourceTable;
+  evaluated: EvaluatedRow[];
+  before_buckets: SourceRecordBucketState[];
+}
+
+export interface SaveParameterDataOptions {
+  op_seq: MongoIdSequence;
+  sourceKey: storage.ReplicaId;
+  sourceTable: storage.SourceTable;
+  evaluated: EvaluatedParameters[];
+  existing_lookups: SourceRecordLookupState[];
+}
+
+export interface UpsertCurrentDataOptions {
+  sourceTableId: bson.ObjectId;
+  replicaId: storage.ReplicaId;
+  data: bson.Binary | null;
+  buckets: SourceRecordBucketState[];
+  lookups: SourceRecordLookupState[];
+}
+
+export interface PersistedBatchOptions {
+  logger?: Logger;
+}
+
 /**
  * Keeps track of bulkwrite operations within a transaction.
  *
  * There may be multiple of these batches per transaction, but it may not span
  * multiple transactions.
  */
-export class PersistedBatch {
+export abstract class PersistedBatch {
   logger: Logger;
-  bucketData: mongo.AnyBulkWriteOperation<BucketDataDocument>[] = [];
-  bucketParameters: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
-  currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
+  bucketData: TaggedBucketDataDocument[] = [];
+  bucketParameters: TaggedBucketParameterDocument[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
 
   /**
@@ -63,16 +84,45 @@ export class PersistedBatch {
   currentSize = 0;
 
   constructor(
-    private db: VersionedPowerSyncMongo,
-    private group_id: number,
+    protected readonly db: VersionedPowerSyncMongo,
+    protected readonly group_id: number,
+    protected readonly mapping: BucketDefinitionMapping,
     writtenSize: number,
-    options?: { logger?: Logger }
+    options?: PersistedBatchOptions
   ) {
     this.currentSize = writtenSize;
     this.logger = options?.logger ?? defaultLogger;
   }
 
-  private incrementBucket(bucket: string, op_id: InternalOpId, bytes: number) {
+  abstract saveBucketData(options: SaveBucketDataOptions): void;
+
+  abstract saveParameterData(data: SaveParameterDataOptions): void;
+
+  abstract hardDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): void;
+
+  abstract softDeleteCurrentData(
+    sourceTableId: bson.ObjectId,
+    replicaId: storage.ReplicaId,
+    checkpointGreaterThan: bigint
+  ): void;
+
+  abstract upsertCurrentData(values: UpsertCurrentDataOptions): void;
+
+  protected abstract get currentDataCount(): number;
+
+  protected abstract flushBucketData(session: mongo.ClientSession): Promise<void>;
+
+  protected abstract flushBucketParameters(session: mongo.ClientSession): Promise<void>;
+
+  protected abstract flushCurrentData(session: mongo.ClientSession): Promise<void>;
+
+  protected abstract resetCurrentData(): void;
+
+  protected get bucketDataCount(): number {
+    return this.bucketData.length;
+  }
+
+  protected incrementBucket(bucket: string, op_id: InternalOpId, bytes: number) {
     let existingState = this.bucketStates.get(bucket);
     if (existingState) {
       existingState.lastOp = op_id;
@@ -87,221 +137,64 @@ export class PersistedBatch {
     }
   }
 
-  saveBucketData(options: {
-    op_seq: MongoIdSequence;
+  protected addBucketDataPut(options: {
+    op_id: InternalOpId;
+    definitionId: BucketDefinitionId;
+    bucket: string;
+    sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
-    table: storage.SourceTable;
-    evaluated: EvaluatedRow[];
-    before_buckets: CurrentBucket[];
+    table: string;
+    rowId: string;
+    checksum: bigint;
+    data: string;
   }) {
-    const remaining_buckets = new Map<string, CurrentBucket>();
-    for (let b of options.before_buckets) {
-      const key = currentBucketKey(b);
-      remaining_buckets.set(key, b);
-    }
-
-    const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
-
-    for (const k of options.evaluated) {
-      const key = currentBucketKey(k);
-
-      // INSERT
-      const recordData = JSONBig.stringify(k.data);
-      const checksum = utils.hashData(k.table, k.id, recordData);
-      if (recordData.length > MAX_ROW_SIZE) {
-        // In many cases, the raw data size would have been too large already. But there are cases where
-        // the BSON size is small enough, but the JSON size is too large.
-        // In these cases, we can't store the data, so we skip it, or generate a REMOVE operation if the row
-        // was synced previously.
-        this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
-        continue;
-      }
-
-      remaining_buckets.delete(key);
-      const byteEstimate = recordData.length + 200;
-      this.currentSize += byteEstimate;
-
-      const op_id = options.op_seq.next();
-      this.debugLastOpId = op_id;
-
-      this.bucketData.push({
-        insertOne: {
-          document: {
-            _id: {
-              g: this.group_id,
-              b: k.bucket,
-              o: op_id
-            },
-            op: 'PUT',
-            source_table: mongoTableId(options.table.id),
-            source_key: options.sourceKey,
-            table: k.table,
-            row_id: k.id,
-            checksum: BigInt(checksum),
-            data: recordData
-          }
-        }
-      });
-      this.incrementBucket(k.bucket, op_id, byteEstimate);
-    }
-
-    for (let bd of remaining_buckets.values()) {
-      // REMOVE
-
-      const op_id = options.op_seq.next();
-      this.debugLastOpId = op_id;
-
-      this.bucketData.push({
-        insertOne: {
-          document: {
-            _id: {
-              g: this.group_id,
-              b: bd.bucket,
-              o: op_id
-            },
-            op: 'REMOVE',
-            source_table: mongoTableId(options.table.id),
-            source_key: options.sourceKey,
-            table: bd.table,
-            row_id: bd.id,
-            checksum: dchecksum,
-            data: null
-          }
-        }
-      });
-      this.currentSize += 200;
-      this.incrementBucket(bd.bucket, op_id, 200);
-    }
+    this.bucketData.push({
+      def: options.definitionId,
+      _id: {
+        b: options.bucket,
+        o: options.op_id
+      },
+      op: 'PUT',
+      source_table: mongoTableId(options.sourceTableId),
+      source_key: options.sourceKey,
+      table: options.table,
+      row_id: options.rowId,
+      checksum: options.checksum,
+      data: options.data
+    });
   }
 
-  saveParameterData(data: {
-    op_seq: MongoIdSequence;
+  protected addBucketDataRemove(options: {
+    op_id: InternalOpId;
+    definitionId: BucketDefinitionId;
+    bucket: string;
+    sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
-    sourceTable: storage.SourceTable;
-    evaluated: EvaluatedParameters[];
-    existing_lookups: bson.Binary[];
+    table: string;
+    rowId: string;
+    checksum: bigint;
   }) {
-    // This is similar to saving bucket data.
-    // A key difference is that we don't need to keep the history intact.
-    // We do need to keep track of recent history though - enough that we can get consistent data for any specific checkpoint.
-    // Instead of storing per bucket id, we store per "lookup".
-    // A key difference is that we don't need to store or keep track of anything per-bucket - the entire record is
-    // either persisted or removed.
-    // We also don't need to keep history intact.
-    const { sourceTable, sourceKey, evaluated } = data;
-
-    const remaining_lookups = new Map<string, bson.Binary>();
-    for (let l of data.existing_lookups) {
-      remaining_lookups.set(l.toString('base64'), l);
-    }
-
-    // 1. Insert new entries
-    for (let result of evaluated) {
-      const binLookup = storage.serializeLookup(result.lookup);
-      const hex = binLookup.toString('base64');
-      remaining_lookups.delete(hex);
-
-      const op_id = data.op_seq.next();
-      this.debugLastOpId = op_id;
-      this.bucketParameters.push({
-        insertOne: {
-          document: {
-            _id: op_id,
-            key: {
-              g: this.group_id,
-              t: mongoTableId(sourceTable.id),
-              k: sourceKey
-            },
-            lookup: binLookup,
-            bucket_parameters: result.bucketParameters
-          }
-        }
-      });
-
-      this.currentSize += 200;
-    }
-
-    // 2. "REMOVE" entries for any lookup not touched.
-    for (let lookup of remaining_lookups.values()) {
-      const op_id = data.op_seq.next();
-      this.debugLastOpId = op_id;
-      this.bucketParameters.push({
-        insertOne: {
-          document: {
-            _id: op_id,
-            key: {
-              g: this.group_id,
-              t: mongoTableId(sourceTable.id),
-              k: sourceKey
-            },
-            lookup: lookup,
-            bucket_parameters: []
-          }
-        }
-      });
-
-      this.currentSize += 200;
-    }
-  }
-
-  hardDeleteCurrentData(id: SourceKey) {
-    const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
-      deleteOne: {
-        filter: { _id: id }
-      }
-    };
-    this.currentData.push(op);
-    this.currentSize += 50;
-  }
-
-  /**
-   * Mark a current_data document as soft deleted, to delete on the next commit.
-   *
-   * If softDeleteCurrentData is not enabled, this falls back to a hard delete.
-   */
-  softDeleteCurrentData(id: SourceKey, checkpointGreaterThan: bigint) {
-    if (!this.db.storageConfig.softDeleteCurrentData) {
-      this.hardDeleteCurrentData(id);
-      return;
-    }
-    const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
-      updateOne: {
-        filter: { _id: id },
-        update: {
-          $set: {
-            data: EMPTY_DATA,
-            buckets: [],
-            lookups: [],
-            pending_delete: checkpointGreaterThan
-          }
-        },
-        upsert: true
-      }
-    };
-    this.currentData.push(op);
-    this.currentSize += 50;
-  }
-
-  upsertCurrentData(id: SourceKey, values: Partial<CurrentDataDocument>) {
-    const op: mongo.AnyBulkWriteOperation<CurrentDataDocument> = {
-      updateOne: {
-        filter: { _id: id },
-        update: {
-          $set: values,
-          $unset: { pending_delete: 1 }
-        },
-        upsert: true
-      }
-    };
-    this.currentData.push(op);
-    this.currentSize += (values.data?.length() ?? 0) + 100;
+    this.bucketData.push({
+      def: options.definitionId,
+      _id: {
+        b: options.bucket,
+        o: options.op_id
+      },
+      op: 'REMOVE',
+      source_table: mongoTableId(options.sourceTableId),
+      source_key: options.sourceKey,
+      table: options.table,
+      row_id: options.rowId,
+      checksum: options.checksum,
+      data: null
+    });
   }
 
   shouldFlushTransaction() {
     return (
       this.currentSize >= MAX_TRANSACTION_BATCH_SIZE ||
-      this.bucketData.length >= MAX_TRANSACTION_DOC_COUNT ||
-      this.currentData.length >= MAX_TRANSACTION_DOC_COUNT ||
+      this.bucketDataCount >= MAX_TRANSACTION_DOC_COUNT ||
+      this.currentDataCount >= MAX_TRANSACTION_DOC_COUNT ||
       this.bucketParameters.length >= MAX_TRANSACTION_DOC_COUNT
     );
   }
@@ -310,36 +203,23 @@ export class PersistedBatch {
     const db = this.db;
     const startAt = performance.now();
     let flushedSomething = false;
-    if (this.bucketData.length > 0) {
+    if (this.bucketDataCount > 0) {
       flushedSomething = true;
-      await db.bucket_data.bulkWrite(this.bucketData, {
-        session,
-        // inserts only - order doesn't matter
-        ordered: false
-      });
+      await this.flushBucketData(session);
     }
     if (this.bucketParameters.length > 0) {
       flushedSomething = true;
-      await db.bucket_parameters.bulkWrite(this.bucketParameters, {
-        session,
-        // inserts only - order doesn't matter
-        ordered: false
-      });
+      await this.flushBucketParameters(session);
     }
-    if (this.currentData.length > 0) {
+    if (this.currentDataCount > 0) {
       flushedSomething = true;
-      await db.common_current_data.bulkWrite(this.currentData, {
-        session,
-        // may update and delete data within the same batch - order matters
-        ordered: true
-      });
+      await this.flushCurrentData(session);
     }
 
     if (this.bucketStates.size > 0) {
       flushedSomething = true;
       await db.bucket_state.bulkWrite(this.getBucketStateUpdates(), {
         session,
-        // Per-bucket operation - order doesn't matter
         ordered: false
       });
     }
@@ -350,32 +230,32 @@ export class PersistedBatch {
         const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
 
         this.logger.info(
-          `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
-            this.currentData.length
+          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+            this.currentDataCount
           } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}. Replication lag: ${replicationLag}s`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketData.length,
+              bucket_data_count: this.bucketDataCount,
               parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentData.length,
+              current_data_count: this.currentDataCount,
               replication_lag_seconds: replicationLag
             }
           }
         );
       } else {
         this.logger.info(
-          `Flushed ${this.bucketData.length} + ${this.bucketParameters.length} + ${
-            this.currentData.length
+          `Flushed ${this.bucketDataCount} + ${this.bucketParameters.length} + ${
+            this.currentDataCount
           } updates, ${Math.round(this.currentSize / 1024)}kb in ${duration}ms. Last op_id: ${this.debugLastOpId}`,
           {
             flushed: {
               duration: duration,
               size: this.currentSize,
-              bucket_data_count: this.bucketData.length,
+              bucket_data_count: this.bucketDataCount,
               parameter_data_count: this.bucketParameters.length,
-              current_data_count: this.currentData.length
+              current_data_count: this.currentDataCount
             }
           }
         );
@@ -383,15 +263,15 @@ export class PersistedBatch {
     }
 
     const stats = {
-      bucketDataCount: this.bucketData.length,
+      bucketDataCount: this.bucketDataCount,
       parameterDataCount: this.bucketParameters.length,
-      currentDataCount: this.currentData.length,
+      currentDataCount: this.currentDataCount,
       flushedAny: flushedSomething
     };
 
     this.bucketData = [];
     this.bucketParameters = [];
-    this.currentData = [];
+    this.resetCurrentData();
     this.bucketStates.clear();
     this.currentSize = 0;
     this.debugLastOpId = null;

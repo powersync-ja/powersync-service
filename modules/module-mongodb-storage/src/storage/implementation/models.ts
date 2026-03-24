@@ -3,6 +3,7 @@ import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -22,9 +23,23 @@ export interface SourceKey {
   k: ReplicaId;
 }
 
-export interface BucketDataKey {
+export interface SourceTableKey {
+  /** source table id */
+  t: bson.ObjectId;
+  /** source key */
+  k: ReplicaId;
+}
+
+export interface BucketDataKeyV1 {
   /** group_id */
   g: number;
+  /** bucket name */
+  b: string;
+  /** op_id */
+  o: bigint;
+}
+
+export interface BucketDataKeyV3 {
   /** bucket name */
   b: string;
   /** op_id */
@@ -38,11 +53,20 @@ export interface CurrentDataDocument {
   lookups: bson.Binary[];
 }
 
+export interface CurrentBucketV3 extends CurrentBucket {
+  def: BucketDefinitionId;
+}
+
+export interface RecordedLookupV3 {
+  i: ParameterIndexId;
+  l: bson.Binary;
+}
+
 export interface CurrentDataDocumentV3 {
-  _id: SourceKey;
-  data: bson.Binary;
-  buckets: CurrentBucket[];
-  lookups: bson.Binary[];
+  _id: ReplicaId;
+  data: bson.Binary | null;
+  buckets: CurrentBucketV3[];
+  lookups: RecordedLookupV3[];
   /**
    * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
    *
@@ -64,8 +88,19 @@ export interface BucketParameterDocument {
   bucket_parameters: Record<string, SqliteJsonValue>[];
 }
 
-export interface BucketDataDocument {
-  _id: BucketDataKey;
+export interface BucketParameterDocumentV3 extends Omit<BucketParameterDocument, 'key'> {
+  key: SourceTableKey;
+}
+
+export interface TaggedBucketParameterDocument {
+  _id: bigint;
+  key: BucketParameterDocument['key'] | BucketParameterDocumentV3['key'];
+  lookup: bson.Binary;
+  bucket_parameters: Record<string, SqliteJsonValue>[];
+  index: ParameterIndexId;
+}
+
+export interface BucketDataProperties {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
@@ -74,6 +109,86 @@ export interface BucketDataDocument {
   checksum: bigint;
   data: string | null;
   target_op?: bigint | null;
+}
+
+export interface BucketDataDocumentV1 extends BucketDataProperties {
+  _id: BucketDataKeyV1;
+}
+
+export interface BucketDataDocumentV3 extends BucketDataProperties {
+  _id: BucketDataKeyV3;
+}
+
+/**
+ * All data we need in-memory, for any storage version.
+ */
+export interface TaggedBucketDataDocument extends BucketDataProperties {
+  def: BucketDefinitionId;
+  _id: BucketDataKeyV3;
+}
+
+/**
+ * Internal-only tag used for v1 bucket_data rows before they are converted to the v1 on-disk shape.
+ */
+export const LEGACY_BUCKET_DATA_DEFINITION_ID = '0';
+
+/**
+ * Internal-only tag used for v1 bucket_parameters rows before they are converted to the v1 on-disk shape.
+ */
+export const LEGACY_BUCKET_PARAMETER_INDEX_ID = '0';
+
+export function bucketDataDocumentToTagged(
+  document: BucketDataDocumentV1 | BucketDataDocumentV3,
+  definitionId: BucketDefinitionId
+): TaggedBucketDataDocument {
+  return {
+    ...document,
+    def: definitionId,
+    _id: {
+      b: document._id.b,
+      o: document._id.o
+    }
+  };
+}
+
+export function taggedBucketDataDocumentToV1(
+  groupId: number,
+  document: TaggedBucketDataDocument
+): BucketDataDocumentV1 {
+  const { def: _definitionId, _id: _id, ...rest } = document;
+  return {
+    _id: {
+      g: groupId,
+      b: _id.b,
+      o: _id.o
+    },
+    ...rest
+  };
+}
+
+export function taggedBucketDataDocumentToV3(document: TaggedBucketDataDocument): BucketDataDocumentV3 {
+  const { def: _definitionId, ...rest } = document;
+  return rest;
+}
+
+export function bucketParameterDocumentToTagged(
+  document: BucketParameterDocument | BucketParameterDocumentV3,
+  index: ParameterIndexId
+): TaggedBucketParameterDocument {
+  return {
+    ...document,
+    index
+  };
+}
+
+export function taggedBucketParameterDocumentToV1(document: TaggedBucketParameterDocument): BucketParameterDocument {
+  const { index: _index, ...rest } = document;
+  return rest as BucketParameterDocument;
+}
+
+export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {
+  const { index: _index, ...rest } = document;
+  return rest as BucketParameterDocumentV3;
 }
 
 export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
@@ -89,6 +204,11 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+}
+
+export interface SourceTableDocumentV3 extends SourceTableDocument {
+  bucket_data_source_ids: BucketDefinitionId[];
+  parameter_lookup_source_ids: ParameterIndexId[];
 }
 
 export interface SourceTableDocumentSnapshotStatus {
@@ -214,6 +334,10 @@ export interface SyncRuleDocument {
 
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
+  rule_mapping?: {
+    definitions: Record<string, string>;
+    parameter_indexes: Record<string, string>;
+  };
 
   lock?: {
     id: string;
@@ -231,9 +355,14 @@ export interface StorageConfig extends storage.StorageVersionConfig {
    * a Long before summing.
    */
   longChecksums: boolean;
+  /**
+   * Enables v3 MongoDB storage behavior used for incremental reprocessing.
+   */
+  incrementalReprocessing: boolean;
 }
 
 const LONG_CHECKSUMS_STORAGE_VERSION = 2;
+const INCREMENTAL_REPROCESSING_STORAGE_VERSION = storage.STORAGE_VERSION_3;
 
 export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
@@ -241,7 +370,11 @@ export function getMongoStorageConfig(storageVersion: number): StorageConfig {
     throw new ServiceError(ErrorCode.PSYNC_S1005, `Unsupported storage version ${storageVersion}`);
   }
 
-  return { ...baseConfig, longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION };
+  return {
+    ...baseConfig,
+    longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION,
+    incrementalReprocessing: storageVersion >= INCREMENTAL_REPROCESSING_STORAGE_VERSION
+  };
 }
 
 export interface CheckpointEventDocument {
@@ -286,3 +419,17 @@ export interface InstanceDocument {
 }
 
 export interface ClientConnectionDocument extends event_types.ClientConnection {}
+
+export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
+export type CommonCurrentDataDocument = CurrentDataDocument | CurrentDataDocumentV3;
+export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
+export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
+export type CommonSourceTableDocument = SourceTableDocument | SourceTableDocumentV3;
+
+export function isCurrentBucketV3(bucket: CommonCurrentBucket): bucket is CurrentBucketV3 {
+  return 'def' in bucket;
+}
+
+export function isRecordedLookupV3(lookup: CommonCurrentLookup): lookup is RecordedLookupV3 {
+  return typeof lookup === 'object' && lookup != null && 'i' in lookup && 'l' in lookup;
+}

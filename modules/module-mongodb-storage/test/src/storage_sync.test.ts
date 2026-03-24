@@ -1,6 +1,9 @@
-import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { RequestParameters } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
+import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
+import { CurrentBucketV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
@@ -126,11 +129,98 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     // Test that the checksum type is correct.
     // Specifically, test that it never persisted as double.
-    const mongoFactory = factory as any;
-    const checksumTypes = await mongoFactory.db.bucket_data
-      .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
-      .toArray();
+    const mongoFactory = factory as MongoBucketStorage;
+    const checksumTypes =
+      storageVersion >= 3
+        ? (
+            await Promise.all(
+              (
+                await mongoFactory.db.db
+                  .listCollections({ name: new RegExp(`^bucket_data_${syncRules.id}_`) }, { nameOnly: true })
+                  .toArray()
+              ).map((collection: { name: string }) =>
+                mongoFactory.db.db
+                  .collection(collection.name)
+                  .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
+                  .toArray()
+              )
+            )
+          ).flat()
+        : await mongoFactory.db.bucket_data
+            .aggregate([{ $group: { _id: { $type: '$checksum' }, count: { $sum: 1 } } }])
+            .toArray();
     expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
+  });
+
+  test.runIf(storageVersion >= 3)('uses v3 mongodb model shapes', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        parameters:
+          - SELECT owner_id FROM test WHERE id = token_parameters.test
+        data:
+          - SELECT id, description, owner_id FROM test WHERE id = bucket.owner_id
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'shape-check',
+        description: 'shape',
+        owner_id: 'user-1'
+      },
+      afterReplicaId: test_utils.rid('shape-check')
+    });
+    await writer.markAllSnapshotDone('1/1');
+    await writer.commit('1/1');
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'u1', parameters: { test: 'shape-check' } }), {});
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['shape-check']]);
+        expect(lookups[0].indexId).toEqual('1');
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ owner_id: 'user-1' }]);
+        return parameter_sets;
+      }
+    });
+    expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'global["user-1"]').bucket]);
+
+    const mongoFactory = factory as MongoBucketStorage;
+    const currentDataCollections = await mongoFactory.db.listSourceRecordCollections(syncRules.id);
+    const currentData = await currentDataCollections[0]?.findOne({});
+    const firstBucket: CurrentBucketV3 | undefined = currentData?.buckets[0] as CurrentBucketV3 | undefined;
+    expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
+
+    const bucketCollections = await mongoFactory.db.db
+      .listCollections({ name: new RegExp(`^bucket_data_${syncRules.id}_`) }, { nameOnly: true })
+      .toArray();
+    expect(
+      bucketCollections.some((collection) => collection.name === `bucket_data_${syncRules.id}_${firstBucket?.def}`)
+    ).toBe(true);
+
+    const syncRule = await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id });
+    const ruleMapping: SyncRuleDocument['rule_mapping'] | undefined = syncRule?.rule_mapping;
+    expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);
+
+    const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0];
+    expect(parameterIndexId).toBeDefined();
+    const parameterEntry = await mongoFactory.db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
+    expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 }
 

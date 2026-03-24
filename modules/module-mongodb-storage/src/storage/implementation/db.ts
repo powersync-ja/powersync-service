@@ -4,22 +4,28 @@ import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
 import { MongoStorageConfig } from '../../types/types.js';
 import {
-  BucketDataDocument,
+  BucketDataDocumentV1,
+  BucketDataDocumentV3,
   BucketParameterDocument,
+  BucketParameterDocumentV3,
   BucketStateDocument,
   CheckpointEventDocument,
   ClientConnectionDocument,
+  CommonCurrentDataDocument,
+  CommonSourceTableDocument,
   CurrentDataDocument,
   CurrentDataDocumentV3,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
   SourceTableDocument,
+  SourceTableDocumentV3,
   StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
 } from './models.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { BucketDefinitionId, BucketDefinitionMapping, ParameterIndexId } from './BucketDefinitionMapping.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -31,11 +37,10 @@ export interface PowerSyncMongoOptions {
 export class PowerSyncMongo {
   readonly current_data: mongo.Collection<CurrentDataDocument>;
   readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
-  readonly bucket_data: mongo.Collection<BucketDataDocument>;
+  readonly bucket_data: mongo.Collection<BucketDataDocumentV1>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
   readonly sync_rules: mongo.Collection<SyncRuleDocument>;
-  readonly source_tables: mongo.Collection<SourceTableDocument>;
   readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
@@ -61,7 +66,6 @@ export class PowerSyncMongo {
     this.bucket_parameters = db.collection('bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
     this.sync_rules = db.collection('sync_rules');
-    this.source_tables = db.collection('source_tables');
     this.custom_write_checkpoints = db.collection('custom_write_checkpoints');
     this.write_checkpoints = db.collection('write_checkpoints');
     this.instance = db.collection('instance');
@@ -75,17 +79,126 @@ export class PowerSyncMongo {
     return new VersionedPowerSyncMongo(this, storageConfig);
   }
 
+  bucketDataCollectionNameV3(groupId: number, definitionId: BucketDefinitionId) {
+    return `bucket_data_${groupId}_${definitionId}`;
+  }
+
+  bucketDataV3(groupId: number, definitionId: BucketDefinitionId): mongo.Collection<BucketDataDocumentV3> {
+    return this.db.collection(this.bucketDataCollectionNameV3(groupId, definitionId));
+  }
+
+  async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketDataDocumentV3>[]> {
+    const prefix = groupId == null ? 'bucket_data_' : `bucket_data_${groupId}_`;
+    const collections = await this.db.listCollections({}, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
+  }
+
+  bucketParameterCollectionNameV3(replicationStreamId: number, indexId: ParameterIndexId) {
+    return `parameter_index_${replicationStreamId}_${indexId}`;
+  }
+
+  parameterIndexV3(
+    replicationStreamId: number,
+    indexId: ParameterIndexId
+  ): mongo.Collection<BucketParameterDocumentV3> {
+    return this.db.collection(this.bucketParameterCollectionNameV3(replicationStreamId, indexId));
+  }
+
+  /**
+   * List parameter index collections.
+   *
+   * @param replicationStreamId null only to list all collections in the db for clearing
+   * @returns
+   */
+  async listParameterIndexCollectionsV3(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<BucketParameterDocumentV3>[]> {
+    const prefix = replicationStreamId == null ? `parameter_index_` : `parameter_index_${replicationStreamId}_`;
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<BucketParameterDocumentV3>(collection.name));
+  }
+
+  sourceRecordsCollectionName(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+    return `source_records_${replicationStreamId}_${sourceTableId.toHexString()}`;
+  }
+
+  sourceTableCollectionName(replicationStreamId: number) {
+    return `source_table_${replicationStreamId}`;
+  }
+
+  sourceRecords<T extends CommonCurrentDataDocument>(
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId
+  ): mongo.Collection<T> {
+    return this.db.collection<T>(this.sourceRecordsCollectionName(replicationStreamId, sourceTableId));
+  }
+
+  async listSourceRecordCollections(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<CommonCurrentDataDocument>[]> {
+    const prefix = replicationStreamId == null ? 'source_records_' : `source_records_${replicationStreamId}_`;
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<CommonCurrentDataDocument>(collection.name));
+  }
+
+  sourceTables<T extends CommonSourceTableDocument>(replicationStreamId: number): mongo.Collection<T> {
+    return this.db.collection<T>(this.sourceTableCollectionName(replicationStreamId));
+  }
+
+  async listSourceTableCollections(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<CommonSourceTableDocument>[]> {
+    const filter =
+      replicationStreamId == null
+        ? { name: new RegExp('^source_table_') }
+        : { name: this.sourceTableCollectionName(replicationStreamId) };
+    const prefix = replicationStreamId == null ? 'source_table_' : this.sourceTableCollectionName(replicationStreamId);
+    const collections = await this.db.listCollections(filter, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<CommonSourceTableDocument>(collection.name));
+  }
+
   /**
    * Clear all collections.
    */
   async clear() {
     await this.current_data.deleteMany({});
     await this.v3_current_data.deleteMany({});
+    for (const collection of await this.listSourceRecordCollections()) {
+      await collection.drop();
+    }
     await this.bucket_data.deleteMany({});
+    for (const collection of await this.listBucketDataCollectionsV3()) {
+      await collection.drop();
+    }
     await this.bucket_parameters.deleteMany({});
+    for (const collection of await this.listParameterIndexCollectionsV3()) {
+      await collection.drop();
+    }
     await this.op_id_sequence.deleteMany({});
     await this.sync_rules.deleteMany({});
-    await this.source_tables.deleteMany({});
+    for (const collection of await this.listSourceTableCollections()) {
+      await collection.drop();
+    }
+    for (const legacyName of ['source_tables', 'v3_source_tables']) {
+      await this.db.dropCollection(legacyName).catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
+    }
     await this.write_checkpoints.deleteMany({});
     await this.instance.deleteOne({});
     await this.locks.deleteMany({});
@@ -181,23 +294,6 @@ export class PowerSyncMongo {
       { name: 'dirty_count' }
     );
   }
-
-  async initializeStorageVersion(storageConfig: StorageConfig) {
-    if (storageConfig.softDeleteCurrentData) {
-      // Initialize the v3_current_data collection, which is used for the new storage version.
-      // No-op if this already exists
-      await this.v3_current_data.createIndex(
-        {
-          '_id.g': 1,
-          pending_delete: 1
-        },
-        {
-          partialFilterExpression: { pending_delete: { $exists: true } },
-          name: 'pending_delete'
-        }
-      );
-    }
-  }
 }
 
 /**
@@ -222,38 +318,126 @@ export class VersionedPowerSyncMongo {
    *
    * Use in places where it does not matter which version is used.
    */
-  get common_current_data(): mongo.Collection<CurrentDataDocument> {
-    if (this.storageConfig.softDeleteCurrentData) {
-      return this.#upstream.v3_current_data;
-    } else {
-      return this.#upstream.current_data;
-    }
+  common_current_data(
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId
+  ): mongo.Collection<CommonCurrentDataDocument> {
+    return this.#upstream.sourceRecords<CommonCurrentDataDocument>(replicationStreamId, sourceTableId);
   }
 
-  get v1_current_data() {
-    if (this.storageConfig.softDeleteCurrentData) {
+  v1_current_data(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+    if (this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
-        'current_data collection should not be used when softDeleteCurrentData is enabled'
+        'current_data collection should not be used when incrementalReprocessing is enabled'
       );
     }
-    return this.#upstream.current_data;
+    return this.#upstream.sourceRecords<CurrentDataDocument>(replicationStreamId, sourceTableId);
   }
 
-  get v3_current_data() {
-    if (!this.storageConfig.softDeleteCurrentData) {
+  v3_current_data(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+    if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
-        'v3_current_data collection should not be used when softDeleteCurrentData is disabled'
+        'v3_current_data collection should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.v3_current_data;
+    return this.#upstream.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId);
+  }
+
+  listCommonCurrentDataCollections(replicationStreamId?: number) {
+    return this.#upstream.listSourceRecordCollections(replicationStreamId);
+  }
+
+  async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'source_records collection initialization should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    await this.#upstream.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId).createIndex(
+      {
+        pending_delete: 1
+      },
+      {
+        partialFilterExpression: { pending_delete: { $exists: true } },
+        name: 'pending_delete'
+      }
+    );
+  }
+
+  source_tables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
+    return this.#upstream.sourceTables<CommonSourceTableDocument>(replicationStreamId);
+  }
+
+  async initializeStreamStorage(replicationStreamId: number) {
+    await this.source_tables(replicationStreamId).createIndex(
+      {
+        connection_id: 1,
+        schema_name: 1,
+        table_name: 1,
+        relation_id: 1
+      },
+      {
+        name: 'source_lookup'
+      }
+    );
   }
 
   get bucket_data() {
     return this.#upstream.bucket_data;
   }
 
-  get bucket_parameters() {
+  get v1_bucket_data() {
+    if (this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'bucket_data collection should not be used when incrementalReprocessing is enabled'
+      );
+    }
+    return this.#upstream.bucket_data;
+  }
+
+  bucket_data_v3(groupId: number, definitionId: BucketDefinitionId) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_data collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.bucketDataV3(groupId, definitionId);
+  }
+
+  listBucketDataCollectionsV3(groupId?: number) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_data collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.listBucketDataCollectionsV3(groupId);
+  }
+
+  get v1_bucket_parameters() {
+    if (this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'bucket_parameters collection should not be used when incrementalReprocessing is enabled'
+      );
+    }
     return this.#upstream.bucket_parameters;
+  }
+
+  bucket_parameters_v3(groupId: number, indexId: ParameterIndexId) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.parameterIndexV3(groupId, indexId);
+  }
+
+  listBucketParameterCollectionsV3(groupId?: number) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.listParameterIndexCollectionsV3(groupId);
   }
 
   get op_id_sequence() {
@@ -262,10 +446,6 @@ export class VersionedPowerSyncMongo {
 
   get sync_rules() {
     return this.#upstream.sync_rules;
-  }
-
-  get source_tables() {
-    return this.#upstream.source_tables;
   }
 
   get custom_write_checkpoints() {

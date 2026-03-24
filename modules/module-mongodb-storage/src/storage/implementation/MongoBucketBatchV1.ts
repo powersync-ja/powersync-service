@@ -1,0 +1,24 @@
+import { MongoBucketBatch, MongoBucketBatchOptions } from './MongoBucketBatch.js';
+import { SourceRecordStore } from './SourceRecordStore.js';
+import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
+import { PersistedBatch } from './PersistedBatch.js';
+import { PersistedBatchV1 } from './PersistedBatchV1.js';
+
+export class MongoBucketBatchV1 extends MongoBucketBatch {
+  private readonly store: SourceRecordStore;
+
+  constructor(options: MongoBucketBatchOptions) {
+    super(options);
+    this.store = new SourceRecordStoreV1(this.db, this.group_id);
+  }
+
+  protected createPersistedBatch(writtenSize: number): PersistedBatch {
+    return new PersistedBatchV1(this.db, this.group_id, this.mapping, writtenSize, {
+      logger: this.logger
+    });
+  }
+
+  protected get sourceRecordStore(): SourceRecordStore {
+    return this.store;
+  }
+}

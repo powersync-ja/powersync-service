@@ -2,6 +2,7 @@ import { GetIntanceOptions, storage } from '@powersync/service-core';
 
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
@@ -12,9 +13,10 @@ import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedS
 import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 
 export interface MongoBucketStorageOptions {
-  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {
@@ -154,7 +156,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
     const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
     const storageConfig = getMongoStorageConfig(storageVersion);
-    await this.db.initializeStorageVersion(storageConfig);
 
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 
@@ -203,6 +204,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         last_fatal_error_ts: null,
         last_keepalive_ts: null
       };
+      if (storageConfig.incrementalReprocessing) {
+        const parsed = SqlSyncRules.fromYaml(options.config.yaml, {
+          schema: undefined,
+          defaultSchema: 'not_applicable'
+        });
+        doc.rule_mapping = BucketDefinitionMapping.fromParsedSyncRules(parsed).serialize();
+      }
       await this.db.sync_rules.insertOne(doc);
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);
@@ -303,7 +311,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       };
     }
     const operations_aggregate = await this.db.bucket_data
-
       .aggregate([
         {
           $collStats: {
@@ -313,6 +320,20 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       ])
       .toArray()
       .catch(ignoreNotExisting);
+    const v3_operation_aggregates = await Promise.all(
+      (await this.db.listBucketDataCollectionsV3()).map((collection) =>
+        collection
+          .aggregate([
+            {
+              $collStats: {
+                storageStats: {}
+              }
+            }
+          ])
+          .toArray()
+          .catch(ignoreNotExisting)
+      )
+    );
 
     const parameters_aggregate = await this.db.bucket_parameters
       .aggregate([
@@ -324,33 +345,46 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       ])
       .toArray()
       .catch(ignoreNotExisting);
+    const v3_parameter_aggregates = await Promise.all(
+      (await this.db.listParameterIndexCollectionsV3()).map((collection) =>
+        collection
+          .aggregate([
+            {
+              $collStats: {
+                storageStats: {}
+              }
+            }
+          ])
+          .toArray()
+          .catch(ignoreNotExisting)
+      )
+    );
 
-    const v1_replication_aggregate = await this.db.current_data
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
-          }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
-
-    const v3_replication_aggregate = await this.db.v3_current_data
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
-          }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+    const source_record_aggregates = await Promise.all(
+      (await this.db.listSourceRecordCollections()).map((collection) =>
+        collection
+          .aggregate([
+            {
+              $collStats: {
+                storageStats: {}
+              }
+            }
+          ])
+          .toArray()
+          .catch(ignoreNotExisting)
+      )
+    );
     return {
-      operations_size_bytes: Number(operations_aggregate[0].storageStats.size),
-      parameters_size_bytes: Number(parameters_aggregate[0].storageStats.size),
-      replication_size_bytes:
-        Number(v1_replication_aggregate[0].storageStats.size) + Number(v3_replication_aggregate[0].storageStats.size)
+      operations_size_bytes:
+        Number(operations_aggregate[0].storageStats.size) +
+        v3_operation_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
+      parameters_size_bytes:
+        Number(parameters_aggregate[0].storageStats.size) +
+        v3_parameter_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
+      replication_size_bytes: source_record_aggregates.reduce(
+        (total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0),
+        0
+      )
     };
   }
 

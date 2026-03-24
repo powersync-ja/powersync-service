@@ -4,7 +4,7 @@ import * as uuid from 'uuid';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, utils } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDataDocument } from '../storage/implementation/models.js';
+import { TaggedBucketDataDocument } from '../storage/implementation/models.js';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
   let filter = {
@@ -69,7 +69,7 @@ export async function readSingleBatch<T>(cursor: mongo.AbstractCursor<T>): Promi
   }
 }
 
-export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
+export function mapOpEntry(row: TaggedBucketDataDocument): utils.OplogEntry {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
     return {
       op_id: utils.internalToExternalOpId(row._id.o),

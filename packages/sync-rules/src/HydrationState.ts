@@ -8,7 +8,11 @@ export interface BucketDataScope {
 }
 
 export interface ParameterLookupScope {
-  /** The lookup name + queryid is used to reference the parameter lookup record. */
+  /**
+   * The lookup name + queryid is used to reference the parameter lookup record.
+   *
+   * In newer storage versions, lookupName = indexId, and queryId = ''.
+   */
   lookupName: string;
   queryId: string;
   /** Source used to generate parameter lookups. */

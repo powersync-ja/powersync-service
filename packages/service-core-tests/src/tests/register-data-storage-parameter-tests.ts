@@ -3,7 +3,6 @@ import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powers
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
-import { parameterLookupScope } from './util.js';
 
 /**
  * @example
@@ -18,7 +17,6 @@ import { parameterLookupScope } from './util.js';
 export function registerDataStorageParameterTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;
   const storageVersion = config.storageVersion ?? CURRENT_STORAGE_VERSION;
-  const MYBUCKET_1 = parameterLookupScope('mybucket', '1');
 
   test('save and load parameters', async () => {
     await using factory = await generateStorageFactory();
@@ -37,6 +35,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -69,12 +68,20 @@ bucket_definitions:
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
-    expect(parameters).toEqual([
-      {
-        group_id: 'group1a'
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'user1' }), {});
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ group_id: 'group1a' }]);
+        return parameter_sets;
       }
-    ]);
+    });
+
+    expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'mybucket["group1a"]').bucket]);
   });
 
   test('it should use the latest version', async () => {
@@ -94,6 +101,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -121,20 +129,30 @@ bucket_definitions:
     await writer.commit('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
 
-    const parameters = await checkpoint2.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
-    expect(parameters).toEqual([
-      {
-        group_id: 'group2'
-      }
-    ]);
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'user1' }), {});
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    // Use the checkpoint to get older data if relevant
-    const parameters2 = await checkpoint1.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
-    expect(parameters2).toEqual([
-      {
-        group_id: 'group1'
+    const buckets1 = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
+
+        const parameter_sets = await checkpoint1.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ group_id: 'group1' }]);
+        return parameter_sets;
       }
-    ]);
+    });
+    expect(buckets1.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'mybucket["group1"]').bucket]);
+
+    const buckets2 = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
+
+        const parameter_sets = await checkpoint2.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ group_id: 'group2' }]);
+        return parameter_sets;
+      }
+    });
+    expect(buckets2.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'mybucket["group2"]').bucket]);
   });
 
   test('it should use the latest version after updates', async () => {
@@ -154,6 +172,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const table = await test_utils.resolveTestTable(writer, 'todos', ['id', 'list_id'], config);
@@ -197,18 +216,28 @@ bucket_definitions:
     // There removal operation for the association of `list2`::`todo2` should not interfere with the new
     // association of `list1`::`todo2`
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, ['list1']),
-      ScopedParameterLookup.direct(MYBUCKET_1, ['list2'])
-    ]);
+    const parameters = new RequestParameters(
+      new JwtPayload({ sub: 'u1', parameters: { list_id: ['list1', 'list2'] } }),
+      {}
+    );
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    expect(parameters.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
-      {
-        todo_id: 'todo1'
-      },
-      {
-        todo_id: 'todo2'
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => JSON.stringify(l.indexKey)).sort()).toEqual(['["list1"]', '["list2"]']);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
+          { todo_id: 'todo1' },
+          { todo_id: 'todo2' }
+        ]);
+        return parameter_sets;
       }
+    });
+
+    expect(buckets.map((b) => b.bucket).sort()).toEqual([
+      bucketRequest(syncRules, 'mybucket["todo1"]').bucket,
+      bucketRequest(syncRules, 'mybucket["todo2"]').bucket
     ]);
   });
 
@@ -229,6 +258,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -248,20 +278,27 @@ bucket_definitions:
 
     await writer.commit('1/1');
 
-    const TEST_PARAMS = { group_id: 'group1' };
-
     const checkpoint = await bucketStorage.getCheckpoint();
+    const testQuery = async (jwtParameters: Record<string, any>, expectedParameterSets: SqliteJsonRow[]) => {
+      const parameters = new RequestParameters(new JwtPayload({ sub: 'u1', parameters: jwtParameters }), {});
+      const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const parameters1 = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, [314n, 314, 3.14])
+      return await querier.queryDynamicBucketDescriptions({
+        async getParameterSets(lookups) {
+          const parameter_sets = await checkpoint.getParameterSets(lookups);
+          expect(parameter_sets).toEqual(expectedParameterSets);
+          return parameter_sets;
+        }
+      });
+    };
+
+    expect(await testQuery({ n1: 314n, f2: 314, f3: 3.14 }, [{ group_id: 'group1' }])).toMatchObject([
+      { bucket: bucketRequest(syncRules, 'mybucket["group1"]').bucket }
     ]);
-    expect(parameters1).toEqual([TEST_PARAMS]);
-    const parameters2 = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, [314, 314n, 3.14])
+    expect(await testQuery({ n1: 314, f2: 314n, f3: 3.14 }, [{ group_id: 'group1' }])).toMatchObject([
+      { bucket: bucketRequest(syncRules, 'mybucket["group1"]').bucket }
     ]);
-    expect(parameters2).toEqual([TEST_PARAMS]);
-    const parameters3 = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, [314n, 314, 3])]);
-    expect(parameters3).toEqual([]);
+    expect(await testQuery({ n1: 314n, f2: 314, f3: 3 }, [])).toEqual([]);
   });
 
   test('save and load parameters with large numbers', async () => {
@@ -285,6 +322,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -315,14 +353,23 @@ bucket_definitions:
 
     await writer.commit('1/1');
 
-    const TEST_PARAMS = { group_id: 'group1' };
-
     const checkpoint = await bucketStorage.getCheckpoint();
 
-    const parameters1 = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(MYBUCKET_1, [1152921504606846976n])
-    ]);
-    expect(parameters1).toEqual([TEST_PARAMS]);
+    const n1 = 1152921504606846976n;
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'u1', parameters: { n1 } }), {});
+
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      getParameterSets: async (lookups) => {
+        expect(lookups.map((l) => l.indexKey)).toEqual([[n1]]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ group_id: 'group1' }]);
+        return parameter_sets;
+      }
+    });
+
+    expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'mybucket["group1"]').bucket]);
   });
 
   test('save and load parameters with workspaceId', async () => {
@@ -366,7 +413,7 @@ bucket_definitions:
 
     const buckets = await querier.queryDynamicBucketDescriptions({
       async getParameterSets(lookups) {
-        expect(lookups).toEqual([ScopedParameterLookup.direct(parameterLookupScope('by_workspace', '1'), ['u1'])]);
+        expect(lookups.map((l) => l.indexKey)).toEqual([['u1']]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups);
         expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
@@ -446,7 +493,7 @@ bucket_definitions:
 
     const buckets = await querier.queryDynamicBucketDescriptions({
       async getParameterSets(lookups) {
-        expect(lookups).toEqual([ScopedParameterLookup.direct(parameterLookupScope('by_public_workspace', '1'), [])]);
+        expect(lookups.map((l) => l.indexKey)).toEqual([[]]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups);
         parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
@@ -560,10 +607,8 @@ bucket_definitions:
         }
       })
     ).map((e) => e.bucket);
-    expect(foundLookups).toEqual([
-      ScopedParameterLookup.direct(parameterLookupScope('by_workspace', '1'), []),
-      ScopedParameterLookup.direct(parameterLookupScope('by_workspace', '2'), ['u1'])
-    ]);
+    // Not testing the scope anymore - the exact format depends on storage version
+    expect(foundLookups.map((l) => l.indexKey)).toEqual([[], ['u1']]);
     parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
 
@@ -591,6 +636,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -611,9 +657,19 @@ bucket_definitions:
     await writer.flush();
 
     const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'user1' }), {});
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
 
-    const parameters = await checkpoint.getParameterSets([ScopedParameterLookup.direct(MYBUCKET_1, ['user1'])]);
-    expect(parameters).toEqual([]);
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([]);
+        return parameter_sets;
+      }
+    });
+    expect(buckets).toEqual([]);
   });
 
   test('invalidate cached parsed sync rules', async () => {
@@ -671,6 +727,7 @@ streams:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -688,12 +745,36 @@ streams:
     await writer.commit('1/1');
 
     const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = await checkpoint.getParameterSets([
-      ScopedParameterLookup.direct(parameterLookupScope('lookup', '0'), ['baz'])
-    ]);
-    expect(parameters).toEqual([
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'baz' }), {});
+    const querier = sync_rules.getBucketParameterQuerier({
+      ...test_utils.querierOptions(parameters),
+      streams: {
+        stream: [
+          {
+            parameters: null,
+            opaque_id: 123
+          }
+        ]
+      }
+    }).querier;
+
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['baz']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        expect(parameter_sets).toEqual([{ '0': 'bar' }]);
+        return parameter_sets;
+      }
+    });
+    console.log('whatabuckets', buckets);
+    expect(buckets).toHaveLength(1);
+    expect(buckets).toMatchObject([
       {
-        '0': 'bar'
+        bucket: expect.stringMatching(/stream.*\["bar"\]$/),
+        definition: 'stream',
+        inclusion_reasons: [{ subscription: 123 }],
+        priority: 3
       }
     ]);
   });
