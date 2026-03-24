@@ -19,6 +19,7 @@ import {
   taggedBucketParameterDocumentToV3,
   taggedBucketDataDocumentToV3
 } from './models.js';
+import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
@@ -107,7 +108,7 @@ export class PersistedBatchV3 extends PersistedBatch {
 
     for (let result of evaluated) {
       const sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
-      const binLookup = storage.serializeLookup(result.lookup);
+      const binLookup = serializeParameterLookupV3(result.lookup);
       remaining_lookups.delete(`${sourceDefinitionId}.${binLookup.toString('base64')}`);
 
       const op_id = data.op_seq.next();

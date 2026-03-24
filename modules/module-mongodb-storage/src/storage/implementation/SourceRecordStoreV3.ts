@@ -8,6 +8,7 @@ import { cacheKey } from './OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from './SourceRecordStore.js';
 import { CurrentDataDocumentV3 } from './models.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 
 export class SourceRecordStoreV3 implements SourceRecordStore {
   constructor(
@@ -28,7 +29,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   mapParameterLookups(paramEvaluated: EvaluatedParameters[]): LoadedSourceRecord['lookups'] {
     return paramEvaluated.map((entry) => ({
       indexId: this.mapping.parameterLookupId(entry.lookup.source),
-      lookup: storage.serializeLookup(entry.lookup)
+      lookup: serializeParameterLookupV3(entry.lookup)
     }));
   }
 

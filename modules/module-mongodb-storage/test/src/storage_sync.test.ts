@@ -1,6 +1,7 @@
-import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
+import { deserializeParameterLookup, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
+import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { CurrentBucketV3, CurrentDataDocumentV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
@@ -158,8 +159,10 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
         `
     bucket_definitions:
       global:
+        parameters:
+          - SELECT owner_id FROM "%" WHERE id = token_parameters.id
         data:
-          - SELECT id, description FROM "%"
+          - SELECT id, description, owner_id FROM "%"
     `,
         { storageVersion }
       )
@@ -173,11 +176,18 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       tag: storage.SaveOperationTag.INSERT,
       after: {
         id: 'shape-check',
-        description: 'shape'
+        description: 'shape',
+        owner_id: 'user-1'
       },
       afterReplicaId: test_utils.rid('shape-check')
     });
-    await writer.flush();
+    await writer.commit('1/1');
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = await checkpoint.getParameterSets([
+      ScopedParameterLookup.direct({ lookupName: 'global', queryId: '1', source: null as any }, ['shape-check'])
+    ]);
+    expect(parameters).toEqual([{ owner_id: 'user-1' }]);
 
     const mongoFactory = factory as MongoBucketStorage;
     const currentDataCollections = await mongoFactory.db.listSourceRecordCollections(syncRules.id);
@@ -195,6 +205,11 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const syncRule = await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id });
     const ruleMapping: SyncRuleDocument['rule_mapping'] | undefined = syncRule?.rule_mapping;
     expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);
+
+    const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0];
+    expect(parameterIndexId).toBeDefined();
+    const parameterEntry = await mongoFactory.db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
+    expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 }
 

@@ -51,6 +51,7 @@ import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
@@ -481,13 +482,9 @@ export class MongoSyncBucketStorage
         collection: mongo.Collection<BucketParameterDocumentV3>;
         pipeline: mongo.Document[];
       } => {
-        const [lookupName, queryId] = lookup.values;
-        if (typeof lookupName != 'string' || typeof queryId != 'string') {
-          throw new ServiceAssertionError('Invalid scoped parameter lookup identifier');
-        }
-        const indexId = this.sync_rules.mapping.parameterLookupScopeId({ lookupName, queryId });
+        const indexId = lookup.indexId;
         const collection = this.db.bucket_parameters_v3(this.group_id, indexId);
-        const lookupFilter = storage.serializeLookup(lookup);
+        const lookupFilter = serializeParameterLookupV3(lookup);
         return {
           collection,
           pipeline: [
@@ -1354,14 +1351,16 @@ export class MongoSyncBucketStorage
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     const limit = 1000;
-    const parameterUpdates: { lookup: bson.Binary }[] = [];
+    const parameterUpdates: { lookup: bson.Binary; indexId: string }[] = [];
 
+    // FIXME: Optimize performance for many collections
     for (const collection of await this.db.listBucketParameterCollectionsV3(this.group_id)) {
       if (parameterUpdates.length > limit) {
         break;
       }
 
       const remaining = limit + 1 - parameterUpdates.length;
+      const indexId = collection.collectionName.slice(`parameter_index_${this.group_id}_`.length);
       const updates = await collection
         .find(
           {
@@ -1377,7 +1376,7 @@ export class MongoSyncBucketStorage
           }
         )
         .toArray();
-      parameterUpdates.push(...updates);
+      parameterUpdates.push(...updates.map((update) => ({ ...update, indexId })));
     }
 
     const invalidateParameterUpdates = parameterUpdates.length > limit;
@@ -1386,7 +1385,9 @@ export class MongoSyncBucketStorage
       invalidateParameterBuckets: invalidateParameterUpdates,
       updatedParameterLookups: invalidateParameterUpdates
         ? new Set<string>()
-        : new Set<string>(parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookup(p.lookup))))
+        : new Set<string>(
+            parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookupV3(p.lookup, p.indexId)))
+          )
     };
   }
 

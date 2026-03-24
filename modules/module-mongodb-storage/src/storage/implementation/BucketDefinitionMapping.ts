@@ -1,5 +1,10 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  ParameterIndexLookupCreator,
+  ParameterLookupScope,
+  SyncConfigWithErrors
+} from '@powersync/service-sync-rules';
 import { SyncRuleDocument } from './models.js';
 
 export type BucketDefinitionId = string;
@@ -52,15 +57,6 @@ export class BucketDefinitionMapping {
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
     const key = this.parameterLookupKey(source.defaultLookupScope.lookupName, source.defaultLookupScope.queryId);
-    const defId = this.parameterLookupMapping[key];
-    if (defId == null) {
-      throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);
-    }
-    return defId;
-  }
-
-  parameterLookupScopeId(scope: Pick<ParameterIndexLookupCreator['defaultLookupScope'], 'lookupName' | 'queryId'>) {
-    const key = this.parameterLookupKey(scope.lookupName, scope.queryId);
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
       throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);

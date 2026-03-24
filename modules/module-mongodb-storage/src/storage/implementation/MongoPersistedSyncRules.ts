@@ -12,6 +12,7 @@ import {
 import { storage } from '@powersync/service-core';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly hydrationState: HydrationState;
@@ -23,10 +24,11 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     private readonly mapping: BucketDefinitionMapping | null,
     private readonly storageConfig: StorageConfig
   ) {
-    if (this.mapping != null && this.storageConfig.incrementalReprocessing) {
-      // FIXME: Recheck bucket name generation again when we get to merging sync config versions.
-      // this.hydrationState = new MongoHydrationState(this.mapping);
-      this.hydrationState = versionedHydrationState(this.id);
+    if (this.storageConfig.incrementalReprocessing) {
+      if (this.mapping == null) {
+        throw new ServiceAssertionError(`mapping is required for v3 storage`);
+      }
+      this.hydrationState = new MongoHydrationState(this.mapping, this.id);
     } else if (
       !this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
       !this.storageConfig.versionedBuckets
@@ -43,12 +45,22 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 }
 
 class MongoHydrationState implements HydrationState {
-  constructor(private readonly mapping: BucketDefinitionMapping) {}
+  constructor(
+    private readonly mapping: BucketDefinitionMapping,
+    private readonly version: number
+  ) {}
 
   getBucketSourceScope(source: BucketDataSource): BucketDataScope {
-    const defId = this.mapping.bucketSourceId(source);
+    // Keep this aligned with versionedHydrationState() for now.
+    //
+    // Previous Mongo-specific behavior:
+    // const defId = this.mapping.bucketSourceId(source);
+    // return {
+    //   bucketPrefix: defId,
+    //   source
+    // };
     return {
-      bucketPrefix: defId,
+      bucketPrefix: `${this.version}#${source.uniqueName}`,
       source
     };
   }
