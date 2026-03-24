@@ -100,17 +100,28 @@ export class PowerSyncMongo {
       .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
   }
 
-  bucketParameterCollectionNameV3(groupId: number, indexId: ParameterIndexId) {
-    return `bucket_parameters_${groupId}_${indexId}`;
+  bucketParameterCollectionNameV3(replicationStreamId: number, indexId: ParameterIndexId) {
+    return `parameter_index_${replicationStreamId}_${indexId}`;
   }
 
-  bucketParametersV3(groupId: number, indexId: ParameterIndexId): mongo.Collection<BucketParameterDocumentV3> {
-    return this.db.collection(this.bucketParameterCollectionNameV3(groupId, indexId));
+  parameterIndexV3(
+    replicationStreamId: number,
+    indexId: ParameterIndexId
+  ): mongo.Collection<BucketParameterDocumentV3> {
+    return this.db.collection(this.bucketParameterCollectionNameV3(replicationStreamId, indexId));
   }
 
-  async listBucketParameterCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketParameterDocumentV3>[]> {
-    const prefix = groupId == null ? 'bucket_parameters_' : `bucket_parameters_${groupId}_`;
-    const collections = await this.db.listCollections({}, { nameOnly: true }).toArray();
+  /**
+   * List parameter index collections.
+   *
+   * @param replicationStreamId null only to list all collections in the db for clearing
+   * @returns
+   */
+  async listParameterIndexCollectionsV3(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<BucketParameterDocumentV3>[]> {
+    const prefix = replicationStreamId == null ? `parameter_index_` : `parameter_index_${replicationStreamId}_`;
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
 
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
@@ -128,7 +139,7 @@ export class PowerSyncMongo {
       await collection.drop();
     }
     await this.bucket_parameters.deleteMany({});
-    for (const collection of await this.listBucketParameterCollectionsV3()) {
+    for (const collection of await this.listParameterIndexCollectionsV3()) {
       await collection.drop();
     }
     await this.op_id_sequence.deleteMany({});
@@ -355,7 +366,7 @@ export class VersionedPowerSyncMongo {
         'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.bucketParametersV3(groupId, indexId);
+    return this.#upstream.parameterIndexV3(groupId, indexId);
   }
 
   listBucketParameterCollectionsV3(groupId?: number) {
@@ -364,7 +375,7 @@ export class VersionedPowerSyncMongo {
         'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.listBucketParameterCollectionsV3(groupId);
+    return this.#upstream.listParameterIndexCollectionsV3(groupId);
   }
 
   get op_id_sequence() {

@@ -347,7 +347,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       .toArray()
       .catch(ignoreNotExisting);
     const v3_parameter_aggregates = await Promise.all(
-      (await this.db.listBucketParameterCollectionsV3()).map((collection) =>
+      (await this.db.listParameterIndexCollectionsV3()).map((collection) =>
         collection
           .aggregate([
             {
