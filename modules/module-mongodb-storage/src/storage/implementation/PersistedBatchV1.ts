@@ -246,7 +246,6 @@ export class PersistedBatchV1 extends PersistedBatch {
       if (sourceTableId == null) {
         throw new ReplicationAssertionError('Missing source table id for current_data bulkWrite');
       }
-      await this.db.initializeCurrentDataCollection(this.group_id, sourceTableId);
       await this.db.v1_current_data(this.group_id, sourceTableId).bulkWrite(operations, {
         session,
         ordered: true

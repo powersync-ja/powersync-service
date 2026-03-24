@@ -313,15 +313,7 @@ export class PowerSyncMongo {
     );
   }
 
-  async initializeSourceRecordsCollection(
-    storageConfig: StorageConfig,
-    replicationStreamId: number,
-    sourceTableId: mongo.ObjectId
-  ) {
-    if (!storageConfig.incrementalReprocessing) {
-      return;
-    }
-
+  async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     await this.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId).createIndex(
       {
         pending_delete: 1
@@ -386,7 +378,12 @@ export class VersionedPowerSyncMongo {
   }
 
   initializeCurrentDataCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
-    return this.#upstream.initializeSourceRecordsCollection(this.storageConfig, replicationStreamId, sourceTableId);
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'source_records collection initialization should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.initializeSourceRecordsCollection(replicationStreamId, sourceTableId);
   }
 
   source_tables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {

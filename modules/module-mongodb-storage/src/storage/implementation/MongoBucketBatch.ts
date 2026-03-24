@@ -1,3 +1,4 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -944,6 +945,20 @@ export abstract class MongoBucketBatch
         await this.db.source_tables(this.group_id).deleteOne({ _id: mongoTableId(table.id) });
       }
     });
+
+    if (this.db.storageConfig.incrementalReprocessing) {
+      for (let table of sourceTables) {
+        await this.db
+          .common_current_data(this.group_id, mongoTableId(table.id))
+          .drop()
+          .catch((error) => {
+            if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+              return;
+            }
+            throw error;
+          });
+      }
+    }
     return result;
   }
 
