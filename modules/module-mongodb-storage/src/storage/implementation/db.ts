@@ -41,8 +41,6 @@ export class PowerSyncMongo {
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
   readonly sync_rules: mongo.Collection<SyncRuleDocument>;
-  readonly source_tables: mongo.Collection<SourceTableDocument>;
-  readonly v3_source_tables: mongo.Collection<SourceTableDocumentV3>;
   readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
@@ -68,8 +66,6 @@ export class PowerSyncMongo {
     this.bucket_parameters = db.collection('bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
     this.sync_rules = db.collection('sync_rules');
-    this.source_tables = db.collection('source_tables');
-    this.v3_source_tables = db.collection('v3_source_tables');
     this.custom_write_checkpoints = db.collection('custom_write_checkpoints');
     this.write_checkpoints = db.collection('write_checkpoints');
     this.instance = db.collection('instance');
@@ -132,6 +128,10 @@ export class PowerSyncMongo {
     return `source_records_${replicationStreamId}_${sourceTableId.toHexString()}`;
   }
 
+  sourceTableCollectionName(replicationStreamId: number) {
+    return `source_table_${replicationStreamId}`;
+  }
+
   sourceRecords<T extends CommonCurrentDataDocument>(
     replicationStreamId: number,
     sourceTableId: mongo.ObjectId
@@ -148,6 +148,25 @@ export class PowerSyncMongo {
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
       .map((collection) => this.db.collection<CommonCurrentDataDocument>(collection.name));
+  }
+
+  sourceTables<T extends CommonSourceTableDocument>(replicationStreamId: number): mongo.Collection<T> {
+    return this.db.collection<T>(this.sourceTableCollectionName(replicationStreamId));
+  }
+
+  async listSourceTableCollections(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<CommonSourceTableDocument>[]> {
+    const filter =
+      replicationStreamId == null
+        ? { name: new RegExp('^source_table_') }
+        : { name: this.sourceTableCollectionName(replicationStreamId) };
+    const prefix = replicationStreamId == null ? 'source_table_' : this.sourceTableCollectionName(replicationStreamId);
+    const collections = await this.db.listCollections(filter, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<CommonSourceTableDocument>(collection.name));
   }
 
   /**
@@ -169,8 +188,17 @@ export class PowerSyncMongo {
     }
     await this.op_id_sequence.deleteMany({});
     await this.sync_rules.deleteMany({});
-    await this.source_tables.deleteMany({});
-    await this.v3_source_tables.deleteMany({});
+    for (const collection of await this.listSourceTableCollections()) {
+      await collection.drop();
+    }
+    for (const legacyName of ['source_tables', 'v3_source_tables']) {
+      await this.db.dropCollection(legacyName).catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
+    }
     await this.write_checkpoints.deleteMany({});
     await this.instance.deleteOne({});
     await this.locks.deleteMany({});
@@ -268,20 +296,21 @@ export class PowerSyncMongo {
   }
 
   async initializeStorageVersion(storageConfig: StorageConfig) {
-    if (storageConfig.incrementalReprocessing) {
-      await this.v3_source_tables.createIndex(
-        {
-          group_id: 1,
-          connection_id: 1,
-          schema_name: 1,
-          table_name: 1,
-          relation_id: 1
-        },
-        {
-          name: 'source_lookup'
-        }
-      );
-    }
+    // Per-stream collections are initialized lazily when first accessed.
+  }
+
+  async initializeSourceTablesCollection(replicationStreamId: number) {
+    await this.sourceTables<CommonSourceTableDocument>(replicationStreamId).createIndex(
+      {
+        connection_id: 1,
+        schema_name: 1,
+        table_name: 1,
+        relation_id: 1
+      },
+      {
+        name: 'source_lookup'
+      }
+    );
   }
 
   async initializeSourceRecordsCollection(
@@ -360,6 +389,14 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.initializeSourceRecordsCollection(this.storageConfig, replicationStreamId, sourceTableId);
   }
 
+  source_tables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
+    return this.#upstream.sourceTables<CommonSourceTableDocument>(replicationStreamId);
+  }
+
+  initializeSourceTablesCollection(replicationStreamId: number) {
+    return this.#upstream.initializeSourceTablesCollection(replicationStreamId);
+  }
+
   get bucket_data() {
     return this.#upstream.bucket_data;
   }
@@ -424,14 +461,6 @@ export class VersionedPowerSyncMongo {
 
   get sync_rules() {
     return this.#upstream.sync_rules;
-  }
-
-  get source_tables() {
-    if (this.storageConfig.incrementalReprocessing) {
-      return this.#upstream.v3_source_tables as unknown as mongo.Collection<CommonSourceTableDocument>;
-    } else {
-      return this.#upstream.source_tables as unknown as mongo.Collection<CommonSourceTableDocument>;
-    }
   }
 
   get custom_write_checkpoints() {

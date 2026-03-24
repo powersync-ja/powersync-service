@@ -261,10 +261,11 @@ export class MongoSyncBucketStorage
       type: column.type,
       type_oid: column.typeId
     }));
+    await this.db.initializeSourceTablesCollection(group_id);
     const mapping = this.sync_rules.mapping;
     let result: storage.ResolveTableResult | null = null;
     await this.db.client.withSession(async (session) => {
-      const col = this.db.source_tables;
+      const col = this.db.source_tables(group_id);
       let filter: Partial<CommonSourceTableDocument> = {
         group_id: group_id,
         connection_id: connection_id,
@@ -992,12 +993,15 @@ export class MongoSyncBucketStorage
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
-    await this.db.source_tables.deleteMany(
-      {
-        group_id: this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+    await this.db
+      .source_tables(this.group_id)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
     this.#storageInitialized = false;
   }
 
