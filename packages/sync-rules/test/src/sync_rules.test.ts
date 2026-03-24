@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
+import { BucketPriority, CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
 
 import {
   BucketDataScope,
@@ -1149,5 +1149,41 @@ streams:
     );
     expect(errors[0].message).toContain('Common table expressions are not supported');
     expect(errors[2].message).toContain('Common table expressions are not supported');
+  });
+
+  test('applies subscription priorities', () => {
+    for (const edition of [2, 3]) {
+      const { config: rules, errors } = SqlSyncRules.fromYaml(
+        `
+config:
+  edition: ${edition}
+
+streams:
+  a:
+    priority: 3
+    query: SELECT * FROM users
+    `,
+        {
+          ...PARSE_OPTIONS
+        }
+      );
+
+      for (const priority of [null, 0, 1, 2]) {
+        const { querier } = rules.hydrate(hydrationParams).getBucketParameterQuerier(
+          normalizeQuerierOptions(
+            {},
+            {},
+            {
+              a: [{ priorityOverride: priority as BucketPriority | null, opaque_id: 1, parameters: {} }]
+            }
+          )
+        );
+        expect(querier.staticBuckets).toMatchObject([
+          {
+            priority: priority ?? 3
+          }
+        ]);
+      }
+    }
   });
 });
