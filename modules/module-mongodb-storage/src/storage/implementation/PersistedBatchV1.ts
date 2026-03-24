@@ -227,13 +227,46 @@ export class PersistedBatchV1 extends PersistedBatch {
   }
 
   protected async flushCurrentData(session: mongo.ClientSession) {
-    await this.db.v1_current_data.bulkWrite(this.currentData, {
-      session,
-      ordered: true
-    });
+    const operationsBySourceTable = new Map<string, typeof this.currentData>();
+    for (const operation of this.currentData) {
+      const sourceTableId = this.getSourceTableIdHex(operation);
+      if (sourceTableId == null) {
+        throw new ReplicationAssertionError('Missing source table id for current_data operation');
+      }
+      const existing = operationsBySourceTable.get(sourceTableId) ?? [];
+      existing.push(operation);
+      operationsBySourceTable.set(sourceTableId, existing);
+    }
+
+    for (const operations of operationsBySourceTable.values()) {
+      const firstOperation = operations[0]!;
+      const sourceTableId = this.getSourceTableId(firstOperation);
+      if (sourceTableId == null) {
+        throw new ReplicationAssertionError('Missing source table id for current_data bulkWrite');
+      }
+      await this.db.initializeCurrentDataCollection(this.group_id, sourceTableId);
+      await this.db.v1_current_data(this.group_id, sourceTableId).bulkWrite(operations, {
+        session,
+        ordered: true
+      });
+    }
   }
 
   protected resetCurrentData() {
     this.currentData = [];
+  }
+
+  private getSourceTableIdHex(operation: mongo.AnyBulkWriteOperation<CurrentDataDocument>): string | undefined {
+    return this.getSourceTableId(operation)?.toHexString();
+  }
+
+  private getSourceTableId(operation: mongo.AnyBulkWriteOperation<CurrentDataDocument>): bson.ObjectId | undefined {
+    if ('updateOne' in operation) {
+      return operation.updateOne.filter._id?.t;
+    }
+    if ('deleteOne' in operation) {
+      return operation.deleteOne.filter._id?.t;
+    }
+    return undefined;
   }
 }

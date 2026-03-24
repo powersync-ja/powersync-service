@@ -128,12 +128,37 @@ export class PowerSyncMongo {
       .map((collection) => this.db.collection<BucketParameterDocumentV3>(collection.name));
   }
 
+  sourceRecordsCollectionName(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+    return `source_records_${replicationStreamId}_${sourceTableId.toHexString()}`;
+  }
+
+  sourceRecords<T extends CommonCurrentDataDocument>(
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId
+  ): mongo.Collection<T> {
+    return this.db.collection<T>(this.sourceRecordsCollectionName(replicationStreamId, sourceTableId));
+  }
+
+  async listSourceRecordCollections(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<CommonCurrentDataDocument>[]> {
+    const prefix = replicationStreamId == null ? 'source_records_' : `source_records_${replicationStreamId}_`;
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<CommonCurrentDataDocument>(collection.name));
+  }
+
   /**
    * Clear all collections.
    */
   async clear() {
     await this.current_data.deleteMany({});
     await this.v3_current_data.deleteMany({});
+    for (const collection of await this.listSourceRecordCollections()) {
+      await collection.drop();
+    }
     await this.bucket_data.deleteMany({});
     for (const collection of await this.listBucketDataCollectionsV3()) {
       await collection.drop();
@@ -244,18 +269,6 @@ export class PowerSyncMongo {
 
   async initializeStorageVersion(storageConfig: StorageConfig) {
     if (storageConfig.incrementalReprocessing) {
-      // Initialize the v3_current_data collection, which is used for the new storage version.
-      // No-op if this already exists
-      await this.v3_current_data.createIndex(
-        {
-          '_id.g': 1,
-          pending_delete: 1
-        },
-        {
-          partialFilterExpression: { pending_delete: { $exists: true } },
-          name: 'pending_delete'
-        }
-      );
       await this.v3_source_tables.createIndex(
         {
           group_id: 1,
@@ -269,6 +282,27 @@ export class PowerSyncMongo {
         }
       );
     }
+  }
+
+  async initializeSourceRecordsCollection(
+    storageConfig: StorageConfig,
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId
+  ) {
+    if (!storageConfig.incrementalReprocessing) {
+      return;
+    }
+
+    await this.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId).createIndex(
+      {
+        '_id.g': 1,
+        pending_delete: 1
+      },
+      {
+        partialFilterExpression: { pending_delete: { $exists: true } },
+        name: 'pending_delete'
+      }
+    );
   }
 }
 
@@ -294,30 +328,37 @@ export class VersionedPowerSyncMongo {
    *
    * Use in places where it does not matter which version is used.
    */
-  get common_current_data(): mongo.Collection<CommonCurrentDataDocument> {
-    if (this.storageConfig.incrementalReprocessing) {
-      return this.#upstream.v3_current_data as unknown as mongo.Collection<CommonCurrentDataDocument>;
-    } else {
-      return this.#upstream.current_data as unknown as mongo.Collection<CommonCurrentDataDocument>;
-    }
+  common_current_data(
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId
+  ): mongo.Collection<CommonCurrentDataDocument> {
+    return this.#upstream.sourceRecords<CommonCurrentDataDocument>(replicationStreamId, sourceTableId);
   }
 
-  get v1_current_data() {
+  v1_current_data(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     if (this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'current_data collection should not be used when incrementalReprocessing is enabled'
       );
     }
-    return this.#upstream.current_data;
+    return this.#upstream.sourceRecords<CurrentDataDocument>(replicationStreamId, sourceTableId);
   }
 
-  get v3_current_data() {
+  v3_current_data(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'v3_current_data collection should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.v3_current_data;
+    return this.#upstream.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId);
+  }
+
+  listCommonCurrentDataCollections(replicationStreamId?: number) {
+    return this.#upstream.listSourceRecordCollections(replicationStreamId);
+  }
+
+  initializeCurrentDataCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+    return this.#upstream.initializeSourceRecordsCollection(this.storageConfig, replicationStreamId, sourceTableId);
   }
 
   get bucket_data() {

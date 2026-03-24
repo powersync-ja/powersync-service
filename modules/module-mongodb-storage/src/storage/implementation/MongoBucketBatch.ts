@@ -244,26 +244,29 @@ export abstract class MongoBucketBatch
 
       sizes = new Map<string, number>();
 
-      const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> =
-        this.db.common_current_data.aggregate(
-          [
-            {
-              $match: {
-                _id: { $in: sizeLookups }
+      for (const [sourceTableId, sourceKeys] of this.groupSourceKeysByTable(sizeLookups)) {
+        const sizeCursor: mongo.AggregationCursor<{ _id: SourceKey; size: number }> = this.db
+          .common_current_data(this.group_id, sourceTableId)
+          .aggregate(
+            [
+              {
+                $match: {
+                  _id: { $in: sourceKeys }
+                }
+              },
+              {
+                $project: {
+                  _id: 1,
+                  size: { $bsonSize: '$$ROOT' }
+                }
               }
-            },
-            {
-              $project: {
-                _id: 1,
-                size: { $bsonSize: '$$ROOT' }
-              }
-            }
-          ],
-          { session }
-        );
-      for await (let doc of sizeCursor.stream()) {
-        const key = cacheKey(doc._id.t, doc._id.k);
-        sizes.set(key, doc.size);
+            ],
+            { session }
+          );
+        for await (let doc of sizeCursor.stream()) {
+          const key = cacheKey(doc._id.t, doc._id.k);
+          sizes.set(key, doc.size);
+        }
       }
     }
 
@@ -288,14 +291,16 @@ export abstract class MongoBucketBatch
       let current_data_lookup = new Map<string, CommonCurrentDataDocument>();
       // With skipExistingRows, we only need to know whether or not the row exists.
       const projection = this.skipExistingRows ? { _id: 1 } : undefined;
-      const cursor = this.db.common_current_data.find(
-        {
-          _id: { $in: lookups }
-        },
-        { session, projection }
-      );
-      for await (let doc of cursor.stream()) {
-        current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
+      for (const [sourceTableId, sourceKeys] of this.groupSourceKeysByTable(lookups)) {
+        const cursor = this.db.common_current_data(this.group_id, sourceTableId).find(
+          {
+            _id: { $in: sourceKeys }
+          },
+          { session, projection }
+        );
+        for await (let doc of cursor.stream()) {
+          current_data_lookup.set(cacheKey(doc._id.t, doc._id.k), doc);
+        }
       }
 
       let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
@@ -1029,15 +1034,17 @@ export abstract class MongoBucketBatch
           pending_delete: { $exists: false }
         };
 
-        const cursor = this.db.common_current_data.find(current_data_filter, {
-          projection: {
-            _id: 1,
-            buckets: 1,
-            lookups: 1
-          },
-          limit: BATCH_LIMIT,
-          session: session
-        });
+        const cursor = this.db
+          .common_current_data(this.group_id, mongoTableId(sourceTable.id))
+          .find(current_data_filter, {
+            projection: {
+              _id: 1,
+              buckets: 1,
+              lookups: 1
+            },
+            limit: BATCH_LIMIT,
+            session: session
+          });
         const batch = await cursor.toArray();
         const persistedBatch = this.createPersistedBatch(0);
 
@@ -1202,5 +1209,15 @@ export abstract class MongoBucketBatch
     return this.sync_rules.eventDescriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
     );
+  }
+
+  private groupSourceKeysByTable(sourceKeys: SourceKey[]): Map<mongo.ObjectId, SourceKey[]> {
+    const grouped = new Map<mongo.ObjectId, SourceKey[]>();
+    for (const sourceKey of sourceKeys) {
+      const existing = grouped.get(sourceKey.t) ?? [];
+      existing.push(sourceKey);
+      grouped.set(sourceKey.t, existing);
+    }
+    return grouped;
   }
 }

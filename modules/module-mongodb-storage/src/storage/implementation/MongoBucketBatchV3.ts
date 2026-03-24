@@ -75,13 +75,17 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   protected async cleanupCurrentData(lastCheckpoint: bigint): Promise<void> {
-    const result = await this.db.v3_current_data.deleteMany({
-      '_id.g': this.group_id,
-      pending_delete: { $exists: true, $lte: lastCheckpoint }
-    });
-    if (result.deletedCount > 0) {
+    let deletedCount = 0;
+    for (const collection of await this.db.listCommonCurrentDataCollections(this.group_id)) {
+      const result = await collection.deleteMany({
+        '_id.g': this.group_id,
+        pending_delete: { $exists: true, $lte: lastCheckpoint }
+      });
+      deletedCount += result.deletedCount;
+    }
+    if (deletedCount > 0) {
       this.logger.info(
-        `Cleaned up ${result.deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`
+        `Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`
       );
     }
   }

@@ -3,7 +3,7 @@ import { bucketRequest, register, test_utils } from '@powersync/service-core-tes
 import { describe, expect, test } from 'vitest';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { CurrentDataDocumentV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
+import { CurrentBucketV3, CurrentDataDocumentV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
@@ -180,8 +180,9 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     await writer.flush();
 
     const mongoFactory = factory as MongoBucketStorage;
-    const currentData = await mongoFactory.db.v3_current_data.findOne({});
-    const firstBucket: CurrentDataDocumentV3['buckets'][number] | undefined = currentData?.buckets[0];
+    const currentDataCollections = await mongoFactory.db.listSourceRecordCollections(syncRules.id);
+    const currentData = await currentDataCollections[0]?.findOne({});
+    const firstBucket: CurrentBucketV3 | undefined = currentData?.buckets[0] as CurrentBucketV3 | undefined;
     expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
 
     const bucketCollections = await mongoFactory.db.db

@@ -182,7 +182,14 @@ export class MongoSyncBucketStorage
     const mapping = this.sync_rules.mapping;
     for (let source of mapping.allBucketDefinitionIds()) {
       const collection = this.db.bucket_data_v3(this.group_id, source).collectionName;
-      await this.db.db.createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } });
+      await this.db.db
+        .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
+        .catch((error) => {
+          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
+            return;
+          }
+          throw error;
+        });
     }
     for (let indexId of mapping.allParameterIndexIds()) {
       await this.db.bucket_parameters_v3(this.group_id, indexId).createIndex(
@@ -974,12 +981,9 @@ export class MongoSyncBucketStorage
       );
     }
 
-    await this.db.common_current_data.deleteMany(
-      {
-        _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+    for (const collection of await this.db.listCommonCurrentDataCollections(this.group_id)) {
+      await collection.drop();
+    }
 
     await this.db.bucket_state.deleteMany(
       {
@@ -994,6 +998,7 @@ export class MongoSyncBucketStorage
       },
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
+    this.#storageInitialized = false;
   }
 
   async reportError(e: any): Promise<void> {
