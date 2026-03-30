@@ -1,13 +1,13 @@
-import { getDebugTablesInfo } from '@module/replication/replication-utils.js';
+import { getDebugTablesInfoBatched } from '@module/replication/replication-utils.js';
 import { expect, test } from 'vitest';
 
+import { updateSyncRulesFromYaml } from '@powersync/service-core';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { updateSyncRulesFromYaml } from '@powersync/service-core';
 
 test('validate tables', async () => {
   await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
-  const { pool } = context;
+  const { pool, connectionManager } = context;
 
   await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
 
@@ -23,8 +23,10 @@ bucket_definitions:
   const syncRules = await context.factory.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent));
 
   const tablePatterns = syncRules.parsed({ defaultSchema: 'public' }).sync_rules.config.getSourceTables();
-  const tableInfo = await getDebugTablesInfo({
-    db: pool,
+  const connection = await connectionManager.snapshotConnection();
+  await using _ = { [Symbol.asyncDispose]: () => connection.end() };
+  const tableInfo = await getDebugTablesInfoBatched({
+    db: connection,
     publicationName: context.publicationName,
     connectionTag: context.connectionTag,
     tablePatterns: tablePatterns,
