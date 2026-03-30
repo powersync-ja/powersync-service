@@ -9,6 +9,10 @@
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
+  "files": [
+    "dist/**/*",
+    "sql/**/*"
+  ],
   "scripts": {
     "build": "tsc -b",
     "build:tests": "tsc -b test/tsconfig.json",
