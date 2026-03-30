@@ -81,12 +81,16 @@ BEGIN
         p.is_wildcard,
         p.input_name,
         c.relid,
-        c.table_name
+        c.table_name,
+        c.relreplident,
+        c.relrowsecurity
       FROM patterns p
       LEFT JOIN LATERAL (
         SELECT
           c.oid::int8 AS relid,
-          c.relname AS table_name
+          c.relname AS table_name,
+          c.relreplident,
+          c.relrowsecurity
         FROM pg_namespace n
         JOIN pg_class c ON c.relnamespace = n.oid
         WHERE n.nspname = p.schema_name
@@ -101,55 +105,50 @@ BEGIN
       WHERE NOT p.is_wildcard OR c.relid IS NOT NULL
     ),
     existing AS (
-      -- Work from distinct relation ids for catalog lookups.
-      SELECT DISTINCT relid::oid AS relid
-      FROM matched
-      WHERE relid IS NOT NULL
-    ),
-    replication_identity AS (
-      -- Resolve the replica identity mode for each existing table.
-      SELECT
-        c.oid::int8 AS relid,
-        CASE c.relreplident
+      -- Deduplicate matched tables while carrying the pg_class metadata we already have.
+      SELECT DISTINCT
+        relid::oid AS relid,
+        CASE relreplident
           WHEN 'd' THEN 'default'
           WHEN 'n' THEN 'nothing'
           WHEN 'f' THEN 'full'
           WHEN 'i' THEN 'index'
-        END AS replication_identity
-      FROM pg_class c
-      JOIN existing e ON e.relid = c.oid
+        END AS replication_identity,
+        relrowsecurity AS rls_enabled
+      FROM matched
+      WHERE relid IS NOT NULL
     ),
     replication_columns AS (
       -- Resolve the actual replication-id columns for default/index/full modes.
       SELECT
-        r.relid,
+        e.relid,
         a.attname AS name,
         a.attnum AS attnum
-      FROM replication_identity r
-      JOIN pg_index i ON i.indrelid = r.relid::oid AND i.indisprimary
+      FROM existing e
+      JOIN pg_index i ON i.indrelid = e.relid AND i.indisprimary
       JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-      WHERE r.replication_identity = 'default' AND a.attnum > 0
+      WHERE e.replication_identity = 'default' AND a.attnum > 0
 
       UNION ALL
 
       SELECT
-        r.relid,
+        e.relid,
         a.attname AS name,
         a.attnum AS attnum
-      FROM replication_identity r
-      JOIN pg_index i ON i.indrelid = r.relid::oid AND i.indisreplident
+      FROM existing e
+      JOIN pg_index i ON i.indrelid = e.relid AND i.indisreplident
       JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-      WHERE r.replication_identity = 'index' AND a.attnum > 0
+      WHERE e.replication_identity = 'index' AND a.attnum > 0
 
       UNION ALL
 
       SELECT
-        r.relid,
+        e.relid,
         a.attname AS name,
         a.attnum AS attnum
-      FROM replication_identity r
-      JOIN pg_attribute a ON a.attrelid = r.relid::oid
-      WHERE r.replication_identity = 'full' AND a.attnum > 0
+      FROM existing e
+      JOIN pg_attribute a ON a.attrelid = e.relid
+      WHERE e.replication_identity = 'full' AND a.attnum > 0
     ),
     publication_membership AS (
       -- Check publication membership in bulk instead of once per table.
@@ -173,15 +172,14 @@ BEGIN
       WHERE r.rolname = current_user
     ),
     rls_check AS (
-      -- Pair role capabilities with per-table row-security metadata.
+      -- Pair role capabilities with the row-security metadata already carried from pg_class.
       SELECT
         e.relid::int8 AS relid,
-        c.relrowsecurity AS rls_enabled,
+        e.rls_enabled,
         u.username,
         u.is_superuser,
         u.bypasses_rls
       FROM existing e
-      JOIN pg_class c ON c.oid = e.relid
       CROSS JOIN user_info u
     ),
     select_probes AS (
@@ -198,7 +196,7 @@ BEGIN
       m.schema_name,
       COALESCE(m.table_name, m.input_name) AS name,
       m.relid AS relation_id,
-      ri.replication_identity,
+      e.replication_identity,
       COALESCE(
         jsonb_agg(rc.name ORDER BY rc.attnum) FILTER (WHERE rc.name IS NOT NULL),
         '[]'::jsonb
@@ -210,7 +208,7 @@ BEGIN
       rls.is_superuser,
       rls.bypasses_rls
     FROM matched m
-    LEFT JOIN replication_identity ri ON ri.relid = m.relid
+    LEFT JOIN existing e ON e.relid = m.relid
     LEFT JOIN replication_columns rc ON rc.relid = m.relid
     LEFT JOIN publication_membership pm ON pm.pattern_ord = m.pattern_ord AND pm.relid = m.relid
     LEFT JOIN rls_check rls ON rls.relid = m.relid
@@ -220,7 +218,7 @@ BEGIN
       m.schema_name,
       COALESCE(m.table_name, m.input_name),
       m.relid,
-      ri.replication_identity,
+      e.replication_identity,
       sp.message,
       pm.relid,
       rls.rls_enabled,
