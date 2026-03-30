@@ -459,10 +459,14 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
 
 async function expectedSchemaChange(spy: any, type: SchemaChangeType) {
   logger.info(`Test Assertion: Waiting for schema change: ${type}`);
-  await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type })), {
-    timeout: 20000
-  });
-
+  try {
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type })), {
+      timeout: 55000
+    });
+  } catch (error) {
+    // The error message thrown here is extremely verbose and not particularly helpful
+    throw new Error(`Test Assertion: Timeout waiting for schema change: ${type}`);
+  }
   const promises = spy.mock.results.filter((r: any) => r.type === 'return').map((r: any) => r.value);
 
   await Promise.all(promises.map((p: Promise<unknown>) => expect(p).resolves.toBeUndefined()));

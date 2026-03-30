@@ -1,5 +1,19 @@
 # @powersync/service-module-mssql
 
+## 0.6.2
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- 11b4deb: Restructure `powersync_replication_lag_seconds` metric.
+- Updated dependencies [df451c6]
+- Updated dependencies [dea1e00]
+- Updated dependencies [ada86f2]
+- Updated dependencies [11b4deb]
+  - @powersync/service-core@1.20.4
+  - @powersync/service-sync-rules@0.34.1
+  - @powersync/lib-services-framework@0.9.2
+
 ## 0.6.1
 
 ### Patch Changes

@@ -1,5 +1,17 @@
 # @powersync/service-core-tests
 
+## 0.15.3
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- Updated dependencies [df451c6]
+- Updated dependencies [dea1e00]
+- Updated dependencies [ada86f2]
+- Updated dependencies [11b4deb]
+  - @powersync/service-core@1.20.4
+  - @powersync/service-sync-rules@0.34.1
+
 ## 0.15.2
 
 ### Patch Changes

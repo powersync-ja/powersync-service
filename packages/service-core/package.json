@@ -5,7 +5,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "1.20.3",
+  "version": "1.20.4",
   "main": "dist/index.js",
   "license": "FSL-1.1-ALv2",
   "type": "module",
@@ -49,7 +49,7 @@
     "@types/async": "^3.2.24",
     "@types/negotiator": "^0.6.4",
     "@types/lodash": "^4.17.5",
-    "fastify": "^5.4.0",
+    "fastify": "^5.8.2",
     "fastify-plugin": "^5.0.1"
   }
 }

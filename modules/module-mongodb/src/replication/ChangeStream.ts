@@ -12,6 +12,7 @@ import {
 import {
   MetricsEngine,
   RelationCache,
+  ReplicationLagTracker,
   SaveOperationTag,
   SourceEntityDescriptor,
   SourceTable,
@@ -19,15 +20,16 @@ import {
 } from '@powersync/service-core';
 import {
   DatabaseInputRow,
+  HydratedSyncRules,
   SqliteInputRow,
   SqliteRow,
-  HydratedSyncRules,
   TablePattern
 } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
+import { trackChangeStreamBsonBytes } from './internal-mongodb-utils.js';
 import { MongoManager } from './MongoManager.js';
 import {
   constructAfterRecord,
@@ -38,7 +40,6 @@ import {
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
-import { trackChangeStreamBsonBytes } from './internal-mongodb-utils.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -99,16 +100,7 @@ export class ChangeStream {
 
   private relationCache = new RelationCache(getCacheIdentifier);
 
-  /**
-   * Time of the oldest uncommitted change, according to the source db.
-   * This is used to determine the replication lag.
-   */
-  private oldestUncommittedChange: Date | null = null;
-  /**
-   * Keep track of whether we have done a commit or keepalive yet.
-   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
-   */
-  private isStartingReplication = true;
+  private replicationLag = new ReplicationLagTracker();
 
   private checkpointStreamId = new mongo.ObjectId();
 
@@ -943,7 +935,7 @@ export class ChangeStream {
               this.logger.info(
                 `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
               );
-              this.isStartingReplication = false;
+              this.replicationLag.markStarted();
             }
             continue;
           }
@@ -1080,12 +1072,11 @@ export class ChangeStream {
               waitForCheckpointLsn = null;
             }
             const { checkpointBlocked } = await batch.commit(lsn, {
-              oldestUncommittedChange: this.oldestUncommittedChange
+              oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
             });
 
             if (!checkpointBlocked) {
-              this.oldestUncommittedChange = null;
-              this.isStartingReplication = false;
+              this.replicationLag.markCommitted();
               changesSinceLastCheckpoint = 0;
             }
           } else if (
@@ -1107,9 +1098,9 @@ export class ChangeStream {
               snapshot: true
             });
             if (table.syncAny) {
-              if (this.oldestUncommittedChange == null && changeDocument.clusterTime != null) {
-                this.oldestUncommittedChange = timestampToDate(changeDocument.clusterTime);
-              }
+              this.replicationLag.trackUncommittedChange(
+                changeDocument.clusterTime == null ? null : timestampToDate(changeDocument.clusterTime)
+              );
 
               const transactionKeyValue = transactionKey(changeDocument);
 
@@ -1171,17 +1162,8 @@ export class ChangeStream {
     );
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
-    if (this.oldestUncommittedChange == null) {
-      if (this.isStartingReplication) {
-        // We don't have anything to compute replication lag with yet.
-        return undefined;
-      } else {
-        // We don't have any uncommitted changes, so replication is up-to-date.
-        return 0;
-      }
-    }
-    return Date.now() - this.oldestUncommittedChange.getTime();
+  getReplicationLagMillis(): number | undefined {
+    return this.replicationLag.getLagMillis();
   }
 
   private lastTouchedAt = performance.now();

@@ -1,6 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import * as pgwire from '@powersync/service-jpgwire';
-import pDefer, { DeferredPromise } from 'p-defer';
 import { AbstractPostgresConnection, sql } from './AbstractPostgresConnection.js';
 import { ConnectionLease, ConnectionSlot, NotificationListener } from './ConnectionSlot.js';
 import { WrappedConnection } from './WrappedConnection.js';
@@ -39,7 +38,7 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
   protected connections: ConnectionSlot[];
 
   protected initialized: Promise<void>;
-  protected queue: DeferredPromise<ConnectionLease>[];
+  protected queue: PromiseWithResolvers<ConnectionLease>[];
 
   constructor(protected options: DatabaseClientOptions) {
     super();
@@ -197,7 +196,7 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     await this.initialized;
 
     // Queue the operation
-    const deferred = pDefer<ConnectionLease>();
+    const deferred = Promise.withResolvers<ConnectionLease>();
     this.queue.push(deferred);
 
     this.pokeSlots();

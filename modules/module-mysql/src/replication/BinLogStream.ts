@@ -1,6 +1,6 @@
 import {
-  Logger,
   logger as defaultLogger,
+  Logger,
   ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
@@ -12,6 +12,7 @@ import {
   getUuidReplicaIdentityBson,
   InternalOpId,
   MetricsEngine,
+  ReplicationLagTracker,
   SourceTable,
   storage
 } from '@powersync/service-core';
@@ -19,10 +20,10 @@ import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 
 import { TableMapEntry } from '@powersync/mysql-zongji';
+import { ReplicationMetric } from '@powersync/service-types';
 import * as common from '../common/common-index.js';
 import { createRandomServerId, qualifiedMySQLTable } from '../utils/mysql-utils.js';
 import { MySQLConnectionManager } from './MySQLConnectionManager.js';
-import { ReplicationMetric } from '@powersync/service-types';
 import { BinLogEventHandler, BinLogListener, Row, SchemaChange, SchemaChangeType } from './zongji/BinLogListener.js';
 
 export interface BinLogStreamOptions {
@@ -74,16 +75,7 @@ export class BinLogStream {
 
   private tableCache = new Map<string | number, storage.SourceTable>();
 
-  /**
-   * Time of the oldest uncommitted change, according to the source db.
-   * This is used to determine the replication lag.
-   */
-  private oldestUncommittedChange: Date | null = null;
-  /**
-   * Keep track of whether we have done a commit or keepalive yet.
-   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
-   */
-  isStartingReplication = true;
+  private replicationLag = new ReplicationLagTracker();
 
   constructor(private options: BinLogStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -120,6 +112,10 @@ export class BinLogStream {
 
   get stopped() {
     return this.abortSignal.aborted;
+  }
+
+  get isStartingReplication() {
+    return this.replicationLag.isStartingReplication;
   }
 
   get defaultSchema() {
@@ -487,26 +483,23 @@ export class BinLogStream {
       onKeepAlive: async (lsn: string) => {
         const { checkpointBlocked } = await batch.keepalive(lsn);
         if (!checkpointBlocked) {
-          this.oldestUncommittedChange = null;
+          this.replicationLag.clearUncommittedChange();
         }
       },
       onCommit: async (lsn: string) => {
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
         const { checkpointBlocked } = await batch.commit(lsn, {
-          oldestUncommittedChange: this.oldestUncommittedChange
+          oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
         });
         if (!checkpointBlocked) {
-          this.oldestUncommittedChange = null;
-          this.isStartingReplication = false;
+          this.replicationLag.markCommitted();
         }
       },
       onTransactionStart: async (options) => {
-        if (this.oldestUncommittedChange == null) {
-          this.oldestUncommittedChange = options.timestamp;
-        }
+        this.replicationLag.trackUncommittedChange(options.timestamp);
       },
       onRotate: async () => {
-        this.isStartingReplication = false;
+        this.replicationLag.markStarted();
       },
       onSchemaChange: async (change: SchemaChange) => {
         await this.handleSchemaChange(batch, change);
@@ -674,17 +667,8 @@ export class BinLogStream {
     }
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
-    if (this.oldestUncommittedChange == null) {
-      if (this.isStartingReplication) {
-        // We don't have anything to compute replication lag with yet.
-        return undefined;
-      } else {
-        // We don't have any uncommitted changes, so replication is up to date.
-        return 0;
-      }
-    }
-    return Date.now() - this.oldestUncommittedChange.getTime();
+  getReplicationLagMillis(): number | undefined {
+    return this.replicationLag.getLagMillis();
   }
 
   async tryRollback(promiseConnection: mysqlPromise.Connection) {

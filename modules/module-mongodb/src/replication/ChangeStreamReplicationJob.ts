@@ -80,7 +80,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     }
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
+  getReplicationLagMillis(): number | undefined {
     return this.lastStream?.getReplicationLagMillis();
   }
 }

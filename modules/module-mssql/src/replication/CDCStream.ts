@@ -1,20 +1,30 @@
 import {
   container,
   DatabaseConnectionError,
+  logger as defaultLogger,
   ErrorCode,
   Logger,
-  logger as defaultLogger,
   ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import { getUuidReplicaIdentityBson, MetricsEngine, SourceEntityDescriptor, storage } from '@powersync/service-core';
+import {
+  getUuidReplicaIdentityBson,
+  MetricsEngine,
+  ReplicationLagTracker,
+  SourceEntityDescriptor,
+  storage
+} from '@powersync/service-core';
 
 import { HydratedSyncRules, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
-import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
-import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
-import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
+import sql from 'mssql';
+import { CaptureInstance } from '../common/CaptureInstance.js';
+import { LSN } from '../common/LSN.js';
+import { CDCToSqliteRow, toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
+import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
+import { MSSQLSourceTableCache } from '../common/MSSQLSourceTableCache.js';
+import { AdditionalConfig } from '../types/types.js';
 import {
   checkRetentionThresholds,
   checkSourceConfiguration,
@@ -24,14 +34,10 @@ import {
   getLatestReplicatedLSN,
   isIColumnMetadata
 } from '../utils/mssql.js';
-import sql from 'mssql';
-import { CDCToSqliteRow, toSqliteInputRow } from '../common/mssqls-to-sqlite.js';
-import { LSN } from '../common/LSN.js';
-import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
-import { MSSQLSourceTableCache } from '../common/MSSQLSourceTableCache.js';
+import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
 import { CDCEventHandler, CDCPoller, SchemaChange, SchemaChangeType } from './CDCPoller.js';
-import { AdditionalConfig } from '../types/types.js';
-import { CaptureInstance } from '../common/CaptureInstance.js';
+import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
+import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
 
 export interface CDCStreamOptions {
   connections: MSSQLConnectionManager;
@@ -101,16 +107,7 @@ export class CDCStream {
 
   public tableCache = new MSSQLSourceTableCache();
 
-  /**
-   * Time of the oldest uncommitted change, according to the source db.
-   * This is used to determine the replication lag.
-   */
-  private oldestUncommittedChange: Date | null = null;
-  /**
-   * Keep track of whether we have done a commit or keepalive yet.
-   * We can only compute replication lag if isStartingReplication == false, or oldestUncommittedChange is present.
-   */
-  public isStartingReplication = true;
+  private replicationLag = new ReplicationLagTracker();
 
   constructor(private options: CDCStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -126,6 +123,10 @@ export class CDCStream {
 
   get stopped() {
     return this.abortSignal.aborted;
+  }
+
+  get isStartingReplication() {
+    return this.replicationLag.isStartingReplication;
   }
 
   get defaultSchema() {
@@ -677,10 +678,12 @@ export class CDCStream {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
       },
       onCommit: async (lsn: string, transactionCount: number) => {
-        const { checkpointBlocked } = await batch.commit(lsn);
+        const { checkpointBlocked } = await batch.commit(lsn, {
+          oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
+        });
         this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionCount);
         if (!checkpointBlocked) {
-          this.isStartingReplication = false;
+          this.replicationLag.markCommitted();
         }
       },
       onSchemaChange: async (schemaChange: SchemaChange) => {
@@ -805,17 +808,8 @@ export class CDCStream {
     return this.syncRules.applyRowContext<never>(inputRow);
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
-    if (this.oldestUncommittedChange == null) {
-      if (this.isStartingReplication) {
-        // We don't have anything to compute replication lag with yet.
-        return undefined;
-      } else {
-        // We don't have any uncommitted changes, so replication is up-to-date.
-        return 0;
-      }
-    }
-    return Date.now() - this.oldestUncommittedChange.getTime();
+  getReplicationLagMillis(): number | undefined {
+    return this.replicationLag.getLagMillis();
   }
 
   private touch() {
@@ -828,7 +822,7 @@ export class CDCStream {
    *  Creates an update in the source database to ensure regular checkpoints via the CDC
    */
   public async keepAlive() {
-    if (!this.isStartingReplication && !this.stopped) {
+    if (!this.replicationLag.isStartingReplication && !this.stopped) {
       await createCheckpoint(this.connections);
     }
   }

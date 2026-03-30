@@ -1,5 +1,18 @@
 # @powersync/service-module-mysql
 
+## 0.12.3
+
+### Patch Changes
+
+- 11b4deb: Restructure `powersync_replication_lag_seconds` metric.
+- Updated dependencies [df451c6]
+- Updated dependencies [dea1e00]
+- Updated dependencies [ada86f2]
+- Updated dependencies [11b4deb]
+  - @powersync/service-core@1.20.4
+  - @powersync/service-sync-rules@0.34.1
+  - @powersync/lib-services-framework@0.9.2
+
 ## 0.12.2
 
 ### Patch Changes

@@ -626,18 +626,21 @@ export class SyncConfigFromYaml {
     let offset: number;
     let end: number;
 
+    // Build an offset map to translate parsed-value positions to source positions, handling
+    // escape sequences in quoted scalars and stripped indentation in block scalars.
+    const valueSource = isQuotedScalar(scalar.type)
+      ? this.yaml.slice(valueStart, scalar.range![1] - 1)
+      : this.yaml.slice(valueStart, scalar.range![1]);
+    const offsetMap = buildParsedToSourceValueMap(valueSource, scalar.type);
+
     if (err instanceof SqlRuleError && err.location) {
-      // Use an offset map to translate parsed-value positions to source positions, handling
-      // escape sequences in quoted scalars and stripped indentation in block scalars.
-      const valueSource = isQuotedScalar(scalar.type)
-        ? this.yaml.slice(valueStart, scalar.range![1] - 1)
-        : this.yaml.slice(valueStart, scalar.range![1]);
-      const offsetMap = buildParsedToSourceValueMap(valueSource, scalar.type);
       offset = valueStart + (offsetMap[err.location.start] ?? err.location.start);
       end = valueStart + (offsetMap[err.location.end] ?? err.location.end);
     } else if (typeof (err as any).token?._location?.start == 'number') {
-      offset = valueStart + (err as any).token?._location?.start;
-      end = valueStart + (err as any).token?._location?.end;
+      const rawStart = (err as any).token._location.start;
+      const rawEnd = (err as any).token._location.end;
+      offset = valueStart + (offsetMap[rawStart] ?? rawStart);
+      end = valueStart + (offsetMap[rawEnd] ?? rawEnd);
     } else {
       offset = valueStart;
       end = valueStart + Math.max(value.length, 1);

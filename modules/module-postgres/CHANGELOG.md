@@ -1,5 +1,20 @@
 # @powersync/service-module-postgres
 
+## 0.19.3
+
+### Patch Changes
+
+- 11b4deb: Restructure `powersync_replication_lag_seconds` metric.
+- Updated dependencies [df451c6]
+- Updated dependencies [dea1e00]
+- Updated dependencies [ada86f2]
+- Updated dependencies [11b4deb]
+  - @powersync/service-core@1.20.4
+  - @powersync/lib-service-postgres@0.4.25
+  - @powersync/service-sync-rules@0.34.1
+  - @powersync/lib-services-framework@0.9.2
+  - @powersync/service-jpgwire@0.21.16
+
 ## 0.19.2
 
 ### Patch Changes
