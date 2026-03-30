@@ -36,6 +36,9 @@ BEGIN
     ORDER BY p.pattern_ord, c.relname
   LOOP
     BEGIN
+      -- Query a single row from each table, to confirm that we can query the table
+      -- (no permission errors)
+      -- %I covers identifier escaping
       EXECUTE format('SELECT 1 FROM %I.%I LIMIT 1', select_target.schema_name, select_target.table_name);
       select_probe_results := select_probe_results || jsonb_build_array(
         jsonb_build_object(

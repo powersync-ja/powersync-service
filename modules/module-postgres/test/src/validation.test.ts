@@ -37,6 +37,16 @@ function getPatternResult(results: Awaited<ReturnType<typeof getDebugTablesInfoB
   return result!;
 }
 
+function getPatternResultInSchema(
+  results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>,
+  schema: string,
+  pattern: string
+) {
+  const result = results.find((entry) => entry.schema == schema && entry.pattern == pattern);
+  expect(result).toBeDefined();
+  return result!;
+}
+
 function getExactTable(results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>, pattern: string) {
   const result = getPatternResult(results, pattern);
   expect(result.wildcard).toBe(false);
@@ -44,8 +54,29 @@ function getExactTable(results: Awaited<ReturnType<typeof getDebugTablesInfoBatc
   return result.table!;
 }
 
+function getExactTableInSchema(
+  results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>,
+  schema: string,
+  pattern: string
+) {
+  const result = getPatternResultInSchema(results, schema, pattern);
+  expect(result.wildcard).toBe(false);
+  expect(result.table).toBeDefined();
+  return result.table!;
+}
+
 function getWildcardTables(results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>, pattern: string) {
   const result = getPatternResult(results, pattern);
+  expect(result.wildcard).toBe(true);
+  return [...(result.tables ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getWildcardTablesInSchema(
+  results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>,
+  schema: string,
+  pattern: string
+) {
+  const result = getPatternResultInSchema(results, schema, pattern);
   expect(result.wildcard).toBe(true);
   return [...(result.tables ?? [])].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -289,5 +320,84 @@ bucket_definitions:
     await connection.end();
     await pool.query(`DROP OWNED BY ${roleName}`);
     await pool.query(`DROP ROLE ${roleName}`);
+  }
+});
+
+test('validate tables respects non-public schema names for exact, wildcard and publication checks', async () => {
+  await using context = await WalStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory);
+  const { pool } = context;
+  const schemaName = `validation_schema_${Date.now().toString(36)}`;
+
+  await pool.query(`CREATE SCHEMA ${schemaName}`);
+  try {
+    await pool.query(`CREATE TABLE ${schemaName}.test_exact_shared(id text primary key, description text)`);
+    await pool.query(`CREATE TABLE public.test_exact_shared(id text primary key, description text)`);
+    await pool.query(`CREATE TABLE ${schemaName}.test_wild_alpha(id text primary key, description text)`);
+    await pool.query(`CREATE TABLE ${schemaName}.test_wild_beta(id text primary key, description text)`);
+    await pool.query(`CREATE TABLE public.test_wild_public(id text primary key, description text)`);
+    await pool.query(`CREATE TABLE ${schemaName}.test_publication_target(id text primary key, description text)`);
+    await pool.query(`CREATE TABLE public.test_publication_target(id text primary key, description text)`);
+
+    await pool.query(`DROP PUBLICATION powersync`);
+    await pool.query(`
+      CREATE PUBLICATION powersync FOR TABLE
+        ${schemaName}.test_exact_shared,
+        ${schemaName}.test_wild_alpha,
+        ${schemaName}.test_wild_beta,
+        public.test_publication_target
+    `);
+
+    const results = await validateSyncRules(
+      context,
+      `
+bucket_definitions:
+  global:
+    data:
+      - SELECT * FROM ${schemaName}.test_exact_shared
+      - SELECT * FROM ${schemaName}."test_wild_%"
+      - SELECT * FROM ${schemaName}.test_publication_target
+`
+    );
+
+    expect(getExactTableInSchema(results, schemaName, 'test_exact_shared')).toEqual({
+      schema: schemaName,
+      name: 'test_exact_shared',
+      replication_id: ['id'],
+      pattern: undefined,
+      data_queries: true,
+      parameter_queries: false,
+      errors: []
+    });
+
+    expect(getWildcardTablesInSchema(results, schemaName, 'test_wild_%')).toEqual([
+      {
+        schema: schemaName,
+        name: 'test_wild_alpha',
+        pattern: 'test_wild_%',
+        replication_id: ['id'],
+        data_queries: true,
+        parameter_queries: false,
+        errors: []
+      },
+      {
+        schema: schemaName,
+        name: 'test_wild_beta',
+        pattern: 'test_wild_%',
+        replication_id: ['id'],
+        data_queries: true,
+        parameter_queries: false,
+        errors: []
+      }
+    ]);
+
+    const publicationTarget = getExactTableInSchema(results, schemaName, 'test_publication_target');
+    expect(publicationTarget.replication_id).toEqual(['id']);
+    expect(publicationTarget.data_queries).toBe(true);
+    expect(publicationTarget.parameter_queries).toBe(false);
+    expect(errorMessages(publicationTarget)).toEqual([
+      `Table "${schemaName}"."test_publication_target" is not part of publication 'powersync'. Run: \`ALTER PUBLICATION powersync ADD TABLE "${schemaName}"."test_publication_target"\`.`
+    ]);
+  } finally {
+    await pool.query(`DROP SCHEMA ${schemaName} CASCADE`);
   }
 });
