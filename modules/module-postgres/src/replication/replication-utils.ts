@@ -217,7 +217,7 @@ function getCheckSourceConfigurationSql(): Promise<string> {
   ));
 }
 
-export async function getDebugTablesInfoBatched(options: GetDebugTablesInfoOptions): Promise<PatternResult[]> {
+export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Promise<PatternResult[]> {
   const { db, publicationName, connectionTag, tablePatterns, syncRules } = options;
   const patternPayload = JSON.stringify(
     tablePatterns.map((tablePattern, pattern_ord) => ({

@@ -149,7 +149,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
       applicationName: getApplicationName()
     });
     try {
-      return await replication_utils.getDebugTablesInfoBatched({
+      return await replication_utils.getDebugTablesInfo({
         db: connection,
         publicationName: this.publicationName,
         connectionTag: this.connectionTag,

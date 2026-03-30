@@ -1,4 +1,4 @@
-import { getDebugTablesInfoBatched } from '@module/replication/replication-utils.js';
+import { getDebugTablesInfo } from '@module/replication/replication-utils.js';
 import * as pgwire from '@powersync/service-jpgwire';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
@@ -22,7 +22,7 @@ async function validateSyncRulesWithConnection(
   syncRuleContent: string
 ) {
   const syncRules = parseRules(syncRuleContent);
-  return getDebugTablesInfoBatched({
+  return getDebugTablesInfo({
     db: connection,
     publicationName: context.publicationName,
     connectionTag: context.connectionTag,
@@ -31,14 +31,14 @@ async function validateSyncRulesWithConnection(
   });
 }
 
-function getPatternResult(results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>, pattern: string) {
+function getPatternResult(results: Awaited<ReturnType<typeof getDebugTablesInfo>>, pattern: string) {
   const result = results.find((entry) => entry.pattern == pattern);
   expect(result).toBeDefined();
   return result!;
 }
 
 function getPatternResultInSchema(
-  results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>,
+  results: Awaited<ReturnType<typeof getDebugTablesInfo>>,
   schema: string,
   pattern: string
 ) {
@@ -47,7 +47,7 @@ function getPatternResultInSchema(
   return result!;
 }
 
-function getExactTable(results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>, pattern: string) {
+function getExactTable(results: Awaited<ReturnType<typeof getDebugTablesInfo>>, pattern: string) {
   const result = getPatternResult(results, pattern);
   expect(result.wildcard).toBe(false);
   expect(result.table).toBeDefined();
@@ -55,7 +55,7 @@ function getExactTable(results: Awaited<ReturnType<typeof getDebugTablesInfoBatc
 }
 
 function getExactTableInSchema(
-  results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>,
+  results: Awaited<ReturnType<typeof getDebugTablesInfo>>,
   schema: string,
   pattern: string
 ) {
@@ -65,14 +65,14 @@ function getExactTableInSchema(
   return result.table!;
 }
 
-function getWildcardTables(results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>, pattern: string) {
+function getWildcardTables(results: Awaited<ReturnType<typeof getDebugTablesInfo>>, pattern: string) {
   const result = getPatternResult(results, pattern);
   expect(result.wildcard).toBe(true);
   return [...(result.tables ?? [])].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function getWildcardTablesInSchema(
-  results: Awaited<ReturnType<typeof getDebugTablesInfoBatched>>,
+  results: Awaited<ReturnType<typeof getDebugTablesInfo>>,
   schema: string,
   pattern: string
 ) {
