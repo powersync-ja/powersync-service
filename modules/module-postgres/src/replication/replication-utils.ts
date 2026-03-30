@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import * as pgwire from '@powersync/service-jpgwire';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
@@ -93,22 +94,7 @@ WHERE oid = $1::oid LIMIT 1`,
 
 export async function checkSourceConfiguration(db: pgwire.PgClient, publicationName: string): Promise<void> {
   // Check basic config
-  await lib_postgres.retriedQuery(
-    db,
-    `DO $$
-BEGIN
-if current_setting('wal_level') is distinct from 'logical' then
-raise exception 'wal_level must be set to ''logical'', your database has it set to ''%''. Please edit your config file and restart PostgreSQL.', current_setting('wal_level');
-end if;
-if (current_setting('max_replication_slots')::int >= 1) is not true then
-raise exception 'Your max_replication_slots setting is too low, it must be greater than 1. Please edit your config file and restart PostgreSQL.';
-end if;
-if (current_setting('max_wal_senders')::int >= 1) is not true then
-raise exception 'Your max_wal_senders setting is too low, it must be greater than 1. Please edit your config file and restart PostgreSQL.';
-end if;
-end;
-$$ LANGUAGE plpgsql;`
-  );
+  await lib_postgres.retriedQuery(db, await getCheckSourceConfigurationSql());
 
   // Check that publication exists
   const rs = await lib_postgres.retriedQuery(db, {
@@ -199,193 +185,159 @@ export interface GetDebugTablesInfoOptions {
   syncRules: sync_rules.SyncConfig;
 }
 
+interface BatchedDebugTableRow {
+  pattern_ord: number;
+  schema_name: string;
+  name: string;
+  relation_id: number | null;
+  replication_identity: ReplicationIdentity | null;
+  replication_id_json: string;
+  select_error: string | null;
+  in_publication: boolean | null;
+  rls_enabled: boolean | null;
+  username: string | null;
+  is_superuser: boolean | null;
+  bypasses_rls: boolean | null;
+}
+
+let getDebugTablesInfoBatchedSqlPromise: Promise<string> | undefined;
+let checkSourceConfigurationSqlPromise: Promise<string> | undefined;
+
+function getDebugTablesInfoBatchedSql(): Promise<string> {
+  return (getDebugTablesInfoBatchedSqlPromise ??= readFile(
+    new URL('../../sql/debug-tables-info-batched.plpgsql', import.meta.url),
+    'utf8'
+  ));
+}
+
+function getCheckSourceConfigurationSql(): Promise<string> {
+  return (checkSourceConfigurationSqlPromise ??= readFile(
+    new URL('../../sql/check-source-configuration.plpgsql', import.meta.url),
+    'utf8'
+  ));
+}
+
+/**
+ * Note: This must use a dedicated connection, not a connection pool.
+ */
 export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Promise<PatternResult[]> {
   const { db, publicationName, connectionTag, tablePatterns, syncRules } = options;
-  let result: PatternResult[] = [];
+  const patternPayload = JSON.stringify(
+    tablePatterns.map((tablePattern, pattern_ord) => ({
+      pattern_ord,
+      schema_name: tablePattern.schema,
+      table_pattern: tablePattern.tablePattern,
+      is_wildcard: tablePattern.isWildcard,
+      table_prefix: tablePattern.isWildcard ? tablePattern.tablePrefix : '',
+      input_name: tablePattern.isWildcard ? tablePattern.tablePattern : tablePattern.name
+    }))
+  );
 
-  for (let tablePattern of tablePatterns) {
-    const schema = tablePattern.schema;
-
-    let patternResult: PatternResult = {
-      schema: schema,
-      pattern: tablePattern.tablePattern,
-      wildcard: tablePattern.isWildcard
-    };
-    result.push(patternResult);
-
-    if (tablePattern.isWildcard) {
-      patternResult.tables = [];
-      const prefix = tablePattern.tablePrefix;
-      const results = await lib_postgres.retriedQuery(db, {
-        statement: `SELECT c.oid AS relid, c.relname AS table_name
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1
-        AND c.relkind = 'r'
-        AND c.relname LIKE $2`,
-        params: [
-          { type: 'varchar', value: schema },
-          { type: 'varchar', value: tablePattern.tablePattern }
-        ]
-      });
-
-      for (let row of pgwire.pgwireRows(results)) {
-        const name = row.table_name as string;
-        const relationId = row.relid as number;
-        if (!name.startsWith(prefix)) {
-          continue;
-        }
-        const details = await getDebugTableInfo({
-          db,
-          name,
-          publicationName,
-          connectionTag,
-          tablePattern,
-          relationId,
-          syncRules: syncRules
-        });
-        patternResult.tables.push(details);
+  let rows: BatchedDebugTableRow[];
+  await db.query('BEGIN');
+  try {
+    // Anonymous DO blocks cannot take bind parameters directly, so pass the
+    // pattern payload through transaction-local settings on the pinned connection.
+    const fetched = await db.query(
+      {
+        statement: `SELECT set_config('powersync.debug.table_patterns', $1, true)`,
+        params: [{ type: 'varchar', value: patternPayload }]
+      },
+      {
+        statement: `SELECT set_config('powersync.debug.publication_name', $1, true)`,
+        params: [{ type: 'varchar', value: publicationName }]
+      },
+      {
+        statement: await getDebugTablesInfoBatchedSql()
+      },
+      {
+        statement: `FETCH ALL FROM powersync_debug_tables_cursor`
       }
-    } else {
-      const results = await lib_postgres.retriedQuery(db, {
-        statement: `SELECT c.oid AS relid, c.relname AS table_name
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1
-        AND c.relkind = 'r'
-        AND c.relname = $2`,
-        params: [
-          { type: 'varchar', value: schema },
-          { type: 'varchar', value: tablePattern.tablePattern }
-        ]
-      });
-      if (results.rows.length == 0) {
-        // Table not found
-        patternResult.table = await getDebugTableInfo({
-          db,
-          name: tablePattern.name,
-          publicationName,
-          connectionTag,
-          tablePattern,
-          relationId: null,
-          syncRules: syncRules
-        });
-      } else {
-        const row = pgwire.pgwireRows(results)[0];
-        const name = row.table_name as string;
-        const relationId = row.relid as number;
-        patternResult.table = await getDebugTableInfo({
-          db,
-          name,
-          publicationName,
-          connectionTag,
-          tablePattern,
-          relationId,
-          syncRules: syncRules
-        });
-      }
-    }
-  }
-  return result;
-}
+    );
 
-export interface GetDebugTableInfoOptions {
-  db: pgwire.PgClient;
-  name: string;
-  publicationName: string;
-  connectionTag: string;
-  tablePattern: sync_rules.TablePattern;
-  relationId: number | null;
-  syncRules: sync_rules.SyncConfig;
-}
-
-export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Promise<service_types.TableInfo> {
-  const { db, name, publicationName, connectionTag, tablePattern, relationId, syncRules } = options;
-  const schema = tablePattern.schema;
-  let id_columns_result: ReplicaIdentityResult | undefined = undefined;
-  let id_columns_error = null;
-
-  if (relationId != null) {
+    rows = pgwire.pgwireRows<BatchedDebugTableRow>(fetched);
+    await db.query('COMMIT');
+  } catch (e) {
     try {
-      id_columns_result = await getReplicationIdentityColumns(db, relationId);
-    } catch (e) {
-      id_columns_error = { level: 'fatal', message: e.message };
+      await db.query('ROLLBACK');
+    } catch {
+      // Ignore rollback errors after a failed transaction.
     }
+    throw e;
   }
 
-  const id_columns = id_columns_result?.replicationColumns ?? [];
+  const result: PatternResult[] = tablePatterns.map((tablePattern) => ({
+    schema: tablePattern.schema,
+    pattern: tablePattern.tablePattern,
+    wildcard: tablePattern.isWildcard,
+    ...(tablePattern.isWildcard ? { tables: [] } : {})
+  }));
 
-  const sourceTable = new storage.SourceTable({
-    id: '', // not used
-    connectionTag: connectionTag,
-    objectId: relationId ?? 0,
-    schema: schema,
-    name: name,
-    replicaIdColumns: id_columns,
-    snapshotComplete: true
-  });
+  for (const row of rows) {
+    const tablePattern = tablePatterns[row.pattern_ord];
+    const idColumns = JSON.parse(row.replication_id_json) as string[];
+    const sourceTable = new storage.SourceTable({
+      id: '',
+      connectionTag,
+      objectId: row.relation_id ?? 0,
+      schema: tablePattern.schema,
+      name: row.name,
+      replicaIdColumns: idColumns.map((name) => ({ name })),
+      snapshotComplete: true
+    });
+    const syncData = syncRules.tableSyncsData(sourceTable);
+    const syncParameters = syncRules.tableSyncsParameters(sourceTable);
 
-  const syncData = syncRules.tableSyncsData(sourceTable);
-  const syncParameters = syncRules.tableSyncsParameters(sourceTable);
+    let errors: service_types.ReplicationError[];
+    if (row.relation_id == null) {
+      errors = [{ level: 'warning', message: `Table ${sourceTable.qualifiedName} not found.` }];
+    } else {
+      const idColumnsError =
+        idColumns.length == 0 && row.replication_identity != 'nothing'
+          ? {
+              level: 'fatal' as const,
+              message: `No replication id found for ${sourceTable.qualifiedName}. Replica identity: ${row.replication_identity}.${row.replication_identity == 'default' ? ' Configure a primary key on the table.' : ''}`
+            }
+          : null;
+      const selectError = row.select_error == null ? null : { level: 'fatal' as const, message: row.select_error };
+      const replicateError =
+        row.in_publication === false
+          ? {
+              level: 'fatal' as const,
+              message: `Table ${sourceTable.qualifiedName} is not part of publication '${publicationName}'. Run: \`ALTER PUBLICATION ${publicationName} ADD TABLE ${sourceTable.qualifiedName}\`.`
+            }
+          : null;
+      const rlsError =
+        row.rls_enabled && !row.is_superuser && !row.bypasses_rls && row.username != null
+          ? {
+              level: 'warning' as const,
+              message: `[${ErrorCode.PSYNC_S1145}] Row Level Security is enabled on table "${row.name}". To make sure that ${row.username} can read the table, run: 'ALTER ROLE ${row.username} BYPASSRLS'.`
+            }
+          : null;
 
-  if (relationId == null) {
-    return {
-      schema: schema,
-      name: name,
+      errors = [idColumnsError, selectError, replicateError, rlsError].filter(
+        (error) => error != null
+      ) as service_types.ReplicationError[];
+    }
+
+    const tableInfo: service_types.TableInfo = {
+      schema: tablePattern.schema,
+      name: row.name,
       pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
-      replication_id: [],
+      replication_id: idColumns,
       data_queries: syncData,
       parameter_queries: syncParameters,
-      // Also
-      errors: [{ level: 'warning', message: `Table ${sourceTable.qualifiedName} not found.` }]
+      errors
     };
-  }
-  if (id_columns.length == 0 && id_columns_error == null) {
-    let message = `No replication id found for ${sourceTable.qualifiedName}. Replica identity: ${id_columns_result?.replicationIdentity}.`;
-    if (id_columns_result?.replicationIdentity == 'default') {
-      message += ' Configure a primary key on the table.';
+
+    if (tablePattern.isWildcard) {
+      result[row.pattern_ord].tables!.push(tableInfo);
+    } else {
+      result[row.pattern_ord].table = tableInfo;
     }
-    id_columns_error = { level: 'fatal', message };
   }
 
-  let selectError = null;
-  try {
-    await lib_postgres.retriedQuery(db, `SELECT * FROM ${sourceTable.qualifiedName} LIMIT 1`);
-  } catch (e) {
-    selectError = { level: 'fatal', message: e.message };
-  }
-
-  let replicateError = null;
-
-  const publications = await lib_postgres.retriedQuery(db, {
-    statement: `SELECT tablename FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
-    params: [
-      { type: 'varchar', value: publicationName },
-      { type: 'varchar', value: tablePattern.schema },
-      { type: 'varchar', value: name }
-    ]
-  });
-  if (publications.rows.length == 0) {
-    replicateError = {
-      level: 'fatal',
-      message: `Table ${sourceTable.qualifiedName} is not part of publication '${publicationName}'. Run: \`ALTER PUBLICATION ${publicationName} ADD TABLE ${sourceTable.qualifiedName}\`.`
-    };
-  }
-
-  const rlsCheck = await checkTableRls(db, relationId);
-  const rlsError = rlsCheck.canRead ? null : { message: rlsCheck.message!, level: 'warning' };
-
-  return {
-    schema: schema,
-    name: name,
-    pattern: tablePattern.isWildcard ? tablePattern.tablePattern : undefined,
-    replication_id: id_columns.map((c) => c.name),
-    data_queries: syncData,
-    parameter_queries: syncParameters,
-    errors: [id_columns_error, selectError, replicateError, rlsError].filter(
-      (error) => error != null
-    ) as service_types.ReplicationError[]
-  };
+  return result;
 }
 
 export async function cleanUpReplicationSlot(slotName: string, db: pgwire.PgClient): Promise<void> {
