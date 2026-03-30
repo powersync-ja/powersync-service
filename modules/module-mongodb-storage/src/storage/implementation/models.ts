@@ -334,8 +334,18 @@ export interface SyncRuleDocument {
 
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
+
+  /**
+   * Required for V3+ storage.
+   */
   rule_mapping?: {
+    /**
+     * Map of uniqueName -> id, unique per replication stream.
+     */
     definitions: Record<string, string>;
+    /**
+     * Map of (lookupName, queryId) -> id, unique per replication stream.
+     */
     parameter_indexes: Record<string, string>;
   };
 
