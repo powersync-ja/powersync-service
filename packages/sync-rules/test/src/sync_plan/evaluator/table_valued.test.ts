@@ -76,12 +76,7 @@ streams:
       globalParameters: requestParameters({ sub: 'user' }, {}),
       hasDefaultStreams: false,
       streams: {
-        stream: [
-          {
-            parameters: { chat: 'chat' },
-            opaque_id: 0
-          }
-        ]
+        stream: [{ priorityOverride: null, parameters: { chat: 'chat' }, opaque_id: 0 }]
       }
     });
 

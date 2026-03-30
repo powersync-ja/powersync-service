@@ -48,7 +48,8 @@ export interface BucketDescription extends NonEnumerableBucketDataSource {
    */
   bucket: string;
   /**
-   * The priority used to synchronize this bucket, derived from its definition.
+   * The priority used to synchronize this bucket, derived from its definition or
+   * a priority override on the Sync Stream subscription that created it.
    */
   priority: BucketPriority;
 }

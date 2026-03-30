@@ -3,6 +3,7 @@ import { BucketParameterQuerier, PendingQueriers } from '../BucketParameterQueri
 import { BucketDataSource, BucketParameterQuerierSource, ParameterIndexLookupCreator } from '../BucketSource.js';
 import { BucketDataScope } from '../HydrationState.js';
 import {
+  BucketPriority,
   CreateSourceParams,
   GetQuerierOptions,
   RequestedStream,
@@ -124,11 +125,13 @@ export class StreamVariant {
 
   querier(
     stream: SyncStream,
-    reason: BucketInclusionReason,
+    subscription: RequestedStream | null,
     params: RequestParameters,
     bucketScope: BucketDataScope,
     hydratedSubqueries: HydratedSubqueries
   ): BucketParameterQuerier | null {
+    const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
+
     const instantiation = this.partiallyEvaluateParameters(params);
     if (instantiation == null) {
       return null;
@@ -168,7 +171,9 @@ export class StreamVariant {
       // When we have no dynamic parameters, the partial evaluation is a full instantiation.
       const instantiations = this.cartesianProductOfParameterInstantiations(instantiation as SqliteJsonValue[][]);
       for (const instantiation of instantiations) {
-        staticBuckets.push(this.resolveBucket(stream, instantiation, reason, bucketScope));
+        staticBuckets.push(
+          this.resolveBucket(stream, instantiation, reason, bucketScope, subscription?.priorityOverride)
+        );
       }
     }
 
@@ -212,7 +217,9 @@ export class StreamVariant {
           perParameterInstantiation as SqliteJsonValue[][]
         );
 
-        return Promise.resolve(product.map((e) => variant.resolveBucket(stream, e, reason, bucketScope)));
+        return Promise.resolve(
+          product.map((e) => variant.resolveBucket(stream, e, reason, bucketScope, subscription?.priorityOverride))
+        );
       }
     };
   }
@@ -295,9 +302,14 @@ export class StreamVariant {
     stream: SyncStream,
     instantiation: SqliteJsonValue[],
     reason: BucketInclusionReason,
-    bucketScope: BucketDataScope
+    bucketScope: BucketDataScope,
+    priorityOverride: BucketPriority | undefined | null
   ): ResolvedBucket {
-    const bucketInfo = bucketDescription(bucketScope, this.serializeBucketParameters(instantiation), stream.priority);
+    const bucketInfo = bucketDescription(
+      bucketScope,
+      this.serializeBucketParameters(instantiation),
+      priorityOverride ?? stream.priority
+    );
     return resolvedBucket(bucketInfo, { definition: stream.name, inclusion_reasons: [reason] });
   }
 
@@ -358,10 +370,8 @@ export class StreamVariant {
     bucketScope: BucketDataScope,
     hydratedSubqueries: HydratedSubqueries
   ) {
-    const reason: BucketInclusionReason = subscription != null ? { subscription: subscription.opaque_id } : 'default';
-
     try {
-      const querier = this.querier(stream, reason, params, bucketScope, hydratedSubqueries);
+      const querier = this.querier(stream, subscription, params, bucketScope, hydratedSubqueries);
       if (querier) {
         result.queriers.push(querier);
       }
