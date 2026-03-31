@@ -8,6 +8,7 @@ import {
 } from '@powersync/service-core';
 import { AbstractMongoChecksums, FetchPartialBucketChecksumByBucket } from '../common/MongoChecksumsBase.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
+import { BucketDataDocumentBase } from '../models.js';
 
 export class MongoChecksumsV1Impl extends AbstractMongoChecksums {
   declare protected readonly db: VersionedPowerSyncMongoV1;
@@ -15,24 +16,20 @@ export class MongoChecksumsV1Impl extends AbstractMongoChecksums {
   async computePartialChecksumsDirectByBucket(
     batch: FetchPartialBucketChecksumByBucket[]
   ): Promise<PartialChecksumMap> {
-    return this.computePartialChecksumsForCollection(
-      batch,
-      this.db.v1_bucket_data as unknown as mongo.Collection<mongo.Document>,
-      (request) => ({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.start ?? new bson.MinKey()
-          },
-          $lte: {
-            g: this.group_id,
-            b: request.bucket,
-            o: request.end
-          }
+    return this.computePartialChecksumsForCollection(batch, this.db.v1_bucket_data, (request) => ({
+      _id: {
+        $gt: {
+          g: this.group_id,
+          b: request.bucket,
+          o: request.start ?? new bson.MinKey()
+        },
+        $lte: {
+          g: this.group_id,
+          b: request.bucket,
+          o: request.end
         }
-      })
-    );
+      }
+    }));
   }
 
   protected async fetchPreStates(

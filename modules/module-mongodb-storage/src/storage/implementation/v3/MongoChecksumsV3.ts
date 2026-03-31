@@ -15,6 +15,7 @@ import {
   MongoChecksumOptions
 } from '../common/MongoChecksumsBase.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { BucketDataDocumentBase } from '../models.js';
 
 export class MongoChecksumsV3Impl extends AbstractMongoChecksums {
   declare protected readonly db: VersionedPowerSyncMongoV3;
@@ -50,7 +51,7 @@ export class MongoChecksumsV3Impl extends AbstractMongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucket_data_v3(this.group_id, definitionId) as unknown as mongo.Collection<mongo.Document>,
+        this.db.bucket_data_v3(this.group_id, definitionId) as unknown as mongo.Collection<BucketDataDocumentBase>,
         createV3BucketFilter
       );
       for (const checksum of groupResults.values()) {

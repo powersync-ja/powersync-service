@@ -17,7 +17,7 @@ import {
 } from '@powersync/service-core';
 import type { VersionedPowerSyncMongo } from '../db.js';
 import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { StorageConfig } from '../models.js';
+import { BucketDataDocumentBase, StorageConfig } from '../models.js';
 
 export interface FetchPartialBucketChecksumV3 {
   bucket: string;
@@ -188,9 +188,12 @@ export abstract class AbstractMongoChecksums {
     batch: FetchPartialBucketChecksum[]
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>>;
 
-  protected async computePartialChecksumsForCollection<TRequest extends FetchPartialBucketChecksumByBucket>(
+  protected async computePartialChecksumsForCollection<
+    TRequest extends FetchPartialBucketChecksumByBucket,
+    TBucketDataDocument extends BucketDataDocumentBase
+  >(
     batch: TRequest[],
-    collection: mongo.Collection<mongo.Document>,
+    collection: mongo.Collection<TBucketDataDocument>,
     createFilter: (request: TRequest) => any
   ): Promise<PartialChecksumMap> {
     const batchLimit = this.options?.operationBatchLimit ?? DEFAULT_OPERATION_BATCH_LIMIT;
