@@ -949,7 +949,7 @@ export abstract class MongoBucketBatch
     if (this.db.storageConfig.incrementalReprocessing) {
       for (let table of sourceTables) {
         await this.db
-          .common_current_data(this.group_id, mongoTableId(table.id))
+          .sourceRecordsV3(this.group_id, mongoTableId(table.id))
           .drop()
           .catch((error) => {
             if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {

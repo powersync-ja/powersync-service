@@ -187,8 +187,7 @@ export class PersistedBatchV1 extends PersistedBatch {
             data: values.data ?? EMPTY_DATA,
             buckets,
             lookups
-          },
-          $unset: { pending_delete: 1 }
+          }
         },
         upsert: true
       }
@@ -246,7 +245,7 @@ export class PersistedBatchV1 extends PersistedBatch {
       if (sourceTableId == null) {
         throw new ReplicationAssertionError('Missing source table id for current_data bulkWrite');
       }
-      await this.db.v1_current_data(this.group_id, sourceTableId).bulkWrite(operations, {
+      await this.db.sourceRecordsV1(this.group_id, sourceTableId).bulkWrite(operations, {
         session,
         ordered: true
       });

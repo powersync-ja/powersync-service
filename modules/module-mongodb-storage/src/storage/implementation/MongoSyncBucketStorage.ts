@@ -73,7 +73,7 @@ export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  private readonly db: VersionedPowerSyncMongo;
+  readonly db: VersionedPowerSyncMongo;
   readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
@@ -987,7 +987,7 @@ export class MongoSyncBucketStorage
       );
     }
 
-    for (const collection of await this.db.listCommonCurrentDataCollections(this.group_id)) {
+    for (const collection of await this.db.listSourceRecordCollectionsV3(this.group_id)) {
       await collection.drop();
     }
 

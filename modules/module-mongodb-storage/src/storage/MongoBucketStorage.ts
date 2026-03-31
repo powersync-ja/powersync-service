@@ -345,8 +345,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       ])
       .toArray()
       .catch(ignoreNotExisting);
+
+    // FIXME: Handle v1 metrics
     const v3_parameter_aggregates = await Promise.all(
-      (await this.db.listParameterIndexCollectionsV3()).map((collection) =>
+      (await this.db.listAllParameterIndexCollectionsV3()).map((collection) =>
         collection
           .aggregate([
             {
@@ -361,7 +363,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     );
 
     const source_record_aggregates = await Promise.all(
-      (await this.db.listSourceRecordCollections()).map((collection) =>
+      (await this.db.listAllSourceRecordCollectionsV3()).map((collection) =>
         collection
           .aggregate([
             {

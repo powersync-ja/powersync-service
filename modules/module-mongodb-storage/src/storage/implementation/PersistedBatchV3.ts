@@ -291,7 +291,7 @@ export class PersistedBatchV3 extends PersistedBatch {
 
     for (const operations of operationsBySourceTable.values()) {
       const sourceTableId = operations[0]!.sourceTableId;
-      await this.db.v3_current_data(this.group_id, sourceTableId).bulkWrite(
+      await this.db.sourceRecordsV3(this.group_id, sourceTableId).bulkWrite(
         operations.map((entry) => entry.operation),
         {
           session,

@@ -36,11 +36,11 @@ export interface PowerSyncMongoOptions {
 
 export class PowerSyncMongo {
   readonly current_data: mongo.Collection<CurrentDataDocument>;
-  readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
   readonly bucket_data: mongo.Collection<BucketDataDocumentV1>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
   readonly sync_rules: mongo.Collection<SyncRuleDocument>;
+  readonly source_tables: mongo.Collection<SourceTableDocument>;
   readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
@@ -61,11 +61,11 @@ export class PowerSyncMongo {
     this.db = db;
 
     this.current_data = db.collection('current_data');
-    this.v3_current_data = db.collection('v3_current_data');
     this.bucket_data = db.collection('bucket_data');
     this.bucket_parameters = db.collection('bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
     this.sync_rules = db.collection('sync_rules');
+    this.source_tables = db.collection('source_tables');
     this.custom_write_checkpoints = db.collection('custom_write_checkpoints');
     this.write_checkpoints = db.collection('write_checkpoints');
     this.instance = db.collection('instance');
@@ -108,17 +108,31 @@ export class PowerSyncMongo {
   }
 
   /**
-   * List all parameter index collections across all replication streams.
-   *
-   * Primarily used to clear the db.
+   * Not safe for user-provided prefix - only for hardcoded values.
    */
-  async listAllParameterIndexCollectionsV3(): Promise<mongo.Collection<BucketParameterDocumentV3>[]> {
-    const prefix = `parameter_index_`;
+  private async collectionsByPrefix(prefix: string): Promise<mongo.Collection<never>[]> {
     const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
 
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<BucketParameterDocumentV3>(collection.name));
+      .map((collection) => this.db.collection<never>(collection.name));
+  }
+  /**
+   * List all parameter index collections across all replication streams.
+   *
+   * Primarily used to clear the db.
+   */
+  async listAllParameterIndexCollectionsV3(): Promise<mongo.Collection<never>[]> {
+    return this.collectionsByPrefix(`parameter_index_`);
+  }
+
+  /**
+   * List all parameter index collections across all replication streams.
+   *
+   * Primarily used to clear the db.
+   */
+  async listAllSourceRecordCollectionsV3(): Promise<mongo.Collection<never>[]> {
+    return this.collectionsByPrefix(`source_records_`);
   }
 
   sourceRecordsCollectionName(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
@@ -127,24 +141,6 @@ export class PowerSyncMongo {
 
   sourceTableCollectionName(replicationStreamId: number) {
     return `source_table_${replicationStreamId}`;
-  }
-
-  sourceRecords<T extends CommonCurrentDataDocument>(
-    replicationStreamId: number,
-    sourceTableId: mongo.ObjectId
-  ): mongo.Collection<T> {
-    return this.db.collection<T>(this.sourceRecordsCollectionName(replicationStreamId, sourceTableId));
-  }
-
-  async listSourceRecordCollections(
-    replicationStreamId?: number
-  ): Promise<mongo.Collection<CommonCurrentDataDocument>[]> {
-    const prefix = replicationStreamId == null ? 'source_records_' : `source_records_${replicationStreamId}_`;
-    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
-
-    return collections
-      .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<CommonCurrentDataDocument>(collection.name));
   }
 
   sourceTables<T extends CommonSourceTableDocument>(replicationStreamId: number): mongo.Collection<T> {
@@ -171,8 +167,7 @@ export class PowerSyncMongo {
    */
   async clear() {
     await this.current_data.deleteMany({});
-    await this.v3_current_data.deleteMany({});
-    for (const collection of await this.listSourceRecordCollections()) {
+    for (const collection of await this.listAllSourceRecordCollectionsV3()) {
       await collection.drop();
     }
     await this.bucket_data.deleteMany({});
@@ -188,14 +183,7 @@ export class PowerSyncMongo {
     for (const collection of await this.listSourceTableCollections()) {
       await collection.drop();
     }
-    for (const legacyName of ['source_tables', 'v3_source_tables']) {
-      await this.db.dropCollection(legacyName).catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
-          return;
-        }
-        throw error;
-      });
-    }
+    await this.source_tables.deleteMany({});
     await this.write_checkpoints.deleteMany({});
     await this.instance.deleteOne({});
     await this.locks.deleteMany({});
@@ -310,38 +298,35 @@ export class VersionedPowerSyncMongo {
     this.storageConfig = storageConfig;
   }
 
-  /**
-   * Uses either `current_data` or `v3_current_data` collection based on the storage version.
-   *
-   * Use in places where it does not matter which version is used.
-   */
-  common_current_data(
-    replicationStreamId: number,
-    sourceTableId: mongo.ObjectId
-  ): mongo.Collection<CommonCurrentDataDocument> {
-    return this.#upstream.sourceRecords<CommonCurrentDataDocument>(replicationStreamId, sourceTableId);
-  }
-
-  v1_current_data(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+  sourceRecordsV1(_replicationStreamId: number, _sourceTableId: mongo.ObjectId) {
     if (this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'current_data collection should not be used when incrementalReprocessing is enabled'
       );
     }
-    return this.#upstream.sourceRecords<CurrentDataDocument>(replicationStreamId, sourceTableId);
+    return this.#upstream.current_data;
   }
 
-  v3_current_data(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+  sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'v3_current_data collection should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId);
+
+    const collectionName = `source_records_${replicationStreamId}_${sourceTableId.toHexString()}`;
+    return this.db.collection<CurrentDataDocumentV3>(collectionName);
   }
 
-  listCommonCurrentDataCollections(replicationStreamId?: number) {
-    return this.#upstream.listSourceRecordCollections(replicationStreamId);
+  async listSourceRecordCollectionsV3(
+    replicationStreamId: number
+  ): Promise<mongo.Collection<CommonCurrentDataDocument>[]> {
+    const prefix = `source_records_${replicationStreamId}_`;
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<CommonCurrentDataDocument>(collection.name));
   }
 
   async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
@@ -350,7 +335,7 @@ export class VersionedPowerSyncMongo {
         'source_records collection initialization should not be used when incrementalReprocessing is disabled'
       );
     }
-    await this.#upstream.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId).createIndex(
+    await this.sourceRecordsV3(replicationStreamId, sourceTableId).createIndex(
       {
         pending_delete: 1
       },

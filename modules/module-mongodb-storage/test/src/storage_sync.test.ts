@@ -203,7 +203,9 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'global["user-1"]').bucket]);
 
     const mongoFactory = factory as MongoBucketStorage;
-    const currentDataCollections = await mongoFactory.db.listSourceRecordCollections(syncRules.id);
+    const currentDataCollections = await (bucketStorage as MongoSyncBucketStorage).db.listSourceRecordCollectionsV3(
+      syncRules.id
+    );
     const currentData = await currentDataCollections[0]?.findOne({});
     const firstBucket: CurrentBucketV3 | undefined = currentData?.buckets[0] as CurrentBucketV3 | undefined;
     expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
@@ -223,6 +225,45 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(parameterIndexId).toBeDefined();
     const parameterEntry = await mongoFactory.db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
+  });
+
+  test.runIf(storageVersion < 3)('uses a single current_data collection for v1 source records', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        data:
+          - SELECT id, description FROM test
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'shape-check',
+        description: 'shape'
+      },
+      afterReplicaId: test_utils.rid('shape-check')
+    });
+    await writer.markAllSnapshotDone('1/1');
+    await writer.commit('1/1');
+
+    const mongoFactory = factory as MongoBucketStorage;
+    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.id })).toBe(1);
+
+    const sourceRecordCollections = await mongoFactory.db.db
+      .listCollections({ name: new RegExp(`^source_records_${syncRules.id}_`) }, { nameOnly: true })
+      .toArray();
+    expect(sourceRecordCollections).toEqual([]);
   });
 
   test.runIf(storageVersion >= 3)(

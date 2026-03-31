@@ -65,7 +65,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<CurrentDataDocumentV3>;
       const sizeCursor: mongo.AggregationCursor<CurrentDataDocumentV3 & { size: number }> = this.db
-        .v3_current_data(this.groupId, sourceTableId)
+        .sourceRecordsV3(this.groupId, sourceTableId)
         .aggregate(
           [
             {
@@ -98,7 +98,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
       const filter = {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const cursor = this.db.v3_current_data(this.groupId, sourceTableId).find(filter, { session, projection });
+      const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(filter, { session, projection });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(
           sourceTableId,
@@ -118,7 +118,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]> {
-    const cursor = this.db.v3_current_data(this.groupId, sourceTableId).find(
+    const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(
       {
         pending_delete: { $exists: false }
       },
@@ -139,7 +139,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
 
   async cleanup(lastCheckpoint: bigint, logger: Logger): Promise<void> {
     let deletedCount = 0;
-    for (const collection of await this.db.listCommonCurrentDataCollections(this.groupId)) {
+    for (const collection of await this.db.listSourceRecordCollectionsV3(this.groupId)) {
       const result = await collection.deleteMany({
         pending_delete: { $exists: true, $lte: lastCheckpoint }
       });

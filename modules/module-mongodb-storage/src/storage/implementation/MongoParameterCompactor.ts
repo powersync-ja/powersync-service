@@ -35,7 +35,7 @@ export class MongoParameterCompactor {
 
   private async compactV3() {
     for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
-      await this.compactCollection(collection);
+      await this.compactCollection(collection.collection);
     }
   }
 

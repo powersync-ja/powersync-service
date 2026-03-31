@@ -73,7 +73,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     const sizes = new Map<string, number>();
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
       const sizeCursor: mongo.AggregationCursor<CurrentDataDocument & { size: number }> = this.db
-        .v1_current_data(this.groupId, sourceTableId)
+        .sourceRecordsV1(this.groupId, sourceTableId)
         .aggregate(
           [
             {
@@ -107,7 +107,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     const documents = new Map<string, LoadedSourceRecord>();
     const projection = idsOnly ? { _id: 1 } : undefined;
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const cursor = this.db.v1_current_data(this.groupId, sourceTableId).find(
+      const cursor = this.db.sourceRecordsV1(this.groupId, sourceTableId).find(
         {
           _id: {
             $in: replicaIds.map((replicaId) => this.createId(sourceTableId, replicaId) as SourceKey)
@@ -134,7 +134,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]> {
-    const cursor = this.db.v1_current_data(this.groupId, sourceTableId).find(
+    const cursor = this.db.sourceRecordsV1(this.groupId, sourceTableId).find(
       {
         _id: idPrefixFilter<SourceKey>({ g: this.groupId, t: sourceTableId }, ['k']),
         pending_delete: { $exists: false }
