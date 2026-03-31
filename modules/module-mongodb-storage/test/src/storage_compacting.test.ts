@@ -169,47 +169,48 @@ bucket_definitions:
       // This simulates bucket_state created using bigint bytes.
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
-      await (
-        storageDb.storageConfig.incrementalReprocessing
-          ? storageDb.bucketStateV3(bucketStorage.group_id)
-          : factory.db.bucket_state
-      ).insertOne(
-        storageDb.storageConfig.incrementalReprocessing
-          ? {
-              _id: {
-                d: '1',
-                b: 'global[]'
-              },
-              last_op: 5n,
-              compacted_state: {
-                op_id: 3n,
-                count: 3,
-                checksum: 0n,
-                bytes: 7n
-              },
-              estimate_since_compact: {
-                count: 2,
-                bytes: 5n
-              }
-            }
-          : {
-              _id: {
-                g: bucketStorage.group_id,
-                b: 'global[]'
-              },
-              last_op: 5n,
-              compacted_state: {
-                op_id: 3n,
-                count: 3,
-                checksum: 0n,
-                bytes: 7n
-              },
-              estimate_since_compact: {
-                count: 2,
-                bytes: 5n
-              }
-            }
-      );
+      let bucketStateCollection;
+      let bucketStateDocument;
+      if (storageDb.storageConfig.incrementalReprocessing) {
+        bucketStateCollection = storageDb.bucketStateV3(bucketStorage.group_id);
+        bucketStateDocument = {
+          _id: {
+            d: '1',
+            b: 'global[]'
+          },
+          last_op: 5n,
+          compacted_state: {
+            op_id: 3n,
+            count: 3,
+            checksum: 0n,
+            bytes: 7n
+          },
+          estimate_since_compact: {
+            count: 2,
+            bytes: 5n
+          }
+        };
+      } else {
+        bucketStateCollection = factory.db.bucket_state;
+        bucketStateDocument = {
+          _id: {
+            g: bucketStorage.group_id,
+            b: 'global[]'
+          },
+          last_op: 5n,
+          compacted_state: {
+            op_id: 3n,
+            count: 3,
+            checksum: 0n,
+            bytes: 7n
+          },
+          estimate_since_compact: {
+            count: 2,
+            bytes: 5n
+          }
+        };
+      }
+      await bucketStateCollection.insertOne(bucketStateDocument);
 
       // This test uses a couple of internal APIs of the compactor - there is no simple way
       // to test this using the current public APIs.

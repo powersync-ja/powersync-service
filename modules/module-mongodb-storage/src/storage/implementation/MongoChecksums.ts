@@ -481,19 +481,23 @@ export class MongoChecksums {
   private readonly v1Impl: MongoChecksumsV1Impl | null;
 
   constructor(db: VersionedPowerSyncMongo, group_id: number, options: MongoChecksumOptions) {
-    this.v3Impl = options.storageConfig.incrementalReprocessing
-      ? new MongoChecksumsV3Impl(
-          db,
-          group_id,
-          options,
-          options.mapping ??
-            (() => {
-              throw new ServiceAssertionError('BucketDefinitionMapping is required for v3 MongoDB checksum queries');
-            })()
-        )
-      : null;
-    this.v1Impl = this.v3Impl == null ? new MongoChecksumsV1Impl(db, group_id, options) : null;
-    this.impl = this.v3Impl ?? this.v1Impl!;
+    if (options.storageConfig.incrementalReprocessing) {
+      this.v3Impl = new MongoChecksumsV3Impl(
+        db,
+        group_id,
+        options,
+        options.mapping ??
+          (() => {
+            throw new ServiceAssertionError('BucketDefinitionMapping is required for v3 MongoDB checksum queries');
+          })()
+      );
+      this.v1Impl = null;
+      this.impl = this.v3Impl;
+    } else {
+      this.v3Impl = null;
+      this.v1Impl = new MongoChecksumsV1Impl(db, group_id, options);
+      this.impl = this.v1Impl;
+    }
   }
 
   async getChecksums(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
@@ -541,9 +545,10 @@ function createV3BucketFilter(request: Pick<FetchPartialBucketChecksumV3, 'bucke
 function emptyChecksumForRequest(
   request: Pick<FetchPartialBucketChecksum | FetchPartialBucketChecksumV3, 'bucket' | 'start'>
 ): PartialOrFullChecksum {
-  return request.start == null
-    ? { bucket: request.bucket, count: 0, checksum: 0 }
-    : { bucket: request.bucket, partialCount: 0, partialChecksum: 0 };
+  if (request.start == null) {
+    return { bucket: request.bucket, count: 0, checksum: 0 };
+  }
+  return { bucket: request.bucket, partialCount: 0, partialChecksum: 0 };
 }
 
 /**
