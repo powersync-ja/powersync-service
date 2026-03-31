@@ -2,18 +2,13 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { Logger, logger as defaultLogger, ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import { VersionedPowerSyncMongo } from '../db.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import {
-  BucketStateDocumentV1,
-  BucketStateDocumentV3,
-  TaggedBucketParameterDocument,
-  TaggedBucketDataDocument
-} from '../models.js';
+import { TaggedBucketParameterDocument, TaggedBucketDataDocument } from '../models.js';
 import { mongoTableId } from '../../../utils/util.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
@@ -121,6 +116,8 @@ export abstract class PersistedBatch {
 
   protected abstract flushCurrentData(session: mongo.ClientSession): Promise<void>;
 
+  protected abstract flushBucketStates(session: mongo.ClientSession): Promise<void>;
+
   protected abstract resetCurrentData(): void;
 
   protected get bucketDataCount(): number {
@@ -213,7 +210,6 @@ export abstract class PersistedBatch {
   }
 
   async flush(session: mongo.ClientSession, options?: storage.BucketBatchCommitOptions) {
-    const db = this.db;
     const startAt = performance.now();
     let flushedSomething = false;
     if (this.bucketDataCount > 0) {
@@ -231,17 +227,7 @@ export abstract class PersistedBatch {
 
     if (this.bucketStates.size > 0) {
       flushedSomething = true;
-      if (db.storageConfig.incrementalReprocessing) {
-        await db.bucketStateV3(this.group_id).bulkWrite(this.getBucketStateUpdatesV3(), {
-          session,
-          ordered: false
-        });
-      } else {
-        await db.bucketStateV1.bulkWrite(this.getBucketStateUpdatesV1(), {
-          session,
-          ordered: false
-        });
-      }
+      await this.flushBucketStates(session);
     }
 
     if (flushedSomething) {
@@ -298,62 +284,9 @@ export abstract class PersistedBatch {
 
     return stats;
   }
-
-  private getBucketStateUpdatesV1(): mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[] {
-    return Array.from(this.bucketStates.values()).map((state) => {
-      return {
-        updateOne: {
-          filter: {
-            _id: {
-              g: this.group_id,
-              b: state.bucket
-            }
-          },
-          update: {
-            $set: {
-              last_op: state.lastOp
-            },
-            $inc: {
-              'estimate_since_compact.count': state.incrementCount,
-              'estimate_since_compact.bytes': state.incrementBytes
-            }
-          },
-          upsert: true
-        }
-      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV1>;
-    });
-  }
-
-  private getBucketStateUpdatesV3(): mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[] {
-    return Array.from(this.bucketStates.values()).map((state) => {
-      if (state.definitionId == null) {
-        throw new ReplicationAssertionError('Expected bucket definition id when incrementalReprocessing is enabled');
-      }
-      return {
-        updateOne: {
-          filter: {
-            _id: {
-              d: state.definitionId,
-              b: state.bucket
-            }
-          },
-          update: {
-            $set: {
-              last_op: state.lastOp
-            },
-            $inc: {
-              'estimate_since_compact.count': state.incrementCount,
-              'estimate_since_compact.bytes': state.incrementBytes
-            }
-          },
-          upsert: true
-        }
-      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV3>;
-    });
-  }
 }
 
-interface BucketStateUpdate {
+export interface BucketStateUpdate {
   definitionId: BucketDefinitionId | null;
   bucket: string;
   lastOp: InternalOpId;

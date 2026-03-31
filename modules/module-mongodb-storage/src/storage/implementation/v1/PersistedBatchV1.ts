@@ -12,6 +12,7 @@ import {
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
 import {
+  BucketStateDocumentV1,
   BucketParameterDocument,
   CurrentDataDocument,
   LEGACY_BUCKET_DATA_DEFINITION_ID,
@@ -21,6 +22,7 @@ import {
   taggedBucketDataDocumentToV1
 } from '../models.js';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
+import { BucketStateUpdate } from '../common/PersistedBatch.js';
 
 export class PersistedBatchV1 extends PersistedBatch {
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
@@ -238,8 +240,40 @@ export class PersistedBatchV1 extends PersistedBatch {
     });
   }
 
+  protected async flushBucketStates(session: mongo.ClientSession) {
+    await this.db.bucketStateV1.bulkWrite(this.getBucketStateUpdates(), {
+      session,
+      ordered: false
+    });
+  }
+
   protected resetCurrentData() {
     this.currentData = [];
+  }
+
+  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[] {
+    return Array.from(this.bucketStates.values()).map((state: BucketStateUpdate) => {
+      return {
+        updateOne: {
+          filter: {
+            _id: {
+              g: this.group_id,
+              b: state.bucket
+            }
+          },
+          update: {
+            $set: {
+              last_op: state.lastOp
+            },
+            $inc: {
+              'estimate_since_compact.count': state.incrementCount,
+              'estimate_since_compact.bytes': state.incrementBytes
+            }
+          },
+          upsert: true
+        }
+      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV1>;
+    });
   }
 
   private currentDataId(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId): SourceKey {

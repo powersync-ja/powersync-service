@@ -13,6 +13,7 @@ import {
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
 import {
+  BucketStateDocumentV3,
   BucketParameterDocumentV3,
   CurrentDataDocumentV3,
   SourceTableKey,
@@ -21,6 +22,7 @@ import {
   SourceTableDocumentV3
 } from '../models.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
+import { BucketStateUpdate } from '../common/PersistedBatch.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
@@ -332,8 +334,43 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
   }
 
+  protected async flushBucketStates(session: mongo.ClientSession) {
+    await this.db.bucketStateV3(this.group_id).bulkWrite(this.getBucketStateUpdates(), {
+      session,
+      ordered: false
+    });
+  }
+
   protected resetCurrentData() {
     this.currentData = [];
     this.sourceTablePendingDeletes.clear();
+  }
+
+  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[] {
+    return Array.from(this.bucketStates.values()).map((state: BucketStateUpdate) => {
+      if (state.definitionId == null) {
+        throw new ReplicationAssertionError('Expected bucket definition id when incrementalReprocessing is enabled');
+      }
+      return {
+        updateOne: {
+          filter: {
+            _id: {
+              d: state.definitionId,
+              b: state.bucket
+            }
+          },
+          update: {
+            $set: {
+              last_op: state.lastOp
+            },
+            $inc: {
+              'estimate_since_compact.count': state.incrementCount,
+              'estimate_since_compact.bytes': state.incrementBytes
+            }
+          },
+          upsert: true
+        }
+      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV3>;
+    });
   }
 }
