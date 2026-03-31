@@ -1,9 +1,11 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
+import * as timers from 'node:timers/promises';
 import * as uuid from 'uuid';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage, utils } from '@powersync/service-core';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { ReplicationAbortedError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { TaggedBucketDataDocument } from '../storage/implementation/models.js';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
@@ -126,6 +128,33 @@ export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.
     (session as any).snapshotTime = time;
   } else {
     throw new ServiceAssertionError(`Session snapshotTime is already set`);
+  }
+}
+
+export async function retryOnMongoMaxTimeMSExpired<T>(
+  operation: () => Promise<T>,
+  options: {
+    signal?: AbortSignal;
+    abortMessage?: string;
+    retryDelayMs: number;
+    onRetry?: (retryCount: number) => void;
+  }
+): Promise<T> {
+  let retryCount = 0;
+  while (true) {
+    if (options.signal?.aborted) {
+      throw new ReplicationAbortedError(options.abortMessage ?? 'Aborted MongoDB operation', options.signal.reason);
+    }
+    try {
+      return await operation();
+    } catch (e) {
+      if (!lib_mongo.isMongoServerError(e) || e.codeName !== 'MaxTimeMSExpired') {
+        throw e;
+      }
+      retryCount += 1;
+      options.onRetry?.(retryCount);
+      await timers.setTimeout(options.retryDelayMs);
+    }
   }
 }
 

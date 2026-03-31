@@ -1,8 +1,10 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { cacheKey } from './OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from './SourceRecordStore.js';
@@ -158,9 +160,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [];
     for (const sourceTable of dirtySourceTables) {
       const collection = this.db.sourceRecordsV3(this.groupId, sourceTable._id);
-      const result = await collection.deleteMany({
-        pending_delete: { $exists: true, $lte: lastCheckpoint }
-      });
+      const result = await this.deletePendingDeletes(collection, sourceTable._id, lastCheckpoint, logger);
       deletedCount += result.deletedCount;
 
       if (sourceTable.latest_pending_delete != null && sourceTable.latest_pending_delete <= lastCheckpoint) {
@@ -187,6 +187,31 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     if (deletedCount > 0) {
       logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);
     }
+  }
+
+  private async deletePendingDeletes(
+    collection: mongo.Collection<CurrentDataDocumentV3>,
+    sourceTableId: bson.ObjectId,
+    lastCheckpoint: bigint,
+    logger: Logger
+  ) {
+    return retryOnMongoMaxTimeMSExpired(
+      () =>
+        collection.deleteMany(
+          {
+            pending_delete: { $exists: true, $lte: lastCheckpoint }
+          },
+          {
+            maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS
+          }
+        ),
+      {
+        retryDelayMs: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS / 5,
+        onRetry: (n: number) => {
+          logger.warn(`Cleared batch ${n} of pending deletes for source table ${sourceTableId}, continuing...`);
+        }
+      }
+    );
   }
 
   private groupEntries(entries: SourceRecordLookupEntry[]): Map<bson.ObjectId, storage.ReplicaId[]> {

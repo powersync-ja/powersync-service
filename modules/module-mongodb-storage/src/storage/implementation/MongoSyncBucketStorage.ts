@@ -1,11 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import {
-  BaseObserver,
-  logger,
-  ReplicationAbortedError,
-  ServiceAssertionError
-} from '@powersync/lib-services-framework';
+import { BaseObserver, logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
@@ -29,7 +24,13 @@ import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powers
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
+import {
+  idPrefixFilter,
+  mapOpEntry,
+  readSingleBatch,
+  retryOnMongoMaxTimeMSExpired,
+  setSessionSnapshotTime
+} from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import {
@@ -923,26 +924,18 @@ export class MongoSyncBucketStorage
   }
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
-    while (true) {
-      if (options?.signal?.aborted) {
-        throw new ReplicationAbortedError('Aborted clearing data', options.signal.reason);
+    await retryOnMongoMaxTimeMSExpired(() => this.clearIteration(), {
+      signal: options?.signal,
+      abortMessage: 'Aborted clearing data',
+      retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
+      onRetry: () => {
+        logger.info(
+          `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
+        );
       }
-      try {
-        await this.clearIteration();
+    });
 
-        logger.info(`${this.slot_name} Done clearing data`);
-        return;
-      } catch (e: unknown) {
-        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-          logger.info(
-            `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-          );
-          await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
-        } else {
-          throw e;
-        }
-      }
-    }
+    logger.info(`${this.slot_name} Done clearing data`);
   }
 
   private async clearIteration(): Promise<void> {
