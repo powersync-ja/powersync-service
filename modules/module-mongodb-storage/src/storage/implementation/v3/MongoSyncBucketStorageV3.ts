@@ -19,6 +19,145 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
+import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';
+import { MongoBucketStorage } from '../../MongoBucketStorage.js';
+import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
+import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
+import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
+import { CommonSourceTableDocument } from '../models.js';
+
+export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
+  constructor(
+    factory: MongoBucketStorage,
+    group_id: number,
+    sync_rules: MongoPersistedSyncRulesContent,
+    slot_name: string,
+    writeCheckpointMode: storage.WriteCheckpointMode | undefined,
+    options: MongoSyncBucketStorageOptions
+  ) {
+    super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+  }
+
+  protected async initializeVersionStorage(): Promise<void> {
+    const mapping = this.mapping;
+    for (let source of mapping.allBucketDefinitionIds()) {
+      const collection = this.db.bucket_data_v3(this.group_id, source).collectionName;
+      await this.db.db
+        .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
+        .catch((error) => {
+          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
+            return;
+          }
+          throw error;
+        });
+    }
+    for (let indexId of mapping.allParameterIndexIds()) {
+      await this.db.parameterIndexV3(this.group_id, indexId).createIndex(
+        {
+          lookup: 1,
+          key: 1,
+          _id: -1
+        },
+        {
+          name: 'lookup_op_id'
+        }
+      );
+    }
+  }
+
+  protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
+    return new MongoBucketBatchV3(batchOptions);
+  }
+
+  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
+    return {};
+  }
+
+  protected augmentCreatedSourceTableDocument(
+    createDoc: CommonSourceTableDocument,
+    options: storage.ResolveTableOptions,
+    candidateSourceTable: storage.SourceTable
+  ): void {
+    const bucketDataSourceIds = options.sync_rules.definition.bucketDataSources
+      .filter((source) => source.tableSyncsData(candidateSourceTable))
+      .map((source) => this.mapping.bucketSourceId(source));
+    const parameterLookupSourceIds = options.sync_rules.definition.bucketParameterLookupSources
+      .filter((source) => source.tableSyncsParameters(candidateSourceTable))
+      .map((source) => this.mapping.parameterLookupId(source));
+
+    Object.assign(createDoc, {
+      bucket_data_source_ids: bucketDataSourceIds,
+      parameter_lookup_source_ids: parameterLookupSourceIds
+    });
+  }
+
+  protected async initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void> {
+    await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
+  }
+
+  protected getParameterSetsImpl(
+    checkpoint: MongoSyncBucketStorageCheckpoint,
+    lookups: ScopedParameterLookup[]
+  ): Promise<SqliteJsonRow[]> {
+    return getParameterSetsV3(this.versionContext, checkpoint, lookups);
+  }
+
+  protected getBucketDataBatchImpl(
+    checkpoint: utils.InternalOpId,
+    dataBuckets: storage.BucketDataRequest[],
+    options?: storage.BucketDataBatchOptions
+  ): AsyncIterable<storage.SyncBucketDataChunk> {
+    return getBucketDataBatchV3(this.versionContext, checkpoint, dataBuckets, options);
+  }
+
+  protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
+    for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
+      await collection.drop();
+    }
+  }
+
+  protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
+    for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
+      await collection.collection.drop();
+    }
+  }
+
+  protected async clearBucketState(_signal?: AbortSignal): Promise<void> {
+    await this.db
+      .bucketStateV3(this.group_id)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
+  }
+
+  protected async clearSourceTables(_signal?: AbortSignal): Promise<void> {
+    await this.db
+      .sourceTablesV3(this.group_id)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
+  }
+
+  protected getDataBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    return getDataBucketChangesV3(this.versionContext, options);
+  }
+
+  protected getParameterBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    return getParameterBucketChangesV3(this.versionContext, options);
+  }
+}
 
 export async function getParameterSetsV3(
   ctx: MongoSyncBucketStorageContext,

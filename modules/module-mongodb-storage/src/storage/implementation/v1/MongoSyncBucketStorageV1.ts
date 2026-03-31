@@ -13,12 +13,138 @@ import {
 import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
-import { BucketDataDocumentV1, LEGACY_BUCKET_DATA_DEFINITION_ID, bucketDataDocumentToTagged } from '../models.js';
+import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import {
+  BucketDataDocumentV1,
+  BucketDataKeyV1,
+  BucketStateDocument,
+  CommonSourceTableDocument,
+  LEGACY_BUCKET_DATA_DEFINITION_ID,
+  bucketDataDocumentToTagged
+} from '../models.js';
 import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
+import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';
+import { MongoBucketStorage } from '../../MongoBucketStorage.js';
+import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
+import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
+import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
+
+export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
+  constructor(
+    factory: MongoBucketStorage,
+    group_id: number,
+    sync_rules: MongoPersistedSyncRulesContent,
+    slot_name: string,
+    writeCheckpointMode: storage.WriteCheckpointMode | undefined,
+    options: MongoSyncBucketStorageOptions
+  ) {
+    super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+  }
+
+  protected async initializeVersionStorage(): Promise<void> {}
+
+  protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
+    return new MongoBucketBatchV1(batchOptions);
+  }
+
+  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
+    return { group_id: this.group_id };
+  }
+
+  protected augmentCreatedSourceTableDocument(
+    _createDoc: CommonSourceTableDocument,
+    _options: storage.ResolveTableOptions,
+    _candidateSourceTable: storage.SourceTable
+  ): void {}
+
+  protected async initializeResolvedSourceRecords(_sourceTableId: bson.ObjectId): Promise<void> {}
+
+  protected getParameterSetsImpl(
+    checkpoint: MongoSyncBucketStorageCheckpoint,
+    lookups: ScopedParameterLookup[]
+  ): Promise<SqliteJsonRow[]> {
+    return getParameterSetsV1(this.versionContext, checkpoint, lookups);
+  }
+
+  protected getBucketDataBatchImpl(
+    checkpoint: utils.InternalOpId,
+    dataBuckets: storage.BucketDataRequest[],
+    options?: storage.BucketDataBatchOptions
+  ): AsyncIterable<storage.SyncBucketDataChunk> {
+    return getBucketDataBatchV1(this.versionContext, checkpoint, dataBuckets, options);
+  }
+
+  protected async clearBucketData(signal?: AbortSignal): Promise<void> {
+    await this.clearDeleteMany(
+      'bucket data',
+      () =>
+        this.db.bucket_data.deleteMany(
+          {
+            _id: idPrefixFilter<BucketDataKeyV1>({ g: this.group_id }, ['b', 'o'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        ),
+      signal
+    );
+  }
+
+  protected async clearParameterIndexes(signal?: AbortSignal): Promise<void> {
+    await this.clearDeleteMany(
+      'parameter index',
+      () =>
+        this.db.parameterIndexV1.deleteMany(
+          {
+            'key.g': this.group_id
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        ),
+      signal
+    );
+  }
+
+  protected async clearBucketState(signal?: AbortSignal): Promise<void> {
+    await this.clearDeleteMany(
+      'bucket state',
+      () =>
+        this.db.bucketStateV1.deleteMany(
+          {
+            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        ),
+      signal
+    );
+  }
+
+  protected async clearSourceTables(signal?: AbortSignal): Promise<void> {
+    await this.clearDeleteMany(
+      'source tables',
+      () =>
+        this.db.commonSourceTables(this.group_id).deleteMany(
+          {
+            group_id: this.group_id
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        ),
+      signal
+    );
+  }
+
+  protected getDataBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    return getDataBucketChangesV1(this.versionContext, options);
+  }
+
+  protected getParameterBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    return getParameterBucketChangesV1(this.versionContext, options);
+  }
+}
 
 export async function getParameterSetsV1(
   ctx: MongoSyncBucketStorageContext,
