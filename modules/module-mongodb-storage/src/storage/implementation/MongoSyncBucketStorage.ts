@@ -1,6 +1,11 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BaseObserver, logger, ServiceAssertionError } from '@powersync/lib-services-framework';
+import {
+  BaseObserver,
+  logger,
+  ReplicationAbortedError,
+  ServiceAssertionError
+} from '@powersync/lib-services-framework';
 import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
@@ -924,23 +929,11 @@ export class MongoSyncBucketStorage
   }
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
-    await retryOnMongoMaxTimeMSExpired(() => this.clearIteration(), {
-      signal: options?.signal,
-      abortMessage: 'Aborted clearing data',
-      retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
-      onRetry: () => {
-        logger.info(
-          `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-        );
-      }
-    });
+    const signal = options?.signal;
 
-    logger.info(`${this.slot_name} Done clearing data`);
-  }
-
-  private async clearIteration(): Promise<void> {
-    // Individual operations here may time out with the maxTimeMS option.
-    // It is expected to still make progress, and continue on the next try.
+    if (signal?.aborted) {
+      throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
+    }
 
     await this.db.sync_rules.updateOne(
       {
@@ -965,11 +958,16 @@ export class MongoSyncBucketStorage
         await collection.drop();
       }
     } else {
-      await this.db.bucket_data.deleteMany(
-        {
-          _id: idPrefixFilter<BucketDataKeyV1>({ g: this.group_id }, ['b', 'o'])
-        },
-        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      await this.clearDeleteMany(
+        'bucket data',
+        () =>
+          this.db.bucket_data.deleteMany(
+            {
+              _id: idPrefixFilter<BucketDataKeyV1>({ g: this.group_id }, ['b', 'o'])
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          ),
+        signal
       );
     }
     if (this.db.storageConfig.incrementalReprocessing) {
@@ -977,11 +975,16 @@ export class MongoSyncBucketStorage
         await collection.collection.drop();
       }
     } else {
-      await this.db.parameterIndexV1.deleteMany(
-        {
-          'key.g': this.group_id
-        },
-        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      await this.clearDeleteMany(
+        'parameter index',
+        () =>
+          this.db.parameterIndexV1.deleteMany(
+            {
+              'key.g': this.group_id
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          ),
+        signal
       );
     }
 
@@ -989,11 +992,16 @@ export class MongoSyncBucketStorage
       await collection.drop();
     }
 
-    await this.db.bucket_state.deleteMany(
-      {
-        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    await this.clearDeleteMany(
+      'bucket state',
+      () =>
+        this.db.bucket_state.deleteMany(
+          {
+            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        ),
+      signal
     );
 
     if (this.db.storageConfig.incrementalReprocessing) {
@@ -1007,15 +1015,37 @@ export class MongoSyncBucketStorage
           throw error;
         });
     } else {
-      await this.db.commonSourceTables(this.group_id).deleteMany(
-        {
-          group_id: this.group_id
-        },
-        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      await this.clearDeleteMany(
+        'source tables',
+        () =>
+          this.db.commonSourceTables(this.group_id).deleteMany(
+            {
+              group_id: this.group_id
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          ),
+        signal
       );
     }
 
     this.#storageInitialized = false;
+  }
+
+  private async clearDeleteMany(
+    label: string,
+    operation: () => Promise<mongo.DeleteResult>,
+    signal?: AbortSignal
+  ): Promise<void> {
+    await retryOnMongoMaxTimeMSExpired(operation, {
+      signal,
+      abortMessage: 'Aborted clearing data',
+      retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
+      onRetry: () => {
+        logger.info(
+          `${this.slot_name} Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
+        );
+      }
+    });
   }
 
   async reportError(e: any): Promise<void> {
