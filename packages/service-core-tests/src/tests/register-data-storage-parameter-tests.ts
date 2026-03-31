@@ -751,6 +751,7 @@ streams:
       streams: {
         stream: [
           {
+            priorityOverride: null,
             parameters: null,
             opaque_id: 123
           }
