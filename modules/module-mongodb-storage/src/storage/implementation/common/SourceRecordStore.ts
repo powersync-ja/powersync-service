@@ -3,7 +3,7 @@ import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
+import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 
 export interface SourceRecordLookupEntry {
   sourceTableId: bson.ObjectId;

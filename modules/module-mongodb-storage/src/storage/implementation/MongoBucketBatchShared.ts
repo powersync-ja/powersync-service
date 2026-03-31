@@ -1,5 +1,5 @@
 import * as bson from 'bson';
-import { SourceRecordBucketState } from './SourceRecordStore.js';
+import { SourceRecordBucketState } from './common/SourceRecordStore.js';
 
 export const MAX_ROW_SIZE = 15 * 1024 * 1024;
 

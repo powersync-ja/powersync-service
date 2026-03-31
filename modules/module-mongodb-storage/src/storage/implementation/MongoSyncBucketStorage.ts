@@ -50,14 +50,14 @@ import {
   StorageConfig,
   bucketDataDocumentToTagged
 } from './models.js';
-import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
-import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
+import { MongoBucketBatchV1 } from './v1/MongoBucketBatchV1.js';
+import { MongoBucketBatchV3 } from './v3/MongoBucketBatchV3.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
+import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './v3/MongoParameterLookupV3.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;

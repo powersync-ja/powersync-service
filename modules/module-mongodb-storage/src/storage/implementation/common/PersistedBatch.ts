@@ -4,17 +4,17 @@ import * as bson from 'bson';
 
 import { Logger, logger as defaultLogger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
-import { MongoIdSequence } from './MongoIdSequence.js';
-import { VersionedPowerSyncMongo } from './db.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { BucketDefinitionId } from './BucketDefinitionMapping.js';
+import { MongoIdSequence } from '../MongoIdSequence.js';
+import { VersionedPowerSyncMongo } from '../db.js';
+import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import {
   BucketStateDocumentV1,
   BucketStateDocumentV3,
   TaggedBucketParameterDocument,
   TaggedBucketDataDocument
-} from './models.js';
-import { mongoTableId } from '../../utils/util.js';
+} from '../models.js';
+import { mongoTableId } from '../../../utils/util.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 /**

@@ -8,7 +8,7 @@ export * from './implementation/MongoStorageProvider.js';
 export * from './implementation/MongoSyncBucketStorage.js';
 export * from './implementation/MongoSyncRulesLock.js';
 export * from './implementation/OperationBatch.js';
-export * from './implementation/PersistedBatch.js';
+export * from './implementation/common/PersistedBatch.js';
 export * from '../utils/util.js';
 export * from './MongoBucketStorage.js';
 export * from './MongoReportStorage.js';

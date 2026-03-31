@@ -1,0 +1,100 @@
+import { mongo } from '@powersync/lib-service-mongodb';
+import { ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { InternalOpId, storage } from '@powersync/service-core';
+import {
+  BucketDataDocumentV1,
+  BucketStateDocumentV1,
+  LEGACY_BUCKET_DATA_DEFINITION_ID,
+  TaggedBucketDataDocument,
+  taggedBucketDataDocumentToV1
+} from '../models.js';
+import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BaseMongoCompactor, DirtyBucket } from '../common/MongoCompactorBase.js';
+
+export class MongoCompactorV1 extends BaseMongoCompactor {
+  public async *dirtyBucketBatches(options: {
+    minBucketChanges: number;
+    minChangeRatio: number;
+  }): AsyncGenerator<DirtyBucket[]> {
+    if (options.minBucketChanges <= 0) {
+      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+    }
+    // Previously, we used an index on {_id.g: 1, estimate_since_compact.count: 1} to only scan buckets with changes.
+    // That works well if there are only a small number of dirty buckets, but it causes repeated rescans while data is
+    // still changing. We now iterate through all V1 bucket_state rows for the group and filter after projecting.
+    yield* this.dirtyBucketBatchesForCollection(
+      this.db.bucketStateV1,
+      { g: this.group_id, b: new mongo.MinKey() as any },
+      { g: this.group_id, b: new mongo.MaxKey() as any },
+      options,
+      () => null
+    );
+  }
+
+  public async dirtyBucketBatchForChecksums(options: { minBucketChanges: number }): Promise<DirtyBucket[]> {
+    if (options.minBucketChanges <= 0) {
+      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+    }
+    // Unlike dirtyBucketBatches, this path is resumable after restart because populateChecksums resets
+    // estimate_since_compact as it progresses.
+    return this.dirtyBucketBatchForChecksumsForCollection(
+      this.db.bucketStateV1,
+      {
+        '_id.g': this.group_id,
+        'estimate_since_compact.count': { $gte: options.minBucketChanges }
+      },
+      () => null
+    );
+  }
+
+  protected async flushBucketStateUpdates(): Promise<void> {
+    await this.db.bucketStateV1.bulkWrite(
+      this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[],
+      {
+        ordered: false
+      }
+    );
+  }
+
+  protected async computeChecksumsForBuckets(
+    buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
+  ): Promise<storage.PartialChecksumMap> {
+    return this.storage.checksums.computePartialChecksumsDirectV1(
+      buckets.map(({ bucket }) => ({
+        bucket,
+        end: this.maxOpId
+      }))
+    );
+  }
+
+  protected bucketStateFilter(bucket: string, _definitionId: BucketDefinitionId | null): mongo.Document {
+    return {
+      _id: {
+        g: this.group_id,
+        b: bucket
+      }
+    };
+  }
+
+  protected bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): mongo.Document {
+    return {
+      g: this.group_id,
+      b: bucket,
+      o: opId as any
+    };
+  }
+
+  protected async getBucketDataCollection(
+    _bucket: string,
+    _definitionId: BucketDefinitionId | null
+  ): Promise<{ collection: mongo.Collection<mongo.Document>; definitionId: BucketDefinitionId } | null> {
+    return {
+      collection: this.db.v1_bucket_data as unknown as mongo.Collection<mongo.Document>,
+      definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID
+    };
+  }
+
+  protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentV1 {
+    return taggedBucketDataDocumentToV1(this.group_id, document);
+  }
+}

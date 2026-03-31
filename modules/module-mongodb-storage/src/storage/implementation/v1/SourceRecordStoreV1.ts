@@ -2,16 +2,16 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
-import { idPrefixFilter } from '../../utils/util.js';
-import { VersionedPowerSyncMongo } from './db.js';
-import { cacheKey } from './OperationBatch.js';
+import { idPrefixFilter } from '../../../utils/util.js';
+import { VersionedPowerSyncMongo } from '../db.js';
+import { cacheKey } from '../OperationBatch.js';
 import {
   SourceRecordLookupEntry,
   SourceRecordLookupState,
   LoadedSourceRecord,
   SourceRecordStore
-} from './SourceRecordStore.js';
-import { CurrentDataDocument, SourceKey } from './models.js';
+} from '../common/SourceRecordStore.js';
+import { CurrentDataDocument, SourceKey } from '../models.js';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 
 export class SourceRecordStoreV1 implements SourceRecordStore {

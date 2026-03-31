@@ -4,13 +4,13 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as bson from 'bson';
 
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
+import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import {
   PersistedBatch,
   SaveBucketDataOptions,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
-} from './PersistedBatch.js';
+} from '../common/PersistedBatch.js';
 import {
   BucketParameterDocument,
   CurrentDataDocument,
@@ -19,8 +19,8 @@ import {
   SourceKey,
   taggedBucketParameterDocumentToV1,
   taggedBucketDataDocumentToV1
-} from './models.js';
-import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
+} from '../models.js';
+import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 
 export class PersistedBatchV1 extends PersistedBatch {
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
