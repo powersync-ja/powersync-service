@@ -2,7 +2,10 @@ import { MONGO_OPERATION_TIMEOUT_MS, mongo } from '@powersync/lib-service-mongod
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import {
+  BucketDataDocumentBase,
   BucketDataDocumentV3,
+  BucketDataKeyV3,
+  BucketStateDocumentBase,
   BucketStateDocumentV3,
   TaggedBucketDataDocument,
   taggedBucketDataDocumentToV3
@@ -47,9 +50,7 @@ export class MongoCompactorV3 extends BaseMongoCompactor {
   protected async flushBucketStateUpdates(): Promise<void> {
     await this.db
       .bucketStateV3(this.group_id)
-      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], {
-        ordered: false
-      });
+      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], { ordered: false });
   }
 
   protected async computeChecksumsForBuckets(
@@ -69,7 +70,10 @@ export class MongoCompactorV3 extends BaseMongoCompactor {
     );
   }
 
-  protected bucketStateFilter(bucket: string, definitionId: BucketDefinitionId | null): mongo.Document {
+  protected bucketStateFilter(
+    bucket: string,
+    definitionId: BucketDefinitionId | null
+  ): mongo.Filter<BucketStateDocumentBase> {
     if (definitionId == null) {
       throw new ServiceAssertionError(`Missing definitionId for V3 bucket state filter on bucket ${bucket}`);
     }
@@ -81,17 +85,20 @@ export class MongoCompactorV3 extends BaseMongoCompactor {
     };
   }
 
-  protected bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): mongo.Document {
+  protected bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): BucketDataKeyV3 {
     return { b: bucket, o: opId as any };
   }
 
   protected async getBucketDataCollection(
     bucket: string,
     definitionId: BucketDefinitionId | null
-  ): Promise<{ collection: mongo.Collection<mongo.Document>; definitionId: BucketDefinitionId } | null> {
+  ): Promise<{ collection: mongo.Collection<BucketDataDocumentBase>; definitionId: BucketDefinitionId } | null> {
     if (definitionId != null) {
       return {
-        collection: this.db.bucket_data_v3(this.group_id, definitionId) as unknown as mongo.Collection<mongo.Document>,
+        collection: this.db.bucket_data_v3(
+          this.group_id,
+          definitionId
+        ) as unknown as mongo.Collection<BucketDataDocumentBase>,
         definitionId
       };
     }
@@ -105,7 +112,7 @@ export class MongoCompactorV3 extends BaseMongoCompactor {
       if (existing != null) {
         const resolvedDefinitionId = collection.collectionName.replace(`bucket_data_${this.group_id}_`, '');
         return {
-          collection: collection as unknown as mongo.Collection<mongo.Document>,
+          collection: collection as unknown as mongo.Collection<BucketDataDocumentBase>,
           definitionId: resolvedDefinitionId
         };
       }
@@ -114,7 +121,7 @@ export class MongoCompactorV3 extends BaseMongoCompactor {
     return null;
   }
 
-  protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentV3 {
+  protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentBase {
     return taggedBucketDataDocumentToV3(document);
   }
 }

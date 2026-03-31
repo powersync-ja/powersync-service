@@ -111,11 +111,15 @@ export interface BucketDataProperties {
   target_op?: bigint | null;
 }
 
-export interface BucketDataDocumentV1 extends BucketDataProperties {
+export interface BucketDataDocumentBase extends BucketDataProperties {
+  _id: BucketDataKeyV3;
+}
+
+export interface BucketDataDocumentV1 extends BucketDataDocumentBase {
   _id: BucketDataKeyV1;
 }
 
-export interface BucketDataDocumentV3 extends BucketDataProperties {
+export interface BucketDataDocumentV3 extends BucketDataDocumentBase {
   _id: BucketDataKeyV3;
 }
 
@@ -231,7 +235,7 @@ export interface SourceTableDocumentSnapshotStatus {
  * Note: There is currently no migration to populate this collection from existing data - it is only
  * populated by new updates.
  */
-interface BucketStateDocumentBase {
+export interface BucketStateDocumentBase {
   _id: {
     b: string;
   };

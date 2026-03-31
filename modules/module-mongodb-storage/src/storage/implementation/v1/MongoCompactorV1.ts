@@ -2,7 +2,10 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import {
+  BucketDataDocumentBase,
   BucketDataDocumentV1,
+  BucketDataKeyV1,
+  BucketStateDocumentBase,
   BucketStateDocumentV1,
   LEGACY_BUCKET_DATA_DEFINITION_ID,
   TaggedBucketDataDocument,
@@ -53,9 +56,7 @@ export class MongoCompactorV1 extends BaseMongoCompactor {
   protected async flushBucketStateUpdates(): Promise<void> {
     await this.db.bucketStateV1.bulkWrite(
       this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[],
-      {
-        ordered: false
-      }
+      { ordered: false }
     );
   }
 
@@ -70,7 +71,10 @@ export class MongoCompactorV1 extends BaseMongoCompactor {
     );
   }
 
-  protected bucketStateFilter(bucket: string, _definitionId: BucketDefinitionId | null): mongo.Document {
+  protected bucketStateFilter(
+    bucket: string,
+    _definitionId: BucketDefinitionId | null
+  ): mongo.Filter<BucketStateDocumentBase> {
     return {
       _id: {
         g: this.group_id,
@@ -79,7 +83,7 @@ export class MongoCompactorV1 extends BaseMongoCompactor {
     };
   }
 
-  protected bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): mongo.Document {
+  protected bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): BucketDataKeyV1 {
     return {
       g: this.group_id,
       b: bucket,
@@ -90,14 +94,14 @@ export class MongoCompactorV1 extends BaseMongoCompactor {
   protected async getBucketDataCollection(
     _bucket: string,
     _definitionId: BucketDefinitionId | null
-  ): Promise<{ collection: mongo.Collection<mongo.Document>; definitionId: BucketDefinitionId } | null> {
+  ): Promise<{ collection: mongo.Collection<BucketDataDocumentBase>; definitionId: BucketDefinitionId } | null> {
     return {
-      collection: this.db.v1_bucket_data as unknown as mongo.Collection<mongo.Document>,
+      collection: this.db.v1_bucket_data as unknown as mongo.Collection<BucketDataDocumentBase>,
       definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID
     };
   }
 
-  protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentV1 {
+  protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentBase {
     return taggedBucketDataDocumentToV1(this.group_id, document);
   }
 }

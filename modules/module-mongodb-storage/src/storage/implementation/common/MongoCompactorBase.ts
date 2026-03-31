@@ -12,10 +12,12 @@ import {
 import type { VersionedPowerSyncMongo } from '../db.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import {
+  BucketDataDocumentBase,
   BucketDataDocumentV1,
   BucketDataDocumentV3,
   LEGACY_BUCKET_DATA_DEFINITION_ID,
   TaggedBucketDataDocument,
+  BucketStateDocumentBase,
   bucketDataDocumentToTagged
 } from '../models.js';
 import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
@@ -65,22 +67,10 @@ type CompactBucketDataDocument = Pick<
 type CompactClearBucketDataDocument = Pick<TaggedBucketDataDocument, '_id' | 'def' | 'op' | 'checksum' | 'target_op'>;
 type BucketDataCollectionDocument = BucketDataDocumentV1 | BucketDataDocumentV3;
 type BucketDataClearProjection = {
-  _id: BucketDataCollectionDocument['_id'];
+  _id: BucketDataDocumentBase['_id'];
   op: CompactClearBucketDataDocument['op'];
   checksum: bigint;
   target_op?: bigint | null;
-};
-
-type BucketStateProjection = {
-  _id: { b: string };
-  estimate_since_compact?: {
-    count: number;
-    bytes: number | bigint;
-  };
-  compacted_state?: {
-    count: number;
-    bytes: number | bigint | null;
-  };
 };
 
 export interface MongoCompactOptions extends storage.CompactOptions {}
@@ -102,9 +92,9 @@ export interface DirtyBucket {
 }
 
 export abstract class BaseMongoCompactor {
-  protected updates: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
-  protected bucketStateUpdates: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
-  protected activeBucketDataCollection: mongo.Collection<mongo.Document> | null = null;
+  protected updates: mongo.AnyBulkWriteOperation<BucketDataDocumentBase>[] = [];
+  protected bucketStateUpdates: mongo.AnyBulkWriteOperation<BucketStateDocumentBase>[] = [];
+  protected activeBucketDataCollection: mongo.Collection<BucketDataDocumentBase> | null = null;
   protected activeBucketDefinitionId: BucketDefinitionId = LEGACY_BUCKET_DATA_DEFINITION_ID;
 
   protected readonly idLimitBytes: number;
@@ -186,23 +176,23 @@ export abstract class BaseMongoCompactor {
     return { buckets: count };
   }
 
-  protected async *dirtyBucketBatchesForCollection<TBucketState extends BucketStateProjection>(
-    collection: mongo.Collection<TBucketState>,
-    lastId: mongo.Document,
-    maxId: mongo.Document,
+  protected async *dirtyBucketBatchesForCollection<TCollectionBucketState extends BucketStateDocumentBase>(
+    collection: mongo.Collection<TCollectionBucketState>,
+    lastId: TCollectionBucketState['_id'],
+    maxId: TCollectionBucketState['_id'],
     options: {
       minBucketChanges: number;
       minChangeRatio: number;
     },
-    getDefinitionId: (state: TBucketState) => BucketDefinitionId | null
+    getDefinitionId: (state: TCollectionBucketState) => BucketDefinitionId | null
   ): AsyncGenerator<DirtyBucket[]> {
     while (true) {
       // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, use an aggregation pipeline
       // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria.
       const [result] = await collection
         .aggregate<{
-          buckets: TBucketState[];
-          cursor: Pick<TBucketState, '_id'>[];
+          buckets: TCollectionBucketState[];
+          cursor: Pick<TCollectionBucketState, '_id'>[];
         }>(
           [
             {
@@ -246,7 +236,7 @@ export abstract class BaseMongoCompactor {
       if (cursor == null) {
         break;
       }
-      lastId = cursor._id as mongo.Document;
+      lastId = cursor._id;
 
       const mapped = (result?.buckets ?? []).map((bucketState) => {
         // The numbers, specifically the bytes, could be a bigint. Convert to Number to allow calculating ratios.
@@ -271,7 +261,7 @@ export abstract class BaseMongoCompactor {
     }
   }
 
-  protected async dirtyBucketBatchForChecksumsForCollection<TBucketState extends BucketStateProjection>(
+  protected async dirtyBucketBatchForChecksumsForCollection<TBucketState extends BucketStateDocumentBase>(
     collection: mongo.Collection<TBucketState>,
     filter: mongo.Filter<TBucketState>,
     getDefinitionId: (state: mongo.WithId<TBucketState>) => BucketDefinitionId | null
@@ -456,7 +446,7 @@ export abstract class BaseMongoCompactor {
                       row_id: 1,
                       data: 1
                     }
-                  }
+                  } satisfies mongo.UpdateFilter<BucketDataDocumentBase>
                 }
               });
 
@@ -536,7 +526,7 @@ export abstract class BaseMongoCompactor {
               bytes: 0
             }
           }
-        },
+        } satisfies mongo.UpdateFilter<BucketStateDocumentBase>,
         // We generally expect this to have been created before.
         // We don't create new ones here, to avoid issues with the unique index on bucket_updates.
         upsert: false
@@ -613,7 +603,7 @@ export abstract class BaseMongoCompactor {
             let numberOfOpsToClear = 0;
             for await (const rawOp of query.stream()) {
               const op = this.tagClearBucketDataDocument(
-                rawOp as unknown as BucketDataClearProjection,
+                rawOp as BucketDataClearProjection,
                 this.activeBucketDefinitionId
               );
 
@@ -629,7 +619,7 @@ export abstract class BaseMongoCompactor {
                 }
               } else {
                 throw new ReplicationAssertionError(
-                  `Unexpected ${op.op} operation at ${this.formatBucketDataKey(op._id as unknown as mongo.Document)}`
+                  `Unexpected ${op.op} operation at ${this.formatBucketDataKey(op._id)}`
                 );
               }
             }
@@ -642,11 +632,11 @@ export abstract class BaseMongoCompactor {
             await bucketCollection.deleteMany(
               {
                 _id: {
-                  $gte: this.bucketDataKey(bucket, new mongo.MinKey() as any),
+                  $gte: this.bucketDataKey(bucket, new mongo.MinKey()),
                   $lte: this.bucketDataKey(lastOp!._id.b, lastOp!._id.o)
                 }
-              } as any,
-              { session } as any
+              },
+              { session }
             );
 
             await bucketCollection.insertOne(
@@ -657,8 +647,8 @@ export abstract class BaseMongoCompactor {
                 checksum: BigInt(checksum),
                 data: null,
                 target_op: targetOp
-              }) as unknown as mongo.OptionalId<mongo.Document>,
-              { session } as any
+              }),
+              { session }
             );
 
             opCountDiff = -numberOfOpsToClear + 1;
@@ -705,7 +695,7 @@ export abstract class BaseMongoCompactor {
                 bytes: 0
               }
             }
-          },
+          } satisfies mongo.UpdateFilter<BucketStateDocumentBase>,
           // We don't create new ones here - it gets tricky to get the last_op right with the unique index on
           // bucket_updates.
           upsert: false
@@ -743,9 +733,9 @@ export abstract class BaseMongoCompactor {
     };
   }
 
-  protected formatBucketDataKey(key: mongo.Document) {
-    const bucket = (key.b ?? key._id?.b) as string | undefined;
-    const op = (key.o ?? key._id?.o) as bigint | undefined;
+  protected formatBucketDataKey(key: BucketDataDocumentBase['_id'] | { _id: BucketDataDocumentBase['_id'] }) {
+    const bucket = 'b' in key ? key.b : key._id.b;
+    const op = 'o' in key ? key.o : key._id.o;
     return `${this.group_id}:${bucket ?? '?'}:${op ?? '?'}`;
   }
 
@@ -754,12 +744,13 @@ export abstract class BaseMongoCompactor {
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap>;
   protected abstract bucketStateFilter(bucket: string, definitionId: BucketDefinitionId | null): mongo.Document;
-  protected abstract bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): mongo.Document;
+  protected abstract bucketDataKey(
+    bucket: string,
+    opId: InternalOpId | mongo.MinKey | mongo.MaxKey
+  ): BucketDataDocumentBase['_id'];
   protected abstract getBucketDataCollection(
     bucket: string,
     definitionId: BucketDefinitionId | null
-  ): Promise<{ collection: mongo.Collection<mongo.Document>; definitionId: BucketDefinitionId } | null>;
-  protected abstract collectionBucketDataDocument(
-    document: TaggedBucketDataDocument
-  ): BucketDataDocumentV1 | BucketDataDocumentV3;
+  ): Promise<{ collection: mongo.Collection<BucketDataDocumentBase>; definitionId: BucketDefinitionId } | null>;
+  protected abstract collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentBase;
 }
