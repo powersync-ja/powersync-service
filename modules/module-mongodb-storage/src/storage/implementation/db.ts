@@ -298,7 +298,7 @@ export class VersionedPowerSyncMongo {
     this.storageConfig = storageConfig;
   }
 
-  sourceRecordsV1(_replicationStreamId: number, _sourceTableId: mongo.ObjectId) {
+  get sourceRecordsV1() {
     if (this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'current_data collection should not be used when incrementalReprocessing is enabled'

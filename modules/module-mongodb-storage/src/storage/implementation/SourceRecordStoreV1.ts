@@ -71,30 +71,27 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
 
   async loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>> {
     const sizes = new Map<string, number>();
-    for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const sizeCursor: mongo.AggregationCursor<CurrentDataDocument & { size: number }> = this.db
-        .sourceRecordsV1(this.groupId, sourceTableId)
-        .aggregate(
-          [
-            {
-              $match: {
-                _id: {
-                  $in: replicaIds.map((replicaId) => this.createId(sourceTableId, replicaId) as SourceKey)
-                }
-              }
-            },
-            {
-              $project: {
-                _id: 1,
-                size: { $bsonSize: '$$ROOT' }
+    const sizeCursor: mongo.AggregationCursor<CurrentDataDocument & { size: number }> =
+      this.db.sourceRecordsV1.aggregate(
+        [
+          {
+            $match: {
+              _id: {
+                $in: entries.map((entry) => this.createId(entry.sourceTableId, entry.replicaId) as SourceKey)
               }
             }
-          ],
-          { session }
-        );
-      for await (const doc of sizeCursor.stream()) {
-        sizes.set(cacheKey(sourceTableId, doc._id.k), doc.size);
-      }
+          },
+          {
+            $project: {
+              _id: 1,
+              size: { $bsonSize: '$$ROOT' }
+            }
+          }
+        ],
+        { session }
+      );
+    for await (const doc of sizeCursor.stream()) {
+      sizes.set(cacheKey(doc._id.t, doc._id.k), doc.size);
     }
     return sizes;
   }
@@ -106,25 +103,23 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
   ): Promise<Map<string, LoadedSourceRecord>> {
     const documents = new Map<string, LoadedSourceRecord>();
     const projection = idsOnly ? { _id: 1 } : undefined;
-    for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const cursor = this.db.sourceRecordsV1(this.groupId, sourceTableId).find(
-        {
-          _id: {
-            $in: replicaIds.map((replicaId) => this.createId(sourceTableId, replicaId) as SourceKey)
-          }
-        },
-        { session, projection }
+    const cursor = this.db.sourceRecordsV1.find(
+      {
+        _id: {
+          $in: entries.map((entry) => this.createId(entry.sourceTableId, entry.replicaId) as SourceKey)
+        }
+      },
+      { session, projection }
+    );
+    for await (const doc of cursor.stream()) {
+      const loaded = this.createLoadedDocument(
+        doc._id.t,
+        doc._id,
+        idsOnly ? null : doc.data,
+        idsOnly ? [] : doc.buckets,
+        idsOnly ? [] : doc.lookups
       );
-      for await (const doc of cursor.stream()) {
-        const loaded = this.createLoadedDocument(
-          sourceTableId,
-          doc._id,
-          idsOnly ? null : doc.data,
-          idsOnly ? [] : doc.buckets,
-          idsOnly ? [] : doc.lookups
-        );
-        documents.set(loaded.cacheKey, loaded);
-      }
+      documents.set(loaded.cacheKey, loaded);
     }
     return documents;
   }
@@ -134,7 +129,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]> {
-    const cursor = this.db.sourceRecordsV1(this.groupId, sourceTableId).find(
+    const cursor = this.db.sourceRecordsV1.find(
       {
         _id: idPrefixFilter<SourceKey>({ g: this.groupId, t: sourceTableId }, ['k']),
         pending_delete: { $exists: false }
@@ -155,14 +150,4 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
   }
 
   async cleanup(_lastCheckpoint: bigint, _logger: Logger): Promise<void> {}
-
-  private groupEntries(entries: SourceRecordLookupEntry[]): Map<bson.ObjectId, storage.ReplicaId[]> {
-    const grouped = new Map<bson.ObjectId, storage.ReplicaId[]>();
-    for (const entry of entries) {
-      const existing = grouped.get(entry.sourceTableId) ?? [];
-      existing.push(entry.replicaId);
-      grouped.set(entry.sourceTableId, existing);
-    }
-    return grouped;
-  }
 }
