@@ -20,6 +20,7 @@ import {
   IdSequenceDocument,
   InstanceDocument,
   SourceTableDocument,
+  SourceTableDocumentV3,
   StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
@@ -139,10 +140,6 @@ export class PowerSyncMongo {
 
   sourceTableCollectionName(replicationStreamId: number) {
     return `source_table_${replicationStreamId}`;
-  }
-
-  sourceTables<T extends CommonSourceTableDocument>(replicationStreamId: number): mongo.Collection<T> {
-    return this.db.collection<T>(this.sourceTableCollectionName(replicationStreamId));
   }
 
   async listSourceTableCollections(
@@ -342,22 +339,37 @@ export class VersionedPowerSyncMongo {
     );
   }
 
-  source_tables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
-    return this.#upstream.sourceTables<CommonSourceTableDocument>(replicationStreamId);
+  commonSourceTables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
+    if (this.storageConfig.incrementalReprocessing) {
+      return this.sourceTablesV3(replicationStreamId) as mongo.Collection<CommonSourceTableDocument>;
+    } else {
+      return this.#upstream.source_tables as any as mongo.Collection<CommonSourceTableDocument>;
+    }
+  }
+
+  sourceTablesV3(replicationStreamId: number) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'source_tables v3 collection should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.db.collection<SourceTableDocumentV3>(this.#upstream.sourceTableCollectionName(replicationStreamId));
   }
 
   async initializeStreamStorage(replicationStreamId: number) {
-    await this.source_tables(replicationStreamId).createIndex(
-      {
-        connection_id: 1,
-        schema_name: 1,
-        table_name: 1,
-        relation_id: 1
-      },
-      {
-        name: 'source_lookup'
-      }
-    );
+    if (this.storageConfig.incrementalReprocessing) {
+      await this.sourceTablesV3(replicationStreamId).createIndex(
+        {
+          connection_id: 1,
+          schema_name: 1,
+          table_name: 1,
+          relation_id: 1
+        },
+        {
+          name: 'source_lookup'
+        }
+      );
+    }
   }
 
   get bucket_data() {

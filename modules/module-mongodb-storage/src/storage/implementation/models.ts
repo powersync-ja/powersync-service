@@ -195,7 +195,6 @@ export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
 
 export interface SourceTableDocument {
   _id: bson.ObjectId;
-  group_id: number;
   connection_id: number;
   relation_id: number | string | undefined;
   schema_name: string;
@@ -206,9 +205,14 @@ export interface SourceTableDocument {
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
 }
 
+export interface SourceTableDocumentV1 extends SourceTableDocument {
+  group_id: number;
+}
+
 export interface SourceTableDocumentV3 extends SourceTableDocument {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
+  oldest_pending_delete?: InternalOpId | undefined;
 }
 
 export interface SourceTableDocumentSnapshotStatus {
@@ -433,7 +437,7 @@ export interface ClientConnectionDocument extends event_types.ClientConnection {
 export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
 export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
 export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
-export type CommonSourceTableDocument = SourceTableDocument | SourceTableDocumentV3;
+export type CommonSourceTableDocument = SourceTableDocumentV1 | SourceTableDocumentV3;
 
 export function isCurrentBucketV3(bucket: CommonCurrentBucket): bucket is CurrentBucketV3 {
   return 'def' in bucket;

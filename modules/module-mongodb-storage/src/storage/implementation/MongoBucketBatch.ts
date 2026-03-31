@@ -942,7 +942,7 @@ export abstract class MongoBucketBatch
 
     await this.withTransaction(async () => {
       for (let table of sourceTables) {
-        await this.db.source_tables(this.group_id).deleteOne({ _id: mongoTableId(table.id) });
+        await this.db.commonSourceTables(this.group_id).deleteOne({ _id: mongoTableId(table.id) });
       }
     });
 
@@ -1036,7 +1036,7 @@ export abstract class MongoBucketBatch
     copy.snapshotStatus = snapshotStatus;
 
     await this.withTransaction(async () => {
-      await this.db.source_tables(this.group_id).updateOne(
+      await this.db.commonSourceTables(this.group_id).updateOne(
         { _id: mongoTableId(table.id) },
         {
           $set: {
@@ -1091,7 +1091,7 @@ export abstract class MongoBucketBatch
     const ids = tables.map((table) => mongoTableId(table.id));
 
     await this.withTransaction(async () => {
-      await this.db.source_tables(this.group_id).updateMany(
+      await this.db.commonSourceTables(this.group_id).updateMany(
         { _id: { $in: ids } },
         {
           $set: {

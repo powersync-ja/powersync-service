@@ -267,15 +267,20 @@ export class MongoSyncBucketStorage
     const mapping = this.sync_rules.mapping;
     let result: storage.ResolveTableResult | null = null;
     let initializeSourceRecordsFor: bson.ObjectId | null = null;
+
+    const baseId: Partial<CommonSourceTableDocument> = this.db.storageConfig.incrementalReprocessing
+      ? {}
+      : { group_id };
     await this.db.client.withSession(async (session) => {
-      const col = this.db.source_tables(group_id);
+      const col = this.db.commonSourceTables(group_id);
       let filter: Partial<CommonSourceTableDocument> = {
-        group_id: group_id,
+        ...baseId,
         connection_id: connection_id,
         schema_name: schema,
         table_name: name,
         replica_id_columns2: normalizedReplicaIdColumns
       };
+
       if (objectId != null) {
         filter.relation_id = objectId;
       }
@@ -292,7 +297,7 @@ export class MongoSyncBucketStorage
         });
         const createDoc: CommonSourceTableDocument = {
           _id: candidateSourceTable.id as bson.ObjectId,
-          group_id: group_id,
+          ...(baseId as any),
           connection_id: connection_id,
           relation_id: objectId,
           schema_name: schema,
@@ -353,7 +358,7 @@ export class MongoSyncBucketStorage
       const truncate = await col
         .find(
           {
-            group_id: group_id,
+            ...baseId,
             connection_id: connection_id,
             _id: { $ne: doc._id },
             $or: truncateFilter
@@ -998,15 +1003,25 @@ export class MongoSyncBucketStorage
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
 
-    await this.db
-      .source_tables(this.group_id)
-      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
-      .catch((error) => {
-        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
-          return;
-        }
-        throw error;
-      });
+    if (this.db.storageConfig.incrementalReprocessing) {
+      await this.db
+        .sourceTablesV3(this.group_id)
+        .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+        .catch((error) => {
+          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+            return;
+          }
+          throw error;
+        });
+    } else {
+      await this.db.commonSourceTables(this.group_id).deleteMany(
+        {
+          group_id: this.group_id
+        },
+        { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+      );
+    }
+
     this.#storageInitialized = false;
   }
 

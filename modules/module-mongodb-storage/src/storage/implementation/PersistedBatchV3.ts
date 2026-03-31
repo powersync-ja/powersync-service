@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
+import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as bson from 'bson';
 import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
@@ -17,12 +17,14 @@ import {
   CurrentDataDocumentV3,
   SourceTableKey,
   taggedBucketParameterDocumentToV3,
-  taggedBucketDataDocumentToV3
+  taggedBucketDataDocumentToV3,
+  SourceTableDocumentV3
 } from './models.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
+  sourceTablePendingDeletes = new Map<string, InternalOpId>();
 
   saveBucketData(options: SaveBucketDataOptions) {
     const remaining_buckets = new Map<string, SaveBucketDataOptions['before_buckets'][number]>();
@@ -167,7 +169,11 @@ export class PersistedBatchV3 extends PersistedBatch {
     this.currentSize += 50;
   }
 
-  softDeleteCurrentData(sourceTableId: bson.ObjectId, replicaId: storage.ReplicaId, checkpointGreaterThan: bigint) {
+  softDeleteCurrentData(
+    sourceTableId: bson.ObjectId,
+    replicaId: storage.ReplicaId,
+    checkpointGreaterThan: InternalOpId
+  ) {
     this.currentData.push({
       sourceTableId,
       operation: {
@@ -185,6 +191,10 @@ export class PersistedBatchV3 extends PersistedBatch {
         }
       }
     });
+    if (!this.sourceTablePendingDeletes.has(sourceTableId.toHexString())) {
+      this.sourceTablePendingDeletes.set(sourceTableId.toHexString(), checkpointGreaterThan);
+    }
+
     this.currentSize += 50;
   }
 
@@ -289,6 +299,25 @@ export class PersistedBatchV3 extends PersistedBatch {
       operationsBySourceTable.set(sourceTableId, existing);
     }
 
+    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [
+      ...this.sourceTablePendingDeletes.entries()
+    ].map(([key, value]) => {
+      return {
+        updateOne: {
+          filter: { _id: new bson.ObjectId(key) },
+          update: {
+            $min: {
+              oldest_pending_delete: value
+            }
+          }
+        }
+      };
+    });
+
+    if (sourceTableUpdates.length > 0) {
+      await this.db.sourceTablesV3(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
+    }
+
     for (const operations of operationsBySourceTable.values()) {
       const sourceTableId = operations[0]!.sourceTableId;
       await this.db.sourceRecordsV3(this.group_id, sourceTableId).bulkWrite(
@@ -303,5 +332,6 @@ export class PersistedBatchV3 extends PersistedBatch {
 
   protected resetCurrentData() {
     this.currentData = [];
+    this.sourceTablePendingDeletes.clear();
   }
 }
