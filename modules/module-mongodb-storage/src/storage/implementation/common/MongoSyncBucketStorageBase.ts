@@ -435,6 +435,8 @@ export abstract class BaseMongoSyncBucketStorage
 
   protected abstract clearParameterIndexes(signal?: AbortSignal): Promise<void>;
 
+  protected abstract clearSourceRecords(signal?: AbortSignal): Promise<void>;
+
   protected abstract clearBucketState(signal?: AbortSignal): Promise<void>;
 
   protected abstract clearSourceTables(signal?: AbortSignal): Promise<void>;
@@ -467,11 +469,7 @@ export abstract class BaseMongoSyncBucketStorage
 
     await this.clearBucketData(signal);
     await this.clearParameterIndexes(signal);
-
-    for (const collection of await this.db.listSourceRecordCollectionsV3(this.group_id)) {
-      await collection.drop();
-    }
-
+    await this.clearSourceRecords(signal);
     await this.clearBucketState(signal);
     await this.clearSourceTables(signal);
 

@@ -1,7 +1,10 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BaseMongoParameterCompactor } from '../common/MongoParameterCompactorBase.js';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoParameterCompactorV1 extends BaseMongoParameterCompactor {
+  declare protected readonly db: VersionedPowerSyncMongoV1;
+
   protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
     return [this.db.parameterIndexV1 as unknown as mongo.Collection<mongo.Document>];
   }

@@ -7,14 +7,17 @@ import {
   PartialChecksumMap
 } from '@powersync/service-core';
 import { AbstractMongoChecksums, FetchPartialBucketChecksumByBucket } from '../common/MongoChecksumsBase.js';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoChecksumsV1Impl extends AbstractMongoChecksums {
+  declare protected readonly db: VersionedPowerSyncMongoV1;
+
   async computePartialChecksumsDirectByBucket(
     batch: FetchPartialBucketChecksumByBucket[]
   ): Promise<PartialChecksumMap> {
     return this.computePartialChecksumsForCollection(
       batch,
-      this.db.bucket_data as unknown as mongo.Collection<mongo.Document>,
+      this.db.v1_bucket_data as unknown as mongo.Collection<mongo.Document>,
       (request) => ({
         _id: {
           $gt: {

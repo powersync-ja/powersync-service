@@ -6,8 +6,11 @@ import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { mongoTableId } from '../../../utils/util.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
+  declare public readonly db: VersionedPowerSyncMongoV3;
+
   private readonly store: SourceRecordStore;
 
   constructor(options: MongoBucketBatchOptions) {

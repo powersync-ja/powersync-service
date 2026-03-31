@@ -31,8 +31,11 @@ import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
+  declare readonly db: VersionedPowerSyncMongoV1;
+
   constructor(
     factory: MongoBucketStorage,
     group_id: number,
@@ -61,6 +64,14 @@ export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
   ): void {}
 
   protected async initializeResolvedSourceRecords(_sourceTableId: bson.ObjectId): Promise<void> {}
+
+  protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1> {
+    return {
+      db: this.db,
+      group_id: this.group_id,
+      mapping: this.mapping
+    };
+  }
 
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
@@ -105,6 +116,8 @@ export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
     );
   }
 
+  protected async clearSourceRecords(_signal?: AbortSignal): Promise<void> {}
+
   protected async clearBucketState(signal?: AbortSignal): Promise<void> {
     await this.clearDeleteMany(
       'bucket state',
@@ -147,7 +160,7 @@ export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
 }
 
 export async function getParameterSetsV1(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[]
 ): Promise<SqliteJsonRow[]> {
@@ -198,7 +211,7 @@ export async function getParameterSetsV1(
 }
 
 export async function* getBucketDataBatchV1(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1>,
   checkpoint: utils.InternalOpId,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
@@ -316,7 +329,7 @@ export async function* getBucketDataBatchV1(
 }
 
 export async function getDataBucketChangesV1(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1>,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
   const limit = 1000;
@@ -347,7 +360,7 @@ export async function getDataBucketChangesV1(
 }
 
 export async function getParameterBucketChangesV1(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1>,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;

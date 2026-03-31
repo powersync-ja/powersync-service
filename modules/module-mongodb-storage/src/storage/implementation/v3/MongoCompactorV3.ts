@@ -9,8 +9,11 @@ import {
 } from '../models.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BaseMongoCompactor, DirtyBucket } from '../common/MongoCompactorBase.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoCompactorV3 extends BaseMongoCompactor {
+  declare protected readonly db: VersionedPowerSyncMongoV3;
+
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
     minChangeRatio: number;

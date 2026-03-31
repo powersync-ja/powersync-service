@@ -5,16 +5,16 @@ import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
-import type { VersionedPowerSyncMongo } from '../db.js';
 import { cacheKey } from '../OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
 import { CurrentDataDocumentV3, SourceTableDocumentV3 } from '../models.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class SourceRecordStoreV3 implements SourceRecordStore {
   constructor(
-    private readonly db: VersionedPowerSyncMongo,
+    private readonly db: VersionedPowerSyncMongoV3,
     private readonly groupId: number,
     private readonly mapping: BucketDefinitionMapping
   ) {}

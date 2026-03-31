@@ -25,8 +25,11 @@ import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesConten
 import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { CommonSourceTableDocument } from '../models.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
+  declare readonly db: VersionedPowerSyncMongoV3;
+
   constructor(
     factory: MongoBucketStorage,
     group_id: number,
@@ -95,6 +98,14 @@ export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
     await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
   }
 
+  protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {
+    return {
+      db: this.db,
+      group_id: this.group_id,
+      mapping: this.mapping
+    };
+  }
+
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
     lookups: ScopedParameterLookup[]
@@ -119,6 +130,12 @@ export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
     for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
       await collection.collection.drop();
+    }
+  }
+
+  protected async clearSourceRecords(_signal?: AbortSignal): Promise<void> {
+    for (const collection of await this.db.listSourceRecordCollectionsV3(this.group_id)) {
+      await collection.drop();
     }
   }
 
@@ -160,7 +177,7 @@ export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
 }
 
 export async function getParameterSetsV3(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[]
 ): Promise<SqliteJsonRow[]> {
@@ -246,7 +263,7 @@ export async function getParameterSetsV3(
 }
 
 export async function* getBucketDataBatchV3(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   checkpoint: utils.InternalOpId,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
@@ -381,7 +398,7 @@ export async function* getBucketDataBatchV3(
 }
 
 export async function getDataBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
   const limit = 1000;
@@ -423,7 +440,7 @@ export async function getDataBucketChangesV3(
 }
 
 export async function getParameterBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext,
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;

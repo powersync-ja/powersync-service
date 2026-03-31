@@ -23,8 +23,11 @@ import {
 } from '../models.js';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 import { BucketStateUpdate } from '../common/PersistedBatch.js';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class PersistedBatchV1 extends PersistedBatch {
+  declare protected readonly db: VersionedPowerSyncMongoV1;
+
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
 
   saveBucketData(options: SaveBucketDataOptions) {

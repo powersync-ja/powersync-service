@@ -7,6 +7,7 @@ import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/MongoSyncBucketStorage.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
+import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { CurrentBucketV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -205,9 +206,8 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'global["user-1"]').bucket]);
 
     const mongoFactory = factory as MongoBucketStorage;
-    const currentDataCollections = await (bucketStorage as MongoSyncBucketStorage).db.listSourceRecordCollectionsV3(
-      syncRules.id
-    );
+    const db = (bucketStorage as MongoSyncBucketStorage).db as VersionedPowerSyncMongoV3;
+    const currentDataCollections = await db.listSourceRecordCollectionsV3(syncRules.id);
     const currentData = await currentDataCollections[0]?.findOne({});
     const firstBucket: CurrentBucketV3 | undefined = currentData?.buckets[0] as CurrentBucketV3 | undefined;
     expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);

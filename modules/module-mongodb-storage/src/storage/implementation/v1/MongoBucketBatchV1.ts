@@ -3,8 +3,11 @@ import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
+  declare public readonly db: VersionedPowerSyncMongoV1;
+
   private readonly store: SourceRecordStore;
 
   constructor(options: MongoBucketBatchOptions) {

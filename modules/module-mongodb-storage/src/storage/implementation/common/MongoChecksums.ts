@@ -9,6 +9,7 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import type { VersionedPowerSyncMongo } from '../db.js';
 import { MongoChecksumsV1Impl } from '../v1/MongoChecksumsV1.js';
 import { MongoChecksumsV3Impl } from '../v3/MongoChecksumsV3.js';
+import type { VersionedPowerSyncMongoV3 } from '../v3/VersionedPowerSyncMongoV3.js';
 import {
   AbstractMongoChecksums,
   FetchPartialBucketChecksumByBucket,
@@ -33,7 +34,7 @@ export class MongoChecksums {
   constructor(db: VersionedPowerSyncMongo, group_id: number, options: MongoChecksumOptions) {
     if (options.storageConfig.incrementalReprocessing) {
       this.v3Impl = new MongoChecksumsV3Impl(
-        db,
+        db as VersionedPowerSyncMongoV3,
         group_id,
         options,
         options.mapping ??

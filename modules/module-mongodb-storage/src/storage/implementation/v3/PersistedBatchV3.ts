@@ -23,8 +23,11 @@ import {
 } from '../models.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { BucketStateUpdate } from '../common/PersistedBatch.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
+  declare protected readonly db: VersionedPowerSyncMongoV3;
+
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
 

@@ -14,11 +14,13 @@ import {
   FetchPartialBucketChecksumV3,
   MongoChecksumOptions
 } from '../common/MongoChecksumsBase.js';
-import type { VersionedPowerSyncMongo } from '../db.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3Impl extends AbstractMongoChecksums {
+  declare protected readonly db: VersionedPowerSyncMongoV3;
+
   constructor(
-    db: VersionedPowerSyncMongo,
+    db: VersionedPowerSyncMongoV3,
     group_id: number,
     options: MongoChecksumOptions,
     private readonly mapping: BucketDefinitionMapping

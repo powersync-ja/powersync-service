@@ -3,7 +3,6 @@ import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { idPrefixFilter } from '../../../utils/util.js';
-import type { VersionedPowerSyncMongo } from '../db.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
   SourceRecordLookupEntry,
@@ -13,10 +12,11 @@ import {
 } from '../common/SourceRecordStore.js';
 import { CurrentDataDocument, SourceKey } from '../models.js';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class SourceRecordStoreV1 implements SourceRecordStore {
   constructor(
-    private readonly db: VersionedPowerSyncMongo,
+    private readonly db: VersionedPowerSyncMongoV1,
     private readonly groupId: number
   ) {}
 
