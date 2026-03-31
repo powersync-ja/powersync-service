@@ -195,7 +195,7 @@ export class MongoSyncBucketStorage
         });
     }
     for (let indexId of mapping.allParameterIndexIds()) {
-      await this.db.bucket_parameters_v3(this.group_id, indexId).createIndex(
+      await this.db.parameterIndexV3(this.group_id, indexId).createIndex(
         {
           lookup: 1,
           key: 1,
@@ -420,7 +420,7 @@ export class MongoSyncBucketStorage
       // but could not do the same using $group.
       // For now, just rely on compacting to remove extraneous data.
       // For a description of the data format, see the `/docs/parameters-lookups.md` file.
-      const rows = await this.db.v1_bucket_parameters
+      const rows = await this.db.parameterIndexV1
         .aggregate(
           [
             {
@@ -483,7 +483,7 @@ export class MongoSyncBucketStorage
         pipeline: mongo.Document[];
       } => {
         const indexId = lookup.indexId;
-        const collection = this.db.bucket_parameters_v3(this.group_id, indexId);
+        const collection = this.db.parameterIndexV3(this.group_id, indexId);
         const lookupFilter = serializeParameterLookupV3(lookup);
         return {
           collection,
@@ -975,11 +975,11 @@ export class MongoSyncBucketStorage
       );
     }
     if (this.db.storageConfig.incrementalReprocessing) {
-      for (const collection of await this.db.listBucketParameterCollectionsV3(this.group_id)) {
+      for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
         await collection.drop();
       }
     } else {
-      await this.db.v1_bucket_parameters.deleteMany(
+      await this.db.parameterIndexV1.deleteMany(
         {
           'key.g': this.group_id
         },
@@ -1319,7 +1319,7 @@ export class MongoSyncBucketStorage
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     const limit = 1000;
-    const parameterUpdates = await this.db.v1_bucket_parameters
+    const parameterUpdates = await this.db.parameterIndexV1
       .find(
         {
           _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
@@ -1354,7 +1354,7 @@ export class MongoSyncBucketStorage
     const parameterUpdates: { lookup: bson.Binary; indexId: string }[] = [];
 
     // FIXME: Optimize performance for many collections
-    for (const collection of await this.db.listBucketParameterCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
       if (parameterUpdates.length > limit) {
         break;
       }

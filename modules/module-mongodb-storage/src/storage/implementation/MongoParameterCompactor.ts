@@ -30,11 +30,11 @@ export class MongoParameterCompactor {
   }
 
   private async compactV1() {
-    await this.compactCollection(this.db.v1_bucket_parameters);
+    await this.compactCollection(this.db.parameterIndexV1);
   }
 
   private async compactV3() {
-    for (const collection of await this.db.listBucketParameterCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
       await this.compactCollection(collection);
     }
   }

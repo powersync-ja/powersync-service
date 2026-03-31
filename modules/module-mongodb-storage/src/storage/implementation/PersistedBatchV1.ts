@@ -215,7 +215,7 @@ export class PersistedBatchV1 extends PersistedBatch {
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {
-    await this.db.v1_bucket_parameters.bulkWrite(
+    await this.db.parameterIndexV1.bulkWrite(
       this.bucketParameters.map((document) => ({
         insertOne: {
           document: taggedBucketParameterDocumentToV1(document)

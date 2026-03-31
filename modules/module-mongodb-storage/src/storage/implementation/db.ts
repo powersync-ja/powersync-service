@@ -413,7 +413,7 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.listBucketDataCollectionsV3(groupId);
   }
 
-  get v1_bucket_parameters() {
+  get parameterIndexV1() {
     if (this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'bucket_parameters collection should not be used when incrementalReprocessing is enabled'
@@ -422,22 +422,22 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.bucket_parameters;
   }
 
-  bucket_parameters_v3(groupId: number, indexId: ParameterIndexId) {
+  parameterIndexV3(replicationStreamId: number, indexId: ParameterIndexId) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.parameterIndexV3(groupId, indexId);
+    return this.#upstream.parameterIndexV3(replicationStreamId, indexId);
   }
 
-  listBucketParameterCollectionsV3(groupId?: number) {
+  listParameterIndexCollectionsV3(replicationStreamId?: number) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.listParameterIndexCollectionsV3(groupId);
+    return this.#upstream.listParameterIndexCollectionsV3(replicationStreamId);
   }
 
   get op_id_sequence() {
