@@ -191,8 +191,10 @@ export class PersistedBatchV3 extends PersistedBatch {
         }
       }
     });
-    if (!this.sourceTablePendingDeletes.has(sourceTableId.toHexString())) {
-      this.sourceTablePendingDeletes.set(sourceTableId.toHexString(), checkpointGreaterThan);
+    const sourceTableKey = sourceTableId.toHexString();
+    const existingPendingDelete = this.sourceTablePendingDeletes.get(sourceTableKey);
+    if (existingPendingDelete == null || checkpointGreaterThan > existingPendingDelete) {
+      this.sourceTablePendingDeletes.set(sourceTableKey, checkpointGreaterThan);
     }
 
     this.currentSize += 50;
@@ -306,8 +308,8 @@ export class PersistedBatchV3 extends PersistedBatch {
         updateOne: {
           filter: { _id: new bson.ObjectId(key) },
           update: {
-            $min: {
-              oldest_pending_delete: value
+            $max: {
+              latest_pending_delete: value
             }
           }
         }

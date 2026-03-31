@@ -2,9 +2,11 @@ import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYam
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/MongoSyncBucketStorage.js';
+import { SourceRecordStoreV3 } from '../../src/storage/implementation/SourceRecordStoreV3.js';
 import { CurrentBucketV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -317,6 +319,89 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       expect(changes.updatedParameterLookups).toEqual(new Set(['["1","","shape-check"]', '["2","","shape-check"]']));
     }
   );
+
+  test.runIf(storageVersion >= 3)('cleans pending deletes only for tracked v3 source tables', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        data:
+          - SELECT id, description FROM test
+    `,
+        { storageVersion }
+      )
+    );
+
+    const mongoFactory = factory as MongoBucketStorage;
+    const bucketStorage = mongoFactory.getInstance(syncRules) as any;
+    const db = bucketStorage.db;
+    await db.initializeStreamStorage(syncRules.id);
+
+    const sourceTableA = new bson.ObjectId();
+    const sourceTableB = new bson.ObjectId();
+    await db.sourceTablesV3(syncRules.id).insertMany([
+      {
+        _id: sourceTableA,
+        connection_id: 1,
+        relation_id: 'a',
+        schema_name: 'public',
+        table_name: 'table_a',
+        replica_id_columns: null,
+        replica_id_columns2: [],
+        snapshot_done: true,
+        snapshot_status: undefined,
+        bucket_data_source_ids: [],
+        parameter_lookup_source_ids: [],
+        latest_pending_delete: 9n
+      },
+      {
+        _id: sourceTableB,
+        connection_id: 1,
+        relation_id: 'b',
+        schema_name: 'public',
+        table_name: 'table_b',
+        replica_id_columns: null,
+        replica_id_columns2: [],
+        snapshot_done: true,
+        snapshot_status: undefined,
+        bucket_data_source_ids: [],
+        parameter_lookup_source_ids: [],
+        latest_pending_delete: 12n
+      }
+    ]);
+
+    await db.sourceRecordsV3(syncRules.id, sourceTableA).insertMany([
+      { _id: 'deleted-1', data: null, buckets: [], lookups: [], pending_delete: 5n },
+      { _id: 'deleted-2', data: null, buckets: [], lookups: [], pending_delete: 9n },
+      { _id: 'active', data: null, buckets: [], lookups: [] }
+    ]);
+    await db
+      .sourceRecordsV3(syncRules.id, sourceTableB)
+      .insertMany([{ _id: 'later-delete', data: null, buckets: [], lookups: [], pending_delete: 12n }]);
+
+    const store = new SourceRecordStoreV3(db, syncRules.id, bucketStorage.sync_rules.mapping);
+    const logger = { info() {} } as any;
+
+    await store.postCommitCleanup(6n, logger);
+
+    expect(await db.sourceRecordsV3(syncRules.id, sourceTableA).countDocuments({ pending_delete: 5n })).toBe(0);
+    expect(await db.sourceRecordsV3(syncRules.id, sourceTableA).countDocuments({ pending_delete: 9n })).toBe(1);
+    expect(await db.sourceRecordsV3(syncRules.id, sourceTableB).countDocuments({ pending_delete: 12n })).toBe(1);
+    expect((await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete).toBe(9n);
+    expect((await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
+
+    await store.postCommitCleanup(10n, logger);
+
+    expect(
+      await db.sourceRecordsV3(syncRules.id, sourceTableA).countDocuments({ pending_delete: { $exists: true } })
+    ).toBe(0);
+    expect(
+      (await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete
+    ).toBeUndefined();
+    expect((await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
+  });
 }
 
 describe('sync - mongodb', () => {

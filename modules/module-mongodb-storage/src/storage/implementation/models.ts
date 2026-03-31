@@ -212,7 +212,7 @@ export interface SourceTableDocumentV1 extends SourceTableDocument {
 export interface SourceTableDocumentV3 extends SourceTableDocument {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
-  oldest_pending_delete?: InternalOpId | undefined;
+  latest_pending_delete?: InternalOpId | undefined;
 }
 
 export interface SourceTableDocumentSnapshotStatus {

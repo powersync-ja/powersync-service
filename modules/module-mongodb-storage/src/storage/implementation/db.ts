@@ -358,7 +358,8 @@ export class VersionedPowerSyncMongo {
 
   async initializeStreamStorage(replicationStreamId: number) {
     if (this.storageConfig.incrementalReprocessing) {
-      await this.sourceTablesV3(replicationStreamId).createIndex(
+      const sourceTables = this.sourceTablesV3(replicationStreamId);
+      await sourceTables.createIndex(
         {
           connection_id: 1,
           schema_name: 1,
@@ -367,6 +368,15 @@ export class VersionedPowerSyncMongo {
         },
         {
           name: 'source_lookup'
+        }
+      );
+      await sourceTables.createIndex(
+        {
+          latest_pending_delete: 1
+        },
+        {
+          partialFilterExpression: { latest_pending_delete: { $exists: true } },
+          name: 'latest_pending_delete'
         }
       );
     }

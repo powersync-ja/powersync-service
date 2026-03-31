@@ -6,7 +6,7 @@ import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules
 import { VersionedPowerSyncMongo } from './db.js';
 import { cacheKey } from './OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from './SourceRecordStore.js';
-import { CurrentDataDocumentV3 } from './models.js';
+import { CurrentDataDocumentV3, SourceTableDocumentV3 } from './models.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 
@@ -138,12 +138,51 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   }
 
   async postCommitCleanup(lastCheckpoint: bigint, logger: Logger): Promise<void> {
+    // This cleans up soft deletes in source_records collections.
+    // Since there may be a lot (100+) of these collections in some cases, we track which
+    // ones have dirty deletes in source_tables.
+
+    const dirtySourceTables = await this.db
+      .sourceTablesV3(this.groupId)
+      .find(
+        {
+          latest_pending_delete: { $exists: true }
+        },
+        {
+          projection: { _id: 1, latest_pending_delete: 1 }
+        }
+      )
+      .toArray();
+
     let deletedCount = 0;
-    for (const collection of await this.db.listSourceRecordCollectionsV3(this.groupId)) {
+    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [];
+    for (const sourceTable of dirtySourceTables) {
+      const collection = this.db.sourceRecordsV3(this.groupId, sourceTable._id);
       const result = await collection.deleteMany({
         pending_delete: { $exists: true, $lte: lastCheckpoint }
       });
       deletedCount += result.deletedCount;
+
+      if (sourceTable.latest_pending_delete != null && sourceTable.latest_pending_delete <= lastCheckpoint) {
+        sourceTableUpdates.push({
+          updateOne: {
+            filter: {
+              _id: sourceTable._id,
+              // If the source table received more writes in the meantime, this will filter it out
+              latest_pending_delete: sourceTable.latest_pending_delete
+            },
+            update: {
+              $unset: {
+                latest_pending_delete: 1
+              }
+            }
+          }
+        });
+      }
+    }
+
+    if (sourceTableUpdates.length > 0) {
+      await this.db.sourceTablesV3(this.groupId).bulkWrite(sourceTableUpdates, { ordered: false });
     }
     if (deletedCount > 0) {
       logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);
