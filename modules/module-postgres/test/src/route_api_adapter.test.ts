@@ -1,7 +1,8 @@
 import { PostgresRouteAPIAdapter } from '@module/api/PostgresRouteAPIAdapter.js';
 import { TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '@powersync/service-sync-rules';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
-import { clearTestDb, connectPgPool } from './util.js';
+import { clearTestDb, connectPgPool, TEST_CONNECTION_OPTIONS } from './util.js';
 
 describe('PostgresRouteAPIAdapter tests', () => {
   test('infers connection schema', async () => {
@@ -54,6 +55,62 @@ describe('PostgresRouteAPIAdapter tests', () => {
             }
           ]
         }
+      ]);
+    } finally {
+      await db.end();
+    }
+  });
+
+  test('batches debug table info through a refcursor-backed connection', async () => {
+    const db = await connectPgPool();
+    try {
+      await clearTestDb(db);
+      await db.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
+
+      const parsed = SqlSyncRules.fromYaml(
+        `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, description FROM "test_data"
+      - SELECT * FROM "other"
+      - SELECT * FROM "other%"
+`,
+        { defaultSchema: 'public' }
+      );
+
+      const api = new PostgresRouteAPIAdapter(db, undefined, TEST_CONNECTION_OPTIONS as any);
+      const tableInfo = await api.getDebugTablesInfo(parsed.config.getSourceTables(), parsed.config);
+
+      expect(tableInfo).toEqual([
+        {
+          schema: 'public',
+          pattern: 'test_data',
+          wildcard: false,
+          table: {
+            schema: 'public',
+            name: 'test_data',
+            replication_id: ['id'],
+            pattern: undefined,
+            data_queries: true,
+            parameter_queries: false,
+            errors: []
+          }
+        },
+        {
+          schema: 'public',
+          pattern: 'other',
+          wildcard: false,
+          table: {
+            schema: 'public',
+            name: 'other',
+            replication_id: [],
+            data_queries: true,
+            parameter_queries: false,
+            errors: [{ level: 'warning', message: 'Table "public"."other" not found.' }]
+          }
+        },
+        { schema: 'public', pattern: 'other%', wildcard: true, tables: [] }
       ]);
     } finally {
       await db.end();

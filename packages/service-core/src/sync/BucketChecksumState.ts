@@ -445,6 +445,7 @@ export class BucketParameterState {
         const subscription = explicitStreamSubscriptions[i];
 
         const syncRuleStream: RequestedStream = {
+          priorityOverride: subscription.override_priority as BucketPriority | null,
           parameters: subscription.parameters ?? {},
           opaque_id: i
         };
@@ -480,25 +481,9 @@ export class BucketParameterState {
    * reference default buckets by their stream index instead of duplicating the name on wire.
    */
   translateResolvedBucket(description: ResolvedBucket, lookupIndex: Map<string, number>): util.ClientBucketDescription {
-    // If the client is overriding the priority of any stream that yields this bucket, sync the bucket with that
-    // priority.
-    let priorityOverride: BucketPriority | null = null;
-    for (const reason of description.inclusion_reasons) {
-      if (reason != 'default') {
-        const requestedPriority = this.explicitStreamSubscriptions[reason.subscription]?.override_priority;
-        if (requestedPriority != null) {
-          if (priorityOverride == null) {
-            priorityOverride = requestedPriority as BucketPriority;
-          } else {
-            priorityOverride = Math.min(requestedPriority, priorityOverride) as BucketPriority;
-          }
-        }
-      }
-    }
-
     return {
       bucket: description.bucket,
-      priority: priorityOverride ?? description.priority,
+      priority: description.priority,
       subscriptions: description.inclusion_reasons.map((reason) => {
         if (reason == 'default') {
           const stream = description.definition;
