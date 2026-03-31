@@ -1,0 +1,15 @@
+import { InternalOpId } from '@powersync/service-core';
+import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { VersionedPowerSyncMongo } from '../db.js';
+import * as bson from 'bson';
+
+export interface MongoSyncBucketStorageContext {
+  db: VersionedPowerSyncMongo;
+  group_id: number;
+  mapping: BucketDefinitionMapping;
+}
+
+export interface MongoSyncBucketStorageCheckpoint {
+  checkpoint: InternalOpId;
+  snapshotTime: bson.Timestamp;
+}

@@ -10,46 +10,25 @@ import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
-  deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
-  internalToExternalOpId,
   maxLsn,
   mergeAsyncIterables,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
-  ProtocolOpId,
   ReplicationCheckpoint,
   storage,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import {
-  idPrefixFilter,
-  mapOpEntry,
-  readSingleBatch,
-  retryOnMongoMaxTimeMSExpired,
-  setSessionSnapshotTime
-} from '../../utils/util.js';
+import { idPrefixFilter, retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { VersionedPowerSyncMongo } from './db.js';
-import {
-  BucketDataDocumentV1,
-  BucketDataKeyV1,
-  BucketDataDocumentV3,
-  BucketParameterDocumentV3,
-  BucketStateDocument,
-  CommonSourceTableDocument,
-  LEGACY_BUCKET_DATA_DEFINITION_ID,
-  SourceKey,
-  StorageConfig,
-  bucketDataDocumentToTagged
-} from './models.js';
+import { BucketDataKeyV1, BucketStateDocument, CommonSourceTableDocument, SourceKey, StorageConfig } from './models.js';
 import { MongoBucketBatchV1 } from './v1/MongoBucketBatchV1.js';
 import { MongoBucketBatchV3 } from './v3/MongoBucketBatchV3.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
@@ -57,7 +36,19 @@ import { MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
-import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './v3/MongoParameterLookupV3.js';
+import {
+  getBucketDataBatchV1,
+  getDataBucketChangesV1,
+  getParameterBucketChangesV1,
+  getParameterSetsV1
+} from './v1/MongoSyncBucketStorageV1.js';
+import {
+  getBucketDataBatchV3,
+  getDataBucketChangesV3,
+  getParameterBucketChangesV3,
+  getParameterSetsV3
+} from './v3/MongoSyncBucketStorageV3.js';
+import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 
 export interface MongoSyncBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
@@ -114,6 +105,14 @@ export class MongoSyncBucketStorage
 
   get mapping() {
     return this.sync_rules.mapping;
+  }
+
+  private get versionContext(): MongoSyncBucketStorageContext {
+    return {
+      db: this.db,
+      group_id: this.group_id,
+      mapping: this.mapping
+    };
   }
 
   setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
@@ -406,167 +405,9 @@ export class MongoSyncBucketStorage
     lookups: ScopedParameterLookup[]
   ): Promise<SqliteJsonRow[]> {
     if (this.db.storageConfig.incrementalReprocessing) {
-      return this.getParameterSetsV3(checkpoint, lookups);
+      return getParameterSetsV3(this.versionContext, checkpoint, lookups);
     }
-    return this.getParameterSetsV1(checkpoint, lookups);
-  }
-
-  private async getParameterSetsV1(
-    checkpoint: MongoReplicationCheckpoint,
-    lookups: ScopedParameterLookup[]
-  ): Promise<SqliteJsonRow[]> {
-    return this.db.client.withSession({ snapshot: true }, async (session) => {
-      // Set the session's snapshot time to the checkpoint's snapshot time.
-      // An alternative would be to create the session when the checkpoint is created, but managing
-      // the session lifetime would become more complex.
-      // Starting and ending sessions are cheap (synchronous when no transactions are used),
-      // so this should be fine.
-      // This is a roundabout way of setting {readConcern: {atClusterTime: clusterTime}}, since
-      // that is not exposed directly by the driver.
-      // Future versions of the driver may change the snapshotTime behavior, so we need tests to
-      // validate that this works as expected. We test this in the compacting tests.
-      setSessionSnapshotTime(session, checkpoint.snapshotTime);
-      const lookupFilter = lookups.map((lookup) => {
-        return storage.serializeLookup(lookup);
-      });
-      // This query does not use indexes super efficiently, apart from the lookup filter.
-      // From some experimentation I could do individual lookups more efficient using an index
-      // on {'key.g': 1, lookup: 1, 'key.t': 1, 'key.k': 1, _id: -1},
-      // but could not do the same using $group.
-      // For now, just rely on compacting to remove extraneous data.
-      // For a description of the data format, see the `/docs/parameters-lookups.md` file.
-      const rows = await this.db.parameterIndexV1
-        .aggregate(
-          [
-            {
-              $match: {
-                'key.g': this.group_id,
-                lookup: { $in: lookupFilter },
-                _id: { $lte: checkpoint.checkpoint }
-              }
-            },
-            {
-              $sort: {
-                _id: -1
-              }
-            },
-            {
-              $group: {
-                _id: { key: '$key', lookup: '$lookup' },
-                bucket_parameters: {
-                  $first: '$bucket_parameters'
-                }
-              }
-            }
-          ],
-          {
-            session,
-            readConcern: 'snapshot',
-            // Limit the time for the operation to complete, to avoid getting connection timeouts
-            maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-          }
-        )
-        .toArray()
-        .catch((e) => {
-          throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
-        });
-      const groupedParameters = rows.map((row) => {
-        return row.bucket_parameters;
-      });
-      return groupedParameters.flat();
-    });
-  }
-
-  private async getParameterSetsV3(
-    checkpoint: MongoReplicationCheckpoint,
-    lookups: ScopedParameterLookup[]
-  ): Promise<SqliteJsonRow[]> {
-    return this.db.client.withSession({ snapshot: true }, async (session) => {
-      setSessionSnapshotTime(session, checkpoint.snapshotTime);
-
-      // Conceptually we do each lookup separately as an aggregation pipeline. We then
-      // use $unionWith to combine it all into a single operation.
-      // This helps to:
-      //  1. Handle different collections in the same query (although this may not be common in practice).
-      //  2. Efficiently use the index to get the first item grouped by {lookup, key}.
-      // The index is on { lookup: 1, key: 1, _id: -1 }.
-
-      const buildLookupPipeline = (
-        lookup: ScopedParameterLookup
-      ): {
-        collection: mongo.Collection<BucketParameterDocumentV3>;
-        pipeline: mongo.Document[];
-      } => {
-        const indexId = lookup.indexId;
-        const collection = this.db.parameterIndexV3(this.group_id, indexId);
-        const lookupFilter = serializeParameterLookupV3(lookup);
-        return {
-          collection,
-          pipeline: [
-            {
-              $match: {
-                lookup: lookupFilter,
-                _id: { $lte: checkpoint.checkpoint }
-              }
-            },
-            {
-              $sort: {
-                key: 1,
-                _id: -1
-              }
-            },
-            {
-              $group: {
-                _id: {
-                  key: '$key'
-                },
-                bucket_parameters: {
-                  $first: '$bucket_parameters'
-                }
-              }
-            },
-            {
-              $project: {
-                _id: 0,
-                bucket_parameters: 1
-              }
-            }
-          ]
-        };
-      };
-
-      const [firstLookup, ...remainingLookups] = lookups;
-      const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup);
-      if (firstQuery == null) {
-        return [];
-      }
-
-      const pipeline: mongo.Document[] = [
-        ...firstQuery.pipeline,
-        ...remainingLookups.map((lookup) => {
-          const query = buildLookupPipeline(lookup);
-          return {
-            $unionWith: {
-              coll: query.collection.collectionName,
-              pipeline: query.pipeline
-            }
-          };
-        })
-      ];
-
-      const rows = await firstQuery.collection
-        .aggregate<{ bucket_parameters: SqliteJsonRow[] }>(pipeline, {
-          session,
-          readConcern: 'snapshot',
-          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-        })
-        .toArray()
-        .catch((e) => {
-          throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
-        });
-
-      return rows.flatMap((row) => row.bucket_parameters);
-    });
+    return getParameterSetsV1(this.versionContext, checkpoint, lookups);
   }
 
   async *getBucketDataBatch(
@@ -575,304 +416,10 @@ export class MongoSyncBucketStorage
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
     if (this.db.storageConfig.incrementalReprocessing) {
-      yield* this.getBucketDataBatchV3(checkpoint, dataBuckets, options);
+      yield* getBucketDataBatchV3(this.versionContext, checkpoint, dataBuckets, options);
       return;
     }
-
-    if (dataBuckets.length == 0) {
-      return;
-    }
-    let filters: mongo.Filter<BucketDataDocumentV1>[] = [];
-    const bucketMap = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
-
-    if (checkpoint == null) {
-      throw new ServiceAssertionError('checkpoint is null');
-    }
-    const end = checkpoint;
-    for (let { bucket: name, start } of dataBuckets) {
-      filters.push({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: name,
-            o: start
-          },
-          $lte: {
-            g: this.group_id,
-            b: name,
-            o: end as any
-          }
-        }
-      });
-    }
-
-    // Internal naming:
-    // We do a query for one "batch", which may consist of multiple "chunks".
-    // Each chunk is limited to single bucket, and is limited in length and size.
-    // There are also overall batch length and size limits.
-
-    const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
-    const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
-
-    const cursor = this.db.bucket_data.find(
-      {
-        $or: filters
-      },
-      {
-        session: undefined,
-        sort: { _id: 1 },
-        limit: batchLimit,
-        // Increase batch size above the default 101, so that we can fill an entire batch in
-        // one go.
-        // batchSize is 1 more than limit to auto-close the cursor.
-        // See https://github.com/mongodb/node-mongodb-native/pull/4580
-        batchSize: batchLimit + 1,
-        // Raw mode is returns an array of Buffer instead of parsed documents.
-        // We use it so that:
-        // 1. We can calculate the document size accurately without serializing again.
-        // 2. We can delay parsing the results until it's needed.
-        // We manually use bson.deserialize below
-        raw: true,
-
-        // Limit the time for the operation to complete, to avoid getting connection timeouts
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      }
-    ) as unknown as mongo.FindCursor<Buffer>;
-
-    // We want to limit results to a single batch to avoid high memory usage.
-    // This approach uses MongoDB's batch limits to limit the data here, which limits
-    // to the lower of the batch count and size limits.
-    // This is similar to using `singleBatch: true` in the find options, but allows
-    // detecting "hasMore".
-    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
-      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
-    });
-    if (data.length == batchLimit) {
-      // Limit reached - could have more data, despite the cursor being drained.
-      batchHasMore = true;
-    }
-
-    let chunkSizeBytes = 0;
-    let currentChunk: utils.SyncBucketData | null = null;
-    let targetOp: InternalOpId | null = null;
-
-    // Ordered by _id, meaning buckets are grouped together
-    for (let rawData of data) {
-      const row = bucketDataDocumentToTagged(
-        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV1,
-        LEGACY_BUCKET_DATA_DEFINITION_ID
-      );
-      const bucket = row._id.b;
-
-      if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
-        // We need to start a new chunk
-        let start: ProtocolOpId | undefined = undefined;
-        if (currentChunk != null) {
-          // There is an existing chunk we need to yield
-          if (currentChunk.bucket == bucket) {
-            // Current and new chunk have the same bucket, so need has_more on the current one.
-            // If currentChunk.bucket != bucket, then we reached the end of the previous bucket,
-            // and has_more = false in that case.
-            currentChunk.has_more = true;
-            start = currentChunk.next_after;
-          }
-
-          const yieldChunk = currentChunk;
-          currentChunk = null;
-          chunkSizeBytes = 0;
-          yield { chunkData: yieldChunk, targetOp: targetOp };
-          targetOp = null;
-        }
-
-        if (start == null) {
-          const startOpId = bucketMap.get(bucket);
-          if (startOpId == null) {
-            throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
-          }
-          start = internalToExternalOpId(startOpId);
-        }
-        currentChunk = {
-          bucket,
-          after: start,
-          has_more: false,
-          data: [],
-          next_after: start
-        };
-        targetOp = null;
-      }
-
-      const entry = mapOpEntry(row);
-
-      if (row.target_op != null) {
-        // MOVE, CLEAR
-        if (targetOp == null || row.target_op > targetOp) {
-          targetOp = row.target_op;
-        }
-      }
-
-      currentChunk.data.push(entry);
-      currentChunk.next_after = entry.op_id;
-
-      chunkSizeBytes += rawData.byteLength;
-    }
-
-    if (currentChunk != null) {
-      const yieldChunk = currentChunk;
-      currentChunk = null;
-      // This is the final chunk in the batch.
-      // There may be more data if and only if the batch we retrieved isn't complete.
-      yieldChunk.has_more = batchHasMore;
-      yield { chunkData: yieldChunk, targetOp: targetOp };
-      targetOp = null;
-    }
-  }
-
-  /**
-   * Reads V3 bucket data across per-definition collections while presenting a single paginated
-   * stream to the caller.
-   *
-   * Unlike v1, the requested buckets may live in multiple collections. We therefore page through
-   * one definition group at a time.
-   *
-   * Important: as soon as any limit is hit for the current read, we stop and return control to
-   * the caller. We do not continue with the same group, and we do not move on to later groups.
-   * That keeps pagination boundaries predictable and matches the v1 behavior more closely.
-   */
-  private async *getBucketDataBatchV3(
-    checkpoint: utils.InternalOpId,
-    dataBuckets: storage.BucketDataRequest[],
-    options?: storage.BucketDataBatchOptions
-  ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.length == 0) {
-      return;
-    }
-
-    if (checkpoint == null) {
-      throw new ServiceAssertionError('checkpoint is null');
-    }
-
-    const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
-    const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
-    const end = checkpoint;
-    let remainingLimit = batchLimit;
-
-    const requestsByDefinition = new Map<string, storage.BucketDataRequest[]>();
-    for (const request of dataBuckets) {
-      const definitionId = this.sync_rules.mapping.bucketSourceId(request.source);
-      const requests = requestsByDefinition.get(definitionId) ?? [];
-      requests.push(request);
-      requestsByDefinition.set(definitionId, requests);
-    }
-
-    const definitionGroups = Array.from(requestsByDefinition.entries());
-    for (let groupIndex = 0; groupIndex < definitionGroups.length && remainingLimit > 0; groupIndex++) {
-      const [definitionId, requests] = definitionGroups[groupIndex];
-      const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
-      const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
-      const filters: mongo.Filter<BucketDataDocumentV3>[] = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
-        _id: {
-          $gt: {
-            b: bucket,
-            o: start
-          },
-          $lte: {
-            b: bucket,
-            o: end as any
-          }
-        }
-      }));
-
-      const cursor = this.db.bucket_data_v3(this.group_id, definitionId).find(
-        {
-          $or: filters
-        },
-        {
-          session: undefined,
-          sort: { _id: 1 },
-          limit: remainingLimit,
-          batchSize: remainingLimit + 1,
-          raw: true,
-          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-        }
-      ) as unknown as mongo.FindCursor<Buffer>;
-
-      let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
-        throw lib_mongo.mapQueryError(e, 'while reading bucket data');
-      });
-      if (data.length == remainingLimit) {
-        batchHasMore = true;
-      }
-      if (data.length == 0) {
-        continue;
-      }
-
-      remainingLimit -= data.length;
-
-      let chunkSizeBytes = 0;
-      let currentChunk: utils.SyncBucketData | null = null;
-      let targetOp: InternalOpId | null = null;
-
-      for (let rawData of data) {
-        const row = bucketDataDocumentToTagged(
-          bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3,
-          definitionId
-        );
-        const bucket = row._id.b;
-
-        if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
-          let start: ProtocolOpId | undefined = undefined;
-          if (currentChunk != null) {
-            if (currentChunk.bucket == bucket) {
-              currentChunk.has_more = true;
-              start = currentChunk.next_after;
-            }
-
-            const yieldChunk = currentChunk;
-            currentChunk = null;
-            chunkSizeBytes = 0;
-            yield { chunkData: yieldChunk, targetOp: targetOp };
-            targetOp = null;
-          }
-
-          if (start == null) {
-            const startOpId = bucketMap.get(bucket);
-            if (startOpId == null) {
-              throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
-            }
-            start = internalToExternalOpId(startOpId);
-          }
-          currentChunk = {
-            bucket,
-            after: start,
-            has_more: false,
-            data: [],
-            next_after: start
-          };
-        }
-
-        const entry = mapOpEntry(row);
-        if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
-          targetOp = row.target_op;
-        }
-
-        currentChunk.data.push(entry);
-        currentChunk.next_after = entry.op_id;
-        chunkSizeBytes += rawData.byteLength;
-      }
-
-      if (currentChunk != null) {
-        const yieldChunk = currentChunk;
-        // Stop after the current read if either:
-        // 1. MongoDB indicates more rows remain for this definition group, or
-        // 2. we exhausted the caller's overall document limit before later groups.
-        yieldChunk.has_more = batchHasMore || (remainingLimit <= 0 && hasLaterDefinitionGroups);
-        yield { chunkData: yieldChunk, targetOp: targetOp };
-      }
-
-      if (batchHasMore || remainingLimit <= 0) {
-        return;
-      }
-    }
+    yield* getBucketDataBatchV1(this.versionContext, checkpoint, dataBuckets, options);
   }
 
   async getChecksums(
@@ -1331,190 +878,18 @@ export class MongoSyncBucketStorage
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
     if (this.db.storageConfig.incrementalReprocessing) {
-      return this.getDataBucketChangesV3(options);
+      return getDataBucketChangesV3(this.versionContext, options);
     }
-    return this.getDataBucketChangesV1(options);
-  }
-
-  private async getDataBucketChangesV1(
-    options: GetCheckpointChangesOptions
-  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
-    const limit = 1000;
-    const bucketStateUpdates = await this.db.bucketStateV1
-      .find(
-        {
-          // We have an index on (_id.g, last_op).
-          '_id.g': this.group_id,
-          last_op: { $gt: options.lastCheckpoint.checkpoint }
-        },
-        {
-          projection: {
-            '_id.b': 1
-          },
-          limit: limit + 1,
-          // batchSize is 1 more than limit to auto-close the cursor.
-          // See https://github.com/mongodb/node-mongodb-native/pull/4580
-          batchSize: limit + 2,
-          singleBatch: true
-        }
-      )
-      .toArray();
-
-    const buckets = bucketStateUpdates.map((doc) => doc._id.b);
-    const invalidateDataBuckets = buckets.length > limit;
-
-    return {
-      invalidateDataBuckets: invalidateDataBuckets,
-      updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
-    };
-  }
-
-  private async getDataBucketChangesV3(
-    options: GetCheckpointChangesOptions
-  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
-    const limit = 1000;
-    const bucketStateUpdates = await this.db
-      .bucketStateV3(this.group_id)
-      .aggregate<{ _id: string; last_op: bigint }>(
-        [
-          {
-            $match: {
-              last_op: { $gt: options.lastCheckpoint.checkpoint }
-            }
-          },
-          {
-            $group: {
-              _id: '$_id.b',
-              last_op: { $max: '$last_op' }
-            }
-          },
-          {
-            $sort: {
-              last_op: 1
-            }
-          },
-          {
-            $limit: limit + 1
-          }
-        ],
-        { maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
-      )
-      .toArray();
-
-    const buckets = bucketStateUpdates.map((doc) => doc._id);
-    const invalidateDataBuckets = buckets.length > limit;
-
-    return {
-      invalidateDataBuckets,
-      updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
-    };
+    return getDataBucketChangesV1(this.versionContext, options);
   }
 
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     if (this.db.storageConfig.incrementalReprocessing) {
-      return this.getParameterBucketChangesV3(options);
+      return getParameterBucketChangesV3(this.versionContext, options);
     }
-    return this.getParameterBucketChangesV1(options);
-  }
-
-  private async getParameterBucketChangesV1(
-    options: GetCheckpointChangesOptions
-  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
-    const limit = 1000;
-    const parameterUpdates = await this.db.parameterIndexV1
-      .find(
-        {
-          _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
-          'key.g': this.group_id
-        },
-        {
-          projection: {
-            lookup: 1
-          },
-          limit: limit + 1,
-          // batchSize is 1 more than limit to auto-close the cursor.
-          // See https://github.com/mongodb/node-mongodb-native/pull/4580
-          batchSize: limit + 2,
-          singleBatch: true
-        }
-      )
-      .toArray();
-    const invalidateParameterUpdates = parameterUpdates.length > limit;
-
-    return {
-      invalidateParameterBuckets: invalidateParameterUpdates,
-      updatedParameterLookups: invalidateParameterUpdates
-        ? new Set<string>()
-        : new Set<string>(parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookup(p.lookup))))
-    };
-  }
-
-  private async getParameterBucketChangesV3(
-    options: GetCheckpointChangesOptions
-  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
-    const limit = 1000;
-    const indexIds = this.mapping.allParameterIndexIds();
-    const collections = indexIds.map((indexId) => ({
-      indexId,
-      collection: this.db.parameterIndexV3(this.group_id, indexId)
-    }));
-    if (collections.length == 0) {
-      return {
-        invalidateParameterBuckets: false,
-        updatedParameterLookups: new Set<string>()
-      };
-    }
-    const checkpointFilter = {
-      _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint }
-    };
-    const pipelineForCollection = (indexId: string) => [
-      {
-        $match: checkpointFilter
-      },
-      {
-        $project: {
-          _id: 0,
-          lookup: 1,
-          indexId: { $literal: indexId }
-        }
-      }
-    ];
-    const [firstCollection, ...remainingCollections] = collections;
-    const parameterUpdates = await firstCollection.collection
-      .aggregate<{ lookup: bson.Binary; indexId: string }>(
-        [
-          ...pipelineForCollection(firstCollection.indexId),
-          ...remainingCollections.map((collection) => {
-            return {
-              $unionWith: {
-                coll: collection.collection.collectionName,
-                pipeline: pipelineForCollection(collection.indexId)
-              }
-            };
-          }),
-          {
-            $limit: limit + 1
-          }
-        ],
-        {
-          batchSize: limit + 2,
-          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-        }
-      )
-      .toArray();
-
-    const invalidateParameterUpdates = parameterUpdates.length > limit;
-
-    return {
-      invalidateParameterBuckets: invalidateParameterUpdates,
-      updatedParameterLookups: invalidateParameterUpdates
-        ? new Set<string>()
-        : new Set<string>(
-            parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookupV3(p.lookup, p.indexId)))
-          )
-    };
+    return getParameterBucketChangesV1(this.versionContext, options);
   }
 
   // If we processed all connections together for each checkpoint, we could do a single lookup for all connections.
