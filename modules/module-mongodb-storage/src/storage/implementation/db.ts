@@ -452,7 +452,7 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.bucketDataV3(groupId, definitionId);
   }
 
-  listBucketDataCollectionsV3(groupId?: number) {
+  listBucketDataCollectionsV3(groupId: number) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'v3 bucket_data collections should not be used when incrementalReprocessing is disabled'

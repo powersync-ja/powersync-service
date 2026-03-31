@@ -1455,7 +1455,11 @@ export class MongoSyncBucketStorage
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     const limit = 1000;
-    const collections = await this.db.listParameterIndexCollectionsV3(this.group_id);
+    const indexIds = this.mapping.allParameterIndexIds();
+    const collections = indexIds.map((indexId) => ({
+      indexId,
+      collection: this.db.parameterIndexV3(this.group_id, indexId)
+    }));
     if (collections.length == 0) {
       return {
         invalidateParameterBuckets: false,
@@ -1465,7 +1469,6 @@ export class MongoSyncBucketStorage
     const checkpointFilter = {
       _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint }
     };
-    const collectionPrefix = `parameter_index_${this.group_id}_`;
     const pipelineForCollection = (indexId: string) => [
       {
         $match: checkpointFilter
