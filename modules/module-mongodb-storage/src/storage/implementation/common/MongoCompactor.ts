@@ -1,6 +1,6 @@
 import { PopulateChecksumCacheResults } from '@powersync/service-core';
-import { VersionedPowerSyncMongo } from '../db.js';
-import { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
+import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
 import { MongoCompactorV1 } from '../v1/MongoCompactorV1.js';
 import { MongoCompactorV3 } from '../v3/MongoCompactorV3.js';
 import { BaseMongoCompactor, DirtyBucket, MongoCompactOptions } from './MongoCompactorBase.js';

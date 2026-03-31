@@ -2,9 +2,9 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
 import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
+import { BaseVersionedPowerSyncMongo } from './common/VersionedPowerSyncMongoBase.js';
 import {
   BucketDataDocumentV1,
   BucketDataDocumentV3,
@@ -27,6 +27,8 @@ import {
   SyncRuleDocument,
   WriteCheckpointDocument
 } from './models.js';
+import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
+import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -76,8 +78,12 @@ export class PowerSyncMongo {
     this.connection_report_events = this.db.collection('connection_report_events');
   }
 
-  versioned(storageConfig: StorageConfig) {
-    return new VersionedPowerSyncMongo(this, storageConfig);
+  versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
+    if (storageConfig.incrementalReprocessing) {
+      return new VersionedPowerSyncMongoV3(this, storageConfig);
+    }
+
+    return new VersionedPowerSyncMongoV1(this, storageConfig);
   }
 
   bucketDataCollectionNameV3(groupId: number, definitionId: BucketDefinitionId) {
@@ -296,248 +302,7 @@ export class PowerSyncMongo {
 /**
  * This is similar to PowerSyncMongo, but blocks access to certain collections based on the storage version.
  */
-export class VersionedPowerSyncMongo {
-  readonly client: mongo.MongoClient;
-  readonly db: mongo.Db;
-
-  readonly storageConfig: StorageConfig;
-  #upstream: PowerSyncMongo;
-
-  constructor(upstream: PowerSyncMongo, storageConfig: StorageConfig) {
-    this.#upstream = upstream;
-    this.client = upstream.client;
-    this.db = upstream.db;
-    this.storageConfig = storageConfig;
-  }
-
-  get sourceRecordsV1() {
-    if (this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'current_data collection should not be used when incrementalReprocessing is enabled'
-      );
-    }
-    return this.#upstream.current_data;
-  }
-
-  get bucketStateV1() {
-    if (this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'bucket_state collection should not be used when incrementalReprocessing is enabled'
-      );
-    }
-    return this.#upstream.bucket_state;
-  }
-
-  sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'v3_current_data collection should not be used when incrementalReprocessing is disabled'
-      );
-    }
-
-    const collectionName = `source_records_${replicationStreamId}_${sourceTableId.toHexString()}`;
-    return this.db.collection<CurrentDataDocumentV3>(collectionName);
-  }
-
-  async listSourceRecordCollectionsV3(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV3>[]> {
-    const prefix = `source_records_${replicationStreamId}_`;
-    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
-
-    return collections
-      .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<CurrentDataDocumentV3>(collection.name));
-  }
-
-  async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'source_records collection initialization should not be used when incrementalReprocessing is disabled'
-      );
-    }
-    await this.sourceRecordsV3(replicationStreamId, sourceTableId).createIndex(
-      {
-        pending_delete: 1
-      },
-      {
-        partialFilterExpression: { pending_delete: { $exists: true } },
-        name: 'pending_delete'
-      }
-    );
-  }
-
-  commonSourceTables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
-    if (this.storageConfig.incrementalReprocessing) {
-      return this.sourceTablesV3(replicationStreamId) as mongo.Collection<CommonSourceTableDocument>;
-    } else {
-      return this.#upstream.source_tables as any as mongo.Collection<CommonSourceTableDocument>;
-    }
-  }
-
-  bucketStateV3(replicationStreamId: number) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'v3 bucket_state collection should not be used when incrementalReprocessing is disabled'
-      );
-    }
-    return this.#upstream.bucketStateV3(replicationStreamId);
-  }
-
-  sourceTablesV3(replicationStreamId: number) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'source_tables v3 collection should not be used when incrementalReprocessing is disabled'
-      );
-    }
-    return this.db.collection<SourceTableDocumentV3>(this.#upstream.sourceTableCollectionName(replicationStreamId));
-  }
-
-  async initializeStreamStorage(replicationStreamId: number) {
-    if (this.storageConfig.incrementalReprocessing) {
-      const sourceTables = this.sourceTablesV3(replicationStreamId);
-      const bucketState = this.bucketStateV3(replicationStreamId);
-      await sourceTables.createIndex(
-        {
-          connection_id: 1,
-          schema_name: 1,
-          table_name: 1,
-          relation_id: 1
-        },
-        {
-          name: 'source_lookup'
-        }
-      );
-      await sourceTables.createIndex(
-        {
-          latest_pending_delete: 1
-        },
-        {
-          partialFilterExpression: { latest_pending_delete: { $exists: true } },
-          name: 'latest_pending_delete'
-        }
-      );
-      await bucketState.createIndex(
-        {
-          last_op: 1
-        },
-        { name: 'bucket_updates', unique: true }
-      );
-      await bucketState.createIndex(
-        {
-          'estimate_since_compact.count': -1
-        },
-        { name: 'dirty_count' }
-      );
-    }
-  }
-
-  get bucket_data() {
-    return this.#upstream.bucket_data;
-  }
-
-  get v1_bucket_data() {
-    if (this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'bucket_data collection should not be used when incrementalReprocessing is enabled'
-      );
-    }
-    return this.#upstream.bucket_data;
-  }
-
-  bucket_data_v3(groupId: number, definitionId: BucketDefinitionId) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'v3 bucket_data collections should not be used when incrementalReprocessing is disabled'
-      );
-    }
-    return this.#upstream.bucketDataV3(groupId, definitionId);
-  }
-
-  listBucketDataCollectionsV3(groupId: number) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'v3 bucket_data collections should not be used when incrementalReprocessing is disabled'
-      );
-    }
-    return this.#upstream.listBucketDataCollectionsV3(groupId);
-  }
-
-  get parameterIndexV1() {
-    if (this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'bucket_parameters collection should not be used when incrementalReprocessing is enabled'
-      );
-    }
-    return this.#upstream.bucket_parameters;
-  }
-
-  parameterIndexV3(replicationStreamId: number, indexId: ParameterIndexId) {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
-      );
-    }
-    return this.#upstream.parameterIndexV3(replicationStreamId, indexId);
-  }
-
-  /**
-   * List parameter index collections for a specific replication stream.
-   */
-  async listParameterIndexCollectionsV3(
-    replicationStreamId: number
-  ): Promise<{ collection: mongo.Collection<BucketParameterDocumentV3>; indexId: ParameterIndexId }[]> {
-    if (!this.storageConfig.incrementalReprocessing) {
-      throw new ServiceAssertionError(
-        'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
-      );
-    }
-
-    const prefix = `parameter_index_${replicationStreamId}_`;
-    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
-
-    return collections
-      .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => ({
-        collection: this.db.collection<BucketParameterDocumentV3>(collection.name),
-        indexId: collection.name.slice(prefix.length)
-      }));
-  }
-
-  get op_id_sequence() {
-    return this.#upstream.op_id_sequence;
-  }
-
-  get sync_rules() {
-    return this.#upstream.sync_rules;
-  }
-
-  get custom_write_checkpoints() {
-    return this.#upstream.custom_write_checkpoints;
-  }
-
-  get write_checkpoints() {
-    return this.#upstream.write_checkpoints;
-  }
-
-  get instance() {
-    return this.#upstream.instance;
-  }
-
-  get locks() {
-    return this.#upstream.locks;
-  }
-
-  get checkpoint_events() {
-    return this.#upstream.checkpoint_events;
-  }
-
-  get connection_report_events() {
-    return this.#upstream.connection_report_events;
-  }
-
-  notifyCheckpoint() {
-    return this.#upstream.notifyCheckpoint();
-  }
-}
+export type VersionedPowerSyncMongo = BaseVersionedPowerSyncMongo;
 
 export function createPowerSyncMongo(config: MongoStorageConfig, options?: lib_mongo.MongoConnectionOptions) {
   return new PowerSyncMongo(

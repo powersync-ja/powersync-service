@@ -9,7 +9,7 @@ import {
   utils
 } from '@powersync/service-core';
 
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import {
   BucketDataDocumentV1,
@@ -18,7 +18,7 @@ import {
   TaggedBucketDataDocument,
   bucketDataDocumentToTagged
 } from '../models.js';
-import { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
+import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
 import { cacheKey } from '../OperationBatch.js';
 
 interface CurrentBucketState {

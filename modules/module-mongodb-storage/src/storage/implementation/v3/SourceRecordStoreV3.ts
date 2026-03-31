@@ -5,7 +5,7 @@ import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import { cacheKey } from '../OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
 import { CurrentDataDocumentV3, SourceTableDocumentV3 } from '../models.js';

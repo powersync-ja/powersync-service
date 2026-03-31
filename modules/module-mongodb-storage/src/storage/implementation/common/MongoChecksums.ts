@@ -6,7 +6,7 @@ import {
   PartialChecksumMap
 } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import { MongoChecksumsV1Impl } from '../v1/MongoChecksumsV1.js';
 import { MongoChecksumsV3Impl } from '../v3/MongoChecksumsV3.js';
 import {

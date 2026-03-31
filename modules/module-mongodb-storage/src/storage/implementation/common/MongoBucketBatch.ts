@@ -26,7 +26,7 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../../utils/util.js';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import { SyncRuleDocument } from '../models.js';
 import { LoadedSourceRecord, SourceRecordStore } from './SourceRecordStore.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';

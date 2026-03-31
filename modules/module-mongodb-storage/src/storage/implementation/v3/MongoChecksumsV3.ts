@@ -14,7 +14,7 @@ import {
   FetchPartialBucketChecksumV3,
   MongoChecksumOptions
 } from '../common/MongoChecksumsBase.js';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 
 export class MongoChecksumsV3Impl extends AbstractMongoChecksums {
   constructor(

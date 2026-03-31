@@ -10,7 +10,8 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
+import { createMongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
+import type { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
@@ -53,7 +54,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       id = Number(id);
     }
     const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
-    const storage = new MongoSyncBucketStorage(
+    const storage = createMongoSyncBucketStorage(
       this,
       id,
       syncRules as MongoPersistedSyncRulesContent,

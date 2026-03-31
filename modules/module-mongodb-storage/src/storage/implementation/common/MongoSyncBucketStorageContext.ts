@@ -1,6 +1,6 @@
 import { InternalOpId } from '@powersync/service-core';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import * as bson from 'bson';
 
 export interface MongoSyncBucketStorageContext {

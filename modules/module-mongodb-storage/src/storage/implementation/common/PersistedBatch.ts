@@ -5,7 +5,7 @@ import * as bson from 'bson';
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { MongoIdSequence } from '../MongoIdSequence.js';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { TaggedBucketParameterDocument, TaggedBucketDataDocument } from '../models.js';

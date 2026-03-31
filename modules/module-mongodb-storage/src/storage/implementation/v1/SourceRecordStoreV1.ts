@@ -3,7 +3,7 @@ import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { idPrefixFilter } from '../../../utils/util.js';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
   SourceRecordLookupEntry,

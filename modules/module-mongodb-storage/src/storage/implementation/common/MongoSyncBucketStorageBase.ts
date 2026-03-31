@@ -27,7 +27,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { idPrefixFilter, retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from '../db.js';
 import {
   BucketDataKeyV1,
   BucketStateDocument,
