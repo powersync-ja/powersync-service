@@ -45,5 +45,5 @@ export interface SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]>;
-  cleanup(lastCheckpoint: bigint, logger: Logger): Promise<void>;
+  postCommitCleanup(lastCheckpoint: bigint, logger: Logger): Promise<void>;
 }

@@ -149,5 +149,7 @@ export class SourceRecordStoreV1 implements SourceRecordStore {
     );
   }
 
-  async cleanup(_lastCheckpoint: bigint, _logger: Logger): Promise<void> {}
+  async postCommitCleanup(_lastCheckpoint: bigint, _logger: Logger): Promise<void> {
+    // No-op for V1.
+  }
 }

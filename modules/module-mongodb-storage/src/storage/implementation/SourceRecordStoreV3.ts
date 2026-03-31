@@ -137,7 +137,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     );
   }
 
-  async cleanup(lastCheckpoint: bigint, logger: Logger): Promise<void> {
+  async postCommitCleanup(lastCheckpoint: bigint, logger: Logger): Promise<void> {
     let deletedCount = 0;
     for (const collection of await this.db.listSourceRecordCollectionsV3(this.groupId)) {
       const result = await collection.deleteMany({

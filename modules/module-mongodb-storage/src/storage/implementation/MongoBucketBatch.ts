@@ -815,7 +815,7 @@ export abstract class MongoBucketBatch
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
       if (newLastCheckpoint != null) {
-        await this.sourceRecordStore.cleanup(newLastCheckpoint, this.logger);
+        await this.sourceRecordStore.postCommitCleanup(newLastCheckpoint, this.logger);
       }
     }
     return { checkpointBlocked, checkpointCreated };
