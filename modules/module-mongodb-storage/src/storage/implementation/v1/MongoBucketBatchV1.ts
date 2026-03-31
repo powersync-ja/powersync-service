@@ -21,4 +21,8 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   protected get sourceRecordStore(): SourceRecordStore {
     return this.store;
   }
+
+  protected async cleanupDroppedSourceTables(_sourceTables: import('@powersync/service-core').storage.SourceTable[]) {
+    // No-op for V1: source records live in a shared collection.
+  }
 }

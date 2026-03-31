@@ -151,6 +151,8 @@ export abstract class MongoBucketBatch
 
   protected abstract get sourceRecordStore(): SourceRecordStore;
 
+  protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
+
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
     // One flush may be split over multiple transactions.
@@ -946,19 +948,7 @@ export abstract class MongoBucketBatch
       }
     });
 
-    if (this.db.storageConfig.incrementalReprocessing) {
-      for (let table of sourceTables) {
-        await this.db
-          .sourceRecordsV3(this.group_id, mongoTableId(table.id))
-          .drop()
-          .catch((error) => {
-            if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
-              return;
-            }
-            throw error;
-          });
-      }
-    }
+    await this.cleanupDroppedSourceTables(sourceTables);
     return result;
   }
 
