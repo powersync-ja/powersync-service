@@ -2,7 +2,9 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
+import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
 import {
   BucketDataDocumentV1,
   BucketDataDocumentV3,
@@ -11,7 +13,6 @@ import {
   BucketStateDocument,
   CheckpointEventDocument,
   ClientConnectionDocument,
-  CommonCurrentDataDocument,
   CommonSourceTableDocument,
   CurrentDataDocument,
   CurrentDataDocumentV3,
@@ -19,13 +20,10 @@ import {
   IdSequenceDocument,
   InstanceDocument,
   SourceTableDocument,
-  SourceTableDocumentV3,
   StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
 } from './models.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDefinitionId, BucketDefinitionMapping, ParameterIndexId } from './BucketDefinitionMapping.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -318,15 +316,13 @@ export class VersionedPowerSyncMongo {
     return this.db.collection<CurrentDataDocumentV3>(collectionName);
   }
 
-  async listSourceRecordCollectionsV3(
-    replicationStreamId: number
-  ): Promise<mongo.Collection<CommonCurrentDataDocument>[]> {
+  async listSourceRecordCollectionsV3(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV3>[]> {
     const prefix = `source_records_${replicationStreamId}_`;
     const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
 
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<CommonCurrentDataDocument>(collection.name));
+      .map((collection) => this.db.collection<CurrentDataDocumentV3>(collection.name));
   }
 
   async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {

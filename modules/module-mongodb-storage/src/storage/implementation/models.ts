@@ -431,7 +431,6 @@ export interface InstanceDocument {
 export interface ClientConnectionDocument extends event_types.ClientConnection {}
 
 export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
-export type CommonCurrentDataDocument = CurrentDataDocument | CurrentDataDocumentV3;
 export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
 export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
 export type CommonSourceTableDocument = SourceTableDocument | SourceTableDocumentV3;
