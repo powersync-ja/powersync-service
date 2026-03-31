@@ -69,7 +69,7 @@ export class PersistedBatchV1 extends PersistedBatch {
         checksum: BigInt(checksum),
         data: recordData
       });
-      this.incrementBucket(evaluated.bucket, op_id, byteEstimate);
+      this.incrementBucket(null, evaluated.bucket, op_id, byteEstimate);
     }
 
     for (let bucket of remaining_buckets.values()) {
@@ -87,7 +87,7 @@ export class PersistedBatchV1 extends PersistedBatch {
         checksum: dchecksum
       });
       this.currentSize += 200;
-      this.incrementBucket(bucket.bucket, op_id, 200);
+      this.incrementBucket(null, bucket.bucket, op_id, 200);
     }
   }
 

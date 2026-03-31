@@ -112,6 +112,10 @@ export class MongoSyncBucketStorage
     return this.writeCheckpointAPI.writeCheckpointMode;
   }
 
+  get mapping() {
+    return this.sync_rules.mapping;
+  }
+
   setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
     this.writeCheckpointAPI.setWriteCheckpointMode(mode);
   }
@@ -992,17 +996,29 @@ export class MongoSyncBucketStorage
       await collection.drop();
     }
 
-    await this.clearDeleteMany(
-      'bucket state',
-      () =>
-        this.db.bucket_state.deleteMany(
-          {
-            _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
-          },
-          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-        ),
-      signal
-    );
+    if (this.db.storageConfig.incrementalReprocessing) {
+      await this.db
+        .bucketStateV3(this.group_id)
+        .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+        .catch((error) => {
+          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+            return;
+          }
+          throw error;
+        });
+    } else {
+      await this.clearDeleteMany(
+        'bucket state',
+        () =>
+          this.db.bucketStateV1.deleteMany(
+            {
+              _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
+            },
+            { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+          ),
+        signal
+      );
+    }
 
     if (this.db.storageConfig.incrementalReprocessing) {
       await this.db
@@ -1314,8 +1330,17 @@ export class MongoSyncBucketStorage
   private async getDataBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    if (this.db.storageConfig.incrementalReprocessing) {
+      return this.getDataBucketChangesV3(options);
+    }
+    return this.getDataBucketChangesV1(options);
+  }
+
+  private async getDataBucketChangesV1(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
     const limit = 1000;
-    const bucketStateUpdates = await this.db.bucket_state
+    const bucketStateUpdates = await this.db.bucketStateV1
       .find(
         {
           // We have an index on (_id.g, last_op).
@@ -1340,6 +1365,47 @@ export class MongoSyncBucketStorage
 
     return {
       invalidateDataBuckets: invalidateDataBuckets,
+      updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
+    };
+  }
+
+  private async getDataBucketChangesV3(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    const limit = 1000;
+    const bucketStateUpdates = await this.db
+      .bucketStateV3(this.group_id)
+      .aggregate<{ _id: string; last_op: bigint }>(
+        [
+          {
+            $match: {
+              last_op: { $gt: options.lastCheckpoint.checkpoint }
+            }
+          },
+          {
+            $group: {
+              _id: '$_id.b',
+              last_op: { $max: '$last_op' }
+            }
+          },
+          {
+            $sort: {
+              last_op: 1
+            }
+          },
+          {
+            $limit: limit + 1
+          }
+        ],
+        { maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
+      )
+      .toArray();
+
+    const buckets = bucketStateUpdates.map((doc) => doc._id);
+    const invalidateDataBuckets = buckets.length > limit;
+
+    return {
+      invalidateDataBuckets,
       updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
     };
   }

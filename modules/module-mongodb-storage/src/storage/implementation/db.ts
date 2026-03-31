@@ -11,6 +11,8 @@ import {
   BucketParameterDocument,
   BucketParameterDocumentV3,
   BucketStateDocument,
+  BucketStateDocumentV1,
+  BucketStateDocumentV3,
   CheckpointEventDocument,
   ClientConnectionDocument,
   CommonSourceTableDocument,
@@ -44,7 +46,7 @@ export class PowerSyncMongo {
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
-  readonly bucket_state: mongo.Collection<BucketStateDocument>;
+  readonly bucket_state: mongo.Collection<BucketStateDocumentV1>;
   readonly checkpoint_events: mongo.Collection<CheckpointEventDocument>;
   readonly connection_report_events: mongo.Collection<ClientConnectionDocument>;
 
@@ -95,6 +97,14 @@ export class PowerSyncMongo {
       .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
   }
 
+  bucketStateCollectionNameV3(replicationStreamId: number) {
+    return `bucket_state_${replicationStreamId}`;
+  }
+
+  bucketStateV3(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {
+    return this.db.collection(this.bucketStateCollectionNameV3(replicationStreamId));
+  }
+
   bucketParameterCollectionNameV3(replicationStreamId: number, indexId: ParameterIndexId) {
     return `parameter_index_${replicationStreamId}_${indexId}`;
   }
@@ -134,6 +144,10 @@ export class PowerSyncMongo {
     return this.collectionsByPrefix(`source_records_`);
   }
 
+  async listAllBucketStateCollectionsV3(): Promise<mongo.Collection<never>[]> {
+    return this.collectionsByPrefix(`bucket_state_`);
+  }
+
   sourceRecordsCollectionName(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     return `source_records_${replicationStreamId}_${sourceTableId.toHexString()}`;
   }
@@ -171,6 +185,9 @@ export class PowerSyncMongo {
     }
     await this.bucket_parameters.deleteMany({});
     for (const collection of await this.listAllParameterIndexCollectionsV3()) {
+      await collection.drop();
+    }
+    for (const collection of await this.listAllBucketStateCollectionsV3()) {
       await collection.drop();
     }
     await this.op_id_sequence.deleteMany({});
@@ -302,6 +319,15 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.current_data;
   }
 
+  get bucketStateV1() {
+    if (this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'bucket_state collection should not be used when incrementalReprocessing is enabled'
+      );
+    }
+    return this.#upstream.bucket_state;
+  }
+
   sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
@@ -347,6 +373,15 @@ export class VersionedPowerSyncMongo {
     }
   }
 
+  bucketStateV3(replicationStreamId: number) {
+    if (!this.storageConfig.incrementalReprocessing) {
+      throw new ServiceAssertionError(
+        'v3 bucket_state collection should not be used when incrementalReprocessing is disabled'
+      );
+    }
+    return this.#upstream.bucketStateV3(replicationStreamId);
+  }
+
   sourceTablesV3(replicationStreamId: number) {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
@@ -359,6 +394,7 @@ export class VersionedPowerSyncMongo {
   async initializeStreamStorage(replicationStreamId: number) {
     if (this.storageConfig.incrementalReprocessing) {
       const sourceTables = this.sourceTablesV3(replicationStreamId);
+      const bucketState = this.bucketStateV3(replicationStreamId);
       await sourceTables.createIndex(
         {
           connection_id: 1,
@@ -378,6 +414,18 @@ export class VersionedPowerSyncMongo {
           partialFilterExpression: { latest_pending_delete: { $exists: true } },
           name: 'latest_pending_delete'
         }
+      );
+      await bucketState.createIndex(
+        {
+          last_op: 1
+        },
+        { name: 'bucket_updates', unique: true }
+      );
+      await bucketState.createIndex(
+        {
+          'estimate_since_compact.count': -1
+        },
+        { name: 'dirty_count' }
       );
     }
   }
@@ -476,10 +524,6 @@ export class VersionedPowerSyncMongo {
 
   get locks() {
     return this.#upstream.locks;
-  }
-
-  get bucket_state() {
-    return this.#upstream.bucket_state;
   }
 
   get checkpoint_events() {

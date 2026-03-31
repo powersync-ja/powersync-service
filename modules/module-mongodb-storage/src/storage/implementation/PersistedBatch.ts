@@ -2,13 +2,18 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { Logger, logger as defaultLogger, ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { VersionedPowerSyncMongo } from './db.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { BucketStateDocument, TaggedBucketParameterDocument, TaggedBucketDataDocument } from './models.js';
 import { BucketDefinitionId } from './BucketDefinitionMapping.js';
+import {
+  BucketStateDocumentV1,
+  BucketStateDocumentV3,
+  TaggedBucketParameterDocument,
+  TaggedBucketDataDocument
+} from './models.js';
 import { mongoTableId } from '../../utils/util.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
@@ -122,14 +127,22 @@ export abstract class PersistedBatch {
     return this.bucketData.length;
   }
 
-  protected incrementBucket(bucket: string, op_id: InternalOpId, bytes: number) {
-    let existingState = this.bucketStates.get(bucket);
+  protected incrementBucket(
+    definitionId: BucketDefinitionId | null,
+    bucket: string,
+    op_id: InternalOpId,
+    bytes: number
+  ) {
+    const key = `${definitionId ?? ''}:${bucket}`;
+    let existingState = this.bucketStates.get(key);
     if (existingState) {
       existingState.lastOp = op_id;
       existingState.incrementCount += 1;
       existingState.incrementBytes += bytes;
     } else {
-      this.bucketStates.set(bucket, {
+      this.bucketStates.set(key, {
+        definitionId,
+        bucket,
         lastOp: op_id,
         incrementCount: 1,
         incrementBytes: bytes
@@ -218,10 +231,17 @@ export abstract class PersistedBatch {
 
     if (this.bucketStates.size > 0) {
       flushedSomething = true;
-      await db.bucket_state.bulkWrite(this.getBucketStateUpdates(), {
-        session,
-        ordered: false
-      });
+      if (db.storageConfig.incrementalReprocessing) {
+        await db.bucketStateV3(this.group_id).bulkWrite(this.getBucketStateUpdatesV3(), {
+          session,
+          ordered: false
+        });
+      } else {
+        await db.bucketStateV1.bulkWrite(this.getBucketStateUpdatesV1(), {
+          session,
+          ordered: false
+        });
+      }
     }
 
     if (flushedSomething) {
@@ -279,14 +299,14 @@ export abstract class PersistedBatch {
     return stats;
   }
 
-  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocument>[] {
-    return Array.from(this.bucketStates.entries()).map(([bucket, state]) => {
+  private getBucketStateUpdatesV1(): mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[] {
+    return Array.from(this.bucketStates.values()).map((state) => {
       return {
         updateOne: {
           filter: {
             _id: {
               g: this.group_id,
-              b: bucket
+              b: state.bucket
             }
           },
           update: {
@@ -300,12 +320,42 @@ export abstract class PersistedBatch {
           },
           upsert: true
         }
-      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocument>;
+      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV1>;
+    });
+  }
+
+  private getBucketStateUpdatesV3(): mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[] {
+    return Array.from(this.bucketStates.values()).map((state) => {
+      if (state.definitionId == null) {
+        throw new ReplicationAssertionError('Expected bucket definition id when incrementalReprocessing is enabled');
+      }
+      return {
+        updateOne: {
+          filter: {
+            _id: {
+              d: state.definitionId,
+              b: state.bucket
+            }
+          },
+          update: {
+            $set: {
+              last_op: state.lastOp
+            },
+            $inc: {
+              'estimate_since_compact.count': state.incrementCount,
+              'estimate_since_compact.bytes': state.incrementBytes
+            }
+          },
+          upsert: true
+        }
+      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV3>;
     });
   }
 }
 
 interface BucketStateUpdate {
+  definitionId: BucketDefinitionId | null;
+  bucket: string;
   lastOp: InternalOpId;
   incrementCount: number;
   incrementBytes: number;

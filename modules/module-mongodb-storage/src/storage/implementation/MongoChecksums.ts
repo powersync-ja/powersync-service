@@ -16,8 +16,21 @@ import {
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { BucketDefinitionId, BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
+
+export interface FetchPartialBucketChecksumV3 {
+  bucket: string;
+  definitionId: BucketDefinitionId;
+  start?: InternalOpId;
+  end: InternalOpId;
+}
+
+export interface FetchPartialBucketChecksumByBucket {
+  bucket: string;
+  start?: InternalOpId;
+  end: InternalOpId;
+}
 
 /**
  * Checksum calculation options, primarily for tests.
@@ -100,41 +113,7 @@ abstract class AbstractMongoChecksums {
     if (batch.length == 0) {
       return new Map();
     }
-
-    const preFilters: any[] = [];
-    for (let request of batch) {
-      if (request.start == null) {
-        preFilters.push({
-          _id: {
-            g: this.group_id,
-            b: request.bucket
-          },
-          'compacted_state.op_id': { $exists: true, $lte: request.end }
-        });
-      }
-    }
-
-    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
-
-    if (preFilters.length > 0) {
-      // For un-cached bucket checksums, attempt to use the compacted state first.
-      const states = await this.db.bucket_state
-        .find({
-          $or: preFilters
-        })
-        .toArray();
-      for (let state of states) {
-        const compactedState = state.compacted_state!;
-        preStates.set(state._id.b, {
-          opId: compactedState.op_id,
-          checksum: {
-            bucket: state._id.b,
-            checksum: Number(compactedState.checksum),
-            count: compactedState.count
-          }
-        });
-      }
-    }
+    const preStates = await this.fetchPreStates(batch);
 
     const mappedRequests = batch.map((request) => {
       let start = request.start;
@@ -205,15 +184,19 @@ abstract class AbstractMongoChecksums {
    */
   protected abstract computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap>;
 
-  protected async computePartialChecksumsForCollection(
-    batch: FetchPartialBucketChecksum[],
+  protected abstract fetchPreStates(
+    batch: FetchPartialBucketChecksum[]
+  ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>>;
+
+  protected async computePartialChecksumsForCollection<TRequest extends FetchPartialBucketChecksumByBucket>(
+    batch: TRequest[],
     collection: mongo.Collection<mongo.Document>,
-    createFilter: (request: FetchPartialBucketChecksum) => any
+    createFilter: (request: TRequest) => any
   ): Promise<PartialChecksumMap> {
     const batchLimit = this.options?.operationBatchLimit ?? DEFAULT_OPERATION_BATCH_LIMIT;
 
     // Map requests by bucket. We adjust this as we get partial results.
-    let requests = new Map<string, FetchPartialBucketChecksum>();
+    let requests = new Map<string, TRequest>();
     for (let request of batch) {
       requests.set(request.bucket, request);
     }
@@ -292,10 +275,8 @@ abstract class AbstractMongoChecksums {
           limitReached = true;
           const req = requests.get(bucket);
           requests.set(bucket, {
-            bucket,
-            source: req!.source,
-            start: doc.last_op,
-            end: req!.end
+            ...req!,
+            start: doc.last_op
           });
         } else {
           // All done for this bucket
@@ -334,7 +315,9 @@ abstract class AbstractMongoChecksums {
 }
 
 class MongoChecksumsV1Impl extends AbstractMongoChecksums {
-  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  async computePartialChecksumsDirectByBucket(
+    batch: FetchPartialBucketChecksumByBucket[]
+  ): Promise<PartialChecksumMap> {
     return this.computePartialChecksumsForCollection(
       batch,
       this.db.bucket_data as unknown as mongo.Collection<mongo.Document>,
@@ -354,6 +337,49 @@ class MongoChecksumsV1Impl extends AbstractMongoChecksums {
       })
     );
   }
+
+  protected async fetchPreStates(
+    batch: FetchPartialBucketChecksum[]
+  ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
+    const preFilters = batch
+      .filter((request) => request.start == null)
+      .map((request) => ({
+        _id: {
+          g: this.group_id,
+          b: request.bucket
+        },
+        'compacted_state.op_id': { $exists: true, $lte: request.end }
+      }));
+
+    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
+    if (preFilters.length == 0) {
+      return preStates;
+    }
+
+    const states = await this.db.bucketStateV1
+      .find({
+        $or: preFilters
+      })
+      .toArray();
+
+    for (const state of states) {
+      const compactedState = state.compacted_state!;
+      preStates.set(state._id.b, {
+        opId: compactedState.op_id,
+        checksum: {
+          bucket: state._id.b,
+          checksum: Number(compactedState.checksum),
+          count: compactedState.count
+        }
+      });
+    }
+
+    return preStates;
+  }
+
+  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    return this.computePartialChecksumsDirectByBucket(batch);
+  }
 }
 
 class MongoChecksumsV3Impl extends AbstractMongoChecksums {
@@ -366,21 +392,23 @@ class MongoChecksumsV3Impl extends AbstractMongoChecksums {
     super(db, group_id, options);
   }
 
-  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+  private normalizeBatch(batch: FetchPartialBucketChecksum[]): FetchPartialBucketChecksumV3[] {
+    return batch.map((request) => ({
+      bucket: request.bucket,
+      definitionId: this.mapping.bucketSourceId(request.source),
+      start: request.start,
+      end: request.end
+    }));
+  }
+
+  async computePartialChecksumsDirectByDefinition(batch: FetchPartialBucketChecksumV3[]): Promise<PartialChecksumMap> {
     const results = new Map<string, PartialOrFullChecksum>();
-    const requestsByDefinition = new Map<string, FetchPartialBucketChecksum[]>();
-    const fallbackRequests: FetchPartialBucketChecksum[] = [];
+    const requestsByDefinition = new Map<string, FetchPartialBucketChecksumV3[]>();
 
     for (const request of batch) {
-      if (!isBucketSourceLike(request.source)) {
-        fallbackRequests.push(request);
-        continue;
-      }
-
-      const definitionId = this.mapping.bucketSourceId(request.source);
-      const existing = requestsByDefinition.get(definitionId) ?? [];
+      const existing = requestsByDefinition.get(request.definitionId) ?? [];
       existing.push(request);
-      requestsByDefinition.set(definitionId, existing);
+      requestsByDefinition.set(request.definitionId, existing);
     }
 
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
@@ -394,23 +422,53 @@ class MongoChecksumsV3Impl extends AbstractMongoChecksums {
       }
     }
 
-    if (fallbackRequests.length > 0) {
-      const collections = await this.db.listBucketDataCollectionsV3(this.group_id);
-      for (const request of fallbackRequests) {
-        let merged: PartialOrFullChecksum | null = null;
-        for (const collection of collections) {
-          const groupResults = await this.computePartialChecksumsForCollection(
-            [request],
-            collection as unknown as mongo.Collection<mongo.Document>,
-            createV3BucketFilter
-          );
-          merged = addPartialChecksums(request.bucket, merged, groupResults.get(request.bucket) ?? null);
-        }
-        results.set(request.bucket, merged ?? emptyChecksumForRequest(request));
-      }
+    return new Map<string, PartialOrFullChecksum>(
+      batch.map((request) => [request.bucket, results.get(request.bucket) ?? emptyChecksumForRequest(request)])
+    );
+  }
+
+  protected async fetchPreStates(
+    batch: FetchPartialBucketChecksum[]
+  ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
+    const preFilters = this.normalizeBatch(batch)
+      .filter((request) => request.start == null)
+      .map((request) => ({
+        _id: {
+          d: request.definitionId,
+          b: request.bucket
+        },
+        'compacted_state.op_id': { $exists: true, $lte: request.end }
+      }));
+
+    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
+    if (preFilters.length == 0) {
+      return preStates;
     }
 
-    return results;
+    const states = await this.db
+      .bucketStateV3(this.group_id)
+      .find({
+        $or: preFilters
+      })
+      .toArray();
+
+    for (const state of states) {
+      const compactedState = state.compacted_state!;
+      preStates.set(state._id.b, {
+        opId: compactedState.op_id,
+        checksum: {
+          bucket: state._id.b,
+          checksum: Number(compactedState.checksum),
+          count: compactedState.count
+        }
+      });
+    }
+
+    return preStates;
+  }
+
+  protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
+    return this.computePartialChecksumsDirectByDefinition(this.normalizeBatch(batch));
   }
 }
 
@@ -419,9 +477,11 @@ class MongoChecksumsV3Impl extends AbstractMongoChecksums {
  */
 export class MongoChecksums {
   private readonly impl: AbstractMongoChecksums;
+  private readonly v3Impl: MongoChecksumsV3Impl | null;
+  private readonly v1Impl: MongoChecksumsV1Impl | null;
 
   constructor(db: VersionedPowerSyncMongo, group_id: number, options: MongoChecksumOptions) {
-    this.impl = options.storageConfig.incrementalReprocessing
+    this.v3Impl = options.storageConfig.incrementalReprocessing
       ? new MongoChecksumsV3Impl(
           db,
           group_id,
@@ -431,7 +491,9 @@ export class MongoChecksums {
               throw new ServiceAssertionError('BucketDefinitionMapping is required for v3 MongoDB checksum queries');
             })()
         )
-      : new MongoChecksumsV1Impl(db, group_id, options);
+      : null;
+    this.v1Impl = this.v3Impl == null ? new MongoChecksumsV1Impl(db, group_id, options) : null;
+    this.impl = this.v3Impl ?? this.v1Impl!;
   }
 
   async getChecksums(checkpoint: InternalOpId, buckets: BucketChecksumRequest[]): Promise<ChecksumMap> {
@@ -445,9 +507,23 @@ export class MongoChecksums {
   async computePartialChecksumsDirect(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     return this.impl.computePartialChecksumsDirect(batch);
   }
+
+  async computePartialChecksumsDirectV1(batch: FetchPartialBucketChecksumByBucket[]): Promise<PartialChecksumMap> {
+    if (this.v1Impl == null) {
+      throw new ServiceAssertionError('V1 checksum routing is only available when incrementalReprocessing is disabled');
+    }
+    return this.v1Impl.computePartialChecksumsDirectByBucket(batch);
+  }
+
+  async computePartialChecksumsDirectV3(batch: FetchPartialBucketChecksumV3[]): Promise<PartialChecksumMap> {
+    if (this.v3Impl == null) {
+      throw new ServiceAssertionError('V3 checksum routing is only available when incrementalReprocessing is enabled');
+    }
+    return this.v3Impl.computePartialChecksumsDirectByDefinition(batch);
+  }
 }
 
-function createV3BucketFilter(request: FetchPartialBucketChecksum) {
+function createV3BucketFilter(request: Pick<FetchPartialBucketChecksumV3, 'bucket' | 'start' | 'end'>) {
   return {
     _id: {
       $gt: {
@@ -462,16 +538,12 @@ function createV3BucketFilter(request: FetchPartialBucketChecksum) {
   };
 }
 
-function emptyChecksumForRequest(request: FetchPartialBucketChecksum): PartialOrFullChecksum {
+function emptyChecksumForRequest(
+  request: Pick<FetchPartialBucketChecksum | FetchPartialBucketChecksumV3, 'bucket' | 'start'>
+): PartialOrFullChecksum {
   return request.start == null
     ? { bucket: request.bucket, count: 0, checksum: 0 }
     : { bucket: request.bucket, partialCount: 0, partialChecksum: 0 };
-}
-
-function isBucketSourceLike(
-  source: FetchPartialBucketChecksum['source']
-): source is NonNullable<FetchPartialBucketChecksum['source']> {
-  return source != null && typeof source == 'object' && 'uniqueName' in source;
 }
 
 /**

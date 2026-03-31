@@ -231,13 +231,12 @@ export interface SourceTableDocumentSnapshotStatus {
  * Note: There is currently no migration to populate this collection from existing data - it is only
  * populated by new updates.
  */
-export interface BucketStateDocument {
+interface BucketStateDocumentBase {
   _id: {
-    g: number;
     b: string;
   };
   /**
-   * Important: There is an unique index on {'_id.g': 1, last_op: 1}.
+   * Important: There is an unique index on last_op per logical stream.
    * That means the last_op must match an actual op in the bucket, and not the commit checkpoint.
    */
   last_op: bigint;
@@ -257,6 +256,20 @@ export interface BucketStateDocument {
     bytes: number | bigint;
   };
 }
+
+export interface BucketStateDocumentV1 extends BucketStateDocumentBase {
+  _id: BucketStateDocumentBase['_id'] & {
+    g: number;
+  };
+}
+
+export interface BucketStateDocumentV3 extends BucketStateDocumentBase {
+  _id: BucketStateDocumentBase['_id'] & {
+    d: BucketDefinitionId;
+  };
+}
+
+export type BucketStateDocument = BucketStateDocumentV1;
 
 export interface IdSequenceDocument {
   _id: string;

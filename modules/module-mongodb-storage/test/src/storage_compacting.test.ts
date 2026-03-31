@@ -64,9 +64,14 @@ bucket_definitions:
 
     test('full compact', async () => {
       const { bucketStorage, checkpoint, factory, syncRules } = await setup();
+      const storageDb = (bucketStorage as any).db;
 
       // Simulate bucket_state from old version not being available
-      await factory.db.bucket_state.deleteMany({});
+      if (storageDb.storageConfig.incrementalReprocessing) {
+        await storageDb.bucketStateV3(bucketStorage.group_id).deleteMany({});
+      } else {
+        await factory.db.bucket_state.deleteMany({});
+      }
 
       await bucketStorage.compact({
         clearBatchLimit: 200,
@@ -108,6 +113,7 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const storageDb = (bucketStorage as any).db;
 
       await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
@@ -158,27 +164,52 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const storageDb = (bucketStorage as any).db;
 
       // This simulates bucket_state created using bigint bytes.
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
-      await factory.db.bucket_state.insertOne({
-        _id: {
-          g: bucketStorage.group_id,
-          b: 'global[]'
-        },
-        last_op: 5n,
-        compacted_state: {
-          op_id: 3n,
-          count: 3,
-          checksum: 0n,
-          bytes: 7n
-        },
-        estimate_since_compact: {
-          count: 2,
-          bytes: 5n
-        }
-      });
+      await (
+        storageDb.storageConfig.incrementalReprocessing
+          ? storageDb.bucketStateV3(bucketStorage.group_id)
+          : factory.db.bucket_state
+      ).insertOne(
+        storageDb.storageConfig.incrementalReprocessing
+          ? {
+              _id: {
+                d: '1',
+                b: 'global[]'
+              },
+              last_op: 5n,
+              compacted_state: {
+                op_id: 3n,
+                count: 3,
+                checksum: 0n,
+                bytes: 7n
+              },
+              estimate_since_compact: {
+                count: 2,
+                bytes: 5n
+              }
+            }
+          : {
+              _id: {
+                g: bucketStorage.group_id,
+                b: 'global[]'
+              },
+              last_op: 5n,
+              compacted_state: {
+                op_id: 3n,
+                count: 3,
+                checksum: 0n,
+                bytes: 7n
+              },
+              estimate_since_compact: {
+                count: 2,
+                bytes: 5n
+              }
+            }
+      );
 
       // This test uses a couple of internal APIs of the compactor - there is no simple way
       // to test this using the current public APIs.
@@ -205,6 +236,7 @@ bucket_definitions:
       expect(checksumBuckets).toEqual([
         {
           bucket: 'global[]',
+          definitionId: storageDb.storageConfig.incrementalReprocessing ? '1' : null,
           estimatedCount: 5
         }
       ]);
