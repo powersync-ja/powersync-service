@@ -108,15 +108,12 @@ export class PowerSyncMongo {
   }
 
   /**
-   * List parameter index collections.
+   * List all parameter index collections across all replication streams.
    *
-   * @param replicationStreamId null only to list all collections in the db for clearing
-   * @returns
+   * Primarily used to clear the db.
    */
-  async listParameterIndexCollectionsV3(
-    replicationStreamId?: number
-  ): Promise<mongo.Collection<BucketParameterDocumentV3>[]> {
-    const prefix = replicationStreamId == null ? `parameter_index_` : `parameter_index_${replicationStreamId}_`;
+  async listAllParameterIndexCollectionsV3(): Promise<mongo.Collection<BucketParameterDocumentV3>[]> {
+    const prefix = `parameter_index_`;
     const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
 
     return collections
@@ -183,7 +180,7 @@ export class PowerSyncMongo {
       await collection.drop();
     }
     await this.bucket_parameters.deleteMany({});
-    for (const collection of await this.listParameterIndexCollectionsV3()) {
+    for (const collection of await this.listAllParameterIndexCollectionsV3()) {
       await collection.drop();
     }
     await this.op_id_sequence.deleteMany({});
@@ -431,13 +428,27 @@ export class VersionedPowerSyncMongo {
     return this.#upstream.parameterIndexV3(replicationStreamId, indexId);
   }
 
-  listParameterIndexCollectionsV3(replicationStreamId?: number) {
+  /**
+   * List parameter index collections for a specific replication stream.
+   */
+  async listParameterIndexCollectionsV3(
+    replicationStreamId: number
+  ): Promise<{ collection: mongo.Collection<BucketParameterDocumentV3>; indexId: ParameterIndexId }[]> {
     if (!this.storageConfig.incrementalReprocessing) {
       throw new ServiceAssertionError(
         'v3 bucket_parameters collections should not be used when incrementalReprocessing is disabled'
       );
     }
-    return this.#upstream.listParameterIndexCollectionsV3(replicationStreamId);
+
+    const prefix = `parameter_index_${replicationStreamId}_`;
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => ({
+        collection: this.db.collection<BucketParameterDocumentV3>(collection.name),
+        indexId: collection.name.slice(prefix.length)
+      }));
   }
 
   get op_id_sequence() {

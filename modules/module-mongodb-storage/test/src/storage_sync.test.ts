@@ -1,8 +1,10 @@
 import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { RequestParameters } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
+import { MongoSyncBucketStorage } from '../../src/storage/implementation/MongoSyncBucketStorage.js';
 import { CurrentBucketV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -222,6 +224,58 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const parameterEntry = await mongoFactory.db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
+
+  test.runIf(storageVersion >= 3)(
+    'loads parameter checkpoint changes across all v3 parameter index collections',
+    async () => {
+      await using factory = await storageConfig.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+    bucket_definitions:
+      by_owner:
+        parameters:
+          - SELECT owner_id FROM test WHERE id = token_parameters.owner_lookup
+        data:
+          - SELECT id, owner_id FROM test WHERE owner_id = bucket.owner_id
+      by_category:
+        parameters:
+          - SELECT category_id FROM test WHERE id = token_parameters.category_lookup
+        data:
+          - SELECT id, category_id FROM test WHERE category_id = bucket.category_id
+    `,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+      const previousCheckpoint = await bucketStorage.getCheckpoint();
+
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+      await writer.save({
+        sourceTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: 'shape-check',
+          owner_id: 'user-1',
+          category_id: 'cat-1'
+        },
+        afterReplicaId: test_utils.rid('shape-check')
+      });
+      await writer.markAllSnapshotDone('1/1');
+      await writer.commit('1/1');
+
+      const nextCheckpoint = await bucketStorage.getCheckpoint();
+      const changes = await bucketStorage.getCheckpointChanges({
+        lastCheckpoint: previousCheckpoint,
+        nextCheckpoint
+      });
+
+      expect(changes.invalidateParameterBuckets).toBe(false);
+      expect(changes.updatedParameterLookups).toEqual(new Set(['["1","","shape-check"]', '["2","","shape-check"]']));
+    }
+  );
 }
 
 describe('sync - mongodb', () => {

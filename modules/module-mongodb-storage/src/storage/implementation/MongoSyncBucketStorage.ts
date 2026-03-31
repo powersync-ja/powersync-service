@@ -976,7 +976,7 @@ export class MongoSyncBucketStorage
     }
     if (this.db.storageConfig.incrementalReprocessing) {
       for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
-        await collection.drop();
+        await collection.collection.drop();
       }
     } else {
       await this.db.parameterIndexV1.deleteMany(
@@ -1351,33 +1351,52 @@ export class MongoSyncBucketStorage
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
     const limit = 1000;
-    const parameterUpdates: { lookup: bson.Binary; indexId: string }[] = [];
-
-    // FIXME: Optimize performance for many collections
-    for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
-      if (parameterUpdates.length > limit) {
-        break;
-      }
-
-      const remaining = limit + 1 - parameterUpdates.length;
-      const indexId = collection.collectionName.slice(`parameter_index_${this.group_id}_`.length);
-      const updates = await collection
-        .find(
-          {
-            _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint }
-          },
-          {
-            projection: {
-              lookup: 1
-            },
-            limit: remaining,
-            batchSize: remaining + 1,
-            singleBatch: true
-          }
-        )
-        .toArray();
-      parameterUpdates.push(...updates.map((update) => ({ ...update, indexId })));
+    const collections = await this.db.listParameterIndexCollectionsV3(this.group_id);
+    if (collections.length == 0) {
+      return {
+        invalidateParameterBuckets: false,
+        updatedParameterLookups: new Set<string>()
+      };
     }
+    const checkpointFilter = {
+      _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint }
+    };
+    const collectionPrefix = `parameter_index_${this.group_id}_`;
+    const pipelineForCollection = (indexId: string) => [
+      {
+        $match: checkpointFilter
+      },
+      {
+        $project: {
+          _id: 0,
+          lookup: 1,
+          indexId: { $literal: indexId }
+        }
+      }
+    ];
+    const [firstCollection, ...remainingCollections] = collections;
+    const parameterUpdates = await firstCollection.collection
+      .aggregate<{ lookup: bson.Binary; indexId: string }>(
+        [
+          ...pipelineForCollection(firstCollection.indexId),
+          ...remainingCollections.map((collection) => {
+            return {
+              $unionWith: {
+                coll: collection.collection.collectionName,
+                pipeline: pipelineForCollection(collection.indexId)
+              }
+            };
+          }),
+          {
+            $limit: limit + 1
+          }
+        ],
+        {
+          batchSize: limit + 2,
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+        }
+      )
+      .toArray();
 
     const invalidateParameterUpdates = parameterUpdates.length > limit;
 
