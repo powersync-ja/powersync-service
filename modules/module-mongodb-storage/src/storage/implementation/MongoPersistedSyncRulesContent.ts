@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
+import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './models.js';
 
 export class MongoPersistedSyncRulesContent extends storage.PersistedSyncRulesContent {

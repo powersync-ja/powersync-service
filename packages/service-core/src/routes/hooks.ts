@@ -1,6 +1,6 @@
-import type fastify from 'fastify';
-import a from 'async';
 import { logger } from '@powersync/lib-services-framework';
+import a from 'async';
+import type fastify from 'fastify';
 
 export type CreateRequestQueueParams = {
   max_queue_depth: number;

@@ -1,8 +1,8 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { InternalOpId, SerializedSyncPlan, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import * as bson from 'bson';
 
 /**
  * Replica id uniquely identifying a row on the source database.

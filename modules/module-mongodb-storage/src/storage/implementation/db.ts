@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
 import {
   BucketDataDocument,
@@ -19,7 +20,6 @@ import {
   SyncRuleDocument,
   WriteCheckpointDocument
 } from './models.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export interface PowerSyncMongoOptions {
   /**

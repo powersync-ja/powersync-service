@@ -1,5 +1,4 @@
 import { describe, expect } from 'vitest';
-import { syncTest } from './utils.js';
 import {
   HydratedSyncRules,
   ScopedParameterLookup,
@@ -9,6 +8,7 @@ import {
   SqliteValue
 } from '../../../../src/index.js';
 import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
+import { syncTest } from './utils.js';
 
 describe('evaluating rows', () => {
   syncTest('emits rows', ({ sync }) => {

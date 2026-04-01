@@ -1,10 +1,10 @@
-import { MetricsEngine, MetricsFactory, OpenTelemetryMetricsFactory } from '@powersync/service-core';
 import {
   AggregationTemporality,
   InMemoryMetricExporter,
   MeterProvider,
   PeriodicExportingMetricReader
 } from '@opentelemetry/sdk-metrics';
+import { MetricsEngine, MetricsFactory, OpenTelemetryMetricsFactory } from '@powersync/service-core';
 
 export class MetricsHelper {
   public factory: MetricsFactory;

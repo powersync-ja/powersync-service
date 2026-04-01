@@ -2,8 +2,8 @@
 import { describe, expect, test } from 'vitest';
 import { HydrationState, ParameterLookupScope, versionedHydrationState } from '../../src/HydrationState.js';
 import {
-  BucketParameterQuerier,
   BucketDataScope,
+  BucketParameterQuerier,
   CompatibilityContext,
   CompatibilityEdition,
   CreateSourceParams,
@@ -13,8 +13,8 @@ import {
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
   mergeBucketParameterQueriers,
-  UnscopedParameterLookup,
   QuerierError,
+  ScopedParameterLookup,
   SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
@@ -22,7 +22,7 @@ import {
   StreamParseOptions,
   SyncStream,
   syncStreamFromSql,
-  ScopedParameterLookup
+  UnscopedParameterLookup
 } from '../../src/index.js';
 import { lookupScope, normalizeQuerierOptions, PARSE_OPTIONS, requestParameters, TestSourceTable } from './util.js';
 

@@ -14,16 +14,16 @@ import { cartesianProduct } from '../../streams/utils.js';
 import { generateTableValuedFunctions } from '../../TableValuedFunctions.js';
 import { SqliteRow, SqliteValue } from '../../types.js';
 import {
-  ExternalData,
-  UnaryExpression,
-  BinaryExpression,
   BetweenExpression,
-  ScalarInExpression,
+  BinaryExpression,
   CaseWhenExpression,
   CastExpression,
-  ScalarFunctionCallExpression,
+  ExternalData,
   LiteralExpression,
-  SqlExpression
+  ScalarFunctionCallExpression,
+  ScalarInExpression,
+  SqlExpression,
+  UnaryExpression
 } from '../expression.js';
 import { ExpressionVisitor, visitExpr } from '../expression_visitor.js';
 import {

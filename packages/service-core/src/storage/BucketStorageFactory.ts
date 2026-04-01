@@ -1,9 +1,4 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
-import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
-import { ReplicationEventPayload } from './ReplicationEventPayload.js';
-import { ReplicationLock } from './ReplicationLock.js';
-import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
-import { ReportStorage } from './ReportStorage.js';
 import {
   PrecompiledSyncConfig,
   SerializedCompatibilityContext,
@@ -11,6 +6,11 @@ import {
   SqlSyncRules,
   SyncConfig
 } from '@powersync/service-sync-rules';
+import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
+import { ReplicationEventPayload } from './ReplicationEventPayload.js';
+import { ReplicationLock } from './ReplicationLock.js';
+import { ReportStorage } from './ReportStorage.js';
+import { SyncRulesBucketStorage } from './SyncRulesBucketStorage.js';
 
 /**
  * Represents a configured storage provider.

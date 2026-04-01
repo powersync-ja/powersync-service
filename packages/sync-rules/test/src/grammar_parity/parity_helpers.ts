@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { expect } from 'vitest';
 import { parse as parseYaml } from 'yaml';
 import {
   CompatibilityContext,
@@ -11,7 +12,6 @@ import {
 } from '../../../src/index.js';
 import { EMPTY_DATA_SOURCE, PARSE_OPTIONS } from '../util.js';
 import { grammarAcceptsSql } from './generated_grammar.js';
-import { expect } from 'vitest';
 
 export type FixtureMode = 'bucket_definitions' | 'sync_streams_alpha' | 'new_compiler';
 export type BucketSlot = 'parameters' | 'data';

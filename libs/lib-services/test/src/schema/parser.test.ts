@@ -1,4 +1,4 @@
-import { describe, test, expect } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 import * as framework_schema from '../../../src/schema/schema-index.js';
 

@@ -2,7 +2,6 @@ import { storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { ScopedParameterLookup } from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
-import { parameterLookupScope } from './util.js';
 
 export function registerParameterCompactTests(config: storage.TestStorageConfig) {
   const generateStorageFactory = config.factory;

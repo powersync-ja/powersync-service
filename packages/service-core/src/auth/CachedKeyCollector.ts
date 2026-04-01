@@ -1,9 +1,8 @@
-import * as jose from 'jose';
+import { AuthorizationError, ErrorCode, logger } from '@powersync/lib-services-framework';
 import timers from 'timers/promises';
+import { KeyCollector, KeyResult } from './KeyCollector.js';
 import { KeySpec } from './KeySpec.js';
 import { LeakyBucket } from './LeakyBucket.js';
-import { KeyCollector, KeyResult } from './KeyCollector.js';
-import { AuthorizationError, ErrorCode, logger } from '@powersync/lib-services-framework';
 import { mapAuthConfigError } from './utils.js';
 
 /**

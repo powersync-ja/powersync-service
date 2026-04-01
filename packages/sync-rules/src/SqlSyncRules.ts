@@ -1,9 +1,9 @@
-import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
-import { SyncRulesErrors, YamlError } from './errors.js';
-import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
-import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
-import { SyncConfigFromYaml } from './from_yaml.js';
 import { BucketPriority } from './BucketDescription.js';
+import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
+import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import { SyncRulesErrors, YamlError } from './errors.js';
+import { SyncConfigFromYaml } from './from_yaml.js';
+import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 
 export interface SyncRulesOptions {
   schema?: SourceSchema;

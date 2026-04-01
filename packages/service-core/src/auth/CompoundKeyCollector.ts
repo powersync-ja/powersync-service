@@ -1,7 +1,6 @@
-import * as jose from 'jose';
-import { KeySpec } from './KeySpec.js';
-import { KeyCollector, KeyResult } from './KeyCollector.js';
 import { AuthorizationError } from '@powersync/lib-services-framework';
+import { KeyCollector, KeyResult } from './KeyCollector.js';
+import { KeySpec } from './KeySpec.js';
 
 export class CompoundKeyCollector implements KeyCollector {
   private collectors: KeyCollector[];

@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import * as framework from '@powersync/lib-services-framework';
 import { GetCheckpointChangesOptions, InternalOpId, storage } from '@powersync/service-core';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 
 export type MongoCheckpointAPIOptions = {
   db: VersionedPowerSyncMongo;

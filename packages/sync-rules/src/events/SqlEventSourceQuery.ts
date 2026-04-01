@@ -1,5 +1,6 @@
 import { parse } from 'pgsql-ast-parser';
 import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
+import { CompatibilityContext } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
 import { ExpressionType } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
@@ -10,7 +11,6 @@ import { TablePattern } from '../TablePattern.js';
 import { TableQuerySchema } from '../TableQuerySchema.js';
 import { EvaluationError, QuerySchema, SqliteJsonRow, SqliteRow } from '../types.js';
 import { isSelectStatement } from '../utils.js';
-import { CompatibilityContext } from '../compatibility.js';
 
 export type EvaluatedEventSourceRow = {
   data: SqliteJsonRow;

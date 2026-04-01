@@ -4,13 +4,13 @@ import { api, ParseSyncRulesOptions, ReplicationHeadCallback, SourceTable } from
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { MongoLSN } from '../common/MongoLSN.js';
 import { MongoManager } from '../replication/MongoManager.js';
 import { constructAfterRecord, STANDALONE_CHECKPOINT_ID } from '../replication/MongoRelation.js';
 import { CHECKPOINTS_COLLECTION } from '../replication/replication-utils.js';
 import * as types from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { MongoLSN } from '../common/MongoLSN.js';
 
 export class MongoRouteAPIAdapter implements api.RouteAPI {
   protected client: mongo.MongoClient;

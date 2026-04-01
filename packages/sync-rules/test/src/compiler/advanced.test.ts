@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { compileSingleStreamAndSerialize, compileToSyncPlanWithoutErrors } from './utils.js';
 import { serializeSyncPlan } from '../../../src/index.js';
+import { compileSingleStreamAndSerialize, compileToSyncPlanWithoutErrors } from './utils.js';
 
 describe('new sync stream features', () => {
   test('order-independent parameters', () => {

@@ -1,9 +1,9 @@
+import { ColumnDefinition, TableMapEntry } from '@powersync/mysql-zongji';
+import { ColumnDescriptor } from '@powersync/service-core';
+import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import { ExpressionType } from '@powersync/service-sync-rules';
-import { ColumnDescriptor } from '@powersync/service-core';
 import mysql from 'mysql2';
-import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import { ColumnDefinition, TableMapEntry } from '@powersync/mysql-zongji';
 
 export enum ADDITIONAL_MYSQL_TYPES {
   DATETIME2 = 18,

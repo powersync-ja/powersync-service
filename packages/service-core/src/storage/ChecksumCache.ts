@@ -1,6 +1,6 @@
 import { OrderedSet } from '@js-sdsl/ordered-set';
-import { LRUCache } from 'lru-cache/min';
 import { BucketDataSource } from '@powersync/service-sync-rules';
+import { LRUCache } from 'lru-cache/min';
 import { BucketChecksum } from '../util/protocol-types.js';
 import { addBucketChecksums, ChecksumMap, InternalOpId, PartialChecksum } from '../util/utils.js';
 import { BucketChecksumRequest } from './SyncRulesBucketStorage.js';

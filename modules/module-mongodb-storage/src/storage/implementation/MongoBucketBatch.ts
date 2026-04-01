@@ -25,7 +25,7 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { idPrefixFilter, mongoTableId } from '../../utils/util.js';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import { CurrentBucket, CurrentDataDocument, SourceKey, SyncRuleDocument } from './models.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';

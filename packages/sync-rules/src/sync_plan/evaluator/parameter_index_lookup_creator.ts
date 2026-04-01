@@ -1,14 +1,13 @@
+import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { ParameterLookupScope } from '../../HydrationState.js';
-import { ScalarExpressionEvaluator, TableValuedFunctionOutput } from '../engine/scalar_expression_engine.js';
+import { SourceTableInterface } from '../../SourceTableInterface.js';
+import { TablePattern } from '../../TablePattern.js';
+import { SqliteJsonValue, SqliteRow, UnscopedEvaluatedParametersResult } from '../../types.js';
+import { ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
 import * as plan from '../plan.js';
 import { StreamEvaluationContext } from './index.js';
-import { TablePattern } from '../../TablePattern.js';
-import { SourceTableInterface } from '../../SourceTableInterface.js';
-import { SqliteJsonValue, SqliteRow, UnscopedEvaluatedParametersResult } from '../../types.js';
 import { isValidParameterValueRow } from './parameter_evaluator.js';
-import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
-import { SqlExpression } from '../expression.js';
 import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {

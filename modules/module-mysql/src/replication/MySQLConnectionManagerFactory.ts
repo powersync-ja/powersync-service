@@ -1,7 +1,7 @@
 import { logger } from '@powersync/lib-services-framework';
 import mysql from 'mysql2/promise';
-import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 import { ResolvedConnectionConfig } from '../types/types.js';
+import { MySQLConnectionManager } from './MySQLConnectionManager.js';
 
 export class MySQLConnectionManagerFactory {
   private readonly connectionManagers = new Set<MySQLConnectionManager>();

@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { teardown } from '../../runner/teardown.js';
 import { extractRunnerOptions, wrapConfigCommand } from './config-command.js';
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 const COMMAND_NAME = 'teardown';
 

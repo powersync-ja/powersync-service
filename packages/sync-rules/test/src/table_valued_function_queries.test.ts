@@ -4,7 +4,6 @@ import {
   CompatibilityEdition,
   CompatibilityOption,
   RequestJwtPayload,
-  RequestParameters,
   SqlParameterQuery
 } from '../../src/index.js';
 import { StaticSqlParameterQuery } from '../../src/StaticSqlParameterQuery.js';

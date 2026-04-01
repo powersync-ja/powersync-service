@@ -1,3 +1,4 @@
+import { DateTimeValue } from '@powersync/service-sync-rules';
 import * as datefns from 'date-fns';
 import * as net from 'node:net';
 import * as tls from 'node:tls';
@@ -5,7 +6,6 @@ import { DEFAULT_CERTS } from './certs.js';
 import * as pgwire from './pgwire.js';
 import { PgType, postgresTimeOptions } from './pgwire_types.js';
 import { ConnectOptions } from './socket_adapter.js';
-import { DateTimeValue } from '@powersync/service-sync-rules';
 
 // TODO this is duplicated, but maybe that is ok
 export interface NormalizedConnectionConfig {

@@ -1,8 +1,8 @@
-import fs from 'node:fs';
-import path from 'node:path';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import { Grammars } from 'ebnf';
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // railroad-diagrams is CJS-only (v1.0.0)
 const require = createRequire(import.meta.url);

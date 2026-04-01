@@ -6,10 +6,9 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as replication_utils from '../replication/replication-utils.js';
 import { KEEPALIVE_STATEMENT, PUBLICATION_NAME } from '../replication/WalStream.js';
+import { PostgresTypeResolver } from '../types/resolver.js';
 import * as types from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
-import { CustomTypeRegistry } from '../types/registry.js';
-import { PostgresTypeResolver } from '../types/resolver.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
   private typeCache: PostgresTypeResolver;

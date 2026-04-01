@@ -1,7 +1,7 @@
 import * as fs from 'fs/promises';
 import winston from 'winston';
 
-import { container, logger, LogFormat, DEFAULT_LOG_LEVEL, DEFAULT_LOG_FORMAT } from '@powersync/lib-services-framework';
+import { container, DEFAULT_LOG_FORMAT, DEFAULT_LOG_LEVEL, LogFormat, logger } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
 import { ResolvedPowerSyncConfig, RunnerConfig } from './config/types.js';
 import { CompoundConfigCollector } from './util-index.js';

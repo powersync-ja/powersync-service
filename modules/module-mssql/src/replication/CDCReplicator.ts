@@ -1,8 +1,8 @@
 import { replication, storage } from '@powersync/service-core';
-import { MSSQLConnectionManagerFactory } from './MSSQLConnectionManagerFactory.js';
-import { CDCReplicationJob } from './CDCReplicationJob.js';
 import { MSSQLModule } from '../module/MSSQLModule.js';
 import { AdditionalConfig } from '../types/types.js';
+import { CDCReplicationJob } from './CDCReplicationJob.js';
+import { MSSQLConnectionManagerFactory } from './MSSQLConnectionManagerFactory.js';
 
 export interface CDCReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: MSSQLConnectionManagerFactory;

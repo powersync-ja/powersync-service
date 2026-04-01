@@ -4,9 +4,9 @@ import {
   makeMultiHostnameLookupFunction,
   ServiceError
 } from '@powersync/lib-services-framework';
-import * as t from 'ts-codec';
 import ConnectionURI from 'mongodb-connection-string-url';
 import { LookupFunction } from 'node:net';
+import * as t from 'ts-codec';
 
 export const MONGO_CONNECTION_TYPE = 'mongodb' as const;
 

@@ -1,10 +1,10 @@
 import { Expr, parse } from 'pgsql-ast-parser';
-import { PostgresToSqlite } from '../../../src/compiler/sqlite.js';
 import { describe, expect, test } from 'vitest';
-import { getLocation } from '../../../src/errors.js';
-import { ExpressionToSqlite } from '../../../src/sync_plan/expression_to_sql.js';
 import { NodeLocations } from '../../../src/compiler/expression.js';
 import { SqlScope } from '../../../src/compiler/scope.js';
+import { PostgresToSqlite } from '../../../src/compiler/sqlite.js';
+import { getLocation } from '../../../src/errors.js';
+import { ExpressionToSqlite } from '../../../src/sync_plan/expression_to_sql.js';
 
 describe('sqlite conversion', () => {
   test('literals', () => {

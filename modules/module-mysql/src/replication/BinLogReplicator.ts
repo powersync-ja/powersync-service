@@ -1,7 +1,7 @@
 import { replication, storage } from '@powersync/service-core';
+import { MySQLModule } from '../module/MySQLModule.js';
 import { BinLogReplicationJob } from './BinLogReplicationJob.js';
 import { MySQLConnectionManagerFactory } from './MySQLConnectionManagerFactory.js';
-import { MySQLModule } from '../module/MySQLModule.js';
 
 export interface BinLogReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: MySQLConnectionManagerFactory;

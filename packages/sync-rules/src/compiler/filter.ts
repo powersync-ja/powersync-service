@@ -1,9 +1,9 @@
 import { NodeLocation } from 'pgsql-ast-parser';
-import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
-import { BaseSourceResultSet, SourceResultSet } from './table.js';
 import { expandNodeLocations } from '../errors.js';
 import { EqualsIgnoringResultSet } from './compatibility.js';
 import { StableHasher } from './equality.js';
+import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
+import { BaseSourceResultSet, SourceResultSet } from './table.js';
 
 export interface Or {
   terms: And[];
