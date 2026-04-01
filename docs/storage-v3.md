@@ -1,4 +1,4 @@
-# Storage version 3 - Data structure and "ownership"
+# Storage version 3 - Data structure
 
 ## Replication stream
 
@@ -21,21 +21,21 @@ It is possible to have multiple replication streams running concurrently, for ex
 
 ## source_table
 
-Belongs to a replication stream.
+Scoped to a replication stream.
 
-Scope: `source_table_${stream_id}`
+Collection: `source_table_${stream_id}`
 
-[FUTURE CHANGE] May have multiple copies per table per stream, especially when adding definitions.
+[FUTURE CHANGE] May have multiple copies per phyisical table per stream, especially when adding definitions to a stream.
 
 [FUTURE CHANGE] We can remove a source definition from a source table, but never add one.
 
 ## source_records (previously current_data)
 
-Owned by source table.
+Scoped to a source_table in a replication stream.
 
-Scope: `source_records_${stream_id}_${source_table_id}`
+Collection: `source_records_${stream_id}_${source_table_id}`
 
-The `_id` field, is the source row id. Unlike V1 storage model, this does not include `g` (group_id) or `t` (table id), since those are already encapsulated in the collection name.
+The `_id` field is now the source row id. Unlike V1 storage model, this does not include `g` (group_id) or `t` (table id), since those are already encapsulated in the collection name.
 
 When a table is dropped, we first create relevant REMOVE operations, then drop the relevant current_data collection.
 
@@ -49,22 +49,30 @@ When all definitions for a source table is removed, we remove the drop the corre
 
 ## bucket_data
 
-Owned by replication stream.
+Scoped by replication stream and definition id.
 
-Scoped by definition.
+Collection: `bucket_data_${stream_id}_${definition_id}`
 
-Scope: `bucket_data_${stream_id}_${definition_id}`
+`_id.g` is removed, since this is encapsulated in the collection name now.
+
+`definition_id` is new here - that is not tracked in storage V1.
 
 [FUTURE CHANGE] collection must be dropped when the definition is removed.
 
 ## parameter_index (previously bucket_parameters)
 
-Owned by replication stream.
+Scoped by replication stream and index definition.
 
-Scoped by definition.
-
-Scope: `parameter_index_${stream_id}_${index_id}`
+Collection: `parameter_index_${stream_id}_${index_id}`
 
 _Also_ indexed by compound `key`, which includes {t: source_table_id, k: source_record_key}
 
 The `lookup` array drops the first two fields compared to V1 lookups (lookupName and queryId), since those are encapsulated in `index_id` in the collection name. In-memory, we use lookupName = indexId, queryId = '' (may change in the future).
+
+## bucket_state
+
+Scoped by replication stream.
+
+Collection: `bucket_state_${stream_id}`.
+
+`_id` is now compound: `{d: <definition id>, b: <bucket name>}` (previously `{g, b}`)
