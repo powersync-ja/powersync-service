@@ -1,6 +1,6 @@
 export * from './implementation/db.js';
 export * from './implementation/BucketDefinitionMapping.js';
-export * from './implementation/common/models.js';
+export * from './implementation/models.js';
 export * from './implementation/v1/models.js';
 export * from './implementation/v3/models.js';
 export * from './implementation/MongoIdSequence.js';

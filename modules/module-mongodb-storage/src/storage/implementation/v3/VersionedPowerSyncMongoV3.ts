@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
-import { CommonSourceTableDocument } from '../common/models.js';
+import { CommonSourceTableDocument } from '../models.js';
 import {
   BucketDataDocumentV3,
   BucketParameterDocumentV3,

@@ -1,4 +1,4 @@
-import { MongoBucketBatch, MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
+import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';

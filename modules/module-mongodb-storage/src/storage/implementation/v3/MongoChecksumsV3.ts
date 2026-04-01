@@ -11,8 +11,8 @@ import {
   emptyChecksumForRequest,
   FetchPartialBucketChecksumV3,
   MongoChecksumOptions
-} from '../common/MongoChecksums.js';
-import { MongoChecksums } from '../common/MongoChecksums.js';
+} from '../MongoChecksums.js';
+import { MongoChecksums } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {

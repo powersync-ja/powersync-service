@@ -10,7 +10,7 @@ import {
   LoadedSourceRecord,
   SourceRecordStore
 } from '../common/SourceRecordStore.js';
-import { SourceKey } from '../common/models.js';
+import { SourceKey } from '../models.js';
 import { CurrentDataDocument } from './models.js';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';

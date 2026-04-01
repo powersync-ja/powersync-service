@@ -6,7 +6,7 @@ import {
   SourceTableDocument,
   TaggedBucketDataDocument,
   TaggedBucketParameterDocument
-} from '../common/models.js';
+} from '../models.js';
 import * as bson from 'bson';
 
 export interface BucketDataKeyV1 {
@@ -21,7 +21,7 @@ export interface BucketDataKeyV1 {
 export interface CurrentDataDocument {
   _id: SourceKey;
   data: bson.Binary;
-  buckets: import('../common/models.js').CurrentBucket[];
+  buckets: import('../models.js').CurrentBucket[];
   lookups: bson.Binary[];
 }
 

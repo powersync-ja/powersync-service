@@ -3,9 +3,9 @@ import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
-import type { CurrentDataDocument, SourceTableDocumentV1 } from '../v1/models.js';
-import type { CurrentBucketV3, CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from '../v3/models.js';
+import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
+import type { CurrentDataDocument, SourceTableDocumentV1 } from './v1/models.js';
+import type { CurrentBucketV3, CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from './v3/models.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.

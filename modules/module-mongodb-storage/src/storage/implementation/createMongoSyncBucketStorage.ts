@@ -1,11 +1,11 @@
 import { storage } from '@powersync/service-core';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './common/MongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './MongoSyncBucketStorage.js';
 import { MongoSyncBucketStorageV1 } from './v1/MongoSyncBucketStorageV1.js';
 import { MongoSyncBucketStorageV3 } from './v3/MongoSyncBucketStorageV3.js';
 
-export { MongoSyncBucketStorageOptions } from './common/MongoSyncBucketStorage.js';
+export { MongoSyncBucketStorageOptions } from './MongoSyncBucketStorage.js';
 
 export type { MongoSyncBucketStorage };
 

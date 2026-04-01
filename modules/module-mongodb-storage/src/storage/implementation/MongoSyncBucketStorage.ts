@@ -25,16 +25,16 @@ import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powers
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import { idPrefixFilter, retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
-import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import type { VersionedPowerSyncMongo } from '../db.js';
+import { idPrefixFilter, retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
+import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import type { VersionedPowerSyncMongo } from './db.js';
 import { CommonSourceTableDocument, StorageConfig } from './models.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoWriteCheckpointAPI } from '../MongoWriteCheckpointAPI.js';
-import { MongoSyncBucketStorageContext } from './MongoSyncBucketStorageContext.js';
+import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
+import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
+import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 
 export interface MongoSyncBucketStorageOptions {

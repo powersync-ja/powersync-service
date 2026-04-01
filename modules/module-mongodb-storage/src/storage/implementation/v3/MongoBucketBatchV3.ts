@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
-import { MongoBucketBatch, MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
+import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';

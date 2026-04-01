@@ -15,7 +15,7 @@ import {
   StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
-} from './common/models.js';
+} from './models.js';
 import {
   BucketDataDocumentV1,
   BucketParameterDocument,

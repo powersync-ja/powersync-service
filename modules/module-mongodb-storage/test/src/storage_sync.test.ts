@@ -6,7 +6,7 @@ import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
-import { SyncRuleDocument } from '../../src/storage/implementation/common/models.js';
+import { SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import { CurrentBucketV3 } from '../../src/storage/implementation/v3/models.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -224,7 +224,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const ruleMapping: SyncRuleDocument['rule_mapping'] | undefined = syncRule?.rule_mapping;
     expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);
 
-    const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0];
+    const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0] as string | undefined;
     expect(parameterIndexId).toBeDefined();
     const parameterEntry = await db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);

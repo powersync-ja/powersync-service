@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
-import type { VersionedPowerSyncMongo } from '../db.js';
+import type { VersionedPowerSyncMongo } from './db.js';
 
 type ParameterCompactionReadDocument = {
   _id: InternalOpId;

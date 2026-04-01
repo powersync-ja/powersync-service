@@ -15,21 +15,17 @@ import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-ru
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { MongoChecksums } from '../common/MongoChecksums.js';
-import { MongoCompactOptions, MongoCompactor } from '../common/MongoCompactor.js';
-import { MongoParameterCompactor } from '../common/MongoParameterCompactor.js';
+import { MongoChecksums } from '../MongoChecksums.js';
+import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorage.js';
+import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import {
-  bucketDataDocumentToTagged,
-  CommonSourceTableDocument,
-  LEGACY_BUCKET_DATA_DEFINITION_ID
-} from '../common/models.js';
+import { bucketDataDocumentToTagged, CommonSourceTableDocument, LEGACY_BUCKET_DATA_DEFINITION_ID } from '../models.js';
 import { BucketDataDocumentV1, BucketDataKeyV1, BucketStateDocument } from './models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';

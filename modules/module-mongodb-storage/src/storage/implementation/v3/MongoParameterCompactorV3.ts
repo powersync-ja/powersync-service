@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { MongoParameterCompactor } from '../common/MongoParameterCompactor.js';
+import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoParameterCompactorV3 extends MongoParameterCompactor {

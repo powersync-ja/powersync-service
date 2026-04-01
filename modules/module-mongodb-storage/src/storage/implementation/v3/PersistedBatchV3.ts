@@ -12,7 +12,7 @@ import {
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
-import { SourceTableKey } from '../common/models.js';
+import { SourceTableKey } from '../models.js';
 import {
   BucketParameterDocumentV3,
   BucketStateDocumentV3,

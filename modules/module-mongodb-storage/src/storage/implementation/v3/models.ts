@@ -11,7 +11,7 @@ import {
   TaggedBucketDataDocument,
   TaggedBucketParameterDocument,
   BucketStateDocumentBase
-} from '../common/models.js';
+} from '../models.js';
 import * as bson from 'bson';
 
 export interface CurrentBucketV3 extends CurrentBucket {
