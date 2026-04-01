@@ -68,6 +68,9 @@ importers:
       prettier-plugin-embed:
         specifier: ^0.4.15
         version: 0.4.15
+      prettier-plugin-organize-imports:
+        specifier: ^4.3.0
+        version: 4.3.0(prettier@3.4.2)(typescript@5.9.3)
       prettier-plugin-sql:
         specifier: ^0.18.1
         version: 0.18.1(prettier@3.4.2)
@@ -3280,6 +3283,16 @@ packages:
 
   prettier-plugin-embed@0.4.15:
     resolution: {integrity: sha512-9pZVIp3bw2jw+Ge+iAMZ4j+sIVC9cPruZ93H2tj5Wa/3YDFDJ/uYyVWdUGfcFUnv28drhW2Bmome9xSGXsPKOw==}
+
+  prettier-plugin-organize-imports@4.3.0:
+    resolution: {integrity: sha512-FxFz0qFhyBsGdIsb697f/EkvHzi5SZOhWAjxcx2dLt+Q532bAlhswcXGYB1yzjZ69kW8UoadFBw7TyNwlq96Iw==}
+    peerDependencies:
+      prettier: '>=2.0'
+      typescript: '>=2.9'
+      vue-tsc: ^2.1.0 || 3
+    peerDependenciesMeta:
+      vue-tsc:
+        optional: true
 
   prettier-plugin-sql@0.18.1:
     resolution: {integrity: sha512-2+Nob2sg7hzLAKJoE6sfgtkhBZCqOzrWHZPvE4Kee/e80oOyI4qwy9vypeltqNBJwTtq3uiKPrCxlT03bBpOaw==}
@@ -6657,6 +6670,11 @@ snapshots:
       type-fest: 4.31.0
     transitivePeerDependencies:
       - babel-plugin-macros
+
+  prettier-plugin-organize-imports@4.3.0(prettier@3.4.2)(typescript@5.9.3):
+    dependencies:
+      prettier: 3.4.2
+      typescript: 5.9.3
 
   prettier-plugin-sql@0.18.1(prettier@3.4.2):
     dependencies:
