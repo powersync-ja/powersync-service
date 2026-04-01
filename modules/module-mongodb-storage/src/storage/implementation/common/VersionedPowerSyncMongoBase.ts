@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { PowerSyncMongo } from '../db.js';
-import { CommonSourceTableDocument, StorageConfig } from '../models.js';
+import { CommonSourceTableDocument, StorageConfig } from './models.js';
 
 export abstract class BaseVersionedPowerSyncMongo {
   readonly client: mongo.MongoClient;

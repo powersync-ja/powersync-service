@@ -1,12 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
-import {
-  BucketDataDocumentV1,
-  BucketParameterDocument,
-  BucketStateDocumentV1,
-  CommonSourceTableDocument,
-  CurrentDataDocument
-} from '../models.js';
+import { CommonSourceTableDocument } from '../common/models.js';
+import { BucketDataDocumentV1, BucketParameterDocument, BucketStateDocumentV1, CurrentDataDocument } from './models.js';
 
 export class VersionedPowerSyncMongoV1 extends BaseVersionedPowerSyncMongo {
   get sourceRecordsV1(): mongo.Collection<CurrentDataDocument> {

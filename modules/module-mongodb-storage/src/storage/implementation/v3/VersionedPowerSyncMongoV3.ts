@@ -1,14 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
+import { CommonSourceTableDocument } from '../common/models.js';
 import {
   BucketDataDocumentV3,
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
-  CommonSourceTableDocument,
   CurrentDataDocumentV3,
   SourceTableDocumentV3
-} from '../models.js';
+} from './models.js';
 
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV3> {

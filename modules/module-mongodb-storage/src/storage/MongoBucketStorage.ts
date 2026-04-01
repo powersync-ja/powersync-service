@@ -8,7 +8,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { PowerSyncMongo } from './implementation/db.js';
-import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
+import { getMongoStorageConfig, SyncRuleDocument } from './implementation/common/models.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';

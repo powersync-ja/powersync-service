@@ -12,15 +12,15 @@ import {
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
+import { SourceTableKey } from '../common/models.js';
 import {
-  BucketStateDocumentV3,
   BucketParameterDocumentV3,
+  BucketStateDocumentV3,
   CurrentDataDocumentV3,
-  SourceTableKey,
-  taggedBucketParameterDocumentToV3,
+  SourceTableDocumentV3,
   taggedBucketDataDocumentToV3,
-  SourceTableDocumentV3
-} from '../models.js';
+  taggedBucketParameterDocumentToV3
+} from './models.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { BucketStateUpdate } from '../common/PersistedBatch.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';

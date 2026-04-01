@@ -8,7 +8,7 @@ import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { TaggedBucketParameterDocument, TaggedBucketDataDocument } from '../models.js';
+import { TaggedBucketParameterDocument, TaggedBucketDataDocument } from './models.js';
 import { mongoTableId } from '../../../utils/util.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 

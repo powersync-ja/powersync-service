@@ -7,7 +7,7 @@ import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules
 import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { cacheKey } from '../OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
-import { CurrentDataDocumentV3, SourceTableDocumentV3 } from '../models.js';
+import { CurrentDataDocumentV3, SourceTableDocumentV3 } from './models.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';

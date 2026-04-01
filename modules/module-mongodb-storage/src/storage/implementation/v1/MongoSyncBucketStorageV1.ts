@@ -27,12 +27,10 @@ import {
 } from '../common/MongoSyncBucketStorageContext.js';
 import {
   bucketDataDocumentToTagged,
-  BucketDataDocumentV1,
-  BucketDataKeyV1,
-  BucketStateDocument,
   CommonSourceTableDocument,
   LEGACY_BUCKET_DATA_DEFINITION_ID
-} from '../models.js';
+} from '../common/models.js';
+import { BucketDataDocumentV1, BucketDataKeyV1, BucketStateDocument } from './models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
 import { MongoCompactorV1 } from './MongoCompactorV1.js';

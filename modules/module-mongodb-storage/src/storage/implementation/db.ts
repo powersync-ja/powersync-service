@@ -5,14 +5,9 @@ import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import { MongoStorageConfig } from '../../types/types.js';
 import { BaseVersionedPowerSyncMongo } from './common/VersionedPowerSyncMongoBase.js';
 import {
-  BucketDataDocumentV1,
-  BucketDataDocumentV3,
-  BucketParameterDocument,
-  BucketStateDocumentV1,
   CheckpointEventDocument,
   ClientConnectionDocument,
   CommonSourceTableDocument,
-  CurrentDataDocument,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
@@ -20,7 +15,14 @@ import {
   StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
-} from './models.js';
+} from './common/models.js';
+import {
+  BucketDataDocumentV1,
+  BucketParameterDocument,
+  BucketStateDocumentV1,
+  CurrentDataDocument
+} from './v1/models.js';
+import { BucketDataDocumentV3 } from './v3/models.js';
 import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
 import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 

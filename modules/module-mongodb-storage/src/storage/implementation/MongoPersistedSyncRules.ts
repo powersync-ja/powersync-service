@@ -11,7 +11,7 @@ import {
 } from '@powersync/service-sync-rules';
 import { storage } from '@powersync/service-core';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { StorageConfig } from './models.js';
+import { StorageConfig } from './common/models.js';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {

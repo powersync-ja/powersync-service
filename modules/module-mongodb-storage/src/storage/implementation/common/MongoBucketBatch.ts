@@ -27,7 +27,7 @@ import {
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../../utils/util.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
-import { SyncRuleDocument } from '../models.js';
+import { SyncRuleDocument } from './models.js';
 import { LoadedSourceRecord, SourceRecordStore } from './SourceRecordStore.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from '../MongoWriteCheckpointAPI.js';

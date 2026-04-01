@@ -16,7 +16,7 @@ import type { VersionedPowerSyncMongo } from '../db.js';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { BucketDataDocumentBase, StorageConfig } from '../models.js';
+import { BucketDataDocumentBase, StorageConfig } from './models.js';
 
 export interface FetchPartialBucketChecksumV3 {
   bucket: string;

@@ -3,14 +3,8 @@ import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib
 import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { DirtyBucket, MongoCompactor } from '../common/MongoCompactor.js';
-import {
-  BucketDataDocumentBase,
-  BucketDataKeyV3,
-  BucketStateDocumentBase,
-  BucketStateDocumentV3,
-  TaggedBucketDataDocument,
-  taggedBucketDataDocumentToV3
-} from '../models.js';
+import { BucketDataDocumentBase, BucketStateDocumentBase, TaggedBucketDataDocument } from '../common/models.js';
+import { BucketDataKeyV3, BucketStateDocumentV3, taggedBucketDataDocumentToV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 

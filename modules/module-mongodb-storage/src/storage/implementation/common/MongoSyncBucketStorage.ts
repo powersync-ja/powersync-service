@@ -28,13 +28,7 @@ import * as timers from 'timers/promises';
 import { idPrefixFilter, retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
-import {
-  BucketDataKeyV1,
-  BucketStateDocument,
-  CommonSourceTableDocument,
-  SourceKey,
-  StorageConfig
-} from '../models.js';
+import { CommonSourceTableDocument, StorageConfig } from './models.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';

@@ -11,16 +11,14 @@ import {
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
+import { LEGACY_BUCKET_DATA_DEFINITION_ID, LEGACY_BUCKET_PARAMETER_INDEX_ID, SourceKey } from '../common/models.js';
 import {
-  BucketStateDocumentV1,
   BucketParameterDocument,
+  BucketStateDocumentV1,
   CurrentDataDocument,
-  LEGACY_BUCKET_DATA_DEFINITION_ID,
-  LEGACY_BUCKET_PARAMETER_INDEX_ID,
-  SourceKey,
-  taggedBucketParameterDocumentToV1,
-  taggedBucketDataDocumentToV1
-} from '../models.js';
+  taggedBucketDataDocumentToV1,
+  taggedBucketParameterDocumentToV1
+} from './models.js';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 import { BucketStateUpdate } from '../common/PersistedBatch.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';

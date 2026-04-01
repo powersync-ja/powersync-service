@@ -3,7 +3,9 @@ import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { event_types } from '@powersync/service-types';
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
+import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
+import type { CurrentDataDocument, SourceTableDocumentV1 } from '../v1/models.js';
+import type { CurrentBucketV3, CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from '../v3/models.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -30,49 +32,11 @@ export interface SourceTableKey {
   k: ReplicaId;
 }
 
-export interface BucketDataKeyV1 {
-  /** group_id */
-  g: number;
+export interface BucketDataKey {
   /** bucket name */
   b: string;
   /** op_id */
   o: bigint;
-}
-
-export interface BucketDataKeyV3 {
-  /** bucket name */
-  b: string;
-  /** op_id */
-  o: bigint;
-}
-
-export interface CurrentDataDocument {
-  _id: SourceKey;
-  data: bson.Binary;
-  buckets: CurrentBucket[];
-  lookups: bson.Binary[];
-}
-
-export interface CurrentBucketV3 extends CurrentBucket {
-  def: BucketDefinitionId;
-}
-
-export interface RecordedLookupV3 {
-  i: ParameterIndexId;
-  l: bson.Binary;
-}
-
-export interface CurrentDataDocumentV3 {
-  _id: ReplicaId;
-  data: bson.Binary | null;
-  buckets: CurrentBucketV3[];
-  lookups: RecordedLookupV3[];
-  /**
-   * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
-   *
-   * This must only be set if buckets = [], lookups = [].
-   */
-  pending_delete?: bigint;
 }
 
 export interface CurrentBucket {
@@ -81,24 +45,28 @@ export interface CurrentBucket {
   id: string;
 }
 
-export interface BucketParameterDocument {
+export interface BucketParameterDocumentBase<TKey> {
   _id: bigint;
-  key: SourceKey;
+  key: TKey;
   lookup: bson.Binary;
   bucket_parameters: Record<string, SqliteJsonValue>[];
 }
 
-export interface BucketParameterDocumentV3 extends Omit<BucketParameterDocument, 'key'> {
-  key: SourceTableKey;
-}
-
-export interface TaggedBucketParameterDocument {
-  _id: bigint;
-  key: BucketParameterDocument['key'] | BucketParameterDocumentV3['key'];
-  lookup: bson.Binary;
-  bucket_parameters: Record<string, SqliteJsonValue>[];
+export interface TaggedBucketParameterDocument extends BucketParameterDocumentBase<SourceKey | SourceTableKey> {
   index: ParameterIndexId;
 }
+
+export function bucketParameterDocumentToTagged<TKey extends SourceKey | SourceTableKey>(
+  document: BucketParameterDocumentBase<TKey>,
+  index: ParameterIndexId
+): TaggedBucketParameterDocument {
+  return {
+    ...document,
+    index
+  };
+}
+
+export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
 
 export interface BucketDataProperties {
   op: OpType;
@@ -112,15 +80,7 @@ export interface BucketDataProperties {
 }
 
 export interface BucketDataDocumentBase extends BucketDataProperties {
-  _id: BucketDataKeyV3;
-}
-
-export interface BucketDataDocumentV1 extends BucketDataDocumentBase {
-  _id: BucketDataKeyV1;
-}
-
-export interface BucketDataDocumentV3 extends BucketDataDocumentBase {
-  _id: BucketDataKeyV3;
+  _id: BucketDataKey;
 }
 
 /**
@@ -128,7 +88,7 @@ export interface BucketDataDocumentV3 extends BucketDataDocumentBase {
  */
 export interface TaggedBucketDataDocument extends BucketDataProperties {
   def: BucketDefinitionId;
-  _id: BucketDataKeyV3;
+  _id: BucketDataKey;
 }
 
 /**
@@ -141,8 +101,8 @@ export const LEGACY_BUCKET_DATA_DEFINITION_ID = '0';
  */
 export const LEGACY_BUCKET_PARAMETER_INDEX_ID = '0';
 
-export function bucketDataDocumentToTagged(
-  document: BucketDataDocumentV1 | BucketDataDocumentV3,
+export function bucketDataDocumentToTagged<TDocument extends BucketDataDocumentBase>(
+  document: TDocument,
   definitionId: BucketDefinitionId
 ): TaggedBucketDataDocument {
   return {
@@ -155,48 +115,6 @@ export function bucketDataDocumentToTagged(
   };
 }
 
-export function taggedBucketDataDocumentToV1(
-  groupId: number,
-  document: TaggedBucketDataDocument
-): BucketDataDocumentV1 {
-  const { def: _definitionId, _id: _id, ...rest } = document;
-  return {
-    _id: {
-      g: groupId,
-      b: _id.b,
-      o: _id.o
-    },
-    ...rest
-  };
-}
-
-export function taggedBucketDataDocumentToV3(document: TaggedBucketDataDocument): BucketDataDocumentV3 {
-  const { def: _definitionId, ...rest } = document;
-  return rest;
-}
-
-export function bucketParameterDocumentToTagged(
-  document: BucketParameterDocument | BucketParameterDocumentV3,
-  index: ParameterIndexId
-): TaggedBucketParameterDocument {
-  return {
-    ...document,
-    index
-  };
-}
-
-export function taggedBucketParameterDocumentToV1(document: TaggedBucketParameterDocument): BucketParameterDocument {
-  const { index: _index, ...rest } = document;
-  return rest as BucketParameterDocument;
-}
-
-export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {
-  const { index: _index, ...rest } = document;
-  return rest as BucketParameterDocumentV3;
-}
-
-export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
-
 export interface SourceTableDocument {
   _id: bson.ObjectId;
   connection_id: number;
@@ -207,16 +125,6 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
-}
-
-export interface SourceTableDocumentV1 extends SourceTableDocument {
-  group_id: number;
-}
-
-export interface SourceTableDocumentV3 extends SourceTableDocument {
-  bucket_data_source_ids: BucketDefinitionId[];
-  parameter_lookup_source_ids: ParameterIndexId[];
-  latest_pending_delete?: InternalOpId | undefined;
 }
 
 export interface SourceTableDocumentSnapshotStatus {
@@ -260,20 +168,6 @@ export interface BucketStateDocumentBase {
     bytes: number | bigint;
   };
 }
-
-export interface BucketStateDocumentV1 extends BucketStateDocumentBase {
-  _id: BucketStateDocumentBase['_id'] & {
-    g: number;
-  };
-}
-
-export interface BucketStateDocumentV3 extends BucketStateDocumentBase {
-  _id: BucketStateDocumentBase['_id'] & {
-    d: BucketDefinitionId;
-  };
-}
-
-export type BucketStateDocument = BucketStateDocumentV1;
 
 export interface IdSequenceDocument {
   _id: string;

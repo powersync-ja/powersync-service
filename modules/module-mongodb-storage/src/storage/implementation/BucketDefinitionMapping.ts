@@ -5,7 +5,7 @@ import {
   ParameterLookupScope,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
-import { SyncRuleDocument } from './models.js';
+import { SyncRuleDocument } from './common/models.js';
 
 export type BucketDefinitionId = string;
 export type ParameterIndexId = string;
