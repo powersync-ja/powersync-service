@@ -29,7 +29,9 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoChecksums } from '../common/MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../common/MongoCompactor.js';
+import { MongoParameterCompactor } from '../common/MongoParameterCompactor.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 
 export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
   // Declare types to be more specific
@@ -84,6 +86,13 @@ export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
 
   protected createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
     return new MongoCompactorV3(this, this.db, options);
+  }
+
+  protected createMongoParameterCompactor(
+    checkpoint: InternalOpId,
+    options: storage.CompactOptions
+  ): MongoParameterCompactor {
+    return new MongoParameterCompactorV3(this.db, this.group_id, checkpoint, options);
   }
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {

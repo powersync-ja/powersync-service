@@ -1,8 +1,8 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BaseMongoParameterCompactor } from '../common/MongoParameterCompactorBase.js';
+import { MongoParameterCompactor } from '../common/MongoParameterCompactor.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
-export class MongoParameterCompactorV1 extends BaseMongoParameterCompactor {
+export class MongoParameterCompactorV1 extends MongoParameterCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV1;
 
   protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {

@@ -95,6 +95,10 @@ export abstract class BaseMongoSyncBucketStorage
 
   protected abstract createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums;
   protected abstract createMongoCompactor(options: MongoCompactOptions): MongoCompactor;
+  protected abstract createMongoParameterCompactor(
+    checkpoint: InternalOpId,
+    options: storage.CompactOptions
+  ): MongoParameterCompactor;
 
   get writeCheckpointMode() {
     return this.writeCheckpointAPI.writeCheckpointMode;
@@ -516,7 +520,7 @@ export abstract class BaseMongoSyncBucketStorage
     await this.createMongoCompactor({ ...options, maxOpId }).compact();
 
     if (maxOpId != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+      await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
   }
 

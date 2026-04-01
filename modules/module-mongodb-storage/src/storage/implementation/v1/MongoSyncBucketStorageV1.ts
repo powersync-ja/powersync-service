@@ -17,6 +17,7 @@ import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } f
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoChecksums } from '../common/MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../common/MongoCompactor.js';
+import { MongoParameterCompactor } from '../common/MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
 import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';
@@ -35,6 +36,7 @@ import {
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
 import { MongoCompactorV1 } from './MongoCompactorV1.js';
+import { MongoParameterCompactorV1 } from './MongoParameterCompactorV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
@@ -69,6 +71,13 @@ export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
 
   protected createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
     return new MongoCompactorV1(this, this.db, options);
+  }
+
+  protected createMongoParameterCompactor(
+    checkpoint: InternalOpId,
+    options: storage.CompactOptions
+  ): MongoParameterCompactor {
+    return new MongoParameterCompactorV1(this.db, this.group_id, checkpoint, options);
   }
 
   protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
