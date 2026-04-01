@@ -14,7 +14,7 @@ import {
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { DirtyBucket, MongoCompactor } from '../common/MongoCompactor.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-import { MongoSyncBucketStorageV1 } from './MongoSyncBucketStorageV1.js';
+import type { MongoSyncBucketStorageV1 } from './MongoSyncBucketStorageV1.js';
 
 export class MongoCompactorV1 extends MongoCompactor {
   // Override types to the more specific ones

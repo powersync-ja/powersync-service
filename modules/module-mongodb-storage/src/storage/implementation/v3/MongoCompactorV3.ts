@@ -11,7 +11,7 @@ import {
   TaggedBucketDataDocument,
   taggedBucketDataDocumentToV3
 } from '../models.js';
-import { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
+import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoCompactorV3 extends MongoCompactor {

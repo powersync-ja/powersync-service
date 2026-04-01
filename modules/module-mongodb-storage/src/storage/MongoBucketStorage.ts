@@ -13,7 +13,7 @@ import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedS
 import { createMongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 import type { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 import { generateSlotName } from '../utils/util.js';
-import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+import { MongoChecksumOptions } from './implementation/common/MongoChecksums.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 
 export interface MongoBucketStorageOptions {

@@ -15,8 +15,8 @@ import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-ru
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { MongoChecksums } from '../MongoChecksums.js';
-import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoChecksums } from '../common/MongoChecksums.js';
+import { MongoCompactOptions, MongoCompactor } from '../common/MongoCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
 import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';

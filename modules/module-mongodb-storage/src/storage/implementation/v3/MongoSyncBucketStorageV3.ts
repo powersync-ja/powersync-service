@@ -27,8 +27,8 @@ import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { CommonSourceTableDocument } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
-import { MongoChecksums } from '../MongoChecksums.js';
-import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoChecksums } from '../common/MongoChecksums.js';
+import { MongoCompactOptions, MongoCompactor } from '../common/MongoCompactor.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 
 export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {

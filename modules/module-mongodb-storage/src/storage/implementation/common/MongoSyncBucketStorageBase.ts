@@ -35,9 +35,9 @@ import {
   SourceKey,
   StorageConfig
 } from '../models.js';
-import { MongoChecksumOptions, MongoChecksums } from '../MongoChecksums.js';
-import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
-import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
+import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
+import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
+import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from '../MongoWriteCheckpointAPI.js';
 import { MongoSyncBucketStorageContext } from './MongoSyncBucketStorageContext.js';
