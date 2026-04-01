@@ -4,15 +4,16 @@ import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as bson from 'bson';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
-import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import {
+  BucketStateUpdate,
   PersistedBatch,
   SaveBucketDataOptions,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
 import { SourceTableKey } from '../models.js';
+import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import {
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
@@ -22,7 +23,6 @@ import {
   taggedBucketParameterDocumentToV3
 } from './models.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
-import { BucketStateUpdate } from '../common/PersistedBatch.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {

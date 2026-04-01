@@ -1,13 +1,13 @@
+import * as bson from 'bson';
 import {
-  BucketParameterDocumentBase,
   BucketDataDocumentBase,
+  BucketParameterDocumentBase,
   BucketStateDocumentBase,
   SourceKey,
   SourceTableDocument,
   TaggedBucketDataDocument,
   TaggedBucketParameterDocument
 } from '../models.js';
-import * as bson from 'bson';
 
 export interface BucketDataKeyV1 {
   /** group_id */

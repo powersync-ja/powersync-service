@@ -1,17 +1,20 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
+import { JSONBig } from '@powersync/service-jsonbig';
 import * as bson from 'bson';
 
+import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import {
+  BucketStateUpdate,
   PersistedBatch,
   SaveBucketDataOptions,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
 import { LEGACY_BUCKET_DATA_DEFINITION_ID, LEGACY_BUCKET_PARAMETER_INDEX_ID, SourceKey } from '../models.js';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 import {
   BucketParameterDocument,
   BucketStateDocumentV1,
@@ -19,9 +22,6 @@ import {
   taggedBucketDataDocumentToV1,
   taggedBucketParameterDocumentToV1
 } from './models.js';
-import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
-import { BucketStateUpdate } from '../common/PersistedBatch.js';
-import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class PersistedBatchV1 extends PersistedBatch {
   declare protected readonly db: VersionedPowerSyncMongoV1;

@@ -1,19 +1,19 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { Logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
+import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { idPrefixFilter } from '../../../utils/util.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
+  LoadedSourceRecord,
   SourceRecordLookupEntry,
   SourceRecordLookupState,
-  LoadedSourceRecord,
   SourceRecordStore
 } from '../common/SourceRecordStore.js';
 import { SourceKey } from '../models.js';
-import { CurrentDataDocument } from './models.js';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
+import { CurrentDataDocument } from './models.js';
 
 export class SourceRecordStoreV1 implements SourceRecordStore {
   constructor(

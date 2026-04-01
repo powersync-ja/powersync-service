@@ -1,3 +1,5 @@
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { storage } from '@powersync/service-core';
 import {
   BucketDataScope,
   BucketDataSource,
@@ -9,10 +11,8 @@ import {
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import { storage } from '@powersync/service-core';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly hydrationState: HydrationState;

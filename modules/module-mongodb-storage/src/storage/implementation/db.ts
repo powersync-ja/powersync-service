@@ -22,8 +22,8 @@ import {
   BucketStateDocumentV1,
   CurrentDataDocument
 } from './v1/models.js';
-import { BucketDataDocumentV3 } from './v3/models.js';
 import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
+import { BucketDataDocumentV3 } from './v3/models.js';
 import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 
 export interface PowerSyncMongoOptions {

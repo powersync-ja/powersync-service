@@ -1,4 +1,3 @@
-import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -26,15 +25,15 @@ import {
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
 import { mongoTableId } from '../../utils/util.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { PersistedBatch } from './common/PersistedBatch.js';
+import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { SyncRuleDocument } from './models.js';
-import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
+import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
 import { OperationBatch, RecordOperation } from './OperationBatch.js';
-import { PersistedBatch } from './common/PersistedBatch.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 
 // Currently, we can only have a single flush() at a time, since it locks the op_id sequence.
 // While the MongoDB transaction retry mechanism handles this okay, using an in-process Mutex

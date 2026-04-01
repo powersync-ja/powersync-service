@@ -1,10 +1,5 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import {
-  BucketDataSource,
-  ParameterIndexLookupCreator,
-  ParameterLookupScope,
-  SyncConfigWithErrors
-} from '@powersync/service-sync-rules';
+import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { SyncRuleDocument } from './models.js';
 
 export type BucketDefinitionId = string;

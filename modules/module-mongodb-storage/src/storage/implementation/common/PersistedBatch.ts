@@ -4,12 +4,11 @@ import * as bson from 'bson';
 
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
+import { mongoTableId } from '../../../utils/util.js';
+import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
-import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { TaggedBucketParameterDocument, TaggedBucketDataDocument } from '../models.js';
-import { mongoTableId } from '../../../utils/util.js';
+import { TaggedBucketDataDocument, TaggedBucketParameterDocument } from '../models.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 /**

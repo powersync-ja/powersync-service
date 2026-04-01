@@ -5,8 +5,7 @@ import {
   InternalOpId,
   PartialChecksumMap
 } from '@powersync/service-core';
-import { FetchPartialBucketChecksumByBucket } from '../MongoChecksums.js';
-import { MongoChecksums } from '../MongoChecksums.js';
+import { FetchPartialBucketChecksumByBucket, MongoChecksums } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoChecksumsV1 extends MongoChecksums {

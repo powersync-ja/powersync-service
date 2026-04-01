@@ -1,18 +1,18 @@
 import { InternalOpId } from '@powersync/service-core';
+import * as bson from 'bson';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import {
   BucketDataDocumentBase,
   BucketDataKey,
   BucketParameterDocumentBase,
+  BucketStateDocumentBase,
   CurrentBucket,
   ReplicaId,
   SourceTableDocument,
   SourceTableKey,
   TaggedBucketDataDocument,
-  TaggedBucketParameterDocument,
-  BucketStateDocumentBase
+  TaggedBucketParameterDocument
 } from '../models.js';
-import * as bson from 'bson';
 
 export interface CurrentBucketV3 extends CurrentBucket {
   def: BucketDefinitionId;

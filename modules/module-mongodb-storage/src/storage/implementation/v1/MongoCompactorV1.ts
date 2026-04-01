@@ -1,17 +1,17 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
+import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import {
   BucketDataDocumentBase,
   BucketStateDocumentBase,
   LEGACY_BUCKET_DATA_DEFINITION_ID,
   TaggedBucketDataDocument
 } from '../models.js';
-import { BucketDataKeyV1, BucketStateDocumentV1, taggedBucketDataDocumentToV1 } from './models.js';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
+import { BucketDataKeyV1, BucketStateDocumentV1, taggedBucketDataDocumentToV1 } from './models.js';
 import type { MongoSyncBucketStorageV1 } from './MongoSyncBucketStorageV1.js';
+import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoCompactorV1 extends MongoCompactor {
   // Override types to the more specific ones

@@ -1,9 +1,9 @@
-import { MONGO_OPERATION_TIMEOUT_MS, mongo } from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { BucketDataDocumentBase, BucketStateDocumentBase, TaggedBucketDataDocument } from '../models.js';
+import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { BucketDataKeyV3, BucketStateDocumentV3, taggedBucketDataDocumentToV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';

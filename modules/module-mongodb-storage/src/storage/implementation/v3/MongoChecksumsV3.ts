@@ -10,9 +10,9 @@ import {
   createV3BucketFilter,
   emptyChecksumForRequest,
   FetchPartialBucketChecksumV3,
-  MongoChecksumOptions
+  MongoChecksumOptions,
+  MongoChecksums
 } from '../MongoChecksums.js';
-import { MongoChecksums } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {

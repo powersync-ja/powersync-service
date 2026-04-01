@@ -1,10 +1,10 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './models.js';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
-import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 
 export class MongoPersistedSyncRulesContent extends storage.PersistedSyncRulesContent {
   public current_lock: MongoSyncRulesLock | null = null;
