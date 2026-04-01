@@ -6,8 +6,8 @@ import { ServiceContext } from '../../system/ServiceContext.js';
 import { MetricsFactory } from '../metrics-interfaces.js';
 import { OpenTelemetryMetricsFactory } from './OpenTelemetryMetricsFactory.js';
 
-import pkg from '../../../package.json' with { type: 'json' };
 import { resourceFromAttributes } from '@opentelemetry/resources';
+import pkg from '../../../package.json' with { type: 'json' };
 
 export function createOpenTelemetryMetricsFactory(context: ServiceContext): MetricsFactory {
   const { configuration, lifeCycleEngine, storageEngine } = context;

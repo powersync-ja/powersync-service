@@ -1,9 +1,9 @@
+import { logger } from '@powersync/lib-services-framework';
 import { SourceEntityDescriptor } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
+import sql from 'mssql';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
 import { MSSQLColumnDescriptor } from '../types/mssql-data-types.js';
-import sql from 'mssql';
-import { logger } from '@powersync/lib-services-framework';
 
 export interface GetColumnsOptions {
   connectionManager: MSSQLConnectionManager;

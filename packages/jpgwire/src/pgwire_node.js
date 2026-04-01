@@ -1,5 +1,3 @@
-import { pbkdf2 as _pbkdf2 } from 'crypto';
-
 import { _net } from 'pgwire';
 import { SocketAdapter } from './socket_adapter.js';
 

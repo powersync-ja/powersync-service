@@ -1,6 +1,6 @@
-import EventEmitter from 'node:events';
 import { logger } from '@powersync/lib-services-framework';
 import { event_types } from '@powersync/service-types';
+import EventEmitter from 'node:events';
 
 export class EventsEngine {
   private emitter: EventEmitter;

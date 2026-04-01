@@ -1,8 +1,8 @@
 import { MetricsEngine } from '../metrics/MetricsEngine.js';
 
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { APIMetric } from '@powersync/service-types';
 import { SyncBucketData } from '../util/protocol-types.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 /**
  * Record sync stats per request stream.

@@ -2,7 +2,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import crypto from 'crypto';
 import * as uuid from 'uuid';
-import { BucketChecksum, ProtocolOpId, OplogEntry } from './protocol-types.js';
+import { BucketChecksum, OplogEntry, ProtocolOpId } from './protocol-types.js';
 
 import * as storage from '../storage/storage-index.js';
 

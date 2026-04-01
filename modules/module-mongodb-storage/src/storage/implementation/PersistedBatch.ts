@@ -3,11 +3,12 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
+import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
 import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from './MongoBucketBatch.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 import {
   BucketDataDocument,
   BucketParameterDocument,
@@ -16,7 +17,6 @@ import {
   CurrentDataDocument,
   SourceKey
 } from './models.js';
-import { mongoTableId, replicaIdToSubkey } from '../../utils/util.js';
 
 /**
  * Maximum size of operations we write in a single transaction.

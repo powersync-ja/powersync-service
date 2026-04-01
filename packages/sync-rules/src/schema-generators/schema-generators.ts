@@ -1,4 +1,3 @@
-import { SchemaGenerator } from './SchemaGenerator.js';
 import { SqlSchemaGenerator } from './SqlSchemaGenerator.js';
 
 export * from './DartSchemaGenerator.js';

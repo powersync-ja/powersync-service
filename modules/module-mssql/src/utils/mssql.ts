@@ -1,21 +1,21 @@
-import sql from 'mssql';
-import { coerce, gte } from 'semver';
 import { logger } from '@powersync/lib-services-framework';
-import { retryOnDeadlock } from './deadlock.js';
-import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
-import { LSN } from '../common/LSN.js';
-import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
-import { MSSQLParameter } from '../types/mssql-data-types.js';
 import * as sync_rules from '@powersync/service-sync-rules';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import * as service_types from '@powersync/service-types';
+import sql from 'mssql';
+import { coerce, gte } from 'semver';
+import { CaptureInstance } from '../common/CaptureInstance.js';
+import { LSN } from '../common/LSN.js';
+import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
+import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
+import { MSSQLParameter } from '../types/mssql-data-types.js';
+import { retryOnDeadlock } from './deadlock.js';
 import {
   getPendingSchemaChanges,
   getReplicationIdentityColumns,
   ReplicationIdentityColumnsResult,
   ResolvedTable
 } from './schema.js';
-import * as service_types from '@powersync/service-types';
-import { CaptureInstance } from '../common/CaptureInstance.js';
 
 export const POWERSYNC_CHECKPOINTS_TABLE = '_powersync_checkpoints';
 

@@ -1,22 +1,22 @@
 import {
   DatabaseQueryError,
+  logger as defaultLogger,
   ErrorCode,
   Logger,
-  logger as defaultLogger,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import timers from 'timers/promises';
-import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
-import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
-import { LSN } from '../common/LSN.js';
-import sql from 'mssql';
-import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedTableName } from '../utils/mssql.js';
-import { isDeadlockError } from '../utils/deadlock.js';
-import { AdditionalConfig } from '../types/types.js';
-import { tableExists } from '../utils/schema.js';
-import { TablePattern } from '@powersync/service-sync-rules';
-import { CaptureInstance } from '../common/CaptureInstance.js';
 import { SourceEntityDescriptor } from '@powersync/service-core';
+import { TablePattern } from '@powersync/service-sync-rules';
+import sql from 'mssql';
+import timers from 'timers/promises';
+import { CaptureInstance } from '../common/CaptureInstance.js';
+import { LSN } from '../common/LSN.js';
+import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
+import { AdditionalConfig } from '../types/types.js';
+import { isDeadlockError } from '../utils/deadlock.js';
+import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedTableName } from '../utils/mssql.js';
+import { tableExists } from '../utils/schema.js';
+import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 
 enum Operation {
   DELETE = 1,

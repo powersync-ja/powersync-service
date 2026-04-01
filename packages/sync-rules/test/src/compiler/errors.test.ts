@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest';
-import { compilationErrorsForSingleStream, yamlToSyncPlan } from './utils.js';
-import { SourceSchema } from '../../../src/types.js';
+import { SqlSyncRules } from '../../../src/SqlSyncRules.js';
 import { SourceTableDefinition, StaticSchema } from '../../../src/StaticSchema.js';
 import { DEFAULT_TAG } from '../../../src/TablePattern.js';
-import { SqlSyncRules } from '../../../src/SqlSyncRules.js';
+import { SourceSchema } from '../../../src/types.js';
+import { compilationErrorsForSingleStream, yamlToSyncPlan } from './utils.js';
 
 function expectSingleErrorSource(yaml: string, source: string) {
   const { errors } = SqlSyncRules.fromYaml(yaml, { throwOnError: false, defaultSchema: 'test_schema' });

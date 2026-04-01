@@ -1,10 +1,7 @@
-import { storage, replication } from '@powersync/service-core';
+import { replication, storage } from '@powersync/service-core';
+import { MongoModule } from '../module/MongoModule.js';
 import { ChangeStreamReplicationJob } from './ChangeStreamReplicationJob.js';
 import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
-import { MongoErrorRateLimiter } from './MongoErrorRateLimiter.js';
-import { MongoModule } from '../module/MongoModule.js';
-import { MongoLSN } from '../common/MongoLSN.js';
-import { timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamReplicatorOptions extends replication.AbstractReplicatorOptions {
   connectionFactory: ConnectionManagerFactory;

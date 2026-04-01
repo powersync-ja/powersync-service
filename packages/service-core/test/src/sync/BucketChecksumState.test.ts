@@ -15,13 +15,12 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
   ParameterIndexLookupCreator,
-  RequestJwtPayload,
   ScopedParameterLookup,
+  SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
   SqlSyncRules,
   TablePattern,
-  SourceTableInterface,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';

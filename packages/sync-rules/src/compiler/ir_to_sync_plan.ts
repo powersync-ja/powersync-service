@@ -1,13 +1,12 @@
-import * as plan from '../sync_plan/plan.js';
 import { SqlExpression } from '../sync_plan/expression.js';
+import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
+import * as plan from '../sync_plan/plan.js';
 import * as resolver from './bucket_resolver.js';
 import { CompiledStreamQueries } from './compiler.js';
 import { Equality, HashMap, StableHasher, unorderedEquality } from './equality.js';
 import { ColumnInRow, ExpressionInput, SyncExpression } from './expression.js';
 import * as rows from './rows.js';
-import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 import { SourceResultSet } from './table.js';
-import { RowExpression } from './filter.js';
 
 export class CompilerModelToSyncPlan {
   private static readonly evaluatorHash: Equality<rows.RowEvaluator[]> = unorderedEquality({

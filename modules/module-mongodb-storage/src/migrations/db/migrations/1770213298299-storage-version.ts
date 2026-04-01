@@ -1,4 +1,4 @@
-import { migrations, storage as core_storage } from '@powersync/service-core';
+import { storage as core_storage, migrations } from '@powersync/service-core';
 import * as mongo_storage from '../../../storage/storage-index.js';
 import { MongoStorageConfig } from '../../../types/types.js';
 

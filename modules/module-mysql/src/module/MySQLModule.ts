@@ -8,13 +8,13 @@ import {
 } from '@powersync/service-core';
 
 import { MySQLRouteAPIAdapter } from '../api/MySQLRouteAPIAdapter.js';
+import { checkSourceConfiguration } from '../common/check-source-configuration.js';
 import { BinLogReplicator } from '../replication/BinLogReplicator.js';
+import { MySQLConnectionManager } from '../replication/MySQLConnectionManager.js';
+import { MySQLConnectionManagerFactory } from '../replication/MySQLConnectionManagerFactory.js';
 import { MySQLErrorRateLimiter } from '../replication/MySQLErrorRateLimiter.js';
 import * as types from '../types/types.js';
-import { MySQLConnectionManagerFactory } from '../replication/MySQLConnectionManagerFactory.js';
 import { MySQLConnectionConfig } from '../types/types.js';
-import { checkSourceConfiguration } from '../common/check-source-configuration.js';
-import { MySQLConnectionManager } from '../replication/MySQLConnectionManager.js';
 
 export class MySQLModule extends replication.ReplicationModule<types.MySQLConnectionConfig> {
   constructor() {

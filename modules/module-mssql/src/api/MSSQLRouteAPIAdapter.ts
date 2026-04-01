@@ -5,11 +5,13 @@ import {
   ReplicationHeadCallback,
   ReplicationLagOptions
 } from '@powersync/service-core';
-import * as service_types from '@powersync/service-types';
 import { SqlSyncRules, TablePattern } from '@powersync/service-sync-rules';
-import * as types from '../types/types.js';
+import * as service_types from '@powersync/service-types';
 import { ExecuteSqlResponse } from '@powersync/service-types/dist/routes.js';
+import sql from 'mssql';
+import { toExpressionTypeFromMSSQLType } from '../common/mssqls-to-sqlite.js';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
+import * as types from '../types/types.js';
 import {
   checkSourceConfiguration,
   createCheckpoint,
@@ -18,8 +20,6 @@ import {
   POWERSYNC_CHECKPOINTS_TABLE
 } from '../utils/mssql.js';
 import { getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
-import { toExpressionTypeFromMSSQLType } from '../common/mssqls-to-sqlite.js';
-import sql from 'mssql';
 
 export class MSSQLRouteAPIAdapter implements api.RouteAPI {
   protected connectionManager: MSSQLConnectionManager;

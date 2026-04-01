@@ -4,7 +4,6 @@ import { checkJsonArray, OPERATOR_NOT } from '../sql_functions.js';
 import { isParameterValueClause, isRowValueClause, SQLITE_TRUE, sqliteBool } from '../sql_support.js';
 import { TablePattern } from '../TablePattern.js';
 import {
-  EvaluatedParametersResult,
   ParameterMatchClause,
   ParameterValueClause,
   RequestParameters,
@@ -16,7 +15,7 @@ import {
 import { isJsonValue, normalizeParameterValue } from '../utils.js';
 
 import { NodeLocation } from 'pgsql-ast-parser';
-import { ParameterIndexLookupCreator, CreateSourceParams } from '../BucketSource.js';
+import { ParameterIndexLookupCreator } from '../BucketSource.js';
 import { HydrationState, ParameterLookupScope } from '../HydrationState.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { SubqueryEvaluator } from './parameter.js';

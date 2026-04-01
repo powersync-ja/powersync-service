@@ -1,6 +1,5 @@
 import * as http from 'http';
 import * as https from 'https';
-import * as jose from 'jose';
 import fetch from 'node-fetch';
 
 import {

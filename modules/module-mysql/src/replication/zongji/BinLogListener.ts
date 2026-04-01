@@ -1,10 +1,7 @@
-import * as common from '../../common/common-index.js';
-import async from 'async';
-import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
-import * as zongji_utils from './zongji-utils.js';
 import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
-import timers from 'timers/promises';
+import { BinLogEvent, BinLogQueryEvent, StartOptions, TableMapEntry, ZongJi } from '@powersync/mysql-zongji';
+import { TablePattern } from '@powersync/service-sync-rules';
+import async from 'async';
 import pkg, {
   AST,
   BaseFrom,
@@ -13,6 +10,8 @@ import pkg, {
   RenameStatement,
   TruncateStatement
 } from 'node-sql-parser';
+import timers from 'timers/promises';
+import * as common from '../../common/common-index.js';
 import {
   isAlterTable,
   isColumnExpression,
@@ -25,7 +24,8 @@ import {
   isTruncate,
   matchedSchemaChangeQuery
 } from '../../utils/parser-utils.js';
-import { TablePattern } from '@powersync/service-sync-rules';
+import { MySQLConnectionManager } from '../MySQLConnectionManager.js';
+import * as zongji_utils from './zongji-utils.js';
 
 const { Parser } = pkg;
 

@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
-import { event_types } from '@powersync/service-types';
 import { register, ReportUserData } from '@powersync/service-core-tests';
-import { PostgresReportStorage } from '../../src/storage/PostgresReportStorage.js';
 import { DateTimeValue } from '@powersync/service-sync-rules';
+import { event_types } from '@powersync/service-types';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PostgresReportStorage } from '../../src/storage/PostgresReportStorage.js';
+import { POSTGRES_REPORT_STORAGE_FACTORY } from './util.js';
 
 const factory = await POSTGRES_REPORT_STORAGE_FACTORY();
 const userData = register.REPORT_TEST_USERS;

@@ -1,7 +1,7 @@
-import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import { logger } from '@powersync/lib-services-framework';
-import { BucketStorageFactory, StorageMetrics } from './BucketStorageFactory.js';
 import { StorageMetric } from '@powersync/service-types';
+import { MetricsEngine } from '../metrics/MetricsEngine.js';
+import { BucketStorageFactory, StorageMetrics } from './BucketStorageFactory.js';
 
 export function createCoreStorageMetrics(engine: MetricsEngine): void {
   engine.createObservableGauge({

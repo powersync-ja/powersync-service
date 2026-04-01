@@ -1,4 +1,5 @@
 export * from './alerting.js';
+export * from './checkpointing.js';
 export * from './env.js';
 export * from './lsn.js';
 export * from './memory-tracking.js';
@@ -6,7 +7,6 @@ export * from './Mutex.js';
 export * from './protocol-types.js';
 export * from './secs.js';
 export * from './utils.js';
-export * from './checkpointing.js';
 export * from './version.js';
 
 export * from './config.js';

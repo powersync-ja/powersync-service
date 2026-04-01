@@ -6,10 +6,10 @@ import {
   CustomArray,
   CustomObject,
   CustomSqliteValue,
+  DateTimeSourceOptions,
+  DateTimeValue,
   SqliteInputRow,
   SqliteInputValue,
-  DateTimeValue,
-  DateTimeSourceOptions,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 

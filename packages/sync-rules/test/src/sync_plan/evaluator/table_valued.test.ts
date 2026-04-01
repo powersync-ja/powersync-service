@@ -1,6 +1,4 @@
 import { describe, expect } from 'vitest';
-import { syncTest } from './utils.js';
-import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
 import {
   deserializeSyncPlan,
   ImplicitSchemaTablePattern,
@@ -11,6 +9,8 @@ import {
   TableProcessorTableValuedFunction
 } from '../../../../src/index.js';
 import { PreparedStreamBucketDataSource } from '../../../../src/sync_plan/evaluator/bucket_data_source.js';
+import { lookupScope, requestParameters, TestSourceTable } from '../../util.js';
+import { syncTest } from './utils.js';
 
 describe('table-valued functions', () => {
   syncTest('as partition key', ({ sync }) => {

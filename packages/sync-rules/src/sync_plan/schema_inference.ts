@@ -3,14 +3,14 @@ import { ColumnDefinition, ColumnType, ExpressionType } from '../ExpressionType.
 import { generateSqlFunctions, getOperatorReturnType } from '../sql_functions.js';
 import { SourceSchema, SourceSchemaTable } from '../types.js';
 import {
-  ExternalData,
-  UnaryExpression,
   BinaryExpression,
   CaseWhenExpression,
   CastExpression,
-  ScalarFunctionCallExpression,
+  ExternalData,
   LiteralExpression,
-  SqlExpression
+  ScalarFunctionCallExpression,
+  SqlExpression,
+  UnaryExpression
 } from './expression.js';
 import { ExpressionVisitor, RecursiveExpressionVisitor, visitExpr } from './expression_visitor.js';
 import {

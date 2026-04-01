@@ -1,14 +1,13 @@
 import {
-  BucketDescription,
   BucketParameterQuerier,
   BucketPriority,
   BucketSource,
   HydratedSyncRules,
+  mergeBuckets,
   QuerierError,
   RequestedStream,
   RequestParameters,
-  ResolvedBucket,
-  mergeBuckets
+  ResolvedBucket
 } from '@powersync/service-sync-rules';
 
 import * as storage from '../storage/storage-index.js';

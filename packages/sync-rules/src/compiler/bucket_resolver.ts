@@ -1,9 +1,9 @@
-import { Equality, Equatable, HashSet, StableHasher, unorderedEquality } from './equality.js';
+import { StreamOptions } from '../sync_plan/plan.js';
 import { equalsIgnoringResultSetList, equalsIgnoringResultSetUnordered } from './compatibility.js';
+import { Equality, Equatable, HashSet, StableHasher, unorderedEquality } from './equality.js';
 import { RequestExpression, RowExpression } from './filter.js';
 import { PointLookup, RowEvaluator, SourceRowProcessor } from './rows.js';
 import { TableValuedResultSet } from './table.js';
-import { StreamOptions } from '../sync_plan/plan.js';
 
 /**
  * Describes how to resolve a subscription to buckets.

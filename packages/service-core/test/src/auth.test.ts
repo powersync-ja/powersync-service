@@ -1,13 +1,13 @@
-import { describe, expect, test } from 'vitest';
-import { StaticKeyCollector } from '../../src/auth/StaticKeyCollector.js';
+import { StaticSupabaseKeyCollector } from '@/index.js';
 import * as jose from 'jose';
-import { KeyStore } from '../../src/auth/KeyStore.js';
-import { KeySpec } from '../../src/auth/KeySpec.js';
-import { RemoteJWKSCollector } from '../../src/auth/RemoteJWKSCollector.js';
-import { KeyResult } from '../../src/auth/KeyCollector.js';
+import { describe, expect, test } from 'vitest';
 import { CachedKeyCollector } from '../../src/auth/CachedKeyCollector.js';
-import { JwtPayload, StaticSupabaseKeyCollector } from '@/index.js';
-import { debugKeyNotFound, getSupabaseJwksUrl } from '../../src/auth/utils.js';
+import { KeyResult } from '../../src/auth/KeyCollector.js';
+import { KeySpec } from '../../src/auth/KeySpec.js';
+import { KeyStore } from '../../src/auth/KeyStore.js';
+import { RemoteJWKSCollector } from '../../src/auth/RemoteJWKSCollector.js';
+import { StaticKeyCollector } from '../../src/auth/StaticKeyCollector.js';
+import { getSupabaseJwksUrl } from '../../src/auth/utils.js';
 
 const publicKeyRSA: jose.JWK = {
   use: 'sig',

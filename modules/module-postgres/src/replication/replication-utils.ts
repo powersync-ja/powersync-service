@@ -1,5 +1,5 @@
-import { readFile } from 'node:fs/promises';
 import * as pgwire from '@powersync/service-jpgwire';
+import { readFile } from 'node:fs/promises';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';

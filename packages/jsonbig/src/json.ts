@@ -1,5 +1,5 @@
 import * as json from 'lossless-json';
-import { isInteger, NumberParser, Replacer, Reviver, JavaScriptValue } from 'lossless-json';
+import { isInteger, JavaScriptValue, NumberParser, Replacer, Reviver } from 'lossless-json';
 import { JsonContainer } from './json_container.js';
 import { stringify } from './json_stringify.js';
 

@@ -2,17 +2,17 @@ import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import {
   BucketDataSource,
-  ParameterIndexLookupCreator,
+  BucketParameterQuerierSource,
   BucketSource,
   BucketSourceType,
   CreateSourceParams,
   HydratedBucketSource,
-  BucketParameterQuerierSource
+  ParameterIndexLookupCreator
 } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableInterface } from '../SourceTableInterface.js';
 import { TablePattern } from '../TablePattern.js';
-import { EvaluateRowOptions, UnscopedEvaluationResult, SourceSchema, TableRow } from '../types.js';
+import { EvaluateRowOptions, SourceSchema, TableRow, UnscopedEvaluationResult } from '../types.js';
 import { StreamVariant } from './variant.js';
 
 export class SyncStream implements BucketSource {

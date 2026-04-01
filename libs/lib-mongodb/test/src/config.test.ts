@@ -1,7 +1,6 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { describe, expect, test } from 'vitest';
 import { normalizeMongoConfig, parseMongoConnectionParam, parseMongoConnectionParams } from '../../src/types/types.js';
-import { LookupAddress } from 'node:dns';
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 describe('config', () => {
   test('Should normalize a simple URI', () => {

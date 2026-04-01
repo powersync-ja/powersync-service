@@ -1,10 +1,9 @@
-// @ts-ignore
-import AjvErrorFormatter from 'better-ajv-errors';
 import AJV from 'ajv';
+import AjvErrorFormatter from 'better-ajv-errors';
 
 import * as defs from '../definitions.js';
-import * as utils from '../utils.js';
 import * as keywords from '../json-schema/keywords.js';
+import * as utils from '../utils.js';
 
 export class SchemaValidatorError extends Error {
   constructor(message: string) {

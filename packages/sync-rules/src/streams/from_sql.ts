@@ -1,6 +1,18 @@
+import {
+  Expr,
+  ExprBinary,
+  nil,
+  NodeLocation,
+  parse,
+  SelectFromStatement,
+  SelectStatement,
+  Statement
+} from 'pgsql-ast-parser';
+import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
+import { CompatibilityEdition } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
-import { CompiledClause, QuerySchema, StaticValueClause, StreamParseOptions } from '../types.js';
-import { isSelectStatement } from '../utils.js';
+import { ExpressionType } from '../ExpressionType.js';
+import { AvailableTable, SqlTools } from '../sql_filters.js';
 import {
   andFilters,
   checkUnsupportedFeatures,
@@ -13,10 +25,9 @@ import {
 } from '../sql_support.js';
 import { TablePattern } from '../TablePattern.js';
 import { TableQuerySchema } from '../TableQuerySchema.js';
-import { AvailableTable, SqlTools } from '../sql_filters.js';
-import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from '../BaseSqlDataQuery.js';
-import { ExpressionType } from '../ExpressionType.js';
-import { SyncStream } from './stream.js';
+import { CompiledClause, QuerySchema, StaticValueClause, StreamParseOptions } from '../types.js';
+import { isSelectStatement } from '../utils.js';
+import { DetectRequestParameters } from '../validators.js';
 import {
   And,
   CompareRowValueWithStreamParameter,
@@ -30,19 +41,8 @@ import {
   ScalarExpression,
   Subquery
 } from './filter.js';
-import {
-  Expr,
-  ExprBinary,
-  nil,
-  NodeLocation,
-  parse,
-  SelectFromStatement,
-  SelectStatement,
-  Statement
-} from 'pgsql-ast-parser';
 import { STREAM_FUNCTIONS } from './functions.js';
-import { CompatibilityEdition } from '../compatibility.js';
-import { DetectRequestParameters } from '../validators.js';
+import { SyncStream } from './stream.js';
 
 export function syncStreamFromSql(
   descriptorName: string,

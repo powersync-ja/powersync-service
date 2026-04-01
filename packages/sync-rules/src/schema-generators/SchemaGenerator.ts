@@ -1,8 +1,8 @@
-import { SyncConfig } from '../SyncConfig.js';
 import { ColumnDefinition, ColumnType, TYPE_INTEGER, TYPE_REAL, TYPE_TEXT } from '../ExpressionType.js';
-import { SourceSchema } from '../types.js';
 import { PrecompiledSyncConfig } from '../sync_plan/evaluator/index.js';
 import { SyncPlanSchemaAnalyzer } from '../sync_plan/schema_inference.js';
+import { SyncConfig } from '../SyncConfig.js';
+import { SourceSchema } from '../types.js';
 
 export interface GenerateSchemaOptions {
   includeTypeComments?: boolean;

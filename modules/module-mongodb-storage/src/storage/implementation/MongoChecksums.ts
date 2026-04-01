@@ -2,8 +2,8 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import {
   addPartialChecksums,
   bson,
-  BucketChecksumRequest,
   BucketChecksum,
+  BucketChecksumRequest,
   ChecksumCache,
   ChecksumMap,
   FetchPartialBucketChecksum,

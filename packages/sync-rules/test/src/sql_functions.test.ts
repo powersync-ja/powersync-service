@@ -1,11 +1,5 @@
-import {
-  cast,
-  CompatibilityContext,
-  generateSqlFunctions,
-  CompatibilityOption,
-  CompatibilityEdition
-} from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
+import { cast, CompatibilityContext, CompatibilityEdition, generateSqlFunctions } from '../../src/index.js';
 
 const compatibilityFunctions = generateSqlFunctions(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
 const fn = compatibilityFunctions.callable;
