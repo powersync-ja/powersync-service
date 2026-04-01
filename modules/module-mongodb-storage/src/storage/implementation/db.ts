@@ -3,26 +3,20 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
 import { MongoStorageConfig } from '../../types/types.js';
-import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
 import { BaseVersionedPowerSyncMongo } from './common/VersionedPowerSyncMongoBase.js';
 import {
   BucketDataDocumentV1,
   BucketDataDocumentV3,
   BucketParameterDocument,
-  BucketParameterDocumentV3,
-  BucketStateDocument,
   BucketStateDocumentV1,
-  BucketStateDocumentV3,
   CheckpointEventDocument,
   ClientConnectionDocument,
   CommonSourceTableDocument,
   CurrentDataDocument,
-  CurrentDataDocumentV3,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
   SourceTableDocument,
-  SourceTableDocumentV3,
   StorageConfig,
   SyncRuleDocument,
   WriteCheckpointDocument
@@ -86,14 +80,6 @@ export class PowerSyncMongo {
     return new VersionedPowerSyncMongoV1(this, storageConfig);
   }
 
-  bucketDataCollectionNameV3(groupId: number, definitionId: BucketDefinitionId) {
-    return `bucket_data_${groupId}_${definitionId}`;
-  }
-
-  bucketDataV3(groupId: number, definitionId: BucketDefinitionId): mongo.Collection<BucketDataDocumentV3> {
-    return this.db.collection(this.bucketDataCollectionNameV3(groupId, definitionId));
-  }
-
   async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketDataDocumentV3>[]> {
     const prefix = groupId == null ? 'bucket_data_' : `bucket_data_${groupId}_`;
     const collections = await this.db.listCollections({}, { nameOnly: true }).toArray();
@@ -101,25 +87,6 @@ export class PowerSyncMongo {
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
       .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
-  }
-
-  bucketStateCollectionNameV3(replicationStreamId: number) {
-    return `bucket_state_${replicationStreamId}`;
-  }
-
-  bucketStateV3(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {
-    return this.db.collection(this.bucketStateCollectionNameV3(replicationStreamId));
-  }
-
-  bucketParameterCollectionNameV3(replicationStreamId: number, indexId: ParameterIndexId) {
-    return `parameter_index_${replicationStreamId}_${indexId}`;
-  }
-
-  parameterIndexV3(
-    replicationStreamId: number,
-    indexId: ParameterIndexId
-  ): mongo.Collection<BucketParameterDocumentV3> {
-    return this.db.collection(this.bucketParameterCollectionNameV3(replicationStreamId, indexId));
   }
 
   /**
@@ -132,6 +99,7 @@ export class PowerSyncMongo {
       .filter((collection) => collection.name.startsWith(prefix))
       .map((collection) => this.db.collection<never>(collection.name));
   }
+
   /**
    * List all parameter index collections across all replication streams.
    *

@@ -52,7 +52,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected async initializeVersionStorage(): Promise<void> {
     const mapping = this.mapping;
     for (let source of mapping.allBucketDefinitionIds()) {
-      const collection = this.db.bucket_data_v3(this.group_id, source).collectionName;
+      const collection = this.db.bucketDataV3(this.group_id, source).collectionName;
       await this.db.db
         .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
         .catch((error) => {
@@ -334,7 +334,7 @@ export async function* getBucketDataBatchV3(
       }
     }));
 
-    const cursor = ctx.db.bucket_data_v3(ctx.group_id, definitionId).find(
+    const cursor = ctx.db.bucketDataV3(ctx.group_id, definitionId).find(
       {
         $or: filters
       },

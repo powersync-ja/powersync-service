@@ -1,8 +1,8 @@
-import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
 import {
+  BucketDataDocumentV3,
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
   CommonSourceTableDocument,
@@ -37,7 +37,14 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   }
 
   bucketStateV3(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {
-    return this.upstream.bucketStateV3(replicationStreamId);
+    return this.db.collection(`bucket_state_${replicationStreamId}`);
+  }
+
+  parameterIndexV3(
+    replicationStreamId: number,
+    indexId: ParameterIndexId
+  ): mongo.Collection<BucketParameterDocumentV3> {
+    return this.db.collection(`parameter_index_${replicationStreamId}_${indexId}`);
   }
 
   sourceTablesV3(replicationStreamId: number): mongo.Collection<SourceTableDocumentV3> {
@@ -81,16 +88,12 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     );
   }
 
-  bucket_data_v3(groupId: number, definitionId: BucketDefinitionId) {
-    return this.upstream.bucketDataV3(groupId, definitionId);
+  bucketDataV3(groupId: number, definitionId: BucketDefinitionId) {
+    return this.db.collection<BucketDataDocumentV3>(`bucket_data_${groupId}_${definitionId}`);
   }
 
   listBucketDataCollectionsV3(groupId: number) {
     return this.upstream.listBucketDataCollectionsV3(groupId);
-  }
-
-  parameterIndexV3(replicationStreamId: number, indexId: ParameterIndexId) {
-    return this.upstream.parameterIndexV3(replicationStreamId, indexId);
   }
 
   async listParameterIndexCollectionsV3(

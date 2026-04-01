@@ -96,7 +96,7 @@ export class MongoCompactorV3 extends MongoCompactor {
   ): Promise<{ collection: mongo.Collection<BucketDataDocumentBase>; definitionId: BucketDefinitionId } | null> {
     if (definitionId != null) {
       return {
-        collection: this.db.bucket_data_v3(
+        collection: this.db.bucketDataV3(
           this.group_id,
           definitionId
         ) as unknown as mongo.Collection<BucketDataDocumentBase>,

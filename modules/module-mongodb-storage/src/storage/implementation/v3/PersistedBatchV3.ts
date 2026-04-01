@@ -260,7 +260,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      await this.db.bucket_data_v3(this.group_id, definitionId).bulkWrite(
+      await this.db.bucketDataV3(this.group_id, definitionId).bulkWrite(
         documents.map((document) => ({
           insertOne: {
             document: taggedBucketDataDocumentToV3(document)

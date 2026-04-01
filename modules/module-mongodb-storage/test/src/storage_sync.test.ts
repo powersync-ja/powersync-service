@@ -225,7 +225,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0];
     expect(parameterIndexId).toBeDefined();
-    const parameterEntry = await mongoFactory.db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
+    const parameterEntry = await db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 
