@@ -303,14 +303,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       }
     };
 
-    const active_sync_rules = await this.getActiveSyncRules({ defaultSchema: 'public' });
-    if (active_sync_rules == null) {
-      return {
-        operations_size_bytes: 0,
-        parameters_size_bytes: 0,
-        replication_size_bytes: 0
-      };
-    }
+    // For now, we get storage metrics over all v1 and v3 collections.
+    // In the future, we may split these metrics to report separately for active replication streams versus processing streams.
 
     const aggregateStaticCollection = async <T extends mongo.Document>(collection: mongo.Collection<T>) => {
       // We check whether the collection exists before getting the statistics. This avoids repeated
