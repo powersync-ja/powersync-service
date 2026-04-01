@@ -307,6 +307,44 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.id })).toBe(0);
   });
 
+  test.runIf(storageVersion < 3)('storage metrics include v1 current_data', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        data:
+          - SELECT id, description FROM test
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const metricsBefore = await factory.getStorageMetrics();
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+    await writer.save({
+      sourceTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'metric-check',
+        description: 'shape'
+      },
+      afterReplicaId: test_utils.rid('metric-check')
+    });
+    await writer.markAllSnapshotDone('1/1');
+    await writer.commit('1/1');
+
+    const mongoFactory = factory as MongoBucketStorage;
+    expect(await mongoFactory.db.current_data.countDocuments({ '_id.g': syncRules.id })).toBe(1);
+
+    const metricsAfter = await factory.getStorageMetrics();
+    expect(metricsAfter.replication_size_bytes).toBeGreaterThan(metricsBefore.replication_size_bytes);
+  });
+
   test.runIf(storageVersion >= 3)(
     'loads parameter checkpoint changes across all v3 parameter index collections',
     async () => {

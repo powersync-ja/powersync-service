@@ -347,7 +347,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       .toArray()
       .catch(ignoreNotExisting);
 
-    // FIXME: Handle v1 metrics
     const v3_parameter_aggregates = await Promise.all(
       (await this.db.listAllParameterIndexCollectionsV3()).map((collection) =>
         collection
@@ -362,6 +361,17 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           .catch(ignoreNotExisting)
       )
     );
+
+    const v1_source_record_aggregate = await this.db.current_data
+      .aggregate([
+        {
+          $collStats: {
+            storageStats: {}
+          }
+        }
+      ])
+      .toArray()
+      .catch(ignoreNotExisting);
 
     const source_record_aggregates = await Promise.all(
       (await this.db.listAllSourceRecordCollectionsV3()).map((collection) =>
@@ -384,10 +394,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       parameters_size_bytes:
         Number(parameters_aggregate[0].storageStats.size) +
         v3_parameter_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
-      replication_size_bytes: source_record_aggregates.reduce(
-        (total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0),
-        0
-      )
+      replication_size_bytes:
+        Number(v1_source_record_aggregate[0]?.storageStats?.size ?? 0) +
+        source_record_aggregates.reduce((total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0), 0)
     };
   }
 
