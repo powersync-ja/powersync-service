@@ -351,11 +351,3 @@ export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocu
 export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
 export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
 export type CommonSourceTableDocument = SourceTableDocumentV1 | SourceTableDocumentV3;
-
-export function isCurrentBucketV3(bucket: CommonCurrentBucket): bucket is CurrentBucketV3 {
-  return 'def' in bucket;
-}
-
-export function isRecordedLookupV3(lookup: CommonCurrentLookup): lookup is RecordedLookupV3 {
-  return typeof lookup === 'object' && lookup != null && 'i' in lookup && 'l' in lookup;
-}
