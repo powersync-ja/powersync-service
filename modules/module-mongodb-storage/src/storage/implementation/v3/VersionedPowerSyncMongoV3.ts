@@ -88,12 +88,12 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     );
   }
 
-  bucketDataV3(groupId: number, definitionId: BucketDefinitionId) {
-    return this.db.collection<BucketDataDocumentV3>(`bucket_data_${groupId}_${definitionId}`);
+  bucketDataV3(replicationStreamId: number, definitionId: BucketDefinitionId) {
+    return this.db.collection<BucketDataDocumentV3>(`bucket_data_${replicationStreamId}_${definitionId}`);
   }
 
-  listBucketDataCollectionsV3(groupId: number) {
-    return this.upstream.listBucketDataCollectionsV3(groupId);
+  listBucketDataCollectionsV3(replicationStreamId: number) {
+    return this.upstream.listBucketDataCollectionsV3(replicationStreamId);
   }
 
   async listParameterIndexCollectionsV3(

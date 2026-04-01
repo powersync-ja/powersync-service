@@ -82,9 +82,12 @@ export class PowerSyncMongo {
     return new VersionedPowerSyncMongoV1(this, storageConfig);
   }
 
+  /**
+   * Not safe for user-provided prefix - only for hardcoded values.
+   */
   async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketDataDocumentV3>[]> {
     const prefix = groupId == null ? 'bucket_data_' : `bucket_data_${groupId}_`;
-    const collections = await this.db.listCollections({}, { nameOnly: true }).toArray();
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
 
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
