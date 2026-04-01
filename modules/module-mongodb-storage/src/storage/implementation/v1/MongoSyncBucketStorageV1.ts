@@ -25,7 +25,12 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { bucketDataDocumentToTagged, CommonSourceTableDocument, LEGACY_BUCKET_DATA_DEFINITION_ID } from '../models.js';
+import {
+  bucketDataDocumentToTagged,
+  CommonSourceTableDocument,
+  LEGACY_BUCKET_DATA_DEFINITION_ID,
+  SourceKey
+} from '../models.js';
 import { BucketDataDocumentV1, BucketDataKeyV1, BucketStateDocument } from './models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
@@ -137,7 +142,19 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     );
   }
 
-  protected async clearSourceRecords(_signal?: AbortSignal): Promise<void> {}
+  protected async clearSourceRecords(signal?: AbortSignal): Promise<void> {
+    await this.clearDeleteMany(
+      'source records',
+      () =>
+        this.db.sourceRecordsV1.deleteMany(
+          {
+            _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
+          },
+          { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+        ),
+      signal
+    );
+  }
 
   protected async clearBucketState(signal?: AbortSignal): Promise<void> {
     await this.clearDeleteMany(
