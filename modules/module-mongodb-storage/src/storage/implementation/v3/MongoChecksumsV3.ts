@@ -1,4 +1,3 @@
-import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BucketChecksum,
   FetchPartialBucketChecksum,
@@ -8,25 +7,21 @@ import {
 } from '@powersync/service-core';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
-  AbstractMongoChecksums,
   createV3BucketFilter,
   emptyChecksumForRequest,
   FetchPartialBucketChecksumV3,
   MongoChecksumOptions
-} from '../common/MongoChecksumsBase.js';
+} from '../common/MongoChecksums.js';
+import { MongoChecksums } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { BucketDataDocumentBase } from '../models.js';
 
-export class MongoChecksumsV3Impl extends AbstractMongoChecksums {
+export class MongoChecksumsV3 extends MongoChecksums {
   declare protected readonly db: VersionedPowerSyncMongoV3;
+  private readonly mapping: BucketDefinitionMapping;
 
-  constructor(
-    db: VersionedPowerSyncMongoV3,
-    group_id: number,
-    options: MongoChecksumOptions,
-    private readonly mapping: BucketDefinitionMapping
-  ) {
+  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
     super(db, group_id, options);
+    this.mapping = options.mapping!;
   }
 
   private normalizeBatch(batch: FetchPartialBucketChecksum[]): FetchPartialBucketChecksumV3[] {

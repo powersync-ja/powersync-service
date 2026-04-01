@@ -1,4 +1,3 @@
-import { mongo } from '@powersync/lib-service-mongodb';
 import {
   bson,
   BucketChecksum,
@@ -6,11 +5,11 @@ import {
   InternalOpId,
   PartialChecksumMap
 } from '@powersync/service-core';
-import { AbstractMongoChecksums, FetchPartialBucketChecksumByBucket } from '../common/MongoChecksumsBase.js';
+import { FetchPartialBucketChecksumByBucket } from '../common/MongoChecksums.js';
+import { MongoChecksums } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-import { BucketDataDocumentBase } from '../models.js';
 
-export class MongoChecksumsV1Impl extends AbstractMongoChecksums {
+export class MongoChecksumsV1 extends MongoChecksums {
   declare protected readonly db: VersionedPowerSyncMongoV1;
 
   async computePartialChecksumsDirectByBucket(

@@ -85,17 +85,15 @@ export abstract class BaseMongoSyncBucketStorage
   ) {
     super();
     this.db = factory.db.versioned(sync_rules.getStorageConfig());
-    this.checksums = new MongoChecksums(this.db, this.group_id, {
-      ...options.checksumOptions,
-      storageConfig: options?.storageConfig,
-      mapping: sync_rules.mapping
-    });
+    this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
       sync_rules_id: group_id
     });
   }
+
+  protected abstract createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums;
 
   get writeCheckpointMode() {
     return this.writeCheckpointAPI.writeCheckpointMode;

@@ -14,9 +14,12 @@ import {
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BaseMongoCompactor, DirtyBucket } from '../common/MongoCompactorBase.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
+import { MongoSyncBucketStorageV1 } from './MongoSyncBucketStorageV1.js';
 
 export class MongoCompactorV1 extends BaseMongoCompactor {
+  // Override types to the more specific ones
   declare protected readonly db: VersionedPowerSyncMongoV1;
+  declare protected readonly storage: MongoSyncBucketStorageV1;
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -63,7 +66,7 @@ export class MongoCompactorV1 extends BaseMongoCompactor {
   protected async computeChecksumsForBuckets(
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
-    return this.storage.checksums.computePartialChecksumsDirectV1(
+    return this.storage.checksums.computePartialChecksumsDirectByBucket(
       buckets.map(({ bucket }) => ({
         bucket,
         end: this.maxOpId

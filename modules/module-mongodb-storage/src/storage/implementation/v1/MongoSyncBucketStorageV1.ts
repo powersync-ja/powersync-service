@@ -10,31 +10,35 @@ import {
   storage,
   utils
 } from '@powersync/service-core';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
-import {
-  BucketDataDocumentV1,
-  BucketDataKeyV1,
-  BucketStateDocument,
-  CommonSourceTableDocument,
-  LEGACY_BUCKET_DATA_DEFINITION_ID,
-  bucketDataDocumentToTagged
-} from '../models.js';
+import { MongoBucketStorage } from '../../MongoBucketStorage.js';
+import { MongoChecksums } from '../MongoChecksums.js';
+import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
+import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
+import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';
 import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';
-import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
+import {
+  bucketDataDocumentToTagged,
+  BucketDataDocumentV1,
+  BucketDataKeyV1,
+  BucketStateDocument,
+  CommonSourceTableDocument,
+  LEGACY_BUCKET_DATA_DEFINITION_ID
+} from '../models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
+import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
+  // Declare types to be more specific
   declare readonly db: VersionedPowerSyncMongoV1;
+  declare readonly checksums: MongoChecksumsV1;
 
   constructor(
     factory: MongoBucketStorage,
@@ -51,6 +55,14 @@ export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
     return new MongoBucketBatchV1(batchOptions);
+  }
+
+  protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
+    return new MongoChecksumsV1(this.db, this.group_id, {
+      ...options.checksumOptions,
+      storageConfig: options?.storageConfig,
+      mapping: this.sync_rules.mapping
+    });
   }
 
   protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {

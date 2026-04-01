@@ -1,21 +1,22 @@
 import { MONGO_OPERATION_TIMEOUT_MS, mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
+import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BaseMongoCompactor, DirtyBucket } from '../common/MongoCompactorBase.js';
 import {
   BucketDataDocumentBase,
-  BucketDataDocumentV3,
   BucketDataKeyV3,
   BucketStateDocumentBase,
   BucketStateDocumentV3,
   TaggedBucketDataDocument,
   taggedBucketDataDocumentToV3
 } from '../models.js';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { BaseMongoCompactor, DirtyBucket } from '../common/MongoCompactorBase.js';
+import { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoCompactorV3 extends BaseMongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
+  declare protected readonly storage: MongoSyncBucketStorageV3;
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -56,7 +57,7 @@ export class MongoCompactorV3 extends BaseMongoCompactor {
   protected async computeChecksumsForBuckets(
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
-    return this.storage.checksums.computePartialChecksumsDirectV3(
+    return this.storage.checksums.computePartialChecksumsDirectByDefinition(
       buckets.map(({ bucket, definitionId }) => {
         if (definitionId == null) {
           throw new ServiceAssertionError(`Missing definitionId for V3 bucket checksum update on bucket ${bucket}`);

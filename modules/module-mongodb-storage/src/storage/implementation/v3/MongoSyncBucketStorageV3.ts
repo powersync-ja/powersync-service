@@ -26,9 +26,13 @@ import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { CommonSourceTableDocument } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
+import { MongoChecksums } from '../MongoChecksums.js';
 
 export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
+  // Declare types to be more specific
   declare readonly db: VersionedPowerSyncMongoV3;
+  declare readonly checksums: MongoChecksumsV3;
 
   constructor(
     factory: MongoBucketStorage,
@@ -66,6 +70,14 @@ export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
         }
       );
     }
+  }
+
+  protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
+    return new MongoChecksumsV3(this.db, this.group_id, {
+      ...options.checksumOptions,
+      storageConfig: options?.storageConfig,
+      mapping: this.sync_rules.mapping
+    });
   }
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
