@@ -311,16 +311,30 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         replication_size_bytes: 0
       };
     }
-    const operations_aggregate = await this.db.bucket_data
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
+
+    const aggregateStaticCollection = async <T extends mongo.Document>(collection: mongo.Collection<T>) => {
+      // We check whether the collection exists before getting the statistics. This avoids repeated
+      // errors in the MongoDB logs if the collection hasn't been created yet.
+      const exists =
+        (await this.db.db.listCollections({ name: collection.collectionName }, { nameOnly: true }).toArray()).length >
+        0;
+      if (!exists) {
+        return [{ storageStats: { size: 0 } }];
+      }
+
+      return collection
+        .aggregate([
+          {
+            $collStats: {
+              storageStats: {}
+            }
           }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+        ])
+        .toArray()
+        .catch(ignoreNotExisting);
+    };
+
+    const operations_aggregate = await aggregateStaticCollection(this.db.bucket_data);
     const v3_operation_aggregates = await Promise.all(
       (await this.db.listBucketDataCollectionsV3()).map((collection) =>
         collection
@@ -336,16 +350,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       )
     );
 
-    const parameters_aggregate = await this.db.bucket_parameters
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
-          }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+    const parameters_aggregate = await aggregateStaticCollection(this.db.bucket_parameters);
 
     const v3_parameter_aggregates = await Promise.all(
       (await this.db.listAllParameterIndexCollectionsV3()).map((collection) =>
@@ -362,16 +367,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       )
     );
 
-    const v1_source_record_aggregate = await this.db.current_data
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
-          }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+    const v1_source_record_aggregate = await aggregateStaticCollection(this.db.current_data);
 
     const source_record_aggregates = await Promise.all(
       (await this.db.listAllSourceRecordCollectionsV3()).map((collection) =>
