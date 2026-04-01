@@ -51,7 +51,7 @@ export class MongoChecksumsV3Impl extends AbstractMongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucket_data_v3(this.group_id, definitionId) as unknown as mongo.Collection<BucketDataDocumentBase>,
+        this.db.bucket_data_v3(this.group_id, definitionId),
         createV3BucketFilter
       );
       for (const checksum of groupResults.values()) {
