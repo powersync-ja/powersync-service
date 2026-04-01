@@ -1,22 +1,13 @@
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
-import {
-  GetCheckpointChangesOptions,
-  PopulateChecksumCacheOptions,
-  PopulateChecksumCacheResults,
-  storage,
-  utils,
-  WatchWriteCheckpointOptions
-} from '@powersync/service-core';
-import * as bson from 'bson';
+import { storage } from '@powersync/service-core';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
-import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './common/MongoSyncBucketStorageBase.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './common/MongoSyncBucketStorage.js';
 import { MongoSyncBucketStorageV1 } from './v1/MongoSyncBucketStorageV1.js';
 import { MongoSyncBucketStorageV3 } from './v3/MongoSyncBucketStorageV3.js';
 
-export { MongoSyncBucketStorageOptions } from './common/MongoSyncBucketStorageBase.js';
+export { MongoSyncBucketStorageOptions } from './common/MongoSyncBucketStorage.js';
 
-export type MongoSyncBucketStorage = BaseMongoSyncBucketStorage;
+export type { MongoSyncBucketStorage };
 
 export function createMongoSyncBucketStorage(
   factory: MongoBucketStorage,

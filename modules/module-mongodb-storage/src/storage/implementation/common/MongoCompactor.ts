@@ -21,7 +21,7 @@ import {
   bucketDataDocumentToTagged
 } from '../models.js';
 import { cacheKey } from '../OperationBatch.js';
-import { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage } from '../createMongoSyncBucketStorage.js';
 
 interface CurrentBucketState {
   /** Bucket name */

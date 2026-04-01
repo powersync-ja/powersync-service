@@ -5,7 +5,7 @@ export * from './implementation/MongoIdSequence.js';
 export * from './implementation/MongoPersistedSyncRules.js';
 export * from './implementation/MongoPersistedSyncRulesContent.js';
 export * from './implementation/MongoStorageProvider.js';
-export * from './implementation/MongoSyncBucketStorage.js';
+export * from './implementation/createMongoSyncBucketStorage.js';
 export * from './implementation/MongoSyncRulesLock.js';
 export * from './implementation/OperationBatch.js';
 export * from './implementation/common/PersistedBatch.js';

@@ -19,7 +19,7 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorage.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
@@ -33,7 +33,7 @@ import { MongoParameterCompactor } from '../common/MongoParameterCompactor.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 
-export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
+export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // Declare types to be more specific
   declare readonly db: VersionedPowerSyncMongoV3;
   declare readonly checksums: MongoChecksumsV3;

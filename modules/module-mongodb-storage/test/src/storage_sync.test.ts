@@ -5,7 +5,7 @@ import { RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { MongoSyncBucketStorage } from '../../src/storage/implementation/MongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { CurrentBucketV3, SyncRuleDocument } from '../../src/storage/implementation/models.js';
