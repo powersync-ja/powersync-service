@@ -1,9 +1,9 @@
+import { findWorkspaceProjects, type Project } from '@pnpm/workspace.projects-reader';
+import fg from 'fast-glob';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import fg from 'fast-glob';
-import { findWorkspaceProjects, type Project } from '@pnpm/workspace.projects-reader';
 
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROD_DEP_SECTIONS = ['dependencies', 'peerDependencies', 'optionalDependencies'] as const;

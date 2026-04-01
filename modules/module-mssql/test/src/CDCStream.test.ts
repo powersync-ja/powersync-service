@@ -1,11 +1,11 @@
-import { describe, expect, test } from 'vitest';
+import { getLatestLSN } from '@module/utils/mssql.js';
+import { storage } from '@powersync/service-core';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
-import { createTestTable, describeWithStorage, insertTestData, waitForPendingCDCChanges } from './util.js';
-import { storage } from '@powersync/service-core';
-import { CDCStreamTestContext } from './CDCStreamTestContext.js';
-import { getLatestLSN } from '@module/utils/mssql.js';
 import sql from 'mssql';
+import { describe, expect, test } from 'vitest';
+import { CDCStreamTestContext } from './CDCStreamTestContext.js';
+import { createTestTable, describeWithStorage, insertTestData, waitForPendingCDCChanges } from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:

@@ -1,5 +1,5 @@
 import { logger } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SourceTableInterface, SqlSyncRules, SyncConfigWithErrors } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SourceTableInterface, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';

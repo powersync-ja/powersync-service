@@ -1,5 +1,5 @@
-import { Scalar } from 'yaml';
 import { describe, expect, test } from 'vitest';
+import { Scalar } from 'yaml';
 import { buildParsedToSourceValueMap } from '../../src/yaml_scalar_map.js';
 
 describe('buildParsedToSourceValueMap', () => {

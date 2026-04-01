@@ -1,7 +1,7 @@
 import { logger } from '@powersync/lib-services-framework';
+import sql from 'mssql';
 import { ResolvedMSSQLConnectionConfig } from '../types/types.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
-import sql from 'mssql';
 
 export class MSSQLConnectionManagerFactory {
   private readonly connectionManagers: Set<MSSQLConnectionManager>;

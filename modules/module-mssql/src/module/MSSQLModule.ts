@@ -6,13 +6,13 @@ import {
   system,
   TearDownOptions
 } from '@powersync/service-core';
-import { MSSQLConnectionManagerFactory } from '../replication/MSSQLConnectionManagerFactory.js';
-import * as types from '../types/types.js';
+import { MSSQLRouteAPIAdapter } from '../api/MSSQLRouteAPIAdapter.js';
 import { CDCReplicator } from '../replication/CDCReplicator.js';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
-import { checkSourceConfiguration } from '../utils/mssql.js';
+import { MSSQLConnectionManagerFactory } from '../replication/MSSQLConnectionManagerFactory.js';
 import { MSSQLErrorRateLimiter } from '../replication/MSSQLErrorRateLimiter.js';
-import { MSSQLRouteAPIAdapter } from '../api/MSSQLRouteAPIAdapter.js';
+import * as types from '../types/types.js';
+import { checkSourceConfiguration } from '../utils/mssql.js';
 
 export class MSSQLModule extends replication.ReplicationModule<types.MSSQLConnectionConfig> {
   constructor() {

@@ -1,4 +1,3 @@
-import sql from 'mssql';
 import {
   DatabaseInputRow,
   DateTimeSourceOptions,
@@ -11,6 +10,7 @@ import {
   TimeValuePrecision,
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
+import sql from 'mssql';
 import { MSSQLUserDefinedType } from '../types/mssql-data-types.js';
 
 export function toSqliteInputRow(row: any, columns: sql.IColumnMetadata): SqliteInputRow {

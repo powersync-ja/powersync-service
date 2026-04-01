@@ -1,8 +1,8 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 
-import { NormalizedMongoConnectionConfig } from '../types/types.js';
-import { BSON_DESERIALIZE_DATA_OPTIONS, POWERSYNC_VERSION } from '@powersync/service-core';
 import { BaseObserver } from '@powersync/lib-services-framework';
+import { BSON_DESERIALIZE_DATA_OPTIONS, POWERSYNC_VERSION } from '@powersync/service-core';
+import { NormalizedMongoConnectionConfig } from '../types/types.js';
 
 export interface MongoManagerListener {
   onEnded(): void;

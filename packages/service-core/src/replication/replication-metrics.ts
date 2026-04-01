@@ -1,5 +1,5 @@
-import { MetricsEngine } from '../metrics/metrics-index.js';
 import { ReplicationMetric } from '@powersync/service-types';
+import { MetricsEngine } from '../metrics/metrics-index.js';
 
 /**
  *  Create and register the core replication metrics.

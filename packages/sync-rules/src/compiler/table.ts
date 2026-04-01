@@ -1,8 +1,8 @@
 import { PGNode } from 'pgsql-ast-parser';
-import { RequestExpression, SingleDependencyExpression } from './filter.js';
-import { StableHasher } from './equality.js';
-import { equalsIgnoringResultSetList } from './compatibility.js';
 import { ImplicitSchemaTablePattern, SourceSchemaTable } from '../index.js';
+import { equalsIgnoringResultSetList } from './compatibility.js';
+import { StableHasher } from './equality.js';
+import { SingleDependencyExpression } from './filter.js';
 
 /**
  * A result set that a query stream selects from.

@@ -1,5 +1,5 @@
-import { ConfigCollector } from '../config-collector.js';
 import { RunnerConfig } from '../../types.js';
+import { ConfigCollector } from '../config-collector.js';
 
 export class Base64ConfigCollector extends ConfigCollector {
   get name(): string {

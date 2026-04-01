@@ -1,7 +1,7 @@
 import { program } from 'commander';
-import { getCheckpointData } from './client.js';
-import { getCredentials } from './auth.js';
 import * as jose from 'jose';
+import { getCredentials } from './auth.js';
+import { getCheckpointData } from './client.js';
 import { concurrentConnections } from './load-testing/load-test.js';
 
 program

@@ -2,8 +2,9 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { Expr, ExprRef, FromCall, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
-import { ExpressionType } from './ExpressionType.js';
+import { CompatibilityContext } from './compatibility.js';
 import { SqlRuleError } from './errors.js';
+import { ExpressionType } from './ExpressionType.js';
 import { REQUEST_FUNCTIONS, RequestFunctionCall, SqlParameterFunction } from './request_functions.js';
 import {
   BASIC_OPERATORS,
@@ -31,6 +32,7 @@ import {
   orFilters,
   toBooleanParameterSetClause
 } from './sql_support.js';
+import { TablePattern } from './TablePattern.js';
 import {
   ClauseError,
   CompiledClause,
@@ -46,8 +48,6 @@ import {
   TrueIfParametersMatch
 } from './types.js';
 import { isJsonValue } from './utils.js';
-import { CompatibilityContext } from './compatibility.js';
-import { TablePattern } from './TablePattern.js';
 
 export const MATCH_CONST_FALSE: TrueIfParametersMatch = [];
 export const MATCH_CONST_TRUE: TrueIfParametersMatch = [{}];

@@ -10,33 +10,33 @@ import {
   SelectFromStatement,
   Statement
 } from 'pgsql-ast-parser';
-import {
-  PhysicalSourceResultSet,
-  TableValuedResultSet,
-  SourceResultSet,
-  SyntacticResultSetSource,
-  BaseSourceResultSet
-} from './table.js';
-import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
+import { expandNodeLocations } from '../errors.js';
+import { SourceSchemaTable } from '../index.js';
+import { cartesianProduct } from '../streams/utils.js';
+import { SqlExpression } from '../sync_plan/expression.js';
+import { ImplicitSchemaTablePattern } from '../TablePattern.js';
+import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
 import { ColumnInRow, ExpressionInput, NodeLocations, SourceLocation, SyncExpression } from './expression.js';
 import {
+  And,
   BaseTerm,
   EqualsClause,
   InvalidExpressionError,
   Or,
-  And,
   RowExpression,
   SingleDependencyExpression
 } from './filter.js';
-import { expandNodeLocations } from '../errors.js';
-import { cartesianProduct } from '../streams/utils.js';
-import { PostgresToSqlite, PreparedSubquery } from './sqlite.js';
-import { SqlScope } from './scope.js';
-import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
-import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { composeExpressionNodes, FilterConditionSimplifier } from './filter_simplifier.js';
-import { SqlExpression } from '../sync_plan/expression.js';
-import { SourceSchemaTable } from '../index.js';
+import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
+import { SqlScope } from './scope.js';
+import { PostgresToSqlite, PreparedSubquery } from './sqlite.js';
+import {
+  BaseSourceResultSet,
+  PhysicalSourceResultSet,
+  SourceResultSet,
+  SyntacticResultSetSource,
+  TableValuedResultSet
+} from './table.js';
 
 /**
  * A parsed stream query in its canonical form.

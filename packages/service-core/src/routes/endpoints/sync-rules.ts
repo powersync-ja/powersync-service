@@ -4,9 +4,9 @@ import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
 import { RouteAPI } from '../../api/RouteAPI.js';
+import { updateSyncRulesFromConfig, updateSyncRulesFromYaml } from '../../storage/BucketStorageFactory.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { updateSyncRulesFromConfig, updateSyncRulesFromYaml } from '../../storage/BucketStorageFactory.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string

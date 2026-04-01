@@ -1,3 +1,4 @@
+import { StreamOptions } from '../sync_plan/plan.js';
 import {
   EvaluateTableValuedFunction,
   ExpandingLookup,
@@ -10,9 +11,12 @@ import {
   StreamResolver
 } from './bucket_resolver.js';
 import { equalsIgnoringResultSet } from './compatibility.js';
+import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
+import { HashMap, HashSet, StableHasher } from './equality.js';
+import { ColumnInRow, SourceLocation } from './expression.js';
 import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
+import { ParsedStreamQuery } from './parser.js';
 import {
-  ExpressionColumnSource,
   PartitionKey,
   PointLookup,
   RowEvaluator,
@@ -20,12 +24,7 @@ import {
   SourceRowProcessorAddedTableValuedFunction,
   TableValuedPartitionKey
 } from './rows.js';
-import { PhysicalSourceResultSet, TableValuedResultSet, SourceResultSet } from './table.js';
-import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
-import { HashMap, HashSet, StableHasher } from './equality.js';
-import { ParsedStreamQuery } from './parser.js';
-import { StreamOptions } from '../sync_plan/plan.js';
-import { ColumnInRow, SourceLocation } from './expression.js';
+import { PhysicalSourceResultSet, SourceResultSet, TableValuedResultSet } from './table.js';
 
 /**
  * Builds stream resolvers for a single stream, potentially consisting of multiple queries.

@@ -1,17 +1,16 @@
+import { describe, expect, test } from 'vitest';
 import {
   applyValueContext,
-  CompatibilityContext,
-  DateTimeValue,
-  toSyncRulesValue,
-  TimeValue,
-  CompatibilityEdition,
-  DateTimeSourceOptions,
-  TimeValuePrecision,
-  ResolvedBucket,
   BucketDataSource,
-  mergeBuckets
+  CompatibilityContext,
+  DateTimeSourceOptions,
+  DateTimeValue,
+  mergeBuckets,
+  ResolvedBucket,
+  TimeValue,
+  TimeValuePrecision,
+  toSyncRulesValue
 } from '../../src/index.js';
-import { describe, expect, test } from 'vitest';
 
 describe('toSyncRulesValue', () => {
   const legacy = new CompatibilityContext({ edition: 1 });

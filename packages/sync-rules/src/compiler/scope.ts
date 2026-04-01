@@ -1,6 +1,6 @@
-import { SyntacticResultSetSource } from './table.js';
 import { ParsingErrorListener } from './compiler.js';
 import { PreparedSubquery } from './sqlite.js';
+import { SyntacticResultSetSource } from './table.js';
 
 /**
  * Utilities for resolving references in SQL statements where multiple tables are in scope.

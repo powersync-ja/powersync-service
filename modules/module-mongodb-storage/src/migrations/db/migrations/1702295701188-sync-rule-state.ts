@@ -1,8 +1,8 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage as core_storage, migrations } from '@powersync/service-core';
 import * as storage from '../../../storage/storage-index.js';
 import { MongoStorageConfig } from '../../../types/types.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
 
 interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
   /**
