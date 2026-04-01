@@ -1,4 +1,3 @@
-// @ts-ignore
 import AJV from 'ajv';
 import AjvErrorFormatter from 'better-ajv-errors';
 
