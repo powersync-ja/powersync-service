@@ -16,6 +16,7 @@ import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoChecksums } from '../MongoChecksums.js';
+import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoBucketBatchOptions } from '../common/MongoBucketBatch.js';
 import { BaseMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../common/MongoSyncBucketStorageBase.js';
@@ -33,6 +34,7 @@ import {
 } from '../models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
+import { MongoCompactorV1 } from './MongoCompactorV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
@@ -63,6 +65,10 @@ export class MongoSyncBucketStorageV1 extends BaseMongoSyncBucketStorage {
       storageConfig: options?.storageConfig,
       mapping: this.sync_rules.mapping
     });
+  }
+
+  protected createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
+    return new MongoCompactorV1(this, this.db, options);
   }
 
   protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {

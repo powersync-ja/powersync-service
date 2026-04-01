@@ -2,7 +2,7 @@ import { MONGO_OPERATION_TIMEOUT_MS, mongo } from '@powersync/lib-service-mongod
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { BaseMongoCompactor, DirtyBucket } from '../common/MongoCompactorBase.js';
+import { DirtyBucket, MongoCompactor } from '../common/MongoCompactor.js';
 import {
   BucketDataDocumentBase,
   BucketDataKeyV3,
@@ -14,7 +14,7 @@ import {
 import { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
-export class MongoCompactorV3 extends BaseMongoCompactor {
+export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
   declare protected readonly storage: MongoSyncBucketStorageV3;
 

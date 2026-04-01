@@ -36,7 +36,7 @@ import {
   StorageConfig
 } from '../models.js';
 import { MongoChecksumOptions, MongoChecksums } from '../MongoChecksums.js';
-import { MongoCompactor } from '../MongoCompactor.js';
+import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from '../MongoWriteCheckpointAPI.js';
@@ -94,6 +94,7 @@ export abstract class BaseMongoSyncBucketStorage
   }
 
   protected abstract createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums;
+  protected abstract createMongoCompactor(options: MongoCompactOptions): MongoCompactor;
 
   get writeCheckpointMode() {
     return this.writeCheckpointAPI.writeCheckpointMode;
@@ -512,7 +513,7 @@ export abstract class BaseMongoSyncBucketStorage
       const checkpoint = await this.getCheckpointInternal();
       maxOpId = checkpoint?.checkpoint ?? undefined;
     }
-    await new MongoCompactor(this as any, this.db, { ...options, maxOpId }).compact();
+    await this.createMongoCompactor({ ...options, maxOpId }).compact();
 
     if (maxOpId != null && options?.compactParameterData) {
       await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
@@ -522,7 +523,7 @@ export abstract class BaseMongoSyncBucketStorage
   async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     logger.info(`Populating persistent checksum cache...`);
     const start = Date.now();
-    const compactor = new MongoCompactor(this as any, this.db, {
+    const compactor = this.createMongoCompactor({
       ...options,
       memoryLimitMB: 0
     });

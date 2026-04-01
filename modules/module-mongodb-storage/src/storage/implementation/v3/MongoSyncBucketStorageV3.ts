@@ -28,6 +28,8 @@ import { CommonSourceTableDocument } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoChecksums } from '../MongoChecksums.js';
+import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoCompactorV3 } from './MongoCompactorV3.js';
 
 export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
   // Declare types to be more specific
@@ -78,6 +80,10 @@ export class MongoSyncBucketStorageV3 extends BaseMongoSyncBucketStorage {
       storageConfig: options?.storageConfig,
       mapping: this.sync_rules.mapping
     });
+  }
+
+  protected createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
+    return new MongoCompactorV3(this, this.db, options);
   }
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
