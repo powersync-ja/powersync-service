@@ -136,12 +136,14 @@ export interface SourceTableDocumentSnapshotStatus {
 /**
  * Record the state of each bucket.
  *
- * Right now, this is just used to track when buckets are updated, for efficient incremental sync.
- * In the future, this could be used to track operation counts, both for diagnostic purposes, and for
- * determining when a compact and/or defragment could be beneficial.
+ * The primary use case is to track when buckets are updated, for efficient incremental sync.
  *
- * Note: There is currently no migration to populate this collection from existing data - it is only
+ * The secondary use case is to track operation counts to determine whether or not a bucket should be compacted.
+ *
+ * Note: For storage V1, there is no migration to populate this collection from existing data - it is only
  * populated by new updates.
+ *
+ * For storage V3, these will always be present.
  */
 export interface BucketStateDocumentBase {
   _id: {

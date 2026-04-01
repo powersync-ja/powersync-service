@@ -88,32 +88,29 @@ export class MongoCompactorV3 extends MongoCompactor {
     bucket: string,
     definitionId: BucketDefinitionId | null
   ): Promise<{ collection: mongo.Collection<BucketDataDocumentBase>; definitionId: BucketDefinitionId } | null> {
-    if (definitionId != null) {
-      return {
-        collection: this.db.bucketDataV3(
-          this.group_id,
-          definitionId
-        ) as unknown as mongo.Collection<BucketDataDocumentBase>,
-        definitionId
-      };
-    }
-
-    // FIXME: This is slow. It is only used when compacting a single bucket without a known definition id.
-    for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
-      const existing = await collection.findOne(
-        { '_id.b': bucket },
-        { projection: { _id: 1 }, maxTimeMS: MONGO_OPERATION_TIMEOUT_MS }
-      );
-      if (existing != null) {
-        const resolvedDefinitionId = collection.collectionName.replace(`bucket_data_${this.group_id}_`, '');
-        return {
-          collection: collection as unknown as mongo.Collection<BucketDataDocumentBase>,
-          definitionId: resolvedDefinitionId
-        };
+    if (definitionId == null) {
+      // Not the _most_ efficient approach, but this is not used often
+      const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();
+      if (allDefinitionIds.length == 0) {
+        return null;
       }
+      const potentialIds = allDefinitionIds.map((definitionId) => ({ d: definitionId, b: bucket }));
+      const bucketState = await this.db.bucketStateV3(this.group_id).findOne({
+        _id: { $in: potentialIds }
+      });
+      if (bucketState == null) {
+        return null;
+      }
+      definitionId = bucketState._id.d;
     }
 
-    return null;
+    return {
+      collection: this.db.bucketDataV3(
+        this.group_id,
+        definitionId
+      ) as unknown as mongo.Collection<BucketDataDocumentBase>,
+      definitionId
+    };
   }
 
   protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentBase {
