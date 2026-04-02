@@ -8,7 +8,7 @@ import {
 } from '../common/SingleBucketStore.js';
 import { BucketDataProperties } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { BucketDataDocumentV3, BucketDataKeyV3 } from './models.js';
+import { BucketDataDocumentV3, BucketDataKeyV3, loadBucketDataDocumentV3, serializeBucketDataV3 } from './models.js';
 
 export class SingleBucketStoreV3 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
@@ -47,25 +47,11 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    const { o, ...rest } = source;
-    const doc: BucketDataDocumentV3 = {
-      _id: {
-        b: this.key.bucket,
-        o: o
-      },
-      ...rest
-    };
-    return doc as BucketDataDocumentGeneric;
+    return serializeBucketDataV3({ bucketKey: this.key, ...source }) as BucketDataDocumentGeneric;
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    const document = doc as BucketDataDocumentV3;
-    const { _id, ...rest } = document;
-    return {
-      bucketKey: this.key,
-      o: _id.o,
-      ...rest
-    };
+    return loadBucketDataDocumentV3(this.key, doc as BucketDataDocumentV3);
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(

@@ -19,7 +19,7 @@ import {
   BucketParameterDocument,
   BucketStateDocumentV1,
   CurrentDataDocument,
-  taggedBucketDataDocumentToV1,
+  serializeBucketDataV1,
   taggedBucketParameterDocumentToV1
 } from './models.js';
 
@@ -213,7 +213,7 @@ export class PersistedBatchV1 extends PersistedBatch {
     await this.db.bucketDataV1.bulkWrite(
       this.bucketData.map((document) => ({
         insertOne: {
-          document: taggedBucketDataDocumentToV1(document)
+          document: serializeBucketDataV1(document)
         }
       })),
       {

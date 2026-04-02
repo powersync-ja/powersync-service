@@ -8,7 +8,7 @@ import {
 } from '../common/SingleBucketStore.js';
 import { BucketDataProperties } from '../models.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-import { BucketDataDocumentV1, BucketDataKeyV1 } from './models.js';
+import { BucketDataDocumentV1, BucketDataKeyV1, serializeBucketDataV1 } from './models.js';
 
 export class SingleBucketStoreV1 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
@@ -47,16 +47,7 @@ export class SingleBucketStoreV1 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    const { o, ...rest } = source;
-    const doc: BucketDataDocumentV1 = {
-      _id: {
-        g: this.key.replicationStreamId,
-        b: this.key.bucket,
-        o: o
-      },
-      ...rest
-    };
-    return doc as unknown as BucketDataDocumentGeneric;
+    return serializeBucketDataV1({ bucketKey: this.key, ...source }) as unknown as BucketDataDocumentGeneric;
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {

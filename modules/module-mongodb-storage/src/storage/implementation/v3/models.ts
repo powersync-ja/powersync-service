@@ -44,14 +44,22 @@ export interface BucketDataDocumentV3 extends BucketDataDocumentBase {
   _id: BucketDataKeyV3;
 }
 
-export function taggedBucketDataDocumentToV3(document: BucketDataDoc): BucketDataDocumentV3 {
-  const { bucketKey, o, ...rest } = document;
+export function serializeBucketDataV3(document: BucketDataDoc): BucketDataDocumentV3 {
+  const { bucketKey, o } = document;
   return {
     _id: {
       b: bucketKey.bucket,
       o: o
     },
-    ...rest
+    // List fields directly, so that we don't accidentally persist any unknown fields
+    op: document.op,
+    source_table: document.source_table,
+    source_key: document.source_key,
+    table: document.table,
+    row_id: document.row_id,
+    checksum: document.checksum,
+    data: document.data,
+    target_op: document.target_op
   };
 }
 

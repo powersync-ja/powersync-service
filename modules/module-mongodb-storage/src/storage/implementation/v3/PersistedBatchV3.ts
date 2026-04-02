@@ -18,8 +18,8 @@ import {
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
+  serializeBucketDataV3,
   SourceTableDocumentV3,
-  taggedBucketDataDocumentToV3,
   taggedBucketParameterDocumentToV3
 } from './models.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
@@ -270,7 +270,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       await this.db.bucketDataV3(this.group_id, definitionId).bulkWrite(
         documents.map((document) => ({
           insertOne: {
-            document: taggedBucketDataDocumentToV3(document)
+            document: serializeBucketDataV3(document)
           }
         })),
         {
