@@ -2,10 +2,12 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
-import { Logger, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { InternalOpId, storage } from '@powersync/service-core';
-import { mongoTableId } from '../../../utils/util.js';
+import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
+import { InternalOpId, storage, utils } from '@powersync/service-core';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
 import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
 import { TaggedBucketParameterDocument } from '../models.js';
@@ -94,7 +96,77 @@ export abstract class PersistedBatch {
     this.logger = options?.logger ?? defaultLogger;
   }
 
-  abstract saveBucketData(options: SaveBucketDataOptions): void;
+  saveBucketData(options: SaveBucketDataOptions) {
+    const remaining_buckets = new Map<string, SaveBucketDataOptions['before_buckets'][number]>();
+    for (let bucket of options.before_buckets) {
+      remaining_buckets.set(currentBucketKey(bucket), bucket);
+    }
+
+    const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
+
+    for (const evaluated of options.evaluated) {
+      const sourceDefinitionId = this.mapping.bucketSourceId(evaluated.source);
+      const key = currentBucketKey({
+        definitionId: sourceDefinitionId,
+        bucket: evaluated.bucket,
+        table: evaluated.table,
+        id: evaluated.id
+      });
+
+      const recordData = JSONBig.stringify(evaluated.data);
+      const checksum = utils.hashData(evaluated.table, evaluated.id, recordData);
+      if (recordData.length > MAX_ROW_SIZE) {
+        this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
+        continue;
+      }
+
+      remaining_buckets.delete(key);
+      const byteEstimate = recordData.length + 200;
+      this.currentSize += byteEstimate;
+
+      const op_id = options.op_seq.next();
+      this.debugLastOpId = op_id;
+
+      this.addBucketDataPut({
+        bucketKey: {
+          bucket: evaluated.bucket,
+          definitionId: sourceDefinitionId,
+          replicationStreamId: this.group_id
+        },
+        op_id,
+        bucket: evaluated.bucket,
+        sourceTableId: options.table.id,
+        sourceKey: options.sourceKey,
+        table: evaluated.table,
+        rowId: evaluated.id,
+        checksum: BigInt(checksum),
+        data: recordData
+      });
+      this.incrementBucket(sourceDefinitionId, evaluated.bucket, op_id, byteEstimate);
+    }
+
+    for (let bucket of remaining_buckets.values()) {
+      const definitionId = this.checkDefinitionId(bucket.definitionId);
+      const op_id = options.op_seq.next();
+      this.debugLastOpId = op_id;
+
+      this.addBucketDataRemove({
+        bucketKey: {
+          replicationStreamId: this.group_id,
+          definitionId,
+          bucket: bucket.bucket
+        },
+        op_id,
+        sourceTableId: options.table.id,
+        sourceKey: options.sourceKey,
+        table: bucket.table,
+        rowId: bucket.id,
+        checksum: dchecksum
+      });
+      this.currentSize += 200;
+      this.incrementBucket(definitionId, bucket.bucket, op_id, 200);
+    }
+  }
 
   abstract saveParameterData(data: SaveParameterDataOptions): void;
 
@@ -120,16 +192,13 @@ export abstract class PersistedBatch {
 
   protected abstract resetCurrentData(): void;
 
+  protected abstract checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId;
+
   protected get bucketDataCount(): number {
     return this.bucketData.length;
   }
 
-  protected incrementBucket(
-    definitionId: BucketDefinitionId | null,
-    bucket: string,
-    op_id: InternalOpId,
-    bytes: number
-  ) {
+  protected incrementBucket(definitionId: BucketDefinitionId, bucket: string, op_id: InternalOpId, bytes: number) {
     const key = `${definitionId ?? ''}:${bucket}`;
     let existingState = this.bucketStates.get(key);
     if (existingState) {

@@ -1,15 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { storage, utils } from '@powersync/service-core';
-import { JSONBig } from '@powersync/service-jsonbig';
+import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 
-import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
-import { currentBucketKey, EMPTY_DATA, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
+import { mongoTableId } from '../../../utils/util.js';
+import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { EMPTY_DATA } from '../MongoBucketBatchShared.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
-  SaveBucketDataOptions,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
@@ -28,77 +27,9 @@ export class PersistedBatchV1 extends PersistedBatch {
 
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
 
-  saveBucketData(options: SaveBucketDataOptions) {
-    const remaining_buckets = new Map<string, SaveBucketDataOptions['before_buckets'][number]>();
-    for (let bucket of options.before_buckets) {
-      if (bucket.definitionId != null) {
-        throw new ReplicationAssertionError('Unexpected v3 bucket when incrementalReprocessing is disabled');
-      }
-      remaining_buckets.set(currentBucketKey(bucket), bucket);
-    }
-
-    const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
-
-    for (const evaluated of options.evaluated) {
-      const key = currentBucketKey({
-        definitionId: null,
-        bucket: evaluated.bucket,
-        table: evaluated.table,
-        id: evaluated.id
-      });
-
-      const recordData = JSONBig.stringify(evaluated.data);
-      const checksum = utils.hashData(evaluated.table, evaluated.id, recordData);
-      if (recordData.length > MAX_ROW_SIZE) {
-        this.logger.error(`Row ${key} too large: ${recordData.length} bytes. Removing.`);
-        continue;
-      }
-
-      remaining_buckets.delete(key);
-      const byteEstimate = recordData.length + 200;
-      this.currentSize += byteEstimate;
-
-      const op_id = options.op_seq.next();
-      this.debugLastOpId = op_id;
-
-      this.addBucketDataPut({
-        bucketKey: {
-          replicationStreamId: this.group_id,
-          definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
-          bucket: evaluated.bucket
-        },
-        op_id,
-        bucket: evaluated.bucket,
-        sourceTableId: options.table.id,
-        sourceKey: options.sourceKey,
-        table: evaluated.table,
-        rowId: evaluated.id,
-        checksum: BigInt(checksum),
-        data: recordData
-      });
-      this.incrementBucket(null, evaluated.bucket, op_id, byteEstimate);
-    }
-
-    for (let bucket of remaining_buckets.values()) {
-      const op_id = options.op_seq.next();
-      this.debugLastOpId = op_id;
-
-      this.addBucketDataRemove({
-        bucketKey: {
-          replicationStreamId: this.group_id,
-          definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
-          bucket: bucket.bucket
-        },
-        op_id,
-        sourceTableId: options.table.id,
-        sourceKey: options.sourceKey,
-        table: bucket.table,
-        rowId: bucket.id,
-        checksum: dchecksum
-      });
-      this.currentSize += 200;
-      this.incrementBucket(null, bucket.bucket, op_id, 200);
-    }
+  protected checkDefinitionId(_definitionId: BucketDefinitionId | null): BucketDefinitionId {
+    // V1 storage doesn't persist the id, and we don't use it.
+    return LEGACY_BUCKET_DATA_DEFINITION_ID;
   }
 
   saveParameterData(data: SaveParameterDataOptions) {
