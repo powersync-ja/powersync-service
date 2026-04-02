@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { BucketDataSource, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
@@ -99,15 +99,21 @@ export abstract class PersistedBatch {
   saveBucketData(options: SaveBucketDataOptions) {
     const remaining_buckets = new Map<string, SaveBucketDataOptions['before_buckets'][number]>();
     for (let bucket of options.before_buckets) {
-      remaining_buckets.set(currentBucketKey(bucket), bucket);
+      const mapped: SourceRecordBucketState = {
+        bucket: bucket.bucket,
+        definitionId: this.checkDefinitionId(bucket.definitionId),
+        id: bucket.id,
+        table: bucket.table
+      };
+      remaining_buckets.set(currentBucketKey(mapped), mapped);
     }
 
     const dchecksum = BigInt(utils.hashDelete(replicaIdToSubkey(options.table.id, options.sourceKey)));
 
     for (const evaluated of options.evaluated) {
-      const sourceDefinitionId = this.mapping.bucketSourceId(evaluated.source);
+      const definitionId = this.getBucketDefinitionId(evaluated.source);
       const key = currentBucketKey({
-        definitionId: sourceDefinitionId,
+        definitionId: definitionId,
         bucket: evaluated.bucket,
         table: evaluated.table,
         id: evaluated.id
@@ -130,7 +136,7 @@ export abstract class PersistedBatch {
       this.addBucketDataPut({
         bucketKey: {
           bucket: evaluated.bucket,
-          definitionId: sourceDefinitionId,
+          definitionId: definitionId,
           replicationStreamId: this.group_id
         },
         op_id,
@@ -142,11 +148,11 @@ export abstract class PersistedBatch {
         checksum: BigInt(checksum),
         data: recordData
       });
-      this.incrementBucket(sourceDefinitionId, evaluated.bucket, op_id, byteEstimate);
+      this.incrementBucket(definitionId, evaluated.bucket, op_id, byteEstimate);
     }
 
     for (let bucket of remaining_buckets.values()) {
-      const definitionId = this.checkDefinitionId(bucket.definitionId);
+      const definitionId = bucket.definitionId!;
       const op_id = options.op_seq.next();
       this.debugLastOpId = op_id;
 
@@ -193,6 +199,7 @@ export abstract class PersistedBatch {
   protected abstract resetCurrentData(): void;
 
   protected abstract checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId;
+  protected abstract getBucketDefinitionId(bucketSource: BucketDataSource): BucketDefinitionId;
 
   protected get bucketDataCount(): number {
     return this.bucketData.length;

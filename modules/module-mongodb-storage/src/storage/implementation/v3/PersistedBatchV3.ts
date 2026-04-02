@@ -1,6 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
+import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
@@ -34,6 +35,10 @@ export class PersistedBatchV3 extends PersistedBatch {
       throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
     }
     return definitionId;
+  }
+
+  protected getBucketDefinitionId(bucketSource: BucketDataSource): BucketDefinitionId {
+    return this.mapping.bucketSourceId(bucketSource);
   }
 
   saveParameterData(data: SaveParameterDataOptions) {

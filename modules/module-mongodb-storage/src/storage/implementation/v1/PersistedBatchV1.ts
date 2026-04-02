@@ -3,6 +3,7 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 
+import { BucketDataSource } from '@powersync/service-sync-rules';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { EMPTY_DATA } from '../MongoBucketBatchShared.js';
@@ -29,6 +30,10 @@ export class PersistedBatchV1 extends PersistedBatch {
 
   protected checkDefinitionId(_definitionId: BucketDefinitionId | null): BucketDefinitionId {
     // V1 storage doesn't persist the id, and we don't use it.
+    return LEGACY_BUCKET_DATA_DEFINITION_ID;
+  }
+
+  protected getBucketDefinitionId(_bucketSource: BucketDataSource): BucketDefinitionId {
     return LEGACY_BUCKET_DATA_DEFINITION_ID;
   }
 
