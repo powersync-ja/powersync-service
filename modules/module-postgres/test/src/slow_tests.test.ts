@@ -23,7 +23,7 @@ import {
   reduceBucket,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { METRICS_HELPER, StorageDataHelpers, test_utils } from '@powersync/service-core-tests';
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import * as timers from 'node:timers/promises';
@@ -97,6 +97,7 @@ bucket_definitions:
 `;
     const syncRules = await f.updateSyncRules(updateSyncRulesFromYaml(syncRuleContent, { storageVersion }));
     const storage = f.getInstance(syncRules);
+    const helpers = new StorageDataHelpers(storage, syncRules);
     abortController = new AbortController();
     const options: WalStreamOptions = {
       abort_signal: abortController.signal,
@@ -182,62 +183,11 @@ bucket_definitions:
           }
 
           const checkpoint = (await storage.getCheckpoint()).checkpoint;
-          if (f instanceof mongo_storage.storage.MongoBucketStorage) {
-            const opsBefore = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
-              .filter((row) => row._id.o <= checkpoint)
-              .map((row) =>
-                mongo_storage.storage.bucketDataDocumentToTagged(
-                  row,
-                  mongo_storage.storage.LEGACY_BUCKET_DATA_DEFINITION_ID
-                )
-              )
-              .map(mongo_storage.storage.mapOpEntry);
-            await storage.compact({ maxOpId: checkpoint });
-            const opsAfter = (await f.db.bucket_data.find().sort({ _id: 1 }).toArray())
-              .filter((row) => row._id.o <= checkpoint)
-              .map((row) =>
-                mongo_storage.storage.bucketDataDocumentToTagged(
-                  row,
-                  mongo_storage.storage.LEGACY_BUCKET_DATA_DEFINITION_ID
-                )
-              )
-              .map(mongo_storage.storage.mapOpEntry);
+          const opsBefore = await helpers.getBucketData('global[]', checkpoint);
+          await storage.compact({ maxOpId: checkpoint });
+          const opsAfter = await helpers.getBucketData('global[]', checkpoint);
 
-            test_utils.validateCompactedBucket(opsBefore, opsAfter);
-          } else if (f instanceof postgres_storage.PostgresBucketStorageFactory) {
-            const { db } = f;
-            const opsBefore = (
-              await db.sql`
-                SELECT
-                  *
-                FROM
-                  bucket_data
-                WHERE
-                  op_id <= ${{ type: 'int8', value: checkpoint }}
-                ORDER BY
-                  op_id ASC
-              `
-                .decoded(postgres_storage.models.BucketData)
-                .rows()
-            ).map(postgres_storage.utils.mapOpEntry);
-            await storage.compact({ maxOpId: checkpoint });
-            const opsAfter = (
-              await db.sql`
-                SELECT
-                  *
-                FROM
-                  bucket_data
-                WHERE
-                  op_id <= ${{ type: 'int8', value: checkpoint }}
-                ORDER BY
-                  op_id ASC
-              `
-                .decoded(postgres_storage.models.BucketData)
-                .rows()
-            ).map(postgres_storage.utils.mapOpEntry);
-
-            test_utils.validateCompactedBucket(opsBefore, opsAfter);
-          }
+          test_utils.validateCompactedBucket(opsBefore, opsAfter);
         }
       };
 
@@ -259,24 +209,6 @@ bucket_definitions:
           return bson.deserialize(doc.data.buffer) as SqliteRow;
         });
         expect(transformed).toEqual([]);
-
-        // Check that each PUT has a REMOVE
-        const ops = await f.db.bucket_data.find().sort({ _id: 1 }).toArray();
-
-        // All a single bucket in this test
-        const bucket = ops
-          .map((op) =>
-            mongo_storage.storage.bucketDataDocumentToTagged(op, mongo_storage.storage.LEGACY_BUCKET_DATA_DEFINITION_ID)
-          )
-          .map((op) => mongo_storage.storage.mapOpEntry(op));
-        const reduced = test_utils.reduceBucket(bucket);
-        expect(reduced).toMatchObject([
-          {
-            op_id: '0',
-            op: 'CLEAR'
-          }
-          // Should contain no additional data
-        ]);
       } else if (f instanceof postgres_storage.storage.PostgresBucketStorageFactory) {
         const { db } = f;
         // Check that all inserts have been deleted again
@@ -317,6 +249,19 @@ bucket_definitions:
           // Should contain no additional data
         ]);
       }
+
+      // Check that each PUT has a REMOVE
+      const checkpoint = (await storage.getCheckpoint()).checkpoint;
+      const ops = await helpers.getBucketData('global[]', checkpoint);
+
+      const reduced = test_utils.reduceBucket(ops);
+      expect(reduced).toMatchObject([
+        {
+          op_id: '0',
+          op: 'CLEAR'
+        }
+        // Should contain no additional data
+      ]);
     }
 
     abortController.abort();

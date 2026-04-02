@@ -1,12 +1,13 @@
 import * as bson from 'bson';
+import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketDataDocumentBase,
   BucketParameterDocumentBase,
   BucketStateDocumentBase,
   CurrentBucket,
+  LEGACY_BUCKET_DATA_DEFINITION_ID,
   SourceKey,
   SourceTableDocument,
-  TaggedBucketDataDocument,
   TaggedBucketParameterDocument
 } from '../models.js';
 
@@ -32,17 +33,27 @@ export interface BucketDataDocumentV1 extends BucketDataDocumentBase {
   _id: BucketDataKeyV1;
 }
 
-export function taggedBucketDataDocumentToV1(
-  groupId: number,
-  document: TaggedBucketDataDocument
-): BucketDataDocumentV1 {
-  const { def: _definitionId, _id: _id, ...rest } = document;
+export function taggedBucketDataDocumentToV1(document: BucketDataDoc): BucketDataDocumentV1 {
+  const { bucketKey, o, ...rest } = document;
   return {
     _id: {
-      g: groupId,
-      b: _id.b,
-      o: _id.o
+      g: bucketKey.replicationStreamId,
+      b: bucketKey.bucket,
+      o: o
     },
+    ...rest
+  };
+}
+
+export function loadBucketDataDocumentV1(doc: BucketDataDocumentV1): BucketDataDoc {
+  const { _id, ...rest } = doc;
+  return {
+    bucketKey: {
+      replicationStreamId: _id.g,
+      definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
+      bucket: _id.b
+    },
+    o: _id.o,
     ...rest
   };
 }

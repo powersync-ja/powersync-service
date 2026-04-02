@@ -66,8 +66,12 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.debugLastOpId = op_id;
 
       this.addBucketDataPut({
+        bucketKey: {
+          bucket: evaluated.bucket,
+          definitionId: sourceDefinitionId,
+          replicationStreamId: this.group_id
+        },
         op_id,
-        definitionId: sourceDefinitionId,
         bucket: evaluated.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
@@ -88,9 +92,12 @@ export class PersistedBatchV3 extends PersistedBatch {
       }
 
       this.addBucketDataRemove({
+        bucketKey: {
+          bucket: bucket.bucket,
+          definitionId,
+          replicationStreamId: this.group_id
+        },
         op_id,
-        definitionId,
-        bucket: bucket.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
         table: bucket.table,
@@ -254,9 +261,9 @@ export class PersistedBatchV3 extends PersistedBatch {
   protected async flushBucketData(session: mongo.ClientSession) {
     const operationsByDefinition = new Map<BucketDefinitionId, typeof this.bucketData>();
     for (const document of this.bucketData) {
-      const existing = operationsByDefinition.get(document.def) ?? [];
+      const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
       existing.push(document);
-      operationsByDefinition.set(document.def, existing);
+      operationsByDefinition.set(document.bucketKey.definitionId, existing);
     }
 
     for (const [definitionId, documents] of operationsByDefinition.entries()) {

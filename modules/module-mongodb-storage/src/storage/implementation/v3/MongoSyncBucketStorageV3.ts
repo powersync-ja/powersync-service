@@ -18,14 +18,14 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { bucketDataDocumentToTagged, CommonSourceTableDocument } from '../models.js';
+import { CommonSourceTableDocument } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
-import { BucketDataDocumentV3, BucketParameterDocumentV3 } from './models.js';
+import { BucketDataDocumentV3, BucketParameterDocumentV3, loadBucketDataDocumentV3 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
@@ -365,11 +365,11 @@ export async function* getBucketDataBatchV3(
     let targetOp: InternalOpId | null = null;
 
     for (let rawData of data) {
-      const row = bucketDataDocumentToTagged(
-        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3,
-        definitionId
+      const row = loadBucketDataDocumentV3(
+        { replicationStreamId: ctx.group_id, definitionId },
+        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
       );
-      const bucket = row._id.b;
+      const bucket = row.bucketKey.bucket;
 
       if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
         let start: ProtocolOpId | undefined = undefined;

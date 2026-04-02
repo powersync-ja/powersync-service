@@ -14,7 +14,7 @@ export class MongoChecksumsV1 extends MongoChecksums {
   async computePartialChecksumsDirectByBucket(
     batch: FetchPartialBucketChecksumByBucket[]
   ): Promise<PartialChecksumMap> {
-    return this.computePartialChecksumsForCollection(batch, this.db.v1_bucket_data, (request) => ({
+    return this.computePartialChecksumsForCollection(batch, this.db.bucketDataV1, (request) => ({
       _id: {
         $gt: {
           g: this.group_id,

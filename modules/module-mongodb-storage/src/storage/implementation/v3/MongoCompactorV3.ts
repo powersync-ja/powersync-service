@@ -1,11 +1,13 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { InternalOpId, storage } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { BucketDataDocumentBase, BucketStateDocumentBase, TaggedBucketDataDocument } from '../models.js';
-import { BucketDataCollectionContext, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import { BucketDataKeyV3, BucketStateDocumentV3, taggedBucketDataDocumentToV3 } from './models.js';
+import { SingleBucketStore } from '../common/SingleBucketStore.js';
+import { BucketStateDocumentBase } from '../models.js';
+import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { BucketStateDocumentV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
+import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoCompactorV3 extends MongoCompactor {
@@ -80,14 +82,10 @@ export class MongoCompactorV3 extends MongoCompactor {
     };
   }
 
-  protected bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): BucketDataKeyV3 {
-    return { b: bucket, o: opId as any };
-  }
-
   protected async getBucketDataContext(
     bucket: string,
     definitionId: BucketDefinitionId | null
-  ): Promise<BucketDataCollectionContext | null> {
+  ): Promise<SingleBucketStore | null> {
     if (definitionId == null) {
       // Not the _most_ efficient approach, but this is not used often
       const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();
@@ -104,16 +102,6 @@ export class MongoCompactorV3 extends MongoCompactor {
       definitionId = bucketState._id.d;
     }
 
-    return {
-      collection: this.db.bucketDataV3(
-        this.group_id,
-        definitionId
-      ) as unknown as mongo.Collection<BucketDataDocumentBase>,
-      definitionId
-    };
-  }
-
-  protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentBase {
-    return taggedBucketDataDocumentToV3(document);
+    return new SingleBucketStoreV3(this.db, { bucket, definitionId, replicationStreamId: this.group_id });
   }
 }

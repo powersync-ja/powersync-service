@@ -10,17 +10,12 @@ import {
 } from '@powersync/service-core';
 
 import { BucketDefinitionId } from './BucketDefinitionMapping.js';
+import { BucketDataDoc, BucketKey } from './common/BucketDataDoc.js';
+import { BucketDataDocumentGeneric, SingleBucketStore } from './common/SingleBucketStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import {
-  BucketDataDocumentBase,
-  bucketDataDocumentToTagged,
-  BucketStateDocumentBase,
-  TaggedBucketDataDocument
-} from './models.js';
+import { BucketStateDocumentBase } from './models.js';
 import type { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
-import { BucketDataDocumentV1 } from './v1/models.js';
-import { BucketDataDocumentV3 } from './v3/models.js';
 
 interface CurrentBucketState {
   /** Bucket name */
@@ -56,18 +51,7 @@ interface CurrentBucketState {
   opBytes: number;
 }
 
-type CompactBucketDataDocument = TaggedBucketDataDocument & {
-  size: number | bigint;
-};
-
-type CompactClearBucketDataDocument = Pick<TaggedBucketDataDocument, '_id' | 'def' | 'op' | 'checksum' | 'target_op'>;
-type BucketDataCollectionDocument = BucketDataDocumentV1 | BucketDataDocumentV3;
-type BucketDataClearProjection = {
-  _id: BucketDataDocumentBase['_id'];
-  op: CompactClearBucketDataDocument['op'];
-  checksum: bigint;
-  target_op?: bigint | null;
-};
+type CompactClearProperties = 'op' | 'checksum' | 'target_op';
 
 export interface MongoCompactOptions extends storage.CompactOptions {}
 
@@ -88,7 +72,7 @@ export interface DirtyBucket {
 }
 
 export abstract class MongoCompactor {
-  protected updates: mongo.AnyBulkWriteOperation<BucketDataDocumentBase>[] = [];
+  protected updates: mongo.AnyBulkWriteOperation<BucketDataDocumentGeneric>[] = [];
   protected bucketStateUpdates: mongo.AnyBulkWriteOperation<BucketStateDocumentBase>[] = [];
 
   protected readonly idLimitBytes: number;
@@ -336,7 +320,7 @@ export abstract class MongoCompactor {
     }
     const currentState: CurrentBucketState = {
       bucket,
-      definitionId: bucketContext.definitionId,
+      definitionId: bucketContext.key.definitionId,
       seen: new Map(),
       trackingSize: 0,
       lastNotPut: null,
@@ -347,9 +331,9 @@ export abstract class MongoCompactor {
     };
 
     // Constant lower bound.
-    const lowerBound = this.bucketDataKey(bucket, new mongo.MinKey() as any);
+    const lowerBound = bucketContext.minId;
     // Upper bound is adjusted for each batch.
-    let upperBound = this.bucketDataKey(bucket, new mongo.MaxKey() as any);
+    let upperBound = bucketContext.maxId;
 
     while (true) {
       this.signal?.throwIfAborted();
@@ -384,7 +368,7 @@ export abstract class MongoCompactor {
         }
       ];
 
-      const cursor = bucketContext.collection.aggregate<BucketDataCollectionDocument & { size: number | bigint }>(
+      const cursor = bucketContext.collection.aggregate<BucketDataDocumentGeneric & { size: number | bigint }>(
         pipeline,
         {
           // batchSize is 1 more than limit to auto-close the cursor.
@@ -395,7 +379,13 @@ export abstract class MongoCompactor {
       // We don't limit to a single batch here, since that often causes MongoDB to scan through more than it returns.
       // Instead, we load up to the limit.
       const rawBatch = await cursor.toArray();
-      const batch = rawBatch.map((document) => this.tagBucketDataDocument(document, bucketContext.definitionId));
+      const batch = rawBatch.map((document) => {
+        const { size, ...rest } = document;
+        return {
+          doc: bucketContext.fromPersistedDocument(rest),
+          size
+        };
+      });
 
       if (batch.length == 0) {
         // We've reached the end.
@@ -405,8 +395,8 @@ export abstract class MongoCompactor {
       // Reuse the exact collection _id value from Mongo for the next bound.
       upperBound = rawBatch[rawBatch.length - 1]._id;
 
-      for (const doc of batch) {
-        if (doc._id.o > this.maxOpId) {
+      for (const { doc, size } of batch) {
+        if (doc.o > this.maxOpId) {
           continue;
         }
 
@@ -415,7 +405,7 @@ export abstract class MongoCompactor {
 
         let isPersistentPut = doc.op == 'PUT';
 
-        currentState.opBytes += Number(doc.size);
+        currentState.opBytes += Number(size);
         if (doc.op == 'REMOVE' || doc.op == 'PUT') {
           const key = `${doc.table}/${doc.row_id}/${cacheKey(doc.source_table!, doc.source_key!)}`;
           const targetOp = currentState.seen.get(key);
@@ -425,7 +415,7 @@ export abstract class MongoCompactor {
 
             this.updates.push({
               updateOne: {
-                filter: { _id: this.bucketDataKey(doc._id.b, doc._id.o) },
+                filter: { _id: bucketContext.docId(doc.o) },
                 update: {
                   $set: {
                     op: 'MOVE',
@@ -438,15 +428,15 @@ export abstract class MongoCompactor {
                     row_id: 1,
                     data: 1
                   }
-                } satisfies mongo.UpdateFilter<BucketDataDocumentBase>
+                } satisfies mongo.UpdateFilter<BucketDataDocumentGeneric>
               }
             });
 
             // TODO: better estimate for this.
-            currentState.opBytes += 200 - Number(doc.size);
+            currentState.opBytes += 200 - Number(size);
           } else if (currentState.trackingSize < idLimitBytes) {
             // flatstr reduces the memory usage by flattening the string.
-            currentState.seen.set(utils.flatstr(key), doc._id.o);
+            currentState.seen.set(utils.flatstr(key), doc.o);
             // length + 16 for the string
             // 24 for the bigint
             // 50 for map overhead
@@ -460,13 +450,13 @@ export abstract class MongoCompactor {
           currentState.opsSincePut = 0;
         } else if (doc.op != 'CLEAR') {
           if (currentState.lastNotPut == null) {
-            currentState.lastNotPut = doc._id.o;
+            currentState.lastNotPut = doc.o;
           }
           currentState.opsSincePut += 1;
         }
 
         if (this.updates.length + this.bucketStateUpdates.length >= this.moveBatchLimit) {
-          await this.flush(bucketContext.collection);
+          await this.flush(bucketContext);
         }
       }
 
@@ -480,14 +470,14 @@ export abstract class MongoCompactor {
         `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
       );
       // Need flush() before clear().
-      await this.flush(bucketContext.collection);
+      await this.flush(bucketContext);
       await this.clearBucket(currentState, bucketContext);
     }
 
     // Do this after clearBucket so we have accurate counts.
     this.updateBucketChecksums(currentState);
     // Need another flush after updateBucketChecksums().
-    await this.flush(bucketContext.collection);
+    await this.flush(bucketContext);
   }
 
   protected updateBucketChecksums(state: CurrentBucketState) {
@@ -522,10 +512,10 @@ export abstract class MongoCompactor {
     });
   }
 
-  protected async flush(collection: mongo.Collection<BucketDataDocumentBase>) {
+  protected async flush(col: SingleBucketStore) {
     if (this.updates.length > 0) {
       logger.info(`Compacting ${this.updates.length} ops`);
-      await collection.bulkWrite(this.updates, {
+      await col.collection.bulkWrite(this.updates, {
         // Order is not important. Since checksums are not affected, these operations can happen in any order,
         // and it's fine if the operations are partially applied. Each individual operation is atomic.
         ordered: false
@@ -549,14 +539,13 @@ export abstract class MongoCompactor {
    *
    * @param currentState tracks the last non-PUT op, which will be converted to CLEAR.
    */
-  protected async clearBucket(currentState: CurrentBucketState, context: BucketDataCollectionContext) {
-    const bucket = currentState.bucket;
+  protected async clearBucket(currentState: CurrentBucketState, col: SingleBucketStore) {
     const clearOp = currentState.lastNotPut!;
 
     const opFilter = {
       _id: {
-        $gte: this.bucketDataKey(bucket, new mongo.MinKey() as any),
-        $lte: this.bucketDataKey(bucket, clearOp)
+        $gte: col.minId,
+        $lte: col.docId(clearOp)
       }
     };
 
@@ -571,24 +560,27 @@ export abstract class MongoCompactor {
         // We need a transaction per batch to make sure checksums stay consistent.
         await session.withTransaction(
           async () => {
-            const query = context.collection.find(opFilter as any, {
-              session,
-              sort: { _id: 1 },
-              projection: {
-                _id: 1,
-                op: 1,
-                checksum: 1,
-                target_op: 1
-              },
-              limit: this.clearBatchLimit
-            });
+            const query = col.collection.find<Pick<BucketDataDocumentGeneric, '_id' | CompactClearProperties>>(
+              opFilter,
+              {
+                session,
+                sort: { _id: 1 },
+                projection: {
+                  _id: 1,
+                  op: 1,
+                  checksum: 1,
+                  target_op: 1
+                },
+                limit: this.clearBatchLimit
+              }
+            );
             let checksum = 0;
-            let lastOp: CompactClearBucketDataDocument | null = null;
+            let lastOp: Pick<BucketDataDoc, 'o' | CompactClearProperties> | null = null;
             let targetOp: bigint | null = null;
             let gotAnOp = false;
             let numberOfOpsToClear = 0;
             for await (const rawOp of query.stream()) {
-              const op = this.tagClearBucketDataDocument(rawOp as BucketDataClearProjection, context.definitionId);
+              const op = col.fromPartialPersistedDocument(rawOp);
 
               if (op.op == 'MOVE' || op.op == 'REMOVE' || op.op == 'CLEAR') {
                 checksum = utils.addChecksums(checksum, Number(op.checksum));
@@ -601,9 +593,7 @@ export abstract class MongoCompactor {
                   targetOp = op.target_op;
                 }
               } else {
-                throw new ReplicationAssertionError(
-                  `Unexpected ${op.op} operation at ${this.formatBucketDataKey(op._id)}`
-                );
+                throw new ReplicationAssertionError(`Unexpected ${op.op} operation at ${this.formatBucketDataKey(op)}`);
               }
             }
             if (!gotAnOp) {
@@ -611,28 +601,25 @@ export abstract class MongoCompactor {
               return;
             }
 
-            logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOp?._id.o}`);
-            await context.collection.deleteMany(
+            logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOp?.o}`);
+            await col.collection.deleteMany(
               {
                 _id: {
-                  $gte: this.bucketDataKey(bucket, new mongo.MinKey()),
-                  $lte: this.bucketDataKey(lastOp!._id.b, lastOp!._id.o)
+                  $gte: col.minId,
+                  $lte: col.docId(lastOp!.o)
                 }
               },
               { session }
             );
 
-            await context.collection.insertOne(
-              this.collectionBucketDataDocument({
-                def: context.definitionId,
-                _id: lastOp!._id,
-                op: 'CLEAR',
-                checksum: BigInt(checksum),
-                data: null,
-                target_op: targetOp
-              }),
-              { session }
-            );
+            const op = col.toPersistedDocument({
+              o: lastOp!.o,
+              op: 'CLEAR',
+              checksum: BigInt(checksum),
+              data: null,
+              target_op: targetOp
+            });
+            await col.collection.insertOne(op, { session });
 
             opCountDiff = -numberOfOpsToClear + 1;
           },
@@ -689,37 +676,8 @@ export abstract class MongoCompactor {
     await this.flushBucketStateUpdates();
   }
 
-  protected tagBucketDataDocument(
-    document: BucketDataCollectionDocument & { size: number | bigint },
-    definitionId: BucketDefinitionId
-  ): CompactBucketDataDocument {
-    const tagged = bucketDataDocumentToTagged(document, definitionId);
-    return {
-      ...tagged,
-      size: document.size
-    };
-  }
-
-  protected tagClearBucketDataDocument(
-    document: BucketDataClearProjection,
-    definitionId: BucketDefinitionId
-  ): CompactClearBucketDataDocument {
-    return {
-      def: definitionId,
-      _id: {
-        b: document._id.b,
-        o: document._id.o
-      },
-      op: document.op,
-      checksum: document.checksum,
-      target_op: document.target_op
-    };
-  }
-
-  protected formatBucketDataKey(key: BucketDataDocumentBase['_id'] | { _id: BucketDataDocumentBase['_id'] }) {
-    const bucket = 'b' in key ? key.b : key._id.b;
-    const op = 'o' in key ? key.o : key._id.o;
-    return `${this.group_id}:${bucket ?? '?'}:${op ?? '?'}`;
+  protected formatBucketDataKey(doc: Pick<BucketDataDoc, 'bucketKey' | 'o'>) {
+    return `${doc.bucketKey.replicationStreamId}:${doc.bucketKey.bucket}:${doc.o}`;
   }
 
   protected abstract writeBucketStateUpdates(): Promise<void>;
@@ -727,18 +685,14 @@ export abstract class MongoCompactor {
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap>;
   protected abstract bucketStateFilter(bucket: string, definitionId: BucketDefinitionId | null): mongo.Document;
-  protected abstract bucketDataKey(
-    bucket: string,
-    opId: InternalOpId | mongo.MinKey | mongo.MaxKey
-  ): BucketDataDocumentBase['_id'];
+
   protected abstract getBucketDataContext(
     bucket: string,
     definitionId: BucketDefinitionId | null
-  ): Promise<BucketDataCollectionContext | null>;
-  protected abstract collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentBase;
+  ): Promise<SingleBucketStore | null>;
 }
 
-export interface BucketDataCollectionContext {
-  definitionId: BucketDefinitionId;
-  collection: mongo.Collection<BucketDataDocumentBase>;
+export interface BucketDataCollectionContext<TBucketData extends mongo.Document> {
+  bucketKey: BucketKey;
+  collection: mongo.Collection<TBucketData>;
 }

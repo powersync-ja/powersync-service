@@ -6,7 +6,7 @@ import * as bson from 'bson';
 import * as crypto from 'crypto';
 import * as timers from 'node:timers/promises';
 import * as uuid from 'uuid';
-import { TaggedBucketDataDocument } from '../storage/implementation/models.js';
+import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
   let filter = {
@@ -71,10 +71,10 @@ export async function readSingleBatch<T>(cursor: mongo.AbstractCursor<T>): Promi
   }
 }
 
-export function mapOpEntry(row: TaggedBucketDataDocument): utils.OplogEntry {
+export function mapOpEntry(row: BucketDataDoc): utils.OplogEntry {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
     return {
-      op_id: utils.internalToExternalOpId(row._id.o),
+      op_id: utils.internalToExternalOpId(row.o),
       op: row.op,
       object_type: row.table,
       object_id: row.row_id,
@@ -86,7 +86,7 @@ export function mapOpEntry(row: TaggedBucketDataDocument): utils.OplogEntry {
     // MOVE, CLEAR
 
     return {
-      op_id: utils.internalToExternalOpId(row._id.o),
+      op_id: utils.internalToExternalOpId(row.o),
       op: row.op,
       checksum: Number(row.checksum)
     };

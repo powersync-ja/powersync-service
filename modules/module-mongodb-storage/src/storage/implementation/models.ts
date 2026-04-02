@@ -3,7 +3,7 @@ import { InternalOpId, SerializedSyncPlan, storage } from '@powersync/service-co
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
-import { BucketDefinitionId, ParameterIndexId } from './BucketDefinitionMapping.js';
+import { ParameterIndexId } from './BucketDefinitionMapping.js';
 import type { CurrentDataDocument, SourceTableDocumentV1 } from './v1/models.js';
 import type { CurrentBucketV3, CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from './v3/models.js';
 
@@ -68,6 +68,9 @@ export function bucketParameterDocumentToTagged<TKey extends SourceKey | SourceT
 
 export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
 
+/**
+ * Common properties for storage V1, storage V3 and in-memory BucketDataDoc.
+ */
 export interface BucketDataProperties {
   op: OpType;
   source_table?: bson.ObjectId;
@@ -80,15 +83,7 @@ export interface BucketDataProperties {
 }
 
 export interface BucketDataDocumentBase extends BucketDataProperties {
-  _id: BucketDataKey;
-}
-
-/**
- * All data we need in-memory, for any storage version.
- */
-export interface TaggedBucketDataDocument extends BucketDataProperties {
-  def: BucketDefinitionId;
-  _id: BucketDataKey;
+  _id: { b: string };
 }
 
 /**
@@ -100,20 +95,6 @@ export const LEGACY_BUCKET_DATA_DEFINITION_ID = '0';
  * Internal-only tag used for v1 bucket_parameters rows before they are converted to the v1 on-disk shape.
  */
 export const LEGACY_BUCKET_PARAMETER_INDEX_ID = '0';
-
-export function bucketDataDocumentToTagged<TDocument extends BucketDataDocumentBase>(
-  document: TDocument,
-  definitionId: BucketDefinitionId
-): TaggedBucketDataDocument {
-  return {
-    ...document,
-    def: definitionId,
-    _id: {
-      b: document._id.b,
-      o: document._id.o
-    }
-  };
-}
 
 export interface SourceTableDocument {
   _id: bson.ObjectId;

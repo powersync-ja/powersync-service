@@ -1,16 +1,13 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { InternalOpId, storage } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import {
-  BucketDataDocumentBase,
-  BucketStateDocumentBase,
-  LEGACY_BUCKET_DATA_DEFINITION_ID,
-  TaggedBucketDataDocument
-} from '../models.js';
-import { BucketDataCollectionContext, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import { BucketDataKeyV1, BucketStateDocumentV1, taggedBucketDataDocumentToV1 } from './models.js';
+import { SingleBucketStore } from '../common/SingleBucketStore.js';
+import { BucketStateDocumentBase, LEGACY_BUCKET_DATA_DEFINITION_ID } from '../models.js';
+import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { BucketStateDocumentV1 } from './models.js';
 import type { MongoSyncBucketStorageV1 } from './MongoSyncBucketStorageV1.js';
+import { SingleBucketStoreV1 } from './SingleBucketStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoCompactorV1 extends MongoCompactor {
@@ -83,25 +80,14 @@ export class MongoCompactorV1 extends MongoCompactor {
     };
   }
 
-  protected bucketDataKey(bucket: string, opId: InternalOpId | mongo.MinKey | mongo.MaxKey): BucketDataKeyV1 {
-    return {
-      g: this.group_id,
-      b: bucket,
-      o: opId as any
-    };
-  }
-
   protected async getBucketDataContext(
-    _bucket: string,
+    bucket: string,
     _definitionId: BucketDefinitionId | null
-  ): Promise<BucketDataCollectionContext | null> {
-    return {
-      collection: this.db.v1_bucket_data as unknown as mongo.Collection<BucketDataDocumentBase>,
-      definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID
-    };
-  }
-
-  protected collectionBucketDataDocument(document: TaggedBucketDataDocument): BucketDataDocumentBase {
-    return taggedBucketDataDocumentToV1(this.group_id, document);
+  ): Promise<SingleBucketStore | null> {
+    return new SingleBucketStoreV1(this.db, {
+      replicationStreamId: this.group_id,
+      definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
+      bucket
+    });
   }
 }

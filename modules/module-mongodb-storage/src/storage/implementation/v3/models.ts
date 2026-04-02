@@ -1,6 +1,7 @@
 import { InternalOpId } from '@powersync/service-core';
 import * as bson from 'bson';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
+import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import {
   BucketDataDocumentBase,
   BucketDataKey,
@@ -10,7 +11,6 @@ import {
   ReplicaId,
   SourceTableDocument,
   SourceTableKey,
-  TaggedBucketDataDocument,
   TaggedBucketParameterDocument
 } from '../models.js';
 
@@ -44,9 +44,30 @@ export interface BucketDataDocumentV3 extends BucketDataDocumentBase {
   _id: BucketDataKeyV3;
 }
 
-export function taggedBucketDataDocumentToV3(document: TaggedBucketDataDocument): BucketDataDocumentV3 {
-  const { def: _definitionId, ...rest } = document;
-  return rest;
+export function taggedBucketDataDocumentToV3(document: BucketDataDoc): BucketDataDocumentV3 {
+  const { bucketKey, o, ...rest } = document;
+  return {
+    _id: {
+      b: bucketKey.bucket,
+      o: o
+    },
+    ...rest
+  };
+}
+
+export function loadBucketDataDocumentV3(
+  context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>,
+  doc: BucketDataDocumentV3
+): BucketDataDoc {
+  const { _id, ...rest } = doc;
+  return {
+    bucketKey: {
+      ...context,
+      bucket: _id.b
+    },
+    o: _id.o,
+    ...rest
+  };
 }
 
 export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {

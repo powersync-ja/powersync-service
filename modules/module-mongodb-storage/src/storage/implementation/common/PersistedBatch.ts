@@ -8,7 +8,8 @@ import { mongoTableId } from '../../../utils/util.js';
 import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
-import { TaggedBucketDataDocument, TaggedBucketParameterDocument } from '../models.js';
+import { TaggedBucketParameterDocument } from '../models.js';
+import { BucketDataDoc, BucketKey } from './BucketDataDoc.js';
 import { SourceRecordBucketState, SourceRecordLookupState } from './SourceRecordStore.js';
 
 /**
@@ -68,7 +69,7 @@ export interface PersistedBatchOptions {
  */
 export abstract class PersistedBatch {
   logger: Logger;
-  bucketData: TaggedBucketDataDocument[] = [];
+  bucketData: BucketDataDoc[] = [];
   bucketParameters: TaggedBucketParameterDocument[] = [];
   bucketStates: Map<string, BucketStateUpdate> = new Map();
 
@@ -148,7 +149,7 @@ export abstract class PersistedBatch {
 
   protected addBucketDataPut(options: {
     op_id: InternalOpId;
-    definitionId: BucketDefinitionId;
+    bucketKey: BucketKey;
     bucket: string;
     sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
@@ -158,11 +159,8 @@ export abstract class PersistedBatch {
     data: string;
   }) {
     this.bucketData.push({
-      def: options.definitionId,
-      _id: {
-        b: options.bucket,
-        o: options.op_id
-      },
+      bucketKey: options.bucketKey,
+      o: options.op_id,
       op: 'PUT',
       source_table: mongoTableId(options.sourceTableId),
       source_key: options.sourceKey,
@@ -175,8 +173,7 @@ export abstract class PersistedBatch {
 
   protected addBucketDataRemove(options: {
     op_id: InternalOpId;
-    definitionId: BucketDefinitionId;
-    bucket: string;
+    bucketKey: BucketKey;
     sourceTableId: storage.SourceTable['id'];
     sourceKey: storage.ReplicaId;
     table: string;
@@ -184,11 +181,8 @@ export abstract class PersistedBatch {
     checksum: bigint;
   }) {
     this.bucketData.push({
-      def: options.definitionId,
-      _id: {
-        b: options.bucket,
-        o: options.op_id
-      },
+      bucketKey: options.bucketKey,
+      o: options.op_id,
       op: 'REMOVE',
       source_table: mongoTableId(options.sourceTableId),
       source_key: options.sourceKey,

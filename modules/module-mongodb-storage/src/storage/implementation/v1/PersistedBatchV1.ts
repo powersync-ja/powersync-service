@@ -62,8 +62,12 @@ export class PersistedBatchV1 extends PersistedBatch {
       this.debugLastOpId = op_id;
 
       this.addBucketDataPut({
+        bucketKey: {
+          replicationStreamId: this.group_id,
+          definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
+          bucket: evaluated.bucket
+        },
         op_id,
-        definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
         bucket: evaluated.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
@@ -80,9 +84,12 @@ export class PersistedBatchV1 extends PersistedBatch {
       this.debugLastOpId = op_id;
 
       this.addBucketDataRemove({
+        bucketKey: {
+          replicationStreamId: this.group_id,
+          definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
+          bucket: bucket.bucket
+        },
         op_id,
-        definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID,
-        bucket: bucket.bucket,
         sourceTableId: options.table.id,
         sourceKey: options.sourceKey,
         table: bucket.table,
@@ -203,10 +210,10 @@ export class PersistedBatchV1 extends PersistedBatch {
   }
 
   protected async flushBucketData(session: mongo.ClientSession) {
-    await this.db.v1_bucket_data.bulkWrite(
+    await this.db.bucketDataV1.bulkWrite(
       this.bucketData.map((document) => ({
         insertOne: {
-          document: taggedBucketDataDocumentToV1(this.group_id, document)
+          document: taggedBucketDataDocumentToV1(document)
         }
       })),
       {
