@@ -1,3 +1,4 @@
+import { SourceTable } from '@powersync/service-core';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -25,7 +26,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     return this.store;
   }
 
-  protected async cleanupDroppedSourceTables(_sourceTables: import('@powersync/service-core').storage.SourceTable[]) {
+  protected async cleanupDroppedSourceTables(_tables: SourceTable[]) {
     // No-op for V1: source records live in a shared collection.
   }
 }

@@ -3,6 +3,7 @@ import {
   BucketDataDocumentBase,
   BucketParameterDocumentBase,
   BucketStateDocumentBase,
+  CurrentBucket,
   SourceKey,
   SourceTableDocument,
   TaggedBucketDataDocument,
@@ -21,7 +22,7 @@ export interface BucketDataKeyV1 {
 export interface CurrentDataDocument {
   _id: SourceKey;
   data: bson.Binary;
-  buckets: import('../models.js').CurrentBucket[];
+  buckets: CurrentBucket[];
   lookups: bson.Binary[];
 }
 
