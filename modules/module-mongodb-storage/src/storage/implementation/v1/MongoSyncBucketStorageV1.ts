@@ -68,7 +68,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     });
   }
 
-  protected createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
+  createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
     return new MongoCompactorV1(this, this.db, options);
   }
 

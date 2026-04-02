@@ -87,8 +87,14 @@ export abstract class MongoSyncBucketStorage
     });
   }
 
+  /**
+   * Not for external use - public here for tests only.
+   *
+   * @internal
+   */
+  abstract createMongoCompactor(options: MongoCompactOptions): MongoCompactor;
+
   protected abstract createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums;
-  protected abstract createMongoCompactor(options: MongoCompactOptions): MongoCompactor;
   protected abstract createMongoParameterCompactor(
     checkpoint: InternalOpId,
     options: storage.CompactOptions

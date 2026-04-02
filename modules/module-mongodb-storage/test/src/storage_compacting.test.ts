@@ -1,8 +1,6 @@
 import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
-import { MongoCompactorV1 } from '../../src/storage/implementation/v1/MongoCompactorV1.js';
-import { MongoCompactorV3 } from '../../src/storage/implementation/v3/MongoCompactorV3.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
@@ -213,16 +211,10 @@ bucket_definitions:
       }
       await bucketStateCollection.insertOne(bucketStateDocument);
 
-      // This test uses a couple of internal APIs of the compactor - there is no simple way
-      // to test this using the current public APIs.
-      let compactor: MongoCompactorV1 | MongoCompactorV3;
-      if (storageDb.storageConfig.incrementalReprocessing) {
-        compactor = new MongoCompactorV3(bucketStorage as any, storageDb, { maxOpId: 5n });
-      } else {
-        compactor = new MongoCompactorV1(bucketStorage as any, storageDb, { maxOpId: 5n });
-      }
+      // This test uses a couple of "internal" APIs of the compactor.
+      const compactor = bucketStorage.createMongoCompactor({ maxOpId: 5n });
 
-      const dirtyBuckets = (compactor as any).dirtyBucketBatches({
+      const dirtyBuckets = compactor.dirtyBucketBatches({
         minBucketChanges: 1,
         minChangeRatio: 0.39
       });
