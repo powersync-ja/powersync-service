@@ -3,7 +3,7 @@ import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib
 import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDocumentBase, BucketStateDocumentBase, TaggedBucketDataDocument } from '../models.js';
-import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { BucketDataCollectionContext, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { BucketDataKeyV3, BucketStateDocumentV3, taggedBucketDataDocumentToV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -42,7 +42,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     );
   }
 
-  protected async flushBucketStateUpdates(): Promise<void> {
+  protected async writeBucketStateUpdates(): Promise<void> {
     await this.db
       .bucketStateV3(this.group_id)
       .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], { ordered: false });
@@ -84,10 +84,10 @@ export class MongoCompactorV3 extends MongoCompactor {
     return { b: bucket, o: opId as any };
   }
 
-  protected async getBucketDataCollection(
+  protected async getBucketDataContext(
     bucket: string,
     definitionId: BucketDefinitionId | null
-  ): Promise<{ collection: mongo.Collection<BucketDataDocumentBase>; definitionId: BucketDefinitionId } | null> {
+  ): Promise<BucketDataCollectionContext | null> {
     if (definitionId == null) {
       // Not the _most_ efficient approach, but this is not used often
       const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();

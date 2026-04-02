@@ -8,7 +8,7 @@ import {
   LEGACY_BUCKET_DATA_DEFINITION_ID,
   TaggedBucketDataDocument
 } from '../models.js';
-import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { BucketDataCollectionContext, DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { BucketDataKeyV1, BucketStateDocumentV1, taggedBucketDataDocumentToV1 } from './models.js';
 import type { MongoSyncBucketStorageV1 } from './MongoSyncBucketStorageV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
@@ -53,7 +53,7 @@ export class MongoCompactorV1 extends MongoCompactor {
     );
   }
 
-  protected async flushBucketStateUpdates(): Promise<void> {
+  protected async writeBucketStateUpdates(): Promise<void> {
     await this.db.bucketStateV1.bulkWrite(
       this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV1>[],
       { ordered: false }
@@ -91,10 +91,10 @@ export class MongoCompactorV1 extends MongoCompactor {
     };
   }
 
-  protected async getBucketDataCollection(
+  protected async getBucketDataContext(
     _bucket: string,
     _definitionId: BucketDefinitionId | null
-  ): Promise<{ collection: mongo.Collection<BucketDataDocumentBase>; definitionId: BucketDefinitionId } | null> {
+  ): Promise<BucketDataCollectionContext | null> {
     return {
       collection: this.db.v1_bucket_data as unknown as mongo.Collection<BucketDataDocumentBase>,
       definitionId: LEGACY_BUCKET_DATA_DEFINITION_ID
