@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
-import { mongo } from '@powersync/lib-service-mongodb';
 import { MongoLSN } from '@module/common/MongoLSN.js';
 import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
+import { mongo } from '@powersync/lib-service-mongodb';
 import { connectMongoData } from './util.js';
 
 describe('Cosmos DB helpers', () => {

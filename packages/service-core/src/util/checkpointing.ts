@@ -17,11 +17,34 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
   }
 
   const { writeCheckpoint, currentCheckpoint } = await options.api.createReplicationHead(async (currentCheckpoint) => {
+    let head = currentCheckpoint;
+
+    if (head == null) {
+      // Cosmos DB: HEAD unknown. Poll storage until the streaming loop
+      // processes the sentinel and advances the checkpoint LSN.
+      const baselineCheckpoint = await syncBucketStorage.getCheckpoint();
+      const baselineLsn = baselineCheckpoint?.lsn ?? '';
+
+      const timeout = 30_000;
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const cp = await syncBucketStorage.getCheckpoint();
+        if (cp?.lsn && cp.lsn > baselineLsn) {
+          head = cp.lsn;
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (!head) {
+        throw new ServiceError(ErrorCode.PSYNC_S2302, 'Timeout waiting for sentinel checkpoint');
+      }
+    }
+
     const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
       user_id: full_user_id,
-      heads: { '1': currentCheckpoint }
+      heads: { '1': head }
     });
-    return { writeCheckpoint, currentCheckpoint };
+    return { writeCheckpoint, currentCheckpoint: head };
   });
 
   return {

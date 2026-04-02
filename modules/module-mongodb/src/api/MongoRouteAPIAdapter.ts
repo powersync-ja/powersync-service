@@ -19,6 +19,8 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   connectionTag: string;
   defaultSchema: string;
 
+  private isCosmosDb: boolean | null = null;
+
   constructor(protected config: types.ResolvedConnectionConfig) {
     const manager = new MongoManager(config);
     this.client = manager.client;
@@ -206,9 +208,31 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
     return undefined;
   }
 
+  private async detectCosmosDb(): Promise<boolean> {
+    if (this.isCosmosDb === null) {
+      const hello = await this.db.command({ hello: 1 });
+      this.isCosmosDb = hello.internal?.cosmos_versions != null;
+    }
+    return this.isCosmosDb;
+  }
+
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const session = this.client.startSession();
     try {
+      if (await this.detectCosmosDb()) {
+        // Cosmos DB: write sentinel to trigger change stream advance
+        await this.db
+          .collection(CHECKPOINTS_COLLECTION)
+          .findOneAndUpdate(
+            { _id: STANDALONE_CHECKPOINT_ID as any },
+            { $inc: { i: 1 } },
+            { upsert: true, returnDocument: 'after', session }
+          );
+        // HEAD is unknown — caller must poll storage to determine it
+        return await callback(null);
+      }
+
+      // Standard MongoDB: existing path
       await this.db.command({ hello: 1 }, { session });
       const head = session.clusterTime?.clusterTime;
       if (head == null) {

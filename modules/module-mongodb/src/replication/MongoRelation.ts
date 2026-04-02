@@ -13,7 +13,7 @@ import {
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 
-import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
@@ -178,7 +178,7 @@ export async function createCheckpoint(
     // We use an unique id per process, and clear documents on startup.
     // This is so that we can filter events for our own process only, and ignore
     // events from other processes.
-    await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
+    const result = await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
       {
         _id: id as any
       },
@@ -192,18 +192,17 @@ export async function createCheckpoint(
       }
     );
 
-    let time = session.operationTime;
-    if (time == null) {
-      // CosmosDB workaround
-      const hello = await db.command({ hello: 1 }, { session });
-      if (hello.operationTime == null) {
-        throw new ServiceAssertionError('Failed to create checkpoint: no operation time available');
-      }
-      time = hello.operationTime!;
+    const time = session.operationTime;
+    if (time != null && !options?.forceCosmosDb) {
+      // Standard MongoDB: return LSN from operationTime (existing path)
+      return new MongoLSN({ timestamp: time }).comparable;
     }
 
-    // TODO: Use the above when we support custom write checkpoints
-    return new MongoLSN({ timestamp: time! }).comparable;
+    // Cosmos DB (or test flag): operationTime not available.
+    // Return a sentinel marker that the streaming loop will match on.
+    // Format: 'sentinel:<id>:<i>' — not an LSN, resolved by event matching.
+    const i = result?.i;
+    return `sentinel:${id}:${i}`;
   } finally {
     await session.endSession();
   }

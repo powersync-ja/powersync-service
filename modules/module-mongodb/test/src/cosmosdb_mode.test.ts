@@ -1,7 +1,6 @@
 import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test } from 'vitest';
 
-import { mongo } from '@powersync/lib-service-mongodb';
 import { createWriteCheckpoint } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
@@ -209,9 +208,7 @@ bucket_definitions:
     const dataAfter = await context2.getBucketData('global[]');
 
     // Should contain the new insert after resume
-    const afterRestartOps = dataAfter.filter(
-      (op) => op.object_id === id2.toHexString() && op.op === 'PUT'
-    );
+    const afterRestartOps = dataAfter.filter((op) => op.object_id === id2.toHexString() && op.op === 'PUT');
     expect(afterRestartOps.length).toBeGreaterThanOrEqual(1);
     expect(JSON.parse(afterRestartOps[0].data as string)).toMatchObject({ description: 'after_restart' });
   });
