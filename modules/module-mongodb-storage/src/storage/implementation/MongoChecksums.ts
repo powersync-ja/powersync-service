@@ -307,21 +307,6 @@ export abstract class MongoChecksums {
   }
 }
 
-export function createV3BucketFilter(request: Pick<FetchPartialBucketChecksumV3, 'bucket' | 'start' | 'end'>) {
-  return {
-    _id: {
-      $gt: {
-        b: request.bucket,
-        o: request.start ?? new bson.MinKey()
-      },
-      $lte: {
-        b: request.bucket,
-        o: request.end
-      }
-    }
-  };
-}
-
 export function emptyChecksumForRequest(
   request: Pick<FetchPartialBucketChecksum | FetchPartialBucketChecksumV3, 'bucket' | 'start'>
 ): PartialOrFullChecksum {

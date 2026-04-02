@@ -1,4 +1,5 @@
 import {
+  bson,
   BucketChecksum,
   FetchPartialBucketChecksum,
   InternalOpId,
@@ -7,7 +8,6 @@ import {
 } from '@powersync/service-core';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
-  createV3BucketFilter,
   emptyChecksumForRequest,
   FetchPartialBucketChecksumV3,
   MongoChecksumOptions,
@@ -102,4 +102,19 @@ export class MongoChecksumsV3 extends MongoChecksums {
   protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     return this.computePartialChecksumsDirectByDefinition(this.normalizeBatch(batch));
   }
+}
+
+function createV3BucketFilter(request: Pick<FetchPartialBucketChecksumV3, 'bucket' | 'start' | 'end'>) {
+  return {
+    _id: {
+      $gt: {
+        b: request.bucket,
+        o: request.start ?? new bson.MinKey()
+      },
+      $lte: {
+        b: request.bucket,
+        o: request.end
+      }
+    }
+  };
 }
