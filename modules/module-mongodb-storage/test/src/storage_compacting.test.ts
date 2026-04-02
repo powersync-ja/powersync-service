@@ -1,3 +1,4 @@
+import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
@@ -163,16 +164,14 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
-      const storageDb = (bucketStorage as any).db;
+      const storageDb = bucketStorage.db;
 
       // This simulates bucket_state created using bigint bytes.
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
-      let bucketStateCollection;
-      let bucketStateDocument;
       if (storageDb.storageConfig.incrementalReprocessing) {
-        bucketStateCollection = storageDb.bucketStateV3(bucketStorage.group_id);
-        bucketStateDocument = {
+        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketStateV3(bucketStorage.group_id);
+        await bucketStateCollection.insertOne({
           _id: {
             d: '1',
             b: 'global[]'
@@ -188,10 +187,9 @@ bucket_definitions:
             count: 2,
             bytes: 5n
           }
-        };
+        });
       } else {
-        bucketStateCollection = factory.db.bucket_state;
-        bucketStateDocument = {
+        await factory.db.bucket_state.insertOne({
           _id: {
             g: bucketStorage.group_id,
             b: 'global[]'
@@ -207,9 +205,8 @@ bucket_definitions:
             count: 2,
             bytes: 5n
           }
-        };
+        });
       }
-      await bucketStateCollection.insertOne(bucketStateDocument);
 
       // This test uses a couple of "internal" APIs of the compactor.
       const compactor = bucketStorage.createMongoCompactor({ maxOpId: 5n });
