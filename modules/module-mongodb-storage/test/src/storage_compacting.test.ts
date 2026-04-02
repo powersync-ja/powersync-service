@@ -64,11 +64,13 @@ bucket_definitions:
 
     test('full compact', async () => {
       const { bucketStorage, checkpoint, factory, syncRules } = await setup();
-      const storageDb = (bucketStorage as any).db;
+      const storageDb = bucketStorage.db;
 
       // Simulate bucket_state from old version not being available
       if (storageDb.storageConfig.incrementalReprocessing) {
-        await storageDb.bucketStateV3(bucketStorage.group_id).deleteMany({});
+        // This should actually never happen on V3, but we test this anyway.
+        // Can remove this if it causes issues in the future.
+        await (storageDb as VersionedPowerSyncMongoV3).bucketStateV3(bucketStorage.group_id).deleteMany({});
       } else {
         await factory.db.bucket_state.deleteMany({});
       }
