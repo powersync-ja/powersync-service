@@ -1,4 +1,4 @@
-import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   DatabaseConnectionError,
@@ -39,6 +39,7 @@ import {
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
+import { mapChangeStreamError } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
@@ -1172,28 +1173,6 @@ export class ChangeStream {
         this.logger.error(`Failed to touch the container probe: ${e.message}`, e);
       });
     }
-  }
-}
-
-function mapChangeStreamError(e: any) {
-  if (isMongoNetworkTimeoutError(e)) {
-    // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
-    // We wrap the error to make it more useful.
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-  } else if (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-    // maxTimeMS was reached. Example message:
-    // MongoServerError: Executor error during aggregate command on namespace: powersync_test_data.$cmd.aggregate :: caused by :: operation exceeded time limit
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-  } else if (
-    isMongoServerError(e) &&
-    e.codeName == 'NoMatchingDocument' &&
-    e.errmsg?.includes('post-image was not found')
-  ) {
-    throw new ChangeStreamInvalidatedError(e.errmsg, e);
-  } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
-    throw new ChangeStreamInvalidatedError(e.message, e);
-  } else {
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
   }
 }
 
