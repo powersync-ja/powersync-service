@@ -61,7 +61,8 @@ describe('internal mongodb utils', () => {
       stream = rawChangeStream(db, pipeline, {
         batchSize: 10,
         maxAwaitTimeMS: 5,
-        maxTimeMS: 1_000
+        maxTimeMS: 1_000,
+        collection: collection.collectionName
       });
     } else if (type === 'db') {
       stream = rawChangeStream(db, pipeline, {
