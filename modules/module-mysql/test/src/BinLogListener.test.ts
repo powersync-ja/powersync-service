@@ -1,6 +1,10 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
-import { BinLogListener, SchemaChange, SchemaChangeType } from '@module/replication/zongji/BinLogListener.js';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
+import { BinLogListener, SchemaChange, SchemaChangeType } from '@module/replication/zongji/BinLogListener.js';
+import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/utils/mysql-utils.js';
+import { TablePattern } from '@powersync/service-sync-rules';
+import crypto from 'crypto';
+import { v4 as uuid } from 'uuid';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import {
   clearTestDb,
   createBinlogListener,
@@ -8,10 +12,6 @@ import {
   TEST_CONNECTION_OPTIONS,
   TestBinLogEventHandler
 } from './util.js';
-import { v4 as uuid } from 'uuid';
-import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/utils/mysql-utils.js';
-import crypto from 'crypto';
-import { TablePattern } from '@powersync/service-sync-rules';
 
 describe('BinlogListener tests', { timeout: 60_000 }, () => {
   const MAX_QUEUE_CAPACITY_MB = 1;

@@ -22,7 +22,7 @@
     "@powersync/service-errors": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "ajv": "^8.12.0",
-    "better-ajv-errors": "^1.2.0",
+    "better-ajv-errors": "^2.0.3",
     "bson": "^6.10.4",
     "dotenv": "^16.4.5",
     "ipaddr.js": "^2.1.0",

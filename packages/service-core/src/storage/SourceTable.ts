@@ -1,7 +1,7 @@
 import { DEFAULT_TAG } from '@powersync/service-sync-rules';
+import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
 import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
-import { bson } from '../index.js';
 
 /**
  * Format of the id depends on the bucket storage module. It should be consistent within the module.

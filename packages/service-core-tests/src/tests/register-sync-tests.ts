@@ -177,6 +177,80 @@ bucket_definitions:
     expect(lines).toMatchSnapshot();
   });
 
+  test('can override priority when subscribing to stream', async () => {
+    await using f = await factory();
+
+    const syncRules = await updateSyncRules(f, {
+      content: `
+config:
+  edition: 3
+
+streams:
+  todos:
+    query: SELECT * FROM test WHERE id IN subscription.parameter('test_ids')
+`
+    });
+
+    const bucketStorage = f.getInstance(syncRules);
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
+
+    await writer.markAllSnapshotDone('0/1');
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'a',
+        description: 'Test 1'
+      },
+      afterReplicaId: 't1'
+    });
+
+    await writer.save({
+      sourceTable: testTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'b',
+        description: 'Test 2'
+      },
+      afterReplicaId: 'earlier'
+    });
+
+    await writer.commit('0/1');
+
+    const stream = sync.streamResponse({
+      syncContext,
+      bucketStorage,
+      syncRules: bucketStorage.getParsedSyncRules(test_utils.PARSE_OPTIONS),
+      params: {
+        buckets: [],
+        include_checksum: true,
+        raw_data: true,
+        streams: {
+          include_defaults: true,
+          subscriptions: [
+            {
+              stream: 'todos',
+              parameters: { test_ids: ['a'] },
+              override_priority: 0
+            },
+            {
+              stream: 'todos',
+              parameters: { test_ids: ['a', 'b'] },
+              override_priority: null
+            }
+          ]
+        }
+      },
+      tracker,
+      token: new JwtPayload({ sub: '', exp: Date.now() / 1000 + 10 }),
+      isEncodingAsBson: false
+    });
+
+    const lines = await consumeCheckpointLines(stream);
+    expect(lines).toMatchSnapshot();
+  });
+
   test('sync interrupts low-priority buckets on new checkpoints', async () => {
     await using f = await factory();
 

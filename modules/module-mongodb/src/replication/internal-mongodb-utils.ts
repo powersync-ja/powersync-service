@@ -1,5 +1,4 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { get } from 'http';
 
 /**
  * Track bytes read on a change stream.

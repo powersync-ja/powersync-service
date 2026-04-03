@@ -1,15 +1,15 @@
+import * as lib_postgres from '@powersync/lib-service-postgres';
+import { logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as pg_wire from '@powersync/service-jpgwire';
 import { event_types } from '@powersync/service-types';
-import { v4 } from 'uuid';
-import * as lib_postgres from '@powersync/lib-service-postgres';
-import { NormalizedPostgresStorageConfig } from '../types/types.js';
-import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
+import { ClientConnectionResponse } from '@powersync/service-types/dist/reports.js';
 import { toInteger } from 'ix/util/tointeger.js';
-import { logger } from '@powersync/lib-services-framework';
+import { v4 } from 'uuid';
+import { SdkReporting, SdkReportingDecoded } from '../types/models/SdkReporting.js';
+import { NormalizedPostgresStorageConfig } from '../types/types.js';
 import { getStorageApplicationName } from '../utils/application-name.js';
 import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
-import { ClientConnectionResponse } from '@powersync/service-types/dist/reports.js';
 
 export type PostgresReportStorageOptions = {
   config: NormalizedPostgresStorageConfig;

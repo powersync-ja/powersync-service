@@ -45,6 +45,7 @@ COPY libs/lib-postgres/src libs/lib-postgres/src/
 
 COPY modules/module-core/src modules/module-core/src/
 COPY modules/module-postgres/src modules/module-postgres/src/
+COPY modules/module-postgres/sql modules/module-postgres/sql/
 COPY modules/module-postgres-storage/src modules/module-postgres-storage/src/
 COPY modules/module-mongodb/src modules/module-mongodb/src/
 COPY modules/module-mongodb-storage/src modules/module-mongodb-storage/src/

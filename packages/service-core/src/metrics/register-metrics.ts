@@ -1,9 +1,9 @@
-import { ServiceContextContainer } from '../system/ServiceContext.js';
-import { createOpenTelemetryMetricsFactory } from './open-telemetry/util.js';
-import { MetricsEngine } from './MetricsEngine.js';
 import { createCoreAPIMetrics, initializeCoreAPIMetrics } from '../api/api-metrics.js';
 import { createCoreReplicationMetrics, initializeCoreReplicationMetrics } from '../replication/replication-metrics.js';
 import { createCoreStorageMetrics, initializeCoreStorageMetrics } from '../storage/storage-metrics.js';
+import { ServiceContextContainer } from '../system/ServiceContext.js';
+import { MetricsEngine } from './MetricsEngine.js';
+import { createOpenTelemetryMetricsFactory } from './open-telemetry/util.js';
 
 export enum MetricModes {
   API = 'api',

@@ -1,5 +1,5 @@
 import { AbstractModule, loadModules, ServiceContextContainer, TearDownOptions } from '@/index.js';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 interface MockConfig {
   connections?: { type: string }[];

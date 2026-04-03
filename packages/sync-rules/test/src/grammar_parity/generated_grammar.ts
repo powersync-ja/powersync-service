@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { Grammars } from 'ebnf';
+import { readFileSync } from 'node:fs';
 
 interface AstNode {
   errors?: unknown[];

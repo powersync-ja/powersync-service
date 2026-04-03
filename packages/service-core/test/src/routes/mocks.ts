@@ -1,3 +1,4 @@
+import { EventsEngine } from '@/events/EventsEngine.js';
 import {
   BucketStorageFactory,
   createCoreAPIMetrics,
@@ -11,7 +12,6 @@ import {
   SyncRulesBucketStorage
 } from '@/index.js';
 import { MeterProvider } from '@opentelemetry/sdk-metrics';
-import { EventsEngine } from '@/events/EventsEngine.js';
 
 export function mockServiceContext(storage: Partial<SyncRulesBucketStorage> | null) {
   // This is very incomplete - just enough to get the current tests passing.

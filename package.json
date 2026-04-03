@@ -2,10 +2,10 @@
   "name": "powersync-service",
   "version": "0.0.0",
   "preview": true,
-  "description": "PowerSync source available monorepo",
+  "description": "PowerSync Service source-available monorepo",
   "license": "FSL-1.1-ALv2",
   "keywords": [],
-  "author": "JourneyApps Platform",
+  "author": "PowerSync",
   "scripts": {
     "check-updates": "ncu -u --deep",
     "validate:tsconfig-references": "node scripts/validate-tsconfig-references.mts",
@@ -40,13 +40,14 @@
     "npm-check-updates": "^17.1.2",
     "prettier": "^3.4.1",
     "prettier-plugin-embed": "^0.4.15",
+    "prettier-plugin-organize-imports": "^4.3.0",
     "prettier-plugin-sql": "^0.18.1",
     "rsocket-core": "1.0.0-alpha.3",
     "rsocket-websocket-client": "1.0.0-alpha.3",
     "semver": "^7.5.4",
     "typescript": "catalog:",
-    "vitest": "catalog:",
     "vite": "^8.0.1",
+    "vitest": "catalog:",
     "ws": "^8.2.3"
   },
   "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264"

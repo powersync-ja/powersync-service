@@ -1,3 +1,4 @@
+import { qualifiedMySQLTable } from '@module/utils/mysql-utils.js';
 import { storage } from '@powersync/service-core';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
@@ -5,7 +6,6 @@ import { v4 as uuid } from 'uuid';
 import { describe, expect, test } from 'vitest';
 import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
 import { createTestDb, describeWithStorage } from './util.js';
-import { qualifiedMySQLTable } from '@module/utils/mysql-utils.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:

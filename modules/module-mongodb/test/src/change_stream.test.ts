@@ -10,7 +10,6 @@ import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
-import { createCheckpoint, STANDALONE_CHECKPOINT_ID } from '@module/replication/MongoRelation.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:

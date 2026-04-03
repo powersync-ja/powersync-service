@@ -3,8 +3,8 @@ import { PgManager } from './PgManager.js';
 import { MissingReplicationSlotError, sendKeepAlive, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
-import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 import { getApplicationName } from '../utils/application-name.js';
+import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;

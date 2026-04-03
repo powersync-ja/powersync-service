@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { DEFAULT_TAG, serializeSyncPlan, StaticSchema } from '../../../src/index.js';
 import { compileToSyncPlanWithoutErrors, yamlToSyncPlan } from './utils.js';
-import { DEFAULT_TAG, serializeSyncPlan, SourceTableDefinition, StaticSchema } from '../../../src/index.js';
 
 describe('common table expressions', () => {
   test('as data source', () => {

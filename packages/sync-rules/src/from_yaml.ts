@@ -1,5 +1,4 @@
 import { Document, isScalar, LineCounter, Node, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
-import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { DEFAULT_BUCKET_PRIORITY, isValidPriority } from './BucketDescription.js';
 import {
   CompatibilityContext,
@@ -7,18 +6,22 @@ import {
   CompatibilityOption,
   TimeValuePrecision
 } from './compatibility.js';
-import { SqlSyncRules } from './SqlSyncRules.js';
-import { validateSyncRulesSchema } from './json_schema.js';
+import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
+import { PreparedSubquery } from './compiler/sqlite.js';
+import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
+import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { InitialSnapshotFilter, SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
+import { SqlSyncRules } from './SqlSyncRules.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
-import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
-import { PreparedSubquery } from './compiler/sqlite.js';
+import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
+import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
+import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
 import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');

@@ -1,9 +1,9 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { configFile } from '@powersync/service-types';
 import { isPostgresStorageConfig, normalizePostgresStorageConfig, PostgresStorageConfig } from '../types/types.js';
-import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { getStorageApplicationName } from '../utils/application-name.js';
+import { STORAGE_SCHEMA_NAME } from '../utils/db.js';
 
 export const openMigrationDB = (config: configFile.BaseStorageConfig) => {
   if (!isPostgresStorageConfig(config)) {

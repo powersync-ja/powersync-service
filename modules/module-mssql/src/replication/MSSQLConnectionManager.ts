@@ -1,8 +1,8 @@
 import { BaseObserver, logger } from '@powersync/lib-services-framework';
-import sql from 'mssql';
-import { NormalizedMSSQLConnectionConfig } from '../types/types.js';
 import { POWERSYNC_VERSION } from '@powersync/service-core';
+import sql from 'mssql';
 import { MSSQLParameter } from '../types/mssql-data-types.js';
+import { NormalizedMSSQLConnectionConfig } from '../types/types.js';
 import { addParameters } from '../utils/mssql.js';
 
 export const DEFAULT_SCHEMA = 'dbo';

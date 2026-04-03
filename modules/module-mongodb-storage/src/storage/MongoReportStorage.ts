@@ -1,8 +1,8 @@
+import { logger } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { event_types } from '@powersync/service-types';
-import { PowerSyncMongo } from './implementation/db.js';
-import { logger } from '@powersync/lib-services-framework';
 import { createPaginatedConnectionQuery } from '../utils/util.js';
+import { PowerSyncMongo } from './implementation/db.js';
 
 export class MongoReportStorage implements storage.ReportStorage {
   public readonly db: PowerSyncMongo;

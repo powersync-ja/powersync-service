@@ -1,5 +1,5 @@
-import { SyncRulesConfig } from '../types.js';
 import fs from 'fs/promises';
+import { SyncRulesConfig } from '../types.js';
 
 export interface SyncRulesProvider {
   get(): Promise<string | undefined>;

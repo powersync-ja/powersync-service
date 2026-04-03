@@ -6,12 +6,12 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
+import { generateSlotName } from '../utils/util.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
+import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
-import { generateSlotName } from '../utils/util.js';
-import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;

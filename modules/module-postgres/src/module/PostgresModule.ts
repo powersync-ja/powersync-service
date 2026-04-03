@@ -19,7 +19,6 @@ import { WalStreamReplicator } from '../replication/WalStreamReplicator.js';
 import * as types from '../types/types.js';
 import { PostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
-import { CustomTypeRegistry } from '../types/registry.js';
 
 export class PostgresModule extends replication.ReplicationModule<types.PostgresConnectionConfig> {
   constructor() {

@@ -5,8 +5,8 @@ import * as service_types from '@powersync/service-types';
 import mysql from 'mysql2/promise';
 import * as common from '../common/common-index.js';
 import { toExpressionTypeFromMySQLType } from '../common/common-index.js';
-import * as mysql_utils from '../utils/mysql-utils.js';
 import * as types from '../types/types.js';
+import * as mysql_utils from '../utils/mysql-utils.js';
 
 type SchemaResult = {
   schema_name: string;

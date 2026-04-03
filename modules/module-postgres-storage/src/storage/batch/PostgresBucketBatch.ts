@@ -20,16 +20,16 @@ import {
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as t from 'ts-codec';
+import { bigint } from '../../types/codecs.js';
 import { CurrentBucket, V3CurrentDataDecoded } from '../../types/models/CurrentData.js';
 import { models, RequiredOperationBatchLimits } from '../../types/types.js';
 import { NOTIFICATION_CHANNEL } from '../../utils/db.js';
 import { pick } from '../../utils/ts-codec.js';
 import { batchCreateCustomWriteCheckpoints } from '../checkpoints/PostgresWriteCheckpointAPI.js';
-import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
-import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
-import { bigint } from '../../types/codecs.js';
 import { PostgresCurrentDataStore } from '../current-data-store.js';
 import { postgresTableId } from '../table-id.js';
+import { cacheKey, encodedCacheKey, OperationBatch, RecordOperation } from './OperationBatch.js';
+import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
 
 export interface PostgresBucketBatchOptions {
   logger: Logger;

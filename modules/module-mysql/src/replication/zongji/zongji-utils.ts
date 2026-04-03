@@ -1,14 +1,14 @@
 import {
   BinLogEvent,
   BinLogGTIDLogEvent,
-  BinLogRowEvent,
-  BinLogRotationEvent,
-  BinLogTableMapEvent,
-  BinLogRowUpdateEvent,
-  BinLogXidEvent,
-  BinLogQueryEvent,
   BinLogHeartbeatEvent,
-  BinLogHeartbeatEvent_V2
+  BinLogHeartbeatEvent_V2,
+  BinLogQueryEvent,
+  BinLogRotationEvent,
+  BinLogRowEvent,
+  BinLogRowUpdateEvent,
+  BinLogTableMapEvent,
+  BinLogXidEvent
 } from '@powersync/mysql-zongji';
 
 export function eventIsGTIDLog(event: BinLogEvent): event is BinLogGTIDLogEvent {

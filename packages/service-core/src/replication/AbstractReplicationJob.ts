@@ -1,8 +1,8 @@
 import { container, logger } from '@powersync/lib-services-framework';
 import winston from 'winston';
+import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import * as storage from '../storage/storage-index.js';
 import { ErrorRateLimiter } from './ErrorRateLimiter.js';
-import { MetricsEngine } from '../metrics/MetricsEngine.js';
 
 export interface AbstractReplicationJobOptions {
   id: string;

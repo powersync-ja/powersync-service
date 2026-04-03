@@ -1,9 +1,9 @@
-import { replication } from '@powersync/service-core';
-import { MSSQLConnectionManagerFactory } from './MSSQLConnectionManagerFactory.js';
 import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
-import { CDCDataExpiredError, CDCStream } from './CDCStream.js';
+import { replication } from '@powersync/service-core';
 import { AdditionalConfig } from '../types/types.js';
 import { POWERSYNC_CHECKPOINTS_TABLE } from '../utils/mssql.js';
+import { CDCDataExpiredError, CDCStream } from './CDCStream.js';
+import { MSSQLConnectionManagerFactory } from './MSSQLConnectionManagerFactory.js';
 
 export interface CDCReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: MSSQLConnectionManagerFactory;

@@ -1,5 +1,5 @@
 import { DartSchemaGenerator } from './DartSchemaGenerator.js';
-import { DotNetSchemaGenerator, DotNetClassSchemaGenerator } from './DotNetSchemaGenerator.js';
+import { DotNetClassSchemaGenerator, DotNetSchemaGenerator } from './DotNetSchemaGenerator.js';
 import { JsLegacySchemaGenerator } from './JsLegacySchemaGenerator.js';
 import { KotlinSchemaGenerator } from './KotlinSchemaGenerator.js';
 import { SwiftSchemaGenerator } from './SwiftSchemaGenerator.js';

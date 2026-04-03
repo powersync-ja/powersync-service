@@ -1,5 +1,5 @@
-import { MetricsEngine } from '../metrics/MetricsEngine.js';
 import { APIMetric } from '@powersync/service-types';
+import { MetricsEngine } from '../metrics/MetricsEngine.js';
 
 /**
  *  Create and register the core API metrics.

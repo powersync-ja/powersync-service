@@ -1,3 +1,5 @@
+export * as test_utils from '../utils/test-utils.js';
+export * from '../utils/util.js';
 export * from './implementation/db.js';
 export * from './implementation/models.js';
 export * from './implementation/MongoBucketBatch.js';
@@ -8,7 +10,5 @@ export * from './implementation/MongoSyncBucketStorage.js';
 export * from './implementation/MongoSyncRulesLock.js';
 export * from './implementation/OperationBatch.js';
 export * from './implementation/PersistedBatch.js';
-export * from '../utils/util.js';
 export * from './MongoBucketStorage.js';
 export * from './MongoReportStorage.js';
-export * as test_utils from '../utils/test-utils.js';
