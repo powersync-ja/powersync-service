@@ -42,10 +42,12 @@ export async function* rawChangeStream(
   options.signal?.addEventListener('abort', () => {
     if (cursorId != null && cursorId !== 0n && nsCollection != null) {
       // This would result in a CursorKilled error.
-      abortPromise = db.command({
-        killCursors: nsCollection,
-        cursors: [cursorId]
-      });
+      abortPromise = db
+        .command({
+          killCursors: nsCollection,
+          cursors: [cursorId]
+        })
+        .catch(() => {});
     }
   });
 
@@ -60,18 +62,22 @@ export async function* rawChangeStream(
           cursor: { batchSize },
           maxTimeMS: options.maxTimeMS
         },
-        { session, raw: false }
+        { session, raw: true }
       )
       .catch((e) => {
         throw mapChangeStreamError(e);
       });
 
-    cursorId = BigInt(aggregateResult.cursor.id);
-    nsCollection = namespaceCollection(aggregateResult.cursor.ns);
+    {
+      const cursor = mongo.BSON.deserialize(aggregateResult.cursor, { useBigInt64: true });
 
-    let batch = aggregateResult.cursor.firstBatch;
+      cursorId = BigInt(cursor.id);
+      nsCollection = namespaceCollection(cursor.ns);
 
-    yield { events: batch, resumeToken: aggregateResult.cursor.postBatchResumeToken };
+      let batch = cursor.firstBatch;
+
+      yield { events: batch, resumeToken: cursor.postBatchResumeToken };
+    }
 
     // Step 2: Poll using getMore until the cursor is closed
     while (cursorId && cursorId !== 0n) {
@@ -86,26 +92,29 @@ export async function* rawChangeStream(
             batchSize,
             maxTimeMS
           },
-          { session, raw: false }
+          { session, raw: true }
         )
         .catch((e) => {
           throw mapChangeStreamError(e);
         });
 
-      cursorId = BigInt(getMoreResult.cursor.id);
-      const nextBatch = getMoreResult.cursor.nextBatch;
+      const cursor = mongo.BSON.deserialize(getMoreResult.cursor, { useBigInt64: true });
+      cursorId = BigInt(cursor.id);
+      const nextBatch = cursor.nextBatch;
 
-      yield { events: nextBatch, resumeToken: getMoreResult.cursor.postBatchResumeToken };
+      yield { events: nextBatch, resumeToken: cursor.postBatchResumeToken };
     }
   } finally {
     if (abortPromise != null) {
       await abortPromise;
     }
     if (cursorId != null && cursorId !== 0n && abortPromise != null) {
-      await db.command({
-        killCursors: nsCollection,
-        cursors: [cursorId]
-      });
+      await db
+        .command({
+          killCursors: nsCollection,
+          cursors: [cursorId]
+        })
+        .catch(() => {});
     }
     await session.endSession();
   }
