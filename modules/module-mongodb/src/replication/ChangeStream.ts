@@ -38,7 +38,7 @@ import {
   STANDALONE_CHECKPOINT_ID
 } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
-import { rawChangeStream } from './RawChangeStream.js';
+import { ChangeStreamBatch, rawChangeStream } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 
 export interface ChangeStreamOptions {
@@ -766,7 +766,7 @@ export class ChangeStream {
     batchSize?: number;
     filters: { $match: any; multipleDatabases: boolean };
     signal?: AbortSignal;
-  }): AsyncIterableIterator<{ events: Buffer[]; resumeToken: unknown }> {
+  }): AsyncIterableIterator<ChangeStreamBatch> {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
     const resumeAfter = lastLsn?.resumeToken;
@@ -783,7 +783,7 @@ export class ChangeStream {
     } else {
       fullDocument = 'updateLookup';
     }
-    const streamOptions: mongo.ChangeStreamOptions = {
+    const streamOptions: mongo.ChangeStreamOptions & mongo.Document = {
       showExpandedEvents: true,
       fullDocument: fullDocument
     };
@@ -812,6 +812,7 @@ export class ChangeStream {
     let watchDb: mongo.Db;
     if (filters.multipleDatabases) {
       watchDb = this.client.db('admin');
+      streamOptions.allChangesForCluster = true;
     } else {
       watchDb = this.defaultDb;
     }
@@ -878,11 +879,6 @@ export class ChangeStream {
           filters,
           signal: this.abort_signal
         });
-        // trackChangeStreamBsonBytes(stream, (bytes) => {
-        //   bytesReplicatedMetric.add(bytes);
-        //   // Each of these represent a single response message from MongoDB.
-        //   chunksReplicatedMetric.add(1);
-        // });
 
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
@@ -901,7 +897,10 @@ export class ChangeStream {
         let lastEmptyResume = performance.now();
         let lastTxnKey: string | null = null;
 
-        for await (let { events, resumeToken } of batchStream) {
+        for await (let eventBatch of batchStream) {
+          const { events, resumeToken } = eventBatch;
+          bytesReplicatedMetric.add(eventBatch.byteSize);
+          chunksReplicatedMetric.add(1);
           if (this.abort_signal.aborted) {
             break;
           }

@@ -13,11 +13,20 @@ export interface RawChangeStreamOptions {
    */
   maxTimeMS: number;
   batchSize: number;
+
+  /**
+   * Mostly for testing.
+   */
+  collection?: string;
 }
 
 export interface ChangeStreamBatch {
   resumeToken: mongo.ResumeToken;
   events: Buffer[];
+  /**
+   * Size in bytes of this event.
+   */
+  byteSize: number;
 }
 
 export async function* rawChangeStream(
@@ -37,6 +46,7 @@ export async function* rawChangeStream(
 
   const maxTimeMS = options.maxAwaitTimeMS;
   const batchSize = options.batchSize;
+  const collection = options.collection ?? 1;
   let abortPromise: Promise<any> | null = null;
 
   options.signal?.addEventListener('abort', () => {
@@ -53,22 +63,22 @@ export async function* rawChangeStream(
 
   const session = db.client.startSession();
   try {
-    // Step 1: Send the aggregate command to start the change stream
-    const aggregateResult = await db
-      .command(
-        {
-          aggregate: 1,
-          pipeline,
-          cursor: { batchSize },
-          maxTimeMS: options.maxTimeMS
-        },
-        { session, raw: true }
-      )
-      .catch((e) => {
-        throw mapChangeStreamError(e);
-      });
-
     {
+      // Step 1: Send the aggregate command to start the change stream
+      const aggregateResult = await db
+        .command(
+          {
+            aggregate: collection,
+            pipeline,
+            cursor: { batchSize },
+            maxTimeMS: options.maxTimeMS
+          },
+          { session, raw: true }
+        )
+        .catch((e) => {
+          throw mapChangeStreamError(e);
+        });
+
       const cursor = mongo.BSON.deserialize(aggregateResult.cursor, {
         useBigInt64: true,
         fieldsAsRaw: { firstBatch: true }
@@ -79,7 +89,7 @@ export async function* rawChangeStream(
 
       let batch = cursor.firstBatch;
 
-      yield { events: batch, resumeToken: cursor.postBatchResumeToken };
+      yield { events: batch, resumeToken: cursor.postBatchResumeToken, byteSize: aggregateResult.cursor.byteLength };
     }
 
     // Step 2: Poll using getMore until the cursor is closed
@@ -108,7 +118,7 @@ export async function* rawChangeStream(
       cursorId = BigInt(cursor.id);
       const nextBatch = cursor.nextBatch;
 
-      yield { events: nextBatch, resumeToken: cursor.postBatchResumeToken };
+      yield { events: nextBatch, resumeToken: cursor.postBatchResumeToken, byteSize: getMoreResult.cursor.byteLength };
     }
   } finally {
     if (abortPromise != null) {

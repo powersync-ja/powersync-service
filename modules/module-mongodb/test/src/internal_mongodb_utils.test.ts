@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import { getCursorBatchBytes, trackChangeStreamBsonBytes } from '@module/replication/replication-index.js';
-import { mongo } from '@powersync/lib-service-mongodb';
+import { ChangeStreamBatch, rawChangeStream } from '@module/replication/RawChangeStream.js';
+import { getCursorBatchBytes } from '@module/replication/replication-index.js';
 import { clearTestDb, connectMongoData } from './util.js';
 
 describe('internal mongodb utils', () => {
@@ -43,40 +43,57 @@ describe('internal mongodb utils', () => {
   });
 
   async function testChangeStreamBsonBytes(type: 'db' | 'collection' | 'cluster') {
-    // With MongoDB, replication uses the exact same document format
-    // as normal queries. We test it anyway.
     const { db, client } = await connectMongoData();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
     await clearTestDb(db);
     const collection = db.collection('test_data');
 
-    let stream: mongo.ChangeStream;
+    let stream: AsyncIterableIterator<ChangeStreamBatch>;
+    const pipeline = [
+      {
+        $changeStream: {
+          fullDocument: 'updateLookup',
+          allChangesForCluster: type == 'cluster'
+        }
+      }
+    ];
     if (type === 'collection') {
-      stream = collection.watch([], {
+      stream = rawChangeStream(db, pipeline, {
+        batchSize: 10,
         maxAwaitTimeMS: 5,
-        fullDocument: 'updateLookup'
+        maxTimeMS: 1_000
       });
     } else if (type === 'db') {
-      stream = db.watch([], {
+      stream = rawChangeStream(db, pipeline, {
+        batchSize: 10,
         maxAwaitTimeMS: 5,
-        fullDocument: 'updateLookup'
+        maxTimeMS: 1_000
       });
     } else {
-      stream = client.watch([], {
+      stream = rawChangeStream(client.db('admin'), pipeline, {
+        batchSize: 10,
         maxAwaitTimeMS: 5,
-        fullDocument: 'updateLookup'
+        maxTimeMS: 1_000
       });
     }
 
     let batchBytes: number[] = [];
     let totalBytes = 0;
-    trackChangeStreamBsonBytes(stream, (bytes) => {
-      batchBytes.push(bytes);
-      totalBytes += bytes;
-    });
 
     const readAll = async () => {
-      while ((await stream.tryNext()) != null) {}
+      while (true) {
+        const next = await stream.next();
+        if (next.done) {
+          break;
+        }
+        const bytes = next.value.byteSize;
+        batchBytes.push(bytes);
+        totalBytes += bytes;
+
+        if (next.value.events.length == 0) {
+          break;
+        }
+      }
     };
 
     await readAll();
@@ -88,11 +105,11 @@ describe('internal mongodb utils', () => {
     await collection.insertOne({ test: 3 });
     await readAll();
 
-    await stream.close();
+    await stream.return?.();
 
     // The exact length by vary based on exact batching logic, but we do want to know when it changes.
     // Note: If this causes unstable tests, we can relax this check.
-    expect(batchBytes.length).toEqual(8);
+    expect(batchBytes.length).toEqual(7);
 
     // Current tests show 4464-4576 bytes for the size, depending on the type of change stream.
     // This can easily vary based on the mongodb version and general conditions, so we just check the general range.
