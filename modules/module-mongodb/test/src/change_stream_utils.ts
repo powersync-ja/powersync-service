@@ -180,8 +180,12 @@ export class ChangeStreamTestContext {
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
+    const isCosmosDb = this.streamOptions?.cosmosDbMode ?? false;
     let checkpoint = await Promise.race([
-      getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
+      getClientCheckpoint(this.client, this.db, this.factory, {
+        timeout: options?.timeout ?? 15_000,
+        isCosmosDb
+      }),
       this.streamPromise?.then((e) => {
         if (e.status == 'rejected') {
           throw e.reason;
@@ -248,10 +252,12 @@ export async function getClientCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
-  options?: { timeout?: number }
+  options?: { timeout?: number; isCosmosDb?: boolean }
 ): Promise<InternalOpId> {
   const start = Date.now();
-  const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
+  const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, {
+    isCosmosDb: options?.isCosmosDb
+  });
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 

@@ -88,7 +88,7 @@ describe('Cosmos DB helpers', () => {
       // like 'sentinel:<id>:<i>' for event-based matching in the streaming loop.
       const { client, db } = await connectMongoData();
       try {
-        const checkpoint = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, { mode: 'sentinel' });
+        const checkpoint = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, { mode: 'sentinel', isCosmosDb: true });
         // The sentinel format should be 'sentinel:<id>:<i>'
         expect(checkpoint).toMatch(/^sentinel:/);
         const parts = checkpoint.split(':');

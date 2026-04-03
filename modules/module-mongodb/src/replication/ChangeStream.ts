@@ -300,7 +300,8 @@ export class ChangeStream {
 
     // Create a checkpoint, and open a change stream using startAtOperationTime with the checkpoint's operationTime.
     const firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-      mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+      mode: this.isCosmosDb ? 'sentinel' : 'lsn',
+      isCosmosDb: this.isCosmosDb
     });
     // Sentinel LSNs cannot be parsed as MongoLSN — open stream from current position
     const streamLsn = firstCheckpointLsn.startsWith('sentinel:') ? null : firstCheckpointLsn;
@@ -314,7 +315,8 @@ export class ChangeStream {
     while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {
       if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
         await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-          mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+          mode: this.isCosmosDb ? 'sentinel' : 'lsn',
+          isCosmosDb: this.isCosmosDb
         });
         lastCheckpointCreated = performance.now();
       }
@@ -429,7 +431,9 @@ export class ChangeStream {
         // The checkpoint here is a marker - we need to replicate up to at least this
         // point before the data can be considered consistent.
         // We could do this for each individual table, but may as well just do it once for the entire snapshot.
-        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID, {
+          isCosmosDb: this.isCosmosDb
+        });
         await batch.markAllSnapshotDone(checkpoint);
 
         // This will not create a consistent checkpoint yet, but will persist the op.
@@ -694,7 +698,9 @@ export class ChangeStream {
       await batch.truncate([result.table]);
 
       await this.snapshotTable(batch, result.table);
-      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID, {
+        isCosmosDb: this.isCosmosDb
+      });
 
       const [table] = await batch.markTableSnapshotDone([result.table], no_checkpoint_before_lsn);
       return table;
@@ -961,7 +967,7 @@ export class ChangeStream {
           this.client,
           this.defaultDb,
           this.checkpointStreamId,
-          { mode: this.isCosmosDb ? 'sentinel' : 'lsn' }
+          { mode: this.isCosmosDb ? 'sentinel' : 'lsn', isCosmosDb: this.isCosmosDb }
         );
 
         let splitDocument: mongo.ChangeStreamDocument | null = null;
@@ -1138,7 +1144,8 @@ export class ChangeStream {
               if (waitForCheckpointLsn != null || this.getBufferedChangeCount(stream) > 0) {
                 if (waitForCheckpointLsn == null) {
                   waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                    mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+                    mode: this.isCosmosDb ? 'sentinel' : 'lsn',
+                    isCosmosDb: this.isCosmosDb
                   });
                 }
                 continue;
@@ -1172,6 +1179,7 @@ export class ChangeStream {
                 const [, sentinelId, sentinelI] = waitForCheckpointLsn.split(':');
                 const docId = String(changeDocument.documentKey._id);
                 const docI = (changeDocument as any).fullDocument?.i;
+
                 if (docId === sentinelId && String(docI) === sentinelI) {
                   waitForCheckpointLsn = null;
                 }
@@ -1196,7 +1204,8 @@ export class ChangeStream {
           ) {
             if (waitForCheckpointLsn == null) {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+                mode: this.isCosmosDb ? 'sentinel' : 'lsn',
+                isCosmosDb: this.isCosmosDb
               });
             }
 

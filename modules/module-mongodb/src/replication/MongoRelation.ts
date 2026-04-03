@@ -183,13 +183,33 @@ export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
  *   'sentinel' — return a sentinel marker for event-based matching in the
  *     streaming loop.
  */
+/**
+ * Create a checkpoint by upserting a document in _powersync_checkpoints.
+ *
+ * Returns either:
+ * - A standard LSN string (from operationTime or wall clock) for storage
+ *   boundaries like no_checkpoint_before, where lexicographic comparison is used.
+ * - A sentinel string ('sentinel:<id>:<i>') for the streaming loop's
+ *   waitForCheckpointLsn, where the loop matches by document content instead
+ *   of comparing LSNs.
+ *
+ * @param mode
+ *   'lsn' (default) — return a real LSN string. Uses operationTime when
+ *     available (standard MongoDB), falls back to wall clock (Cosmos DB).
+ *   'sentinel' — return a sentinel marker for event-based matching in the
+ *     streaming loop.
+ *   'wallclock-lsn' — always use wall clock, even when operationTime is
+ *     available. Use this when the LSN must be consistent with wallTime-derived
+ *     LSNs from the streaming loop (cosmosDbMode on standard MongoDB).
+ */
 export async function createCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   id: mongo.ObjectId | string,
-  options?: { mode?: 'lsn' | 'sentinel' }
+  options?: { mode?: 'lsn' | 'sentinel'; isCosmosDb?: boolean }
 ): Promise<string> {
   const mode = options?.mode ?? 'lsn';
+  const isCosmosDb = options?.isCosmosDb ?? false;
   const session = client.startSession();
   try {
     // We use an unique id per process, and clear documents on startup.
@@ -218,12 +238,18 @@ export async function createCheckpoint(
     }
 
     // LSN path: return a real LSN for storage comparison.
-    const time = session.operationTime;
-    if (time != null) {
-      return new MongoLSN({ timestamp: time }).comparable;
+    // On Cosmos DB (or cosmosDbMode), always use wall clock to be consistent
+    // with wallTime-derived LSNs from getEventTimestamp(). Mixing operationTime
+    // (which has real increments) with wallTime (increment 0) causes LSN
+    // comparison failures when both timestamps fall in the same second.
+    if (!isCosmosDb) {
+      const time = session.operationTime;
+      if (time != null) {
+        return new MongoLSN({ timestamp: time }).comparable;
+      }
     }
 
-    // Cosmos DB: operationTime unavailable, use wall clock as fallback.
+    // Wall clock: consistent with wallTime-derived LSNs (second precision, increment 0).
     const fallbackTimestamp = mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000));
     return new MongoLSN({ timestamp: fallbackTimestamp }).comparable;
   } finally {
