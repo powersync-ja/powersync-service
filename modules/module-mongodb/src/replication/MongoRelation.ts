@@ -167,12 +167,29 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
  */
 export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
 
+/**
+ * Create a checkpoint by upserting a document in _powersync_checkpoints.
+ *
+ * Returns either:
+ * - A standard LSN string (from operationTime or wall clock) for storage
+ *   boundaries like no_checkpoint_before, where lexicographic comparison is used.
+ * - A sentinel string ('sentinel:<id>:<i>') for the streaming loop's
+ *   waitForCheckpointLsn, where the loop matches by document content instead
+ *   of comparing LSNs.
+ *
+ * @param mode
+ *   'lsn' (default) — return a real LSN string. Uses operationTime when
+ *     available, falls back to wall clock on Cosmos DB.
+ *   'sentinel' — return a sentinel marker for event-based matching in the
+ *     streaming loop.
+ */
 export async function createCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   id: mongo.ObjectId | string,
-  options?: { forceCosmosDb?: boolean }
+  options?: { mode?: 'lsn' | 'sentinel' }
 ): Promise<string> {
+  const mode = options?.mode ?? 'lsn';
   const session = client.startSession();
   try {
     // We use an unique id per process, and clear documents on startup.
@@ -192,23 +209,21 @@ export async function createCheckpoint(
       }
     );
 
-    const time = session.operationTime;
-    if (time != null && !options?.forceCosmosDb) {
-      // Standard MongoDB: return LSN from operationTime (existing path)
-      return new MongoLSN({ timestamp: time }).comparable;
-    }
-
-    if (options?.forceCosmosDb) {
-      // Sentinel path: return a marker that the streaming loop matches by event content.
-      // Only used for the streaming loop's waitForCheckpointLsn — NOT for storage boundaries
-      // like no_checkpoint_before, which require real LSN strings for lexicographic comparison.
+    if (mode === 'sentinel') {
+      // Sentinel path: return a marker that the streaming loop matches by
+      // event content. NOT for storage boundaries (lexicographic comparison
+      // would fail — 'sentinel:...' > any hex LSN string).
       const i = result?.i;
       return `sentinel:${id}:${i}`;
     }
 
-    // Cosmos DB without forceCosmosDb (e.g., no_checkpoint_before boundaries):
-    // operationTime is unavailable, use wall clock as a fallback LSN.
-    // This produces a valid LSN string that can be compared lexicographically.
+    // LSN path: return a real LSN for storage comparison.
+    const time = session.operationTime;
+    if (time != null) {
+      return new MongoLSN({ timestamp: time }).comparable;
+    }
+
+    // Cosmos DB: operationTime unavailable, use wall clock as fallback.
     const fallbackTimestamp = mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000));
     return new MongoLSN({ timestamp: fallbackTimestamp }).comparable;
   } finally {

@@ -84,13 +84,11 @@ describe('Cosmos DB helpers', () => {
 
   describe('sentinel checkpoint format', () => {
     test('createCheckpoint returns sentinel format when operationTime is null', async () => {
-      // When forceCosmosDb is true and session.operationTime is null (as on Cosmos DB),
-      // createCheckpoint should return a sentinel string like 'sentinel:<id>:<i>'.
-      // On standard MongoDB, session.operationTime is always set, so forceCosmosDb forces
-      // the sentinel path.
+      // When mode is 'sentinel', createCheckpoint returns a sentinel string
+      // like 'sentinel:<id>:<i>' for event-based matching in the streaming loop.
       const { client, db } = await connectMongoData();
       try {
-        const checkpoint = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, { forceCosmosDb: true });
+        const checkpoint = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, { mode: 'sentinel' });
         // The sentinel format should be 'sentinel:<id>:<i>'
         expect(checkpoint).toMatch(/^sentinel:/);
         const parts = checkpoint.split(':');

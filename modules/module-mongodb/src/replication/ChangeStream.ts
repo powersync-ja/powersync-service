@@ -300,7 +300,7 @@ export class ChangeStream {
 
     // Create a checkpoint, and open a change stream using startAtOperationTime with the checkpoint's operationTime.
     const firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-      forceCosmosDb: this.isCosmosDb
+      mode: this.isCosmosDb ? 'sentinel' : 'lsn'
     });
     // Sentinel LSNs cannot be parsed as MongoLSN — open stream from current position
     const streamLsn = firstCheckpointLsn.startsWith('sentinel:') ? null : firstCheckpointLsn;
@@ -314,7 +314,7 @@ export class ChangeStream {
     while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {
       if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
         await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-          forceCosmosDb: this.isCosmosDb
+          mode: this.isCosmosDb ? 'sentinel' : 'lsn'
         });
         lastCheckpointCreated = performance.now();
       }
@@ -961,7 +961,7 @@ export class ChangeStream {
           this.client,
           this.defaultDb,
           this.checkpointStreamId,
-          { forceCosmosDb: this.isCosmosDb }
+          { mode: this.isCosmosDb ? 'sentinel' : 'lsn' }
         );
 
         let splitDocument: mongo.ChangeStreamDocument | null = null;
@@ -1138,7 +1138,7 @@ export class ChangeStream {
               if (waitForCheckpointLsn != null || this.getBufferedChangeCount(stream) > 0) {
                 if (waitForCheckpointLsn == null) {
                   waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                    forceCosmosDb: this.isCosmosDb
+                    mode: this.isCosmosDb ? 'sentinel' : 'lsn'
                   });
                 }
                 continue;
@@ -1196,7 +1196,7 @@ export class ChangeStream {
           ) {
             if (waitForCheckpointLsn == null) {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                forceCosmosDb: this.isCosmosDb
+                mode: this.isCosmosDb ? 'sentinel' : 'lsn'
               });
             }
 
