@@ -1,6 +1,7 @@
 import { container, logger } from '@powersync/lib-services-framework';
+import { MissingReplicationSlotError, shouldRetryReplication } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
-import { MissingReplicationSlotError, sendKeepAlive, shouldRetryReplication, WalStream } from './WalStream.js';
+import { sendKeepAlive, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
 import { getApplicationName } from '../utils/application-name.js';
@@ -91,13 +92,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       }
 
       if (e instanceof MissingReplicationSlotError) {
-        if (
-          shouldRetryReplication({
-            walStatus: e.walStatus ?? 'missing',
-            phase: e.phase ?? 'streaming',
-            invalidationReason: (e as any).invalidationReason
-          })
-        ) {
+        if (shouldRetryReplication(e)) {
           // This stops replication on this slot and restarts with a new slot
           await this.options.storage.factory.restartReplication(this.storage.group_id);
         }

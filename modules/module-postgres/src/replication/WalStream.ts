@@ -34,6 +34,7 @@ import {
 
 import { ReplicationMetric } from '@powersync/service-types';
 import { PostgresTypeResolver } from '../types/resolver.js';
+import { MissingReplicationSlotError } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
@@ -45,6 +46,7 @@ import {
   SimpleSnapshotQuery,
   SnapshotQuery
 } from './SnapshotQuery.js';
+import { computeWalBudgetReport, formatBytes, formatDuration, formatWalBudgetLine } from './wal-budget-utils.js';
 
 export interface WalStreamOptions {
   logger?: Logger;
@@ -112,128 +114,6 @@ export const isKeepAliveMessage = (msg: pgwire.PgoutputMessage) => {
 export const sendKeepAlive = async (db: pgwire.PgClient) => {
   await lib_postgres.retriedQuery(db, KEEPALIVE_STATEMENT);
 };
-
-export class MissingReplicationSlotError extends Error {
-  walStatus?: string;
-  phase?: 'snapshot' | 'streaming';
-
-  constructor(message: string, options?: { cause?: any; walStatus?: string; phase?: 'snapshot' | 'streaming' }) {
-    super(message);
-    if (options) {
-      this.cause = options.cause;
-      this.walStatus = options.walStatus;
-      this.phase = options.phase;
-    }
-  }
-}
-
-export interface SlotInvalidationContext {
-  walStatus: string; // 'lost' | 'reserved' | 'extended' | 'missing' | ...
-  phase: 'snapshot' | 'streaming';
-  invalidationReason?: string; // PG 14+: 'wal_removed', 'rows_removed', etc.
-}
-
-/**
- * Determines whether replication should be retried after a slot invalidation.
- *
- * Returns false when retry would be futile (e.g. slot lost during snapshot
- * due to WAL budget exhaustion — retrying would repeat the same long snapshot
- * and likely fail again).
- *
- * Blocks retry when walStatus is 'lost' during snapshot phase (unless the
- * invalidation reason is 'rows_removed', which is not a WAL budget issue).
- * Allows retry in all other cases.
- */
-export function shouldRetryReplication(context: SlotInvalidationContext): boolean {
-  if (context.walStatus === 'lost' && context.phase === 'snapshot' && context.invalidationReason !== 'rows_removed') {
-    return false;
-  }
-  return true;
-}
-
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
-  } else if (bytes >= 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  } else if (bytes >= 1024) {
-    return `${(bytes / 1024).toFixed(1)}KB`;
-  }
-  return `${bytes}B`;
-}
-
-export function formatDuration(hours: number): string {
-  if (hours >= 24) {
-    return `${(hours / 24).toFixed(1)} days`;
-  } else if (hours >= 1) {
-    return `${hours.toFixed(1)} hours`;
-  }
-  return `${Math.round(hours * 60)} minutes`;
-}
-
-export interface WalBudgetSample {
-  safeWalSize: number;
-  timestamp: number;
-}
-
-export interface WalBudgetReport {
-  budgetRemainingPct: number;
-  safeWalSize: number;
-  maxSize: number;
-  walStatus: string;
-  ratePerHour: number | null;
-  etaHours: number | null;
-  isWarning: boolean;
-}
-
-export function computeWalBudgetReport(opts: {
-  safeWalSize: number;
-  maxSize: number;
-  walStatus: string;
-  prevSample: WalBudgetSample | null;
-  now: number;
-}): WalBudgetReport {
-  const budgetRemainingPct = Math.round((opts.safeWalSize / opts.maxSize) * 100);
-
-  let ratePerHour: number | null = null;
-  let etaHours: number | null = null;
-
-  if (opts.prevSample != null) {
-    const elapsedMs = opts.now - opts.prevSample.timestamp;
-    const consumed = opts.prevSample.safeWalSize - opts.safeWalSize;
-    if (elapsedMs > 0 && consumed > 0) {
-      ratePerHour = (consumed / elapsedMs) * 3_600_000;
-      const eta = opts.safeWalSize / ratePerHour;
-      etaHours = eta < 48 ? eta : null;
-    }
-  }
-
-  return {
-    budgetRemainingPct,
-    safeWalSize: opts.safeWalSize,
-    maxSize: opts.maxSize,
-    walStatus: opts.walStatus,
-    ratePerHour,
-    etaHours,
-    isWarning: budgetRemainingPct <= 50
-  };
-}
-
-export function formatWalBudgetLine(report: WalBudgetReport): string {
-  let line =
-    `WAL budget: ${formatBytes(report.safeWalSize)} remaining of ` +
-    `${formatBytes(report.maxSize)} limit (${report.budgetRemainingPct}% remaining).`;
-
-  if (report.ratePerHour != null) {
-    line += ` WAL consumption: ~${formatBytes(report.ratePerHour)}/hr.`;
-    if (report.etaHours != null) {
-      line += ` ETA to exhaustion: ~${formatDuration(report.etaHours)}.`;
-    }
-  }
-
-  line += ` Slot status: ${report.walStatus}.`;
-  return line;
-}
 
 export class WalStream {
   sync_rules: HydratedSyncRules;
@@ -478,7 +358,8 @@ export class WalStream {
           `[PSYNC_S1146] Replication slot ${slotName} was invalidated ` +
             `(reason: ${slot.invalidation_reason ?? 'unknown'}). ` +
             `${fixGuidance} ` +
-            `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`
+            `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`,
+          { walStatus: 'lost', phase: 'streaming', invalidationReason: slot.invalidation_reason ?? undefined }
         );
       }
       // Case 3 / 6
@@ -490,7 +371,10 @@ export class WalStream {
       if (snapshotDone) {
         // Case 5
         // This will create a new slot, while keeping the current sync rules active
-        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`);
+        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`, {
+          walStatus: 'missing',
+          phase: 'streaming'
+        });
       }
       // Case 2
       // This will clear data (if any) and re-create the same slot
@@ -612,7 +496,7 @@ export class WalStream {
           `${this.formatWalBudgetContext()}. ` +
           `Increase max_slot_wal_keep_size on the source database. ` +
           `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`,
-        { walStatus: 'lost', phase: 'snapshot' }
+        { walStatus: 'lost', phase: 'snapshot', invalidationReason: rows[0].invalidation_reason ?? undefined }
       );
     }
 
@@ -1153,7 +1037,7 @@ WHERE  oid = $1::regclass`,
       await this.streamChangesInternal(replicationConnection);
     } catch (e) {
       if (isReplicationSlotInvalidError(e)) {
-        throw new MissingReplicationSlotError(e.message, { cause: e });
+        throw new MissingReplicationSlotError(e.message, { walStatus: 'lost', phase: 'streaming', cause: e });
       }
       throw e;
     }

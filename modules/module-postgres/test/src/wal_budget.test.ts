@@ -1,9 +1,9 @@
 import {
+  computeWalBudgetReport,
   formatBytes,
   formatDuration,
-  computeWalBudgetReport,
   formatWalBudgetLine
-} from '@module/replication/WalStream.js';
+} from '@module/replication/wal-budget-utils.js';
 import { describe, expect, test } from 'vitest';
 
 describe('formatBytes', () => {

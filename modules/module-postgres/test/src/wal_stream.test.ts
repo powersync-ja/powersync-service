@@ -1,4 +1,4 @@
-import { MissingReplicationSlotError } from '@module/replication/WalStream.js';
+import { MissingReplicationSlotError } from '@module/replication/MissingReplicationSlotError.js';
 import { METRICS_HELPER, putOp, removeOp } from '@powersync/service-core-tests';
 import { pgwireRows } from '@powersync/service-jpgwire';
 import { JSONBig } from '@powersync/service-jsonbig';
