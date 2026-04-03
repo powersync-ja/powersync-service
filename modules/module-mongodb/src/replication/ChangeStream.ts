@@ -276,7 +276,7 @@ export class ChangeStream {
         ErrorCode.PSYNC_S1341,
         'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
       );
-    } else if (hello.setName == null) {
+    } else if (hello.setName == null && !this.isCosmosDb) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1342,
         'Standalone MongoDB instances are not supported - use a replicaset.'

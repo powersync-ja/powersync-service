@@ -198,11 +198,19 @@ export async function createCheckpoint(
       return new MongoLSN({ timestamp: time }).comparable;
     }
 
-    // Cosmos DB (or test flag): operationTime not available.
-    // Return a sentinel marker that the streaming loop will match on.
-    // Format: 'sentinel:<id>:<i>' — not an LSN, resolved by event matching.
-    const i = result?.i;
-    return `sentinel:${id}:${i}`;
+    if (options?.forceCosmosDb) {
+      // Sentinel path: return a marker that the streaming loop matches by event content.
+      // Only used for the streaming loop's waitForCheckpointLsn — NOT for storage boundaries
+      // like no_checkpoint_before, which require real LSN strings for lexicographic comparison.
+      const i = result?.i;
+      return `sentinel:${id}:${i}`;
+    }
+
+    // Cosmos DB without forceCosmosDb (e.g., no_checkpoint_before boundaries):
+    // operationTime is unavailable, use wall clock as a fallback LSN.
+    // This produces a valid LSN string that can be compared lexicographically.
+    const fallbackTimestamp = mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000));
+    return new MongoLSN({ timestamp: fallbackTimestamp }).comparable;
   } finally {
     await session.endSession();
   }
