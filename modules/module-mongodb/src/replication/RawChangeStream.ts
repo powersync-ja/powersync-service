@@ -4,13 +4,20 @@ import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
 export interface RawChangeStreamOptions {
   signal?: AbortSignal;
-  maxAwaitTimeMs: number;
+  /**
+   * How long to wait for new data per batch (max time for long-polling).
+   */
+  maxAwaitTimeMS: number;
+  /**
+   * Timeout for the initial aggregate command.
+   */
+  maxTimeMS: number;
   batchSize: number;
 }
 
 export interface ChangeStreamBatch {
   resumeToken: mongo.ResumeToken;
-  events: mongo.Document[];
+  events: mongo.ChangeStreamDocument[];
 }
 
 export async function* rawChangeStream(
@@ -21,21 +28,22 @@ export async function* rawChangeStream(
   // See specs:
   // https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
 
+  let cursorId: bigint | null = null;
+
   /**
    * Typically '$cmd.aggregate', but we need to use the ns from the cursor.
    */
-  let cursorId: bigint | null = null;
-  let ns: string | null = null;
+  let nsCollection: string | null = null;
 
-  const maxTimeMS = options.maxAwaitTimeMs;
+  const maxTimeMS = options.maxAwaitTimeMS;
   const batchSize = options.batchSize;
   let abortPromise: Promise<any> | null = null;
 
   options.signal?.addEventListener('abort', () => {
-    if (cursorId != null && cursorId !== 0n && ns != null) {
+    if (cursorId != null && cursorId !== 0n && nsCollection != null) {
       // This would result in a CursorKilled error.
       abortPromise = db.command({
-        killCursors: ns,
+        killCursors: nsCollection,
         cursors: [cursorId]
       });
     }
@@ -49,7 +57,8 @@ export async function* rawChangeStream(
         {
           aggregate: 1,
           pipeline,
-          cursor: { batchSize }
+          cursor: { batchSize },
+          maxTimeMS: options.maxTimeMS
         },
         { session, raw: false }
       )
@@ -58,7 +67,8 @@ export async function* rawChangeStream(
       });
 
     cursorId = BigInt(aggregateResult.cursor.id);
-    ns = aggregateResult.cursor.ns as string;
+    nsCollection = namespaceCollection(aggregateResult.cursor.ns);
+
     let batch = aggregateResult.cursor.firstBatch;
 
     yield { events: batch, resumeToken: aggregateResult.cursor.postBatchResumeToken };
@@ -72,7 +82,7 @@ export async function* rawChangeStream(
         .command(
           {
             getMore: cursorId,
-            collection: ns,
+            collection: nsCollection,
             batchSize,
             maxTimeMS
           },
@@ -93,7 +103,7 @@ export async function* rawChangeStream(
     }
     if (cursorId != null && cursorId !== 0n && abortPromise != null) {
       await db.command({
-        killCursors: ns,
+        killCursors: nsCollection,
         cursors: [cursorId]
       });
     }
@@ -121,4 +131,16 @@ export function mapChangeStreamError(e: unknown) {
   } else {
     throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
   }
+}
+
+/**
+ * Get the "collection" from a ns.
+ *
+ * This drops everything before the first . character.
+ *
+ * "my_db_name.$cmd.aggregate" -> "$cmd.aggregate"
+ */
+export function namespaceCollection(ns: string): string {
+  const dot = ns.indexOf('.');
+  return ns.substring(dot + 1);
 }
