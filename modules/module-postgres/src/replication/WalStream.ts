@@ -46,7 +46,7 @@ import {
   SimpleSnapshotQuery,
   SnapshotQuery
 } from './SnapshotQuery.js';
-import { computeWalBudgetReport, formatBytes, formatDuration, formatWalBudgetLine } from './wal-budget-utils.js';
+import { computeWalBudgetReport, formatBytes, formatWalBudgetLine } from './wal-budget-utils.js';
 
 export interface WalStreamOptions {
   logger?: Logger;
@@ -72,11 +72,11 @@ export interface WalStreamOptions {
   onSnapshotChunkFlushed?: () => Promise<void>;
 
   /**
-   * Interval for WAL budget log messages during snapshot, in milliseconds.
-   * Set to 0 for every-chunk logging (useful for debugging).
+   * Interval for slot health checks during snapshot, in milliseconds.
+   * Set to 0 for every-chunk checking (useful for testing).
    * Defaults to 120_000 (2 minutes).
    */
-  walBudgetLogIntervalMs?: number;
+  slotHealthCheckIntervalMs?: number;
 }
 
 interface InitResult {
@@ -147,7 +147,7 @@ export class WalStream {
 
   private initialSnapshotPromise: Promise<void> | null = null;
 
-  private walBudgetLogIntervalMs: number;
+  private slotHealthCheckIntervalMs: number;
 
   /** Cached max_slot_wal_keep_size in bytes. null = not yet queried. */
   private maxSlotWalKeepSize: number | null = null;
@@ -157,8 +157,8 @@ export class WalStream {
 
   /** Previous safe_wal_size sample for rate calculation. */
   private prevWalBudgetSample: { safeWalSize: number; timestamp: number } | null = null;
-  /** Timestamp of last WAL budget log message. */
-  private lastWalBudgetLogTime = 0;
+  /** Timestamp of last slot health check. */
+  private lastSlotHealthCheckTime = 0;
 
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -170,7 +170,7 @@ export class WalStream {
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
     this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
-    this.walBudgetLogIntervalMs = options.walBudgetLogIntervalMs ?? 120_000;
+    this.slotHealthCheckIntervalMs = options.slotHealthCheckIntervalMs ?? 120_000;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -357,8 +357,7 @@ export class WalStream {
         throw new MissingReplicationSlotError(
           `[PSYNC_S1146] Replication slot ${slotName} was invalidated ` +
             `(reason: ${slot.invalidation_reason ?? 'unknown'}). ` +
-            `${fixGuidance} ` +
-            `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`,
+            `${fixGuidance}`,
           { walStatus: 'lost', phase: 'streaming', invalidationReason: slot.invalidation_reason ?? undefined }
         );
       }
@@ -478,8 +477,7 @@ export class WalStream {
       // Slot row gone from pg_replication_slots — dropped externally.
       // Possible causes: pg_drop_replication_slot() call (operator, management tool, cleanup cron)
       throw new MissingReplicationSlotError(
-        `[PSYNC_S1146] Replication slot ${this.slot_name} disappeared during snapshot. ` +
-          `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`,
+        `[PSYNC_S1146] Replication slot ${this.slot_name} disappeared during snapshot.`,
         { walStatus: 'missing', phase: 'snapshot' }
       );
     }
@@ -494,38 +492,19 @@ export class WalStream {
       throw new MissingReplicationSlotError(
         `[PSYNC_S1146] Replication slot ${this.slot_name} was invalidated during snapshot` +
           `${this.formatWalBudgetContext()}. ` +
-          `Increase max_slot_wal_keep_size on the source database. ` +
-          `https://docs.powersync.com/self-hosting/troubleshooting/replication-slot-invalidated`,
+          `Increase max_slot_wal_keep_size on the source database.`,
         { walStatus: 'lost', phase: 'snapshot', invalidationReason: rows[0].invalidation_reason ?? undefined }
       );
     }
 
-    // WAL budget reporting (time-throttled)
-    const now = performance.now();
-    if (now - this.lastWalBudgetLogTime >= this.walBudgetLogIntervalMs) {
-      this.lastWalBudgetLogTime = now;
-      await this.logWalBudget(rows[0], now);
-    }
+    await this.logWalBudget(rows[0], performance.now());
   }
 
   private formatWalBudgetContext(): string {
     if (this.maxSlotWalKeepSize == null) {
       return '';
     }
-    const parts: string[] = [];
-    parts.push(` (limit: ${formatBytes(this.maxSlotWalKeepSize)})`);
-
-    if (this.prevWalBudgetSample != null) {
-      const elapsed = performance.now() - this.prevWalBudgetSample.timestamp;
-      if (elapsed > 0 && this.prevWalBudgetSample.safeWalSize > 0) {
-        const elapsedHours = elapsed / 3_600_000;
-        if (elapsedHours >= 0.1) {
-          parts.push(`, exhausted in ~${formatDuration(elapsedHours)}`);
-        }
-      }
-    }
-
-    return parts.join('');
+    return ` (limit: ${formatBytes(this.maxSlotWalKeepSize)})`;
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
@@ -781,7 +760,11 @@ WHERE  oid = $1::regclass`,
       if (this.onSnapshotChunkFlushed) {
         await this.onSnapshotChunkFlushed();
       }
-      await this.checkSlotHealth();
+      const now = performance.now();
+      if (now - this.lastSlotHealthCheckTime >= this.slotHealthCheckIntervalMs) {
+        this.lastSlotHealthCheckTime = now;
+        await this.checkSlotHealth();
+      }
       if (limited == null) {
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {

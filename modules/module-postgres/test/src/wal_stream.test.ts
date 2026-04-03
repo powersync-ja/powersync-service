@@ -485,6 +485,7 @@ bucket_definitions:
     await using context = await openContext({
       walStreamOptions: {
         snapshotChunkLength: 100,
+        slotHealthCheckIntervalMs: 0,
         onSnapshotChunkFlushed: async () => {
           // Generate ~16MB WAL per call. Slot lost after ~7 chunks.
           await walPool.query(`SELECT pg_logical_emit_message(true, 'test', 'x')`);
@@ -531,6 +532,7 @@ bucket_definitions:
     await using context = await openContext({
       walStreamOptions: {
         snapshotChunkLength: 100,
+        slotHealthCheckIntervalMs: 0,
         onSnapshotChunkFlushed: async () => {
           await walPool.query(`SELECT pg_logical_emit_message(true, 'test', 'x')`);
           await walPool.query(`SELECT pg_switch_wal()`);
@@ -561,7 +563,6 @@ bucket_definitions:
     expect(caughtError.walStatus).toBe('lost');
     expect(caughtError.phase).toBe('snapshot');
     expect(caughtError.message).toContain('PSYNC_S1146');
-    expect(caughtError.message).toContain('docs.powersync.com');
     expect(caughtError.message).toContain('limit:');
   });
 
