@@ -8,11 +8,18 @@
  */
 export type WalStatus = 'reserved' | 'extended' | 'unreserved' | 'lost' | 'missing';
 
+/**
+ * Replication phase when the error was detected.
+ * - `snapshot`: during an active full-table scan (snapshotTable) — long-running, retry may be futile
+ * - `streaming`: during WAL streaming, at startup, or between replication cycles — retry is safe
+ */
+export type ReplicationPhase = 'snapshot' | 'streaming';
+
 export class MissingReplicationSlotError extends Error {
   /** Slot WAL status at the time the error was detected. */
   walStatus: WalStatus;
   /** Replication phase when the error occurred — controls retry behavior. */
-  phase: 'snapshot' | 'streaming';
+  phase: ReplicationPhase;
   /** PG 14+ invalidation reason from `pg_replication_slots.invalidation_reason`. */
   invalidationReason?: string;
 
@@ -20,7 +27,7 @@ export class MissingReplicationSlotError extends Error {
     message: string,
     options: {
       walStatus: WalStatus;
-      phase: 'snapshot' | 'streaming';
+      phase: ReplicationPhase;
       invalidationReason?: string;
       cause?: any;
     }
