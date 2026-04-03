@@ -17,7 +17,7 @@ export interface RawChangeStreamOptions {
 
 export interface ChangeStreamBatch {
   resumeToken: mongo.ResumeToken;
-  events: mongo.ChangeStreamDocument[];
+  events: Buffer[];
 }
 
 export async function* rawChangeStream(
@@ -69,7 +69,10 @@ export async function* rawChangeStream(
       });
 
     {
-      const cursor = mongo.BSON.deserialize(aggregateResult.cursor, { useBigInt64: true });
+      const cursor = mongo.BSON.deserialize(aggregateResult.cursor, {
+        useBigInt64: true,
+        fieldsAsRaw: { firstBatch: true }
+      });
 
       cursorId = BigInt(cursor.id);
       nsCollection = namespaceCollection(cursor.ns);
@@ -98,7 +101,10 @@ export async function* rawChangeStream(
           throw mapChangeStreamError(e);
         });
 
-      const cursor = mongo.BSON.deserialize(getMoreResult.cursor, { useBigInt64: true });
+      const cursor = mongo.BSON.deserialize(getMoreResult.cursor, {
+        useBigInt64: true,
+        fieldsAsRaw: { nextBatch: true }
+      });
       cursorId = BigInt(cursor.id);
       const nextBatch = cursor.nextBatch;
 

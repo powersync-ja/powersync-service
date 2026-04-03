@@ -281,7 +281,8 @@ export class ChangeStream {
         lastCheckpointCreated = performance.now();
       }
 
-      for (let changeDocument of events) {
+      for (let rawChangeDocument of events) {
+        const changeDocument = mongo.BSON.deserialize(rawChangeDocument, { useBigInt64: true });
         const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
         if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
@@ -765,7 +766,7 @@ export class ChangeStream {
     batchSize?: number;
     filters: { $match: any; multipleDatabases: boolean };
     signal?: AbortSignal;
-  }): AsyncIterableIterator<{ events: mongo.ChangeStreamDocument[]; resumeToken: unknown }> {
+  }): AsyncIterableIterator<{ events: Buffer[]; resumeToken: unknown }> {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
     const resumeAfter = lastLsn?.resumeToken;
@@ -934,7 +935,10 @@ export class ChangeStream {
 
           const batchStart = Date.now();
           for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
-            const originalChangeDocument = events[eventIndex];
+            const rawChangeDocument = events[eventIndex];
+            const originalChangeDocument = mongo.BSON.deserialize(rawChangeDocument, {
+              useBigInt64: true
+            }) as mongo.ChangeStreamDocument;
             if (this.abort_signal.aborted) {
               break;
             }
