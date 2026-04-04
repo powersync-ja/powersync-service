@@ -42,13 +42,13 @@ describe('Cosmos DB helpers', () => {
     });
 
     test('with both + isCosmosDb=true — skips clusterTime, uses wallTime', () => {
-      // In cosmosDbMode, even if clusterTime is present (as it is on standard MongoDB),
+      // On Cosmos DB, even if clusterTime were present,
       // getEventTimestamp should prefer wallTime to exercise the Cosmos DB code path.
       const wallTime = new Date('2024-06-15T12:00:00Z');
       const expectedSeconds = Math.floor(wallTime.getTime() / 1000);
       const clusterTime = mongo.Timestamp.fromBits(42, 1700000000);
 
-      // In cosmosDbMode, the result should use wallTime, not clusterTime
+      // On Cosmos DB, the result should use wallTime, not clusterTime
       const expectedTimestamp = mongo.Timestamp.fromBits(0, expectedSeconds);
       expect(expectedTimestamp.getHighBitsUnsigned()).toEqual(expectedSeconds);
       expect(expectedTimestamp.getLowBitsUnsigned()).toEqual(0);
@@ -83,12 +83,12 @@ describe('Cosmos DB helpers', () => {
   });
 
   describe('sentinel checkpoint format', () => {
-    test('createCheckpoint returns sentinel format when operationTime is null', async () => {
+    test('createCheckpoint returns sentinel format when mode is sentinel', async () => {
       // When mode is 'sentinel', createCheckpoint returns a sentinel string
       // like 'sentinel:<id>:<i>' for event-based matching in the streaming loop.
       const { client, db } = await connectMongoData();
       try {
-        const checkpoint = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, { mode: 'sentinel', isCosmosDb: true });
+        const checkpoint = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, { mode: 'sentinel' });
         // The sentinel format should be 'sentinel:<id>:<i>'
         expect(checkpoint).toMatch(/^sentinel:/);
         const parts = checkpoint.split(':');

@@ -60,11 +60,6 @@ export interface ChangeStreamOptions {
   snapshotChunkLength?: number;
 
   /**
-   * Force Cosmos DB mode for testing. When set, this.isCosmosDb = true regardless of hello response.
-   */
-  cosmosDbMode?: boolean;
-
-  /**
    * Override keepalive interval for testing (defaults to 60_000ms).
    */
   keepaliveIntervalMs?: number;
@@ -131,7 +126,6 @@ export class ChangeStream {
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
-    this.isCosmosDb = options.cosmosDbMode ?? false;
     this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? 60_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
@@ -152,11 +146,6 @@ export class ChangeStream {
     );
 
     this.logger = options.logger ?? defaultLogger;
-
-    // Validate early when cosmosDbMode is forced via test option
-    if (this.isCosmosDb) {
-      this.validatePostImagesForCosmosDb();
-    }
   }
 
   get stopped() {
@@ -298,14 +287,32 @@ export class ChangeStream {
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
-    // Create a checkpoint, and open a change stream using startAtOperationTime with the checkpoint's operationTime.
-    const firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-      mode: this.isCosmosDb ? 'sentinel' : 'lsn',
-      isCosmosDb: this.isCosmosDb
-    });
-    // Sentinel LSNs cannot be parsed as MongoLSN — open stream from current position
-    const streamLsn = firstCheckpointLsn.startsWith('sentinel:') ? null : firstCheckpointLsn;
-    await using streamManager = this.openChangeStream({ lsn: streamLsn, maxAwaitTimeMs: 0 });
+    let firstCheckpointLsn: string;
+
+    if (this.isCosmosDb) {
+      // Cosmos DB: no startAtOperationTime available. Open the stream first
+      // (to establish the start position), then create the checkpoint. The
+      // checkpoint event will be captured because it happens after the stream
+      // is already listening.
+      // Force initialization with tryNext() since ChangeStream is lazy.
+      // Use a small non-zero maxAwaitTimeMS — with 0, tryNext() always returns
+      // null because the driver's getMore returns before events are available.
+      var streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 100 });
+      await streamManager.stream.tryNext();
+      firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
+        mode: 'sentinel'
+      });
+    } else {
+      // Standard MongoDB: create checkpoint first to get operationTime,
+      // then open the stream from that point.
+      firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+      var streamManager = this.openChangeStream({
+        lsn: firstCheckpointLsn,
+        maxAwaitTimeMs: 0
+      });
+    }
+    // @ts-ignore streamManager is always assigned
+    await using _streamManager = streamManager;
 
     const { stream } = streamManager;
     const startTime = performance.now();
@@ -315,8 +322,7 @@ export class ChangeStream {
     while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {
       if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
         await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-          mode: this.isCosmosDb ? 'sentinel' : 'lsn',
-          isCosmosDb: this.isCosmosDb
+          mode: this.isCosmosDb ? 'sentinel' : 'lsn'
         });
         lastCheckpointCreated = performance.now();
       }
@@ -431,9 +437,7 @@ export class ChangeStream {
         // The checkpoint here is a marker - we need to replicate up to at least this
         // point before the data can be considered consistent.
         // We could do this for each individual table, but may as well just do it once for the entire snapshot.
-        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID, {
-          isCosmosDb: this.isCosmosDb
-        });
+        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
         await batch.markAllSnapshotDone(checkpoint);
 
         // This will not create a consistent checkpoint yet, but will persist the op.
@@ -698,9 +702,7 @@ export class ChangeStream {
       await batch.truncate([result.table]);
 
       await this.snapshotTable(batch, result.table);
-      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID, {
-        isCosmosDb: this.isCosmosDb
-      });
+      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
       const [table] = await batch.markTableSnapshotDone([result.table], no_checkpoint_before_lsn);
       return table;
@@ -817,8 +819,7 @@ export class ChangeStream {
     if (!this.isCosmosDb && changeDocument.clusterTime) {
       return changeDocument.clusterTime;
     }
-    // Cosmos DB (or cosmosDbMode test flag): use wallTime at second precision.
-    // On standard MongoDB, wallTime is also present — this path works for testing.
+    // Cosmos DB: use wallTime at second precision (clusterTime is absent).
     const wallTime = (changeDocument as any).wallTime as Date | undefined;
     if (wallTime) {
       return mongo.Timestamp.fromBits(0, Math.floor(wallTime.getTime() / 1000));
@@ -960,6 +961,15 @@ export class ChangeStream {
           chunksReplicatedMetric.add(1);
         });
 
+        if (this.isCosmosDb) {
+          // Force ChangeStream initialization before creating the checkpoint.
+          // ChangeStream is lazy — the aggregate command isn't sent until the
+          // first tryNext()/hasNext() call. Without this, createCheckpoint()
+          // commits an event before the stream starts listening, and the event
+          // is missed because it's before the stream's start position.
+          await stream.tryNext();
+        }
+
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
         // no data to replicate.
@@ -967,7 +977,7 @@ export class ChangeStream {
           this.client,
           this.defaultDb,
           this.checkpointStreamId,
-          { mode: this.isCosmosDb ? 'sentinel' : 'lsn', isCosmosDb: this.isCosmosDb }
+          { mode: this.isCosmosDb ? 'sentinel' : 'lsn' }
         );
 
         let splitDocument: mongo.ChangeStreamDocument | null = null;
@@ -1144,8 +1154,7 @@ export class ChangeStream {
               if (waitForCheckpointLsn != null || this.getBufferedChangeCount(stream) > 0) {
                 if (waitForCheckpointLsn == null) {
                   waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                    mode: this.isCosmosDb ? 'sentinel' : 'lsn',
-                    isCosmosDb: this.isCosmosDb
+                    mode: this.isCosmosDb ? 'sentinel' : 'lsn'
                   });
                 }
                 continue;
@@ -1204,8 +1213,7 @@ export class ChangeStream {
           ) {
             if (waitForCheckpointLsn == null) {
               waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                mode: this.isCosmosDb ? 'sentinel' : 'lsn',
-                isCosmosDb: this.isCosmosDb
+                mode: this.isCosmosDb ? 'sentinel' : 'lsn'
               });
             }
 

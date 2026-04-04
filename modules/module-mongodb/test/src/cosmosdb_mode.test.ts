@@ -15,7 +15,21 @@ bucket_definitions:
       - SELECT _id as id, description FROM "test_data"
 `;
 
-describe('cosmosDbMode', () => {
+// These tests require a real Cosmos DB cluster. On standard MongoDB,
+// the Cosmos DB code paths (wallTime timestamps, sentinel checkpoints,
+// client.watch()) are not exercised because isCosmosDb is only set
+// by server detection. Running these against standard MongoDB would
+// test the standard code path, which is already covered by change_stream.test.ts.
+//
+// Why not a cosmosDbMode test flag? The Cosmos DB workarounds involve
+// different change stream initialization ordering (lazy ChangeStream +
+// no startAtOperationTime) and wall-clock LSN precision (increment 0
+// instead of operationTime's real increments). These produce LSN
+// comparison failures when mixed with standard MongoDB's operationTime-based
+// checkpoints. A test flag that partially simulates Cosmos DB creates
+// more problems than it solves.
+const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
+describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
   describeWithStorage({ timeout: 30_000 }, defineCosmosDbModeTests);
 });
 
@@ -25,7 +39,6 @@ function defineCosmosDbModeTests({ factory, storageVersion }: StorageVersionTest
       ...options,
       storageVersion,
       streamOptions: {
-        cosmosDbMode: true,
         ...options?.streamOptions
       }
     });
@@ -84,15 +97,12 @@ bucket_definitions:
     expect(checkpoint).toBeTruthy();
 
     const data = await context.getBucketData('global[]');
-    expect(data).toMatchObject([
-      test_utils.putOp('test_data', { id: insertedId, description: 'sentinel_test' })
-    ]);
+    expect(data).toMatchObject([test_utils.putOp('test_data', { id: insertedId, description: 'sentinel_test' })]);
   });
 
   test('keepalive in cosmosDbMode', async () => {
     await using context = await openContext({
       streamOptions: {
-        cosmosDbMode: true,
         keepaliveIntervalMs: 2000
       }
     });
@@ -122,11 +132,7 @@ bucket_definitions:
     expect(JSON.parse(lastOp.data as string)).toMatchObject({ description: 'after_keepalive' });
   });
 
-  // This test requires MongoRouteAPIAdapter to also detect Cosmos DB (via hello),
-  // which only happens against a real Cosmos DB cluster. Against standard MongoDB,
-  // createReplicationHead uses clusterTime (real increment) while the streaming loop
-  // uses wallTime (increment 0), causing a permanent LSN mismatch.
-  test.skip('write checkpoint flow in cosmosDbMode', async () => {
+  test('write checkpoint flow in cosmosDbMode', async () => {
     await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -160,9 +166,10 @@ bucket_definitions:
       storage: context.factory
     });
 
-    // The write checkpoint should resolve with a valid checkpoint number
+    // The write checkpoint should resolve with a valid result
     expect(result).toBeTruthy();
-    expect(typeof result).toBe('bigint');
+    expect(result.writeCheckpoint).toBeTruthy();
+    expect(result.replicationHead).toBeTruthy();
   });
 
   test('resume after restart in cosmosDbMode', async () => {

@@ -146,7 +146,6 @@ export class ChangeStreamTestContext {
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
       snapshotChunkLength: this.streamOptions?.snapshotChunkLength,
-      cosmosDbMode: this.streamOptions?.cosmosDbMode,
       keepaliveIntervalMs: this.streamOptions?.keepaliveIntervalMs
     };
     this._walStream = new ChangeStream(options);
@@ -180,11 +179,9 @@ export class ChangeStreamTestContext {
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
-    const isCosmosDb = this.streamOptions?.cosmosDbMode ?? false;
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.client, this.db, this.factory, {
-        timeout: options?.timeout ?? 15_000,
-        isCosmosDb
+        timeout: options?.timeout ?? 15_000
       }),
       this.streamPromise?.then((e) => {
         if (e.status == 'rejected') {
@@ -252,12 +249,11 @@ export async function getClientCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
   storageFactory: BucketStorageFactory,
-  options?: { timeout?: number; isCosmosDb?: boolean }
+  options?: { timeout?: number }
 ): Promise<InternalOpId> {
   const start = Date.now();
-  const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID, {
-    isCosmosDb: options?.isCosmosDb
-  });
+
+  const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
