@@ -1,6 +1,6 @@
 import { GetIntanceOptions, storage } from '@powersync/service-core';
 
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { DO_NOT_LOG, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
@@ -18,6 +18,8 @@ export interface MongoBucketStorageOptions {
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {
+  [DO_NOT_LOG] = true;
+
   private readonly client: mongo.MongoClient;
   private readonly session: mongo.ClientSession;
   // TODO: This is still Postgres specific and needs to be reworked

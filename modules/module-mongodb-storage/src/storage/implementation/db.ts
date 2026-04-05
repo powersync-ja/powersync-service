@@ -2,7 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { DO_NOT_LOG, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
 import {
   BucketDataDocument,
@@ -29,6 +29,8 @@ export interface PowerSyncMongoOptions {
 }
 
 export class PowerSyncMongo {
+  [DO_NOT_LOG] = true;
+
   readonly current_data: mongo.Collection<CurrentDataDocument>;
   readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
   readonly bucket_data: mongo.Collection<BucketDataDocument>;
@@ -206,6 +208,7 @@ export class PowerSyncMongo {
 export class VersionedPowerSyncMongo {
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
+  [DO_NOT_LOG] = true;
 
   readonly storageConfig: StorageConfig;
   #upstream: PowerSyncMongo;
