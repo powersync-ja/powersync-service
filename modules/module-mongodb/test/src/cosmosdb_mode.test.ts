@@ -216,6 +216,13 @@ bucket_definitions:
 
     context2.startStreaming();
 
+    // Wait for the stream to initialize and process the initial checkpoint.
+    // On Cosmos DB, wall-clock LSNs have second precision — if the insert
+    // happens in the same second as the last checkpoint, getClientCheckpoint
+    // can resolve before the data event is committed. A brief delay ensures
+    // the next insert falls in a new second.
+    await setTimeout(1100);
+
     const collection2 = db2.collection('test_data');
     const result2 = await collection2.insertOne({ description: 'after_restart' });
     const id2 = result2.insertedId;

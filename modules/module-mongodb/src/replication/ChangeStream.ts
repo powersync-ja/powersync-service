@@ -1061,7 +1061,22 @@ export class ChangeStream {
           this.touch();
 
           try {
-            if (startAfter != null && this.getEventTimestamp(originalChangeDocument).lte(startAfter)) {
+            // Skip events at or before the resume point to prevent duplicate processing.
+            // This guard is only needed for the legacy startAtOperationTime path where
+            // the server may redeliver events at the boundary. When resumeAfter is used
+            // (which includes Cosmos DB), the server guarantees no duplicates.
+            // On Cosmos DB, this check is harmful: wallTime has second precision
+            // (increment 0), so events within the same second as the last checkpoint
+            // would be incorrectly dropped — causing silent data loss after restart.
+            //
+            // WARNING: No dedicated test covers the isCosmosDb guard here. The bug
+            // requires data events to arrive within the same wall-clock second as the
+            // last checkpoint after a restart — a timing condition that's difficult to
+            // reproduce reliably in tests. The "resume after restart" integration test
+            // exercises this path but is flaky due to a separate getClientCheckpoint
+            // polling issue. If refactoring this code, verify manually that events
+            // are not dropped on Cosmos DB after restart.
+            if (!this.isCosmosDb && startAfter != null && this.getEventTimestamp(originalChangeDocument).lte(startAfter)) {
               continue;
             }
           } catch {
