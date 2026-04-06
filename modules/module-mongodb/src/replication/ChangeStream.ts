@@ -116,6 +116,7 @@ export class ChangeStream {
   private changeStreamTimeout: number;
 
   private isCosmosDb = false;
+  private cosmosDbDetected = false;
 
   private keepaliveIntervalMs: number;
 
@@ -247,15 +248,18 @@ export class ChangeStream {
   }
 
   /**
-   * This gets a LSN before starting a snapshot, which we can resume streaming from after the snapshot.
-   *
-   * This LSN can survive initial replication restarts.
+   * Detect whether we are connected to Cosmos DB.
+   * Must be called before any change stream operation.
+   * Safe to call multiple times — only runs the hello command once.
    */
-  private async getSnapshotLsn(): Promise<string> {
+  private async detectCosmosDb(): Promise<void> {
+    if (this.cosmosDbDetected) {
+      return;
+    }
+    this.cosmosDbDetected = true;
+
     const hello = await this.defaultDb.command({ hello: 1 });
-    // Basic sanity check
     if (hello.internal?.cosmos_versions != null) {
-      // Example: internal: { cosmos_versions: [ '1.104-1', '1.105.0', '12.1-1' ] },
       this.isCosmosDb = true;
       this.logger.info('CosmosDB detected. CosmosDB support is experimental.');
       this.validatePostImagesForCosmosDb();
@@ -271,6 +275,15 @@ export class ChangeStream {
         'Standalone MongoDB instances are not supported - use a replicaset.'
       );
     }
+  }
+
+  /**
+   * This gets a LSN before starting a snapshot, which we can resume streaming from after the snapshot.
+   *
+   * This LSN can survive initial replication restarts.
+   */
+  private async getSnapshotLsn(): Promise<string> {
+    await this.detectCosmosDb();
 
     // Open a change stream just to get a resume token for later use.
     // We could use clusterTime from the hello command, but that won't tell us if the
@@ -781,6 +794,7 @@ export class ChangeStream {
   }
 
   async initReplication() {
+    await this.detectCosmosDb();
     const result = await this.initSlot();
     await this.setupCheckpointsCollection();
     if (result.needsInitialSync) {
@@ -923,6 +937,7 @@ export class ChangeStream {
   }
 
   async streamChangesInternal() {
+    await this.detectCosmosDb();
     const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
