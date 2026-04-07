@@ -20,29 +20,24 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
     let head = currentCheckpoint;
 
     if (head == null) {
-      // Cosmos DB: HEAD unknown. Poll storage until the streaming loop
-      // processes the sentinel and advances the checkpoint LSN.
-      // On Cosmos DB, wall-clock LSNs have second precision — the sentinel
-      // commit may produce the same LSN as the baseline if both fall in the
-      // same wall-clock second. Use >= (not >) so the poll resolves as soon
-      // as any commit happens, even at the same second. The sentinel write
-      // guarantees the streaming loop will process at least one event.
-      const baselineCheckpoint = await syncBucketStorage.getCheckpoint();
-      const baselineLsn = baselineCheckpoint?.lsn ?? '';
-
-      const timeout = 30_000;
-      const start = Date.now();
-      while (Date.now() - start < timeout) {
-        const cp = await syncBucketStorage.getCheckpoint();
-        if (cp?.lsn && cp.lsn >= baselineLsn) {
-          head = cp.lsn;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 50));
+      // Cosmos DB: operationTime / clusterTime not available on regular
+      // commands, so createReplicationHead cannot capture the HEAD directly.
+      // Instead, use the current storage checkpoint LSN. This is valid because:
+      //
+      // 1. createReplicationHead already wrote a sentinel to _powersync_checkpoints,
+      //    guaranteeing the streaming loop will advance past this point.
+      // 2. The sync stream's watchCheckpointChanges resolves the write checkpoint
+      //    when replication advances past the stored HEAD.
+      // 3. The sentinel ensures forward progress even on an idle system.
+      //
+      // The HEAD doesn't need to be the exact sentinel position — it just needs
+      // to be a valid LSN at or before the sentinel. The current storage LSN
+      // satisfies this because it was committed before the sentinel was written.
+      const cp = await syncBucketStorage.getCheckpoint();
+      if (!cp?.lsn) {
+        throw new ServiceError(ErrorCode.PSYNC_S2302, 'Cannot create write checkpoint: no replication checkpoint available');
       }
-      if (!head) {
-        throw new ServiceError(ErrorCode.PSYNC_S2302, 'Timeout waiting for sentinel checkpoint');
-      }
+      head = cp.lsn;
     }
 
     const writeCheckpoint = await syncBucketStorage.createManagedWriteCheckpoint({
