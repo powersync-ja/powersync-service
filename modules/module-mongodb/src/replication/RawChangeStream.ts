@@ -180,9 +180,9 @@ async function* rawChangeStreamInner(
     }
   } finally {
     if (abortPromise != null) {
+      // killCursors is already sent - we wait for the response in abortPromise.
       await abortPromise;
-    }
-    if (cursorId != null && cursorId !== 0n && abortPromise != null) {
+    } else if (cursorId != null && cursorId !== 0n && nsCollection != null) {
       await db
         .command({
           killCursors: nsCollection,
