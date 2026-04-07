@@ -37,6 +37,11 @@ export interface ChangeStreamBatch {
 }
 
 export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[], options: RawChangeStreamOptions) {
+  // We generally attempt to follow the spec at: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
+  // Intentional differences:
+  // 1. We don't attempt to follow the client API.
+  // 2. We require that `postBatchResumeToken` is present.
+  // 3. We don't attempt to handle resumeToken from individual documents - the consumer can handle that.
   if (!('$changeStream' in pipeline[0])) {
     throw new ReplicationAssertionError(`First pipeline stage must be $changeStream`);
   }
@@ -47,6 +52,7 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
   await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
 
   while (true) {
+    options.signal?.throwIfAborted();
     try {
       let innerPipeline = pipeline;
       if (lastResumeToken != null) {
@@ -106,7 +112,7 @@ async function* rawChangeStreamInner(
   const collection = options.collection ?? 1;
   let abortPromise: Promise<any> | null = null;
 
-  options.signal?.addEventListener('abort', () => {
+  const onAbort = () => {
     if (cursorId != null && cursorId !== 0n && nsCollection != null) {
       // This would result in a CursorKilled error.
       abortPromise = db
@@ -116,7 +122,8 @@ async function* rawChangeStreamInner(
         })
         .catch(() => {});
     }
-  });
+  };
+  options.signal?.addEventListener('abort', onAbort);
 
   try {
     {
@@ -145,14 +152,19 @@ async function* rawChangeStreamInner(
 
       let batch = cursor.firstBatch;
 
+      if (cursor.postBatchResumeToken == null) {
+        // Deviation from spec: We require that the server always returns a postBatchResumeToken.
+        // postBatchResumeToken is returned in MongoDB 4.0.7 and later, and we support 6.0+
+        throw new ReplicationAssertionError(`postBatchResumeToken from aggregate response`);
+      }
+
       yield { events: batch, resumeToken: cursor.postBatchResumeToken, byteSize: aggregateResult.cursor.byteLength };
     }
 
     // Step 2: Poll using getMore until the cursor is closed
     while (cursorId && cursorId !== 0n) {
-      if (options.signal?.aborted) {
-        break;
-      }
+      options.signal?.throwIfAborted();
+
       const getMoreResult: mongo.Document = await db
         .command(
           {
@@ -177,9 +189,18 @@ async function* rawChangeStreamInner(
       cursorId = BigInt(cursor.id);
       const nextBatch = cursor.nextBatch;
 
+      if (cursor.postBatchResumeToken == null) {
+        // Deviation from spec: We require that the server always returns a postBatchResumeToken.
+        // postBatchResumeToken is returned in MongoDB 4.0.7 and later, and we support 6.0+
+        throw new ReplicationAssertionError(`postBatchResumeToken from aggregate response`);
+      }
       yield { events: nextBatch, resumeToken: cursor.postBatchResumeToken, byteSize: getMoreResult.cursor.byteLength };
     }
+
+    options.signal?.throwIfAborted();
+    throw new ReplicationAssertionError(`Change stream ended unexpectedly`);
   } finally {
+    options.signal?.removeEventListener('abort', onAbort);
     if (abortPromise != null) {
       // killCursors is already sent - we wait for the response in abortPromise.
       await abortPromise;
