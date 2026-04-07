@@ -53,6 +53,7 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
         const [first, ...rest] = pipeline;
         const options = { ...first.$changeStream };
         delete options.startAtOperationTime;
+        delete options.startAfter;
         options.resumeAfter = lastResumeToken;
         innerPipeline = [{ $changeStream: options }, ...rest];
       }
