@@ -247,6 +247,106 @@ describe('internal mongodb utils', () => {
 
     expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }]);
   });
+
+  test('should cleanly abort a stream between events', async () => {
+    const { db, client } = await connectMongoData();
+    const abortController = new AbortController();
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const pipeline = [
+      {
+        $changeStream: {
+          fullDocument: 'updateLookup'
+        }
+      }
+    ];
+    const stream = rawChangeStream(db, pipeline, {
+      batchSize: 10,
+      maxAwaitTimeMS: 5,
+      maxTimeMS: 1_000,
+      signal: abortController.signal
+    });
+
+    let readDocs: any[] = [];
+    const readAll = async () => {
+      while (true) {
+        const next = await stream.next();
+        if (next.done) {
+          break;
+        }
+
+        if (next.value.events.length == 0) {
+          break;
+        }
+
+        readDocs.push(...next.value.events.map((e) => bson.deserialize(e, { useBigInt64: true })));
+      }
+    };
+
+    await readAll();
+
+    await collection.insertOne({ test: 1 });
+    await readAll();
+    await collection.insertOne({ test: 2 });
+    await readAll();
+    abortController.abort(new Error('test abort'));
+    await collection.insertOne({ test: 3 });
+    await expect(readAll()).rejects.toMatchObject({ message: 'test abort' });
+
+    expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }]);
+  });
+
+  test('should cleanly abort a stream in an event', async () => {
+    const { db, client } = await connectMongoData();
+    const abortController = new AbortController();
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const pipeline = [
+      {
+        $changeStream: {
+          fullDocument: 'updateLookup'
+        }
+      }
+    ];
+    const stream = rawChangeStream(db, pipeline, {
+      batchSize: 10,
+      maxAwaitTimeMS: 200,
+      maxTimeMS: 1_000,
+      signal: abortController.signal
+    });
+
+    let readDocs: any[] = [];
+    const readAll = async () => {
+      while (true) {
+        const next = await stream.next();
+        if (next.done) {
+          break;
+        }
+
+        if (next.value.events.length == 0) {
+          break;
+        }
+
+        readDocs.push(...next.value.events.map((e) => bson.deserialize(e, { useBigInt64: true })));
+      }
+    };
+
+    await readAll();
+
+    await collection.insertOne({ test: 1 });
+    await readAll();
+    // This is specifically a readAll() without an insert in between, to trigger the longer await
+    // period.
+    let readPromise = readAll();
+    abortController.abort(new Error('test abort'));
+    await expect(readPromise).rejects.toMatchObject({ message: 'test abort' });
+
+    expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }]);
+  });
 });
 
 async function killChangeStreamCursor(db: mongo.Db, client: mongo.MongoClient) {

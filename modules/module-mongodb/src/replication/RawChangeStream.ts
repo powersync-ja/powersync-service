@@ -176,6 +176,12 @@ async function* rawChangeStreamInner(
           { session, raw: true }
         )
         .catch((e) => {
+          if (isMongoServerError(e) && e.codeName == 'CursorKilled') {
+            // This may be due to the killCursors command issued when aborting.
+            // In that case, use the abort error instead.
+            options.signal?.throwIfAborted();
+          }
+
           if (isResumableChangeStreamError(e)) {
             throw new ResumableChangeStreamError(e.message, { cause: e });
           }
