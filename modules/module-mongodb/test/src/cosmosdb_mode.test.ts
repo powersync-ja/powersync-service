@@ -15,22 +15,20 @@ bucket_definitions:
       - SELECT _id as id, description FROM "test_data"
 `;
 
-// These tests require a real Cosmos DB cluster. On standard MongoDB,
-// the Cosmos DB code paths (wallTime timestamps, sentinel checkpoints,
-// client.watch()) are not exercised because isCosmosDb is only set
-// by server detection. Running these against standard MongoDB would
-// test the standard code path, which is already covered by change_stream.test.ts.
+// These tests require a real Cosmos DB cluster. See test/COSMOS_DB_TESTING.md for setup.
 //
-// Why not a cosmosDbMode test flag? The Cosmos DB workarounds involve
-// different change stream initialization ordering (lazy ChangeStream +
-// no startAtOperationTime) and wall-clock LSN precision (increment 0
-// instead of operationTime's real increments). These produce LSN
-// comparison failures when mixed with standard MongoDB's operationTime-based
-// checkpoints. A test flag that partially simulates Cosmos DB creates
-// more problems than it solves.
+// Why these can't run against standard MongoDB: the Cosmos DB workarounds involve
+// different change stream initialization ordering (lazy ChangeStream + no
+// startAtOperationTime) and wall-clock LSN precision (increment 0 instead of
+// operationTime's real increments). These produce LSN comparison failures when
+// mixed with standard MongoDB's operationTime-based checkpoints. A test flag that
+// partially simulates Cosmos DB creates more problems than it solves — see the
+// commit history on the cosmos branch for the full investigation.
 const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
 describe.skipIf(!isCosmosDb)('cosmosDbMode', () => {
-  describeWithStorage({ timeout: 30_000 }, defineCosmosDbModeTests);
+  // 60s timeout — remote Cosmos DB clusters can have 10-20s latency spikes
+  // for change stream delivery. Tests that poll for data need headroom.
+  describeWithStorage({ timeout: 60_000 }, defineCosmosDbModeTests);
 });
 
 function defineCosmosDbModeTests({ factory, storageVersion }: StorageVersionTestContext) {
@@ -226,14 +224,14 @@ bucket_definitions:
     // We bypass the flaky getClientCheckpoint timing by polling until the data appears
     // or the timeout expires. If the .lte() guard drops same-second events, the data
     // will never appear — deterministic failure.
-    const deadline = Date.now() + 15_000;
+    // 25s timeout — remote Cosmos DB clusters can have variable latency
+    // for change stream delivery.
+    const deadline = Date.now() + 25_000;
     let found = false;
     while (Date.now() < deadline) {
       try {
         const data = await context2.getBucketData('global[]', undefined, { timeout: 2_000 });
-        const match = data.find(
-          (op) => op.object_id === id2.toHexString() && op.op === 'PUT'
-        );
+        const match = data.find((op) => op.object_id === id2.toHexString() && op.op === 'PUT');
         if (match) {
           const parsed = JSON.parse(match.data as string);
           expect(parsed).toMatchObject({ description: 'post_restart_data' });
@@ -246,7 +244,10 @@ bucket_definitions:
       await setTimeout(200);
     }
 
-    expect(found, 'Data event after restart was dropped — .lte() guard may be incorrectly filtering same-second events').toBe(true);
+    expect(
+      found,
+      'Data event after restart was dropped — .lte() guard may be incorrectly filtering same-second events'
+    ).toBe(true);
   });
 
   test('resume after restart in cosmosDbMode', async () => {
@@ -306,7 +307,8 @@ bucket_definitions:
     // matches the storage LSN (same second). This mirrors production behavior
     // where write checkpoints may take up to ~1s to resolve on a quiet system.
     // Use a polling approach with retries to handle this latency.
-    const deadline = Date.now() + 15_000;
+    // 25s timeout for remote Cosmos DB clusters with variable latency.
+    const deadline = Date.now() + 25_000;
     let found = false;
     while (Date.now() < deadline) {
       try {

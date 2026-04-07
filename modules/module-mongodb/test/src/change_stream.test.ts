@@ -11,6 +11,8 @@ import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 
+const isCosmosDb = process.env.COSMOS_DB_TEST === 'true';
+
 const BASIC_SYNC_RULES = `
 bucket_definitions:
   global:
@@ -26,7 +28,7 @@ function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTest
   const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
     return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
   };
-  test('replicating basic values', async () => {
+  test.skipIf(isCosmosDb)('replicating basic values', async () => {
     await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.READ_ONLY }
     });
@@ -62,7 +64,37 @@ bucket_definitions:
     ]);
   });
 
-  test('replicating wildcard', async () => {
+  test.skipIf(!isCosmosDb)('replicating basic values (Cosmos DB - no postImages)', async () => {
+    await using context = await openContext();
+    const { db } = context;
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description FROM "test_data"`);
+
+    await db.createCollection('test_data');
+    const collection = db.collection('test_data');
+
+    await context.replicateSnapshot();
+    context.startStreaming();
+
+    const result = await collection.insertOne({ description: 'test1' });
+    const test_id = result.insertedId;
+    await collection.updateOne({ _id: test_id }, { $set: { description: 'test2' } });
+    await collection.deleteOne({ _id: test_id });
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toMatchObject([
+      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test1' }),
+      test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test2' }),
+      test_utils.removeOp('test_data', test_id.toHexString())
+    ]);
+  });
+
+  // Cosmos DB: changeStreamPreAndPostImages option not supported (even enabled: false)
+  test.skipIf(isCosmosDb)('replicating wildcard', async () => {
     await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(`
@@ -94,7 +126,8 @@ bucket_definitions:
     ]);
   });
 
-  test('updateLookup - no fullDocument available', async () => {
+  // Cosmos DB: changeStreamPreAndPostImages option not supported (even enabled: false)
+  test.skipIf(isCosmosDb)('updateLookup - no fullDocument available', async () => {
     await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.OFF }
     });
@@ -138,7 +171,7 @@ bucket_definitions:
     ]);
   });
 
-  test('postImages - autoConfigure', async () => {
+  test.skipIf(isCosmosDb)('postImages - autoConfigure', async () => {
     // Similar to the above test, but with postImages enabled.
     // This resolves the consistency issue.
     await using context = await openContext({
@@ -186,7 +219,7 @@ bucket_definitions:
     ]);
   });
 
-  test('postImages - on', async () => {
+  test.skipIf(isCosmosDb)('postImages - on', async () => {
     // Similar to postImages - autoConfigure, but does not auto-configure.
     // changeStreamPreAndPostImages must be manually configured.
     await using context = await openContext({
@@ -288,7 +321,8 @@ bucket_definitions:
     ]);
   });
 
-  test('replicating dropCollection', async () => {
+  // Cosmos DB: drop/invalidate events may not be emitted by change streams
+  test.skipIf(isCosmosDb)('replicating dropCollection', async () => {
     await using context = await openContext();
     const { db } = context;
     const syncRuleContent = `
@@ -320,7 +354,8 @@ bucket_definitions:
     ]);
   });
 
-  test('replicating renameCollection', async () => {
+  // Cosmos DB: rename events may not be emitted by change streams
+  test.skipIf(isCosmosDb)('replicating renameCollection', async () => {
     await using context = await openContext();
     const { db } = context;
     const syncRuleContent = `
@@ -423,7 +458,7 @@ bucket_definitions:
     expect(commitCount).toBeLessThan(checkpointCount + 1);
   });
 
-  test('large record', async () => {
+  test.skipIf(isCosmosDb)('large record', async () => {
     // Test a large update.
 
     // Without $changeStreamSplitLargeEvent, we get this error:
@@ -495,7 +530,7 @@ bucket_definitions:
     expect(data).toMatchObject([]);
   });
 
-  test('postImages - new collection with postImages enabled', async () => {
+  test.skipIf(isCosmosDb)('postImages - new collection with postImages enabled', async () => {
     await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
     });
@@ -528,7 +563,7 @@ bucket_definitions:
     ]);
   });
 
-  test('postImages - new collection with postImages disabled', async () => {
+  test.skipIf(isCosmosDb)('postImages - new collection with postImages disabled', async () => {
     await using context = await openContext({
       mongoOptions: { postImages: PostImagesOption.AUTO_CONFIGURE }
     });

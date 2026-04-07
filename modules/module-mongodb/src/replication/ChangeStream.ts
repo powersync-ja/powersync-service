@@ -886,7 +886,7 @@ export class ChangeStream {
      */
     if (resumeAfter) {
       streamOptions.resumeAfter = resumeAfter;
-    } else if (streamOptions.startAtOperationTime != null) {
+    } else if (startAfter != null) {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
       // case if we have an old one.
       // This is also relevant for getSnapshotLSN().
@@ -1075,7 +1075,11 @@ export class ChangeStream {
             // call needed to initialize the stream advances past the current second).
             // The isCosmosDb guard is verifiable by code inspection: on Cosmos DB the
             // comparison is skipped entirely, so no events can be dropped by it.
-            if (!this.isCosmosDb && startAfter != null && this.getEventTimestamp(originalChangeDocument).lte(startAfter)) {
+            if (
+              !this.isCosmosDb &&
+              startAfter != null &&
+              this.getEventTimestamp(originalChangeDocument).lte(startAfter)
+            ) {
               continue;
             }
           } catch {

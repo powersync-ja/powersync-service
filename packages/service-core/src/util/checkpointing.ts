@@ -35,7 +35,10 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
       // satisfies this because it was committed before the sentinel was written.
       const cp = await syncBucketStorage.getCheckpoint();
       if (!cp?.lsn) {
-        throw new ServiceError(ErrorCode.PSYNC_S2302, 'Cannot create write checkpoint: no replication checkpoint available');
+        throw new ServiceError(
+          ErrorCode.PSYNC_S2302,
+          'Cannot create write checkpoint: no replication checkpoint available'
+        );
       }
       head = cp.lsn;
     }
