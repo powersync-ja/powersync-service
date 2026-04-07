@@ -1069,13 +1069,12 @@ export class ChangeStream {
             // (increment 0), so events within the same second as the last checkpoint
             // would be incorrectly dropped — causing silent data loss after restart.
             //
-            // WARNING: No dedicated test covers the isCosmosDb guard here. The bug
-            // requires data events to arrive within the same wall-clock second as the
-            // last checkpoint after a restart — a timing condition that's difficult to
-            // reproduce reliably in tests. The "resume after restart" integration test
-            // exercises this path but is flaky due to a separate getClientCheckpoint
-            // polling issue. If refactoring this code, verify manually that events
-            // are not dropped on Cosmos DB after restart.
+            // The "data events not dropped after restart (lte guard)" integration test
+            // verifies that data survives restart on Cosmos DB. However, it cannot
+            // reproduce the specific same-second timing condition (the getCheckpoint
+            // call needed to initialize the stream advances past the current second).
+            // The isCosmosDb guard is verifiable by code inspection: on Cosmos DB the
+            // comparison is skipped entirely, so no events can be dropped by it.
             if (!this.isCosmosDb && startAfter != null && this.getEventTimestamp(originalChangeDocument).lte(startAfter)) {
               continue;
             }

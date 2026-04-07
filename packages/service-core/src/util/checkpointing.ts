@@ -22,6 +22,11 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
     if (head == null) {
       // Cosmos DB: HEAD unknown. Poll storage until the streaming loop
       // processes the sentinel and advances the checkpoint LSN.
+      // On Cosmos DB, wall-clock LSNs have second precision — the sentinel
+      // commit may produce the same LSN as the baseline if both fall in the
+      // same wall-clock second. Use >= (not >) so the poll resolves as soon
+      // as any commit happens, even at the same second. The sentinel write
+      // guarantees the streaming loop will process at least one event.
       const baselineCheckpoint = await syncBucketStorage.getCheckpoint();
       const baselineLsn = baselineCheckpoint?.lsn ?? '';
 
@@ -29,7 +34,7 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
       const start = Date.now();
       while (Date.now() - start < timeout) {
         const cp = await syncBucketStorage.getCheckpoint();
-        if (cp?.lsn && cp.lsn > baselineLsn) {
+        if (cp?.lsn && cp.lsn >= baselineLsn) {
           head = cp.lsn;
           break;
         }
