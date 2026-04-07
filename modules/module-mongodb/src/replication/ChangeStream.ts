@@ -822,7 +822,8 @@ export class ChangeStream {
       maxAwaitTimeMS: options.maxAwaitTimeMS ?? this.maxAwaitTimeMS,
       maxTimeMS: this.changeStreamTimeout,
 
-      signal: options.signal
+      signal: options.signal,
+      logger: this.logger
     });
   }
 

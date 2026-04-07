@@ -1,5 +1,10 @@
 import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
-import { DatabaseConnectionError, ErrorCode } from '@powersync/lib-services-framework';
+import {
+  DatabaseConnectionError,
+  ErrorCode,
+  Logger,
+  ReplicationAssertionError
+} from '@powersync/lib-services-framework';
 import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
 export interface RawChangeStreamOptions {
@@ -18,6 +23,8 @@ export interface RawChangeStreamOptions {
    * Mostly for testing.
    */
   collection?: string;
+
+  logger?: Logger;
 }
 
 export interface ChangeStreamBatch {
@@ -29,7 +36,51 @@ export interface ChangeStreamBatch {
   byteSize: number;
 }
 
-export async function* rawChangeStream(
+export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[], options: RawChangeStreamOptions) {
+  if (!('$changeStream' in pipeline[0])) {
+    throw new ReplicationAssertionError(`First pipeline stage must be $changeStream`);
+  }
+  let lastResumeToken: unknown | null = null;
+
+  while (true) {
+    try {
+      let innerPipeline = pipeline;
+      if (lastResumeToken != null) {
+        const [first, ...rest] = pipeline;
+        const options = { ...first.$changeStream };
+        delete options.startAtOperationTime;
+        options.resumeAfter = lastResumeToken;
+        innerPipeline = [{ $changeStream: options }, ...rest];
+      }
+      const inner = rawChangeStreamInner(db, innerPipeline, {
+        ...options
+      });
+      for await (let batch of inner) {
+        yield batch;
+        lastResumeToken = batch.resumeToken;
+      }
+    } catch (e) {
+      if (e instanceof ResumableChangeStreamError) {
+        // This is only triggered on the getMore command.
+        // If there is a persistent error, we expect it to occur on the aggregate command as well,
+        // which will trigger a hard error on the next attempt.
+        // This matches the change stream spec of:
+        // > A change stream MUST attempt to resume a single time if it encounters any resumable error per Resumable Error. A change stream MUST NOT attempt to resume on any other type of error.
+        // > An error on an aggregate command is not a resumable error. Only errors on a getMore command may be considered resumable errors.
+        // https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md#resume-process
+
+        // Technically we don't _need_ this resume functionality - we can let the replication job handle the failure
+        // and restart. However, this provides a faster restart path in common cases.
+        options.logger?.warn(`Resumable change stream error, retrying: ${e.message}`, e.cause);
+        continue;
+      } else {
+        throw e;
+      }
+    }
+  }
+}
+
+async function* rawChangeStreamInner(
   db: mongo.Db,
   pipeline: mongo.Document[],
   options: RawChangeStreamOptions
@@ -108,6 +159,9 @@ export async function* rawChangeStream(
           { session, raw: true }
         )
         .catch((e) => {
+          if (isResumableChangeStreamError(e)) {
+            throw new ResumableChangeStreamError(e.message, { cause: e });
+          }
           throw mapChangeStreamError(e);
         });
 
@@ -133,6 +187,25 @@ export async function* rawChangeStream(
         .catch(() => {});
     }
     await session.endSession();
+  }
+}
+
+class ResumableChangeStreamError extends Error {}
+
+function isResumableChangeStreamError(e: unknown) {
+  // See: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md#resumable-error
+  if (!isMongoServerError(e)) {
+    // Any error encountered which is not a server error (e.g. a timeout error or network error)
+    return true;
+  } else if (e.codeName == 'CursorNotFound') {
+    // A server error with code 43 (CursorNotFound)
+    return true;
+  } else if (e.hasErrorLabel('ResumableChangeStreamError')) {
+    // For servers with wire version 9 or higher (server version 4.4 or higher), any server error with the ResumableChangeStreamError error label.
+    return true;
+  } else {
+    // We ignore servers with wire version less than 9, since we only support MongoDB 6.0+.
+    return false;
   }
 }
 
