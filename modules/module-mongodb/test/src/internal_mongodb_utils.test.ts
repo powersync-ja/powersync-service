@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { ChangeStreamBatch, rawChangeStream } from '@module/replication/RawChangeStream.js';
+import { ChangeStreamBatch, namespaceCollection, rawChangeStream } from '@module/replication/RawChangeStream.js';
 import { getCursorBatchBytes } from '@module/replication/replication-index.js';
+import { mongo } from '@powersync/lib-service-mongodb';
+import { bson } from '@powersync/service-core';
 import { clearTestDb, connectMongoData } from './util.js';
 
 describe('internal mongodb utils', () => {
@@ -118,4 +120,175 @@ describe('internal mongodb utils', () => {
     expect(totalBytes).toBeGreaterThan(2000);
     expect(totalBytes).toBeLessThan(8000);
   }
+
+  test('should resume on missing cursor (1)', async () => {
+    // Many resumable errors are difficult to simulate, but CursorNotFound is easy.
+
+    const { db, client } = await connectMongoData();
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const pipeline = [
+      {
+        $changeStream: {
+          fullDocument: 'updateLookup'
+        }
+      }
+    ];
+    const stream = rawChangeStream(db, pipeline, {
+      batchSize: 10,
+      maxAwaitTimeMS: 5,
+      maxTimeMS: 1_000
+    });
+
+    let readDocs: any[] = [];
+    const readAll = async () => {
+      while (true) {
+        const next = await stream.next();
+        if (next.done) {
+          break;
+        }
+
+        if (next.value.events.length == 0) {
+          break;
+        }
+
+        readDocs.push(...next.value.events.map((e) => bson.deserialize(e, { useBigInt64: true })));
+      }
+    };
+
+    await readAll();
+
+    await collection.insertOne({ test: 1 });
+    await readAll();
+    await collection.insertOne({ test: 2 });
+    await readAll();
+    await collection.insertOne({ test: 3 });
+    await killChangeStreamCursor(db, client);
+    await collection.insertOne({ test: 4 });
+    await readAll();
+
+    await stream.return?.();
+
+    expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }]);
+  });
+
+  test('should resume on missing cursor (2)', async () => {
+    const { db, client } = await connectMongoData();
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const currentOpStream = rawChangeStream(
+      db,
+      [
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup'
+          }
+        }
+      ],
+      {
+        batchSize: 10,
+        maxAwaitTimeMS: 5,
+        maxTimeMS: 1_000
+      }
+    );
+    const firstBatch = await currentOpStream.next();
+    await currentOpStream.return();
+    const resumeAfter = firstBatch.value!.resumeToken;
+
+    const stream = rawChangeStream(
+      db,
+      [
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup',
+            resumeAfter
+          }
+        }
+      ],
+      {
+        batchSize: 10,
+        maxAwaitTimeMS: 5,
+        maxTimeMS: 1_000
+      }
+    );
+
+    let readDocs: any[] = [];
+    const readAll = async () => {
+      while (true) {
+        const next = await stream.next();
+        if (next.done) {
+          break;
+        }
+
+        if (next.value.events.length == 0) {
+          break;
+        }
+
+        readDocs.push(...next.value.events.map((e) => bson.deserialize(e, { useBigInt64: true })));
+      }
+    };
+
+    await readAll();
+
+    await collection.insertOne({ test: 1 });
+    await readAll();
+    await collection.insertOne({ test: 2 });
+    await readAll();
+    await collection.insertOne({ test: 3 });
+    await killChangeStreamCursor(db, client);
+    await collection.insertOne({ test: 4 });
+    await readAll();
+
+    await stream.return?.();
+
+    expect(readDocs.map((doc) => doc.fullDocument)).toMatchObject([{ test: 1 }, { test: 2 }, { test: 3 }, { test: 4 }]);
+  });
 });
+
+async function killChangeStreamCursor(db: mongo.Db, client: mongo.MongoClient) {
+  const ops = await client
+    .db('admin')
+    .aggregate<CurrentOpIdleCursor>([{ $currentOp: { idleCursors: true } }, { $match: { type: 'idleCursor' } }])
+    .toArray();
+
+  const ns = `${db.databaseName}.$cmd.aggregate`;
+  const op = ops.find((op) => {
+    const command = op.cursor?.originatingCommand;
+    return op.ns == ns && Array.isArray(command?.pipeline) && command.pipeline[0]?.$changeStream != null;
+  });
+
+  if (op?.cursor == null) {
+    throw new Error(
+      `Could not find change stream cursor. Idle cursors: ${JSON.stringify(
+        ops.map((op) => ({
+          ns: op.ns,
+          type: op.type,
+          cursorId: op.cursor?.cursorId?.toString(),
+          aggregate: op.cursor?.originatingCommand?.aggregate,
+          pipeline: op.cursor?.originatingCommand?.pipeline
+        }))
+      )}`
+    );
+  }
+
+  await db.command({
+    killCursors: namespaceCollection(op.ns),
+    cursors: [op.cursor.cursorId]
+  });
+}
+
+type CurrentOpIdleCursor = {
+  ns: string;
+  type: string;
+  cursor?: {
+    cursorId: bigint;
+    originatingCommand?: {
+      aggregate?: unknown;
+      pipeline?: any[];
+    };
+  };
+};
