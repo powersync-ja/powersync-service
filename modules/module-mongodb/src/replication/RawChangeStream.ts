@@ -42,6 +42,10 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
   }
   let lastResumeToken: unknown | null = null;
 
+  // > If the server supports sessions, the resume attempt MUST use the same session as the previous attempt's command.
+  const session = db.client.startSession();
+  await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
+
   while (true) {
     try {
       let innerPipeline = pipeline;
@@ -52,7 +56,7 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
         options.resumeAfter = lastResumeToken;
         innerPipeline = [{ $changeStream: options }, ...rest];
       }
-      const inner = rawChangeStreamInner(db, innerPipeline, {
+      const inner = rawChangeStreamInner(session, db, innerPipeline, {
         ...options
       });
       for await (let batch of inner) {
@@ -81,6 +85,7 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
 }
 
 async function* rawChangeStreamInner(
+  session: mongo.ClientSession,
   db: mongo.Db,
   pipeline: mongo.Document[],
   options: RawChangeStreamOptions
@@ -112,7 +117,6 @@ async function* rawChangeStreamInner(
     }
   });
 
-  const session = db.client.startSession();
   try {
     {
       // Step 1: Send the aggregate command to start the change stream
@@ -186,7 +190,6 @@ async function* rawChangeStreamInner(
         })
         .catch(() => {});
     }
-    await session.endSession();
   }
 }
 
