@@ -4,6 +4,7 @@ import { describe, expect, onTestFinished, test } from 'vitest';
 import {
   CompatibilityContext,
   CompatibilityEdition,
+  generateSqlFunctions,
   javaScriptExpressionEngine,
   nodeSqliteExpressionEngine,
   SqliteValue
@@ -13,7 +14,7 @@ import {
   ScalarStatement,
   TableValuedFunction
 } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
-import { BinaryOperator } from '../../../../src/sync_plan/expression.js';
+import { BinaryOperator, supportedFunctions } from '../../../../src/sync_plan/expression.js';
 
 describe('sqlite', () => {
   defineEngineTests(false, (c) => nodeSqliteExpressionEngine(sqlite, c));
@@ -21,6 +22,13 @@ describe('sqlite', () => {
 
 describe('javascript', () => {
   defineEngineTests(true, javaScriptExpressionEngine);
+
+  test('every supported function is implemented', () => {
+    const functions = generateSqlFunctions(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    for (const name of Object.keys(supportedFunctions)) {
+      expect(functions.named).toHaveProperty(name);
+    }
+  });
 });
 
 function defineEngineTests(
