@@ -463,9 +463,13 @@ describe('BinlogListener tests', { timeout: 60_000 }, () => {
     await insertRows(connectionManager, 1);
     // multi_schema database insert into test_DATA_multi
     await connectionManager.query(`INSERT INTO ${testTable}(id, description) VALUES('${uuid()}','test')`);
-    await connectionManager.query(`DROP TABLE ${testTable}`);
+    // Wait for both row entries to appear on the binlog. This avoids a rare race condition in MySQL 5.7
+    // where the drop table can hang if run immediately after the table was locked by an insert
+    await vi.waitFor(() => expect(eventHandler.rowsWritten).equals(2), { timeout: 5000 });
 
+    await connectionManager.query(`DROP TABLE ${testTable}`);
     await waitForSchemaChanges(1);
+
     await binLogListener.stop();
     expect(eventHandler.rowsWritten).toBe(2);
     assertSchemaChange(eventHandler.schemaChanges[0], SchemaChangeType.DROP_TABLE, 'multi_schema', 'test_DATA_multi');
