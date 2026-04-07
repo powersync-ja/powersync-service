@@ -1742,4 +1742,26 @@ bucket_definitions:
     expected.sort((a, b) => a.bucket.localeCompare(b.bucket));
     expect(checksums).toEqual(expected);
   });
+
+  test('persists validation errors for sync plan', async () => {
+    await using factory = await config.factory();
+    const deployed = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
+config:
+  edition: 3
+
+streams:
+  invalid:
+    query: UPDATE test SET foo = 'bar' RETURNING *
+`)
+    );
+
+    const { errors } = deployed.parsed({ defaultSchema: 'ignored' }).sync_rules;
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toStrictEqual('Expected a SELECT statement');
+    expect(errors[0].location).toStrictEqual({
+      start: 54,
+      end: 93
+    });
+  });
 }

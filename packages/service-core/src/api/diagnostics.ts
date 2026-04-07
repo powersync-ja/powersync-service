@@ -3,6 +3,7 @@ import { DEFAULT_TAG, SourceTableInterface, SyncConfigWithErrors } from '@powers
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
+import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { RouteAPI } from './RouteAPI.js';
 
 export interface DiagnosticsOptions {
@@ -131,23 +132,7 @@ export async function getSyncRulesStatus(
       ts: sync_rules.last_fatal_error_ts?.toISOString()
     });
   }
-  errors.push(
-    ...syncRuleErrors.map(({ type, message, location }) => {
-      const error: ReplicationError = {
-        level: type,
-        message,
-        ts: now
-      };
-      if (location != null) {
-        error.location = {
-          start_offset: location.start,
-          end_offset: location.end
-        };
-      }
-
-      return error;
-    })
-  );
+  errors.push(...syncRuleErrors.map((error) => syncConfigYamlErrorToReplicationError(error, now)));
 
   if (live_status && status?.active) {
     // Check replication lag for active sync rules.
