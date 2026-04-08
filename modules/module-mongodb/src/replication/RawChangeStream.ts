@@ -36,6 +36,11 @@ export interface ChangeStreamBatch {
   byteSize: number;
 }
 
+const deserialize = mongo.BSON.deserialize;
+const DESERIALIZE_DEFAULT = { useBigInt64: true };
+const DESERIALIZE_RAW: mongo.BSON.DeserializeOptions = { ...DESERIALIZE_DEFAULT, raw: true };
+const DESERIALIZE_CHANGE_STREAM = { ...DESERIALIZE_DEFAULT, fieldsAsRaw: { firstBatch: true, nextBatch: true } };
+
 export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[], options: RawChangeStreamOptions) {
   // We generally attempt to follow the spec at: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
   // Intentional differences:
@@ -142,10 +147,7 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
-      const cursor = mongo.BSON.deserialize(aggregateResult.cursor, {
-        useBigInt64: true,
-        fieldsAsRaw: { firstBatch: true }
-      });
+      const cursor = deserialize(aggregateResult.cursor, DESERIALIZE_CHANGE_STREAM);
 
       cursorId = BigInt(cursor.id);
       nsCollection = namespaceCollection(cursor.ns);
@@ -188,10 +190,7 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
-      const cursor = mongo.BSON.deserialize(getMoreResult.cursor, {
-        useBigInt64: true,
-        fieldsAsRaw: { nextBatch: true }
-      });
+      const cursor = deserialize(getMoreResult.cursor, DESERIALIZE_CHANGE_STREAM);
       cursorId = BigInt(cursor.id);
       const nextBatch = cursor.nextBatch;
 
@@ -276,24 +275,24 @@ type ChangeStreamDocumentInput = MapRawDocument<ProjectedChangeStreamDocument>;
  * @param Buffer the raw change stream document
  */
 export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocument {
-  const doc = mongo.BSON.deserialize(buffer, { useBigInt64: true, raw: true }) as ChangeStreamDocumentInput;
+  const doc = deserialize(buffer, DESERIALIZE_RAW) as ChangeStreamDocumentInput;
   // We update the document in-place
-  doc._id = mongo.BSON.deserialize(doc._id) as any;
+  doc._id = deserialize(doc._id, DESERIALIZE_DEFAULT) as any;
   if (doc.lsid != null) {
-    doc.lsid = mongo.BSON.deserialize(doc.lsid) as any;
+    doc.lsid = deserialize(doc.lsid, DESERIALIZE_DEFAULT) as any;
   }
   if (doc.splitEvent != null) {
-    doc.splitEvent = mongo.BSON.deserialize(doc.splitEvent) as any;
+    doc.splitEvent = deserialize(doc.splitEvent, DESERIALIZE_DEFAULT) as any;
   }
 
   if ('ns' in doc) {
-    doc.ns = mongo.BSON.deserialize(doc.ns) as any;
+    doc.ns = deserialize(doc.ns, DESERIALIZE_DEFAULT) as any;
   }
   if ('to' in doc) {
-    doc.to = mongo.BSON.deserialize(doc.to) as any;
+    doc.to = deserialize(doc.to, DESERIALIZE_DEFAULT) as any;
   }
   if ('documentKey' in doc) {
-    doc.documentKey = mongo.BSON.deserialize(doc.documentKey, { useBigInt64: true }) as any;
+    doc.documentKey = deserialize(doc.documentKey, DESERIALIZE_DEFAULT) as any;
   }
   return doc as any;
 }
