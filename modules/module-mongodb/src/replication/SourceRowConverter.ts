@@ -43,7 +43,7 @@ export class CustomSourceRowConverter implements SourceRowConverter {
 
   rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
     const row = bufferToSqlite(source);
-    const replicaId = parseDocumentId(source);
+    const replicaId = parseDocumentId(source).id;
     return { row, replicaId };
   }
 
