@@ -18,28 +18,17 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import {
-  DatabaseInputRow,
-  HydratedSyncRules,
-  SqliteInputRow,
-  SqliteRow,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
-import {
-  constructAfterRecord,
-  createCheckpoint,
-  getCacheIdentifier,
-  getMongoRelation,
-  STANDALONE_CHECKPOINT_ID
-} from './MongoRelation.js';
+import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch, rawChangeStream } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { DefaultSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -110,6 +99,8 @@ export class ChangeStream {
 
   private changeStreamTimeout: number;
 
+  private readonly sourceRowConverter: SourceRowConverter;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -122,6 +113,8 @@ export class ChangeStream {
     this.sync_rules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
     });
+    this.sourceRowConverter = new DefaultSourceRowConverter(this.sync_rules.compatibility);
+
     // The change stream aggregation command should timeout before the socket times out,
     // so we use 90% of the socket timeout value.
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
@@ -472,12 +465,6 @@ export class ChangeStream {
     return { $match: nsFilter, multipleDatabases };
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
-    for (let row of results) {
-      yield constructAfterRecord(row);
-    }
-  }
-
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
@@ -518,7 +505,7 @@ export class ChangeStream {
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (let document of docBatch) {
-        const record = this.constructAfterRecord(document);
+        const record = this.sourceRowConverter.documentToSqliteRow(document);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -656,11 +643,6 @@ export class ChangeStream {
     return result.table;
   }
 
-  private constructAfterRecord(document: mongo.Document): SqliteRow {
-    const inputRow = constructAfterRecord(document);
-    return this.sync_rules.applyRowContext<never>(inputRow);
-  }
-
   async writeChange(
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable,
@@ -673,7 +655,7 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const baseRecord = this.constructAfterRecord(change.fullDocument);
+      const baseRecord = this.sourceRowConverter.documentToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
@@ -692,7 +674,7 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const after = this.constructAfterRecord(change.fullDocument!);
+      const after = this.sourceRowConverter.documentToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
