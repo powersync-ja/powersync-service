@@ -23,7 +23,7 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   }
 
   async nextChunk(): Promise<
-    { docs: mongo.Document[]; lastKey: Uint8Array; bytes: number } | { docs: []; lastKey: null; bytes: 0 }
+    { docs: Buffer[]; lastKey: Uint8Array; bytes: number } | { docs: []; lastKey: null; bytes: 0 }
   > {
     let cursor = this.lastCursor;
     let newCursor = false;
@@ -46,7 +46,8 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
         // batchSize is 1 more than limit to auto-close the cursor.
         // See https://github.com/mongodb/node-mongodb-native/pull/4580
         batchSize: this.batchSize + 1,
-        sort: { _id: 1 }
+        sort: { _id: 1 },
+        raw: true
       });
       newCursor = true;
     }
@@ -62,17 +63,58 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       }
     }
     const bytes = getCursorBatchBytes(cursor);
-    const docBatch = cursor.readBufferedDocuments();
+    const docBatch = cursor.readBufferedDocuments() as Buffer[];
     this.lastCursor = cursor;
     if (docBatch.length == 0) {
       throw new ReplicationAssertionError(`MongoDB snapshot query returned an empty batch, but hasNext() was true.`);
     }
-    const lastKey = docBatch[docBatch.length - 1]._id;
+    const lastDoc = docBatch[docBatch.length - 1];
+    const { id: lastKey, idBuffer } = parseDocumentId(lastDoc);
     this.lastKey = lastKey;
-    return { docs: docBatch, lastKey: bson.serialize({ _id: lastKey }), bytes };
+    return { docs: docBatch, lastKey: idBuffer, bytes };
   }
 
   async [Symbol.asyncDispose](): Promise<void> {
     await this.lastCursor?.close();
   }
+}
+
+type BSONElement = mongo.BSON.OnDemand['BSONElement'];
+
+/**
+ * Parse an _id from a buffer, without parsing the entire document.
+ *
+ * @returns the parsed id, as well as a serialized document including only _id.
+ */
+export function parseDocumentId(buffer: Buffer): { id: any; idBuffer: Buffer } {
+  // For reference, see how MongoDB uses the onDemand API here:
+  // https://github.com/mongodb/node-mongodb-native/blob/f36b7546e937d980cc7decb760eb8f561334fa6a/src/cmap/wire_protocol/on_demand/document.ts#L54
+
+  const elementsIterable = mongo.BSON.onDemand.parseToElements(buffer);
+  const elements: BSONElement[] = Array.isArray(elementsIterable) ? elementsIterable : [...elementsIterable];
+  outer: for (let [_type, nameOffset, nameLength, offset, length] of elements) {
+    // Find the _id key
+    if (nameLength != 3) {
+      continue;
+    }
+
+    for (let i = 0; i < 3; i++) {
+      if (buffer.at(nameOffset + i) != '_id'.charCodeAt(i)) {
+        continue outer;
+      }
+    }
+
+    // We create a new "document" containing only the _id, by directly manipulating buffers
+    const baseOffset = nameOffset - 1;
+    const baseLength = offset - baseOffset + length;
+    // https://bsonspec.org/spec.html
+    // document	::=	int32 e_list unsigned_byte(0)
+    const genBuffer = Buffer.allocUnsafe(baseLength + 5);
+    mongo.BSON.onDemand.NumberUtils.setInt32LE(genBuffer, 0, baseLength + 5);
+    buffer.copy(genBuffer, 4, baseOffset, baseOffset + baseLength);
+    genBuffer[genBuffer.length - 1] = 0;
+    return { idBuffer: genBuffer, id: bson.deserialize(genBuffer, { useBigInt64: true })._id };
+  }
+
+  throw new ReplicationAssertionError(`Document without _id`);
 }
