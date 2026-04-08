@@ -1,6 +1,8 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { applyRowContext, CompatibilityContext, SqliteRow } from '@powersync/service-sync-rules';
+import { bufferToSqlite } from './bufferToSqlite.js';
 import { constructAfterRecord } from './MongoRelation.js';
+import { parseDocumentId } from './MongoSnapshotQuery.js';
 
 export interface SourceRowConverter {
   /**
@@ -33,5 +35,20 @@ export class DefaultSourceRowConverter implements SourceRowConverter {
   documentToSqliteRow(document: mongo.Document): SqliteRow {
     const input = constructAfterRecord(document);
     return applyRowContext<never>(input, this.compatibilityContext);
+  }
+}
+
+export class CustomSourceRowConverter implements SourceRowConverter {
+  constructor(public readonly compatibilityContext: CompatibilityContext) {}
+
+  rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
+    const row = bufferToSqlite(source);
+    const replicaId = parseDocumentId(source);
+    return { row, replicaId };
+  }
+
+  documentToSqliteRow(document: mongo.Document): SqliteRow {
+    const buffer = mongo.BSON.serialize(document) as Buffer;
+    return this.rawToSqliteRow(buffer).row;
   }
 }
