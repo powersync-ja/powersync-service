@@ -281,7 +281,7 @@ export class ChangeStream {
       batchesSeen += 1;
 
       for (let rawChangeDocument of events) {
-        const changeDocument = mongo.BSON.deserialize(rawChangeDocument, { useBigInt64: true });
+        const changeDocument = parseChangeDocument(rawChangeDocument);
         const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
         if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
@@ -509,8 +509,8 @@ export class ChangeStream {
 
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
-      for (let document of docBatch) {
-        const record = this.sourceRowConverter.documentToSqliteRow(document);
+      for (let buffer of docBatch) {
+        const { row: record, replicaId: replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -519,7 +519,7 @@ export class ChangeStream {
           before: undefined,
           beforeReplicaId: undefined,
           after: record,
-          afterReplicaId: document._id
+          afterReplicaId: replicaId
         });
       }
 
@@ -660,13 +660,16 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const baseRecord = this.sourceRowConverter.rawToSqliteRow(change.fullDocument);
+      const { row: baseRecord, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
         after: baseRecord,
+        // Same as _replicaId
+        // We specifically need to use the source _id, not the converted one in baseRecord,
+        // to preserve _id uniqueness properties.
         afterReplicaId: change.documentKey._id
       });
     } else if (change.operationType == 'update' || change.operationType == 'replace') {
@@ -679,14 +682,14 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const after = this.sourceRowConverter.rawToSqliteRow(change.fullDocument!);
+      const { row: after, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
         after: after,
-        afterReplicaId: change.documentKey._id
+        afterReplicaId: change.documentKey._id // Same as _replicaId
       });
     } else if (change.operationType == 'delete') {
       return await batch.save({

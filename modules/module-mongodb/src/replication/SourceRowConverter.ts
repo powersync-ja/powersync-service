@@ -6,8 +6,10 @@ export interface SourceRowConverter {
   /**
    * Convert a Buffer, containing BSON document bytes, to a SqliteRow for use
    * in sync config.
+   *
+   * The returned replicaId is the plain parsed bson _id value, to preserve the source id as-is.
    */
-  rawToSqliteRow(source: Buffer): SqliteRow;
+  rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any };
 
   /**
    * Convert a document, as received from MongoDB query or change stream, to
@@ -21,9 +23,11 @@ export interface SourceRowConverter {
 export class DefaultSourceRowConverter implements SourceRowConverter {
   constructor(public readonly compatibilityContext: CompatibilityContext) {}
 
-  rawToSqliteRow(source: Buffer): SqliteRow {
+  rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
     const parsed = mongo.BSON.deserialize(source, { useBigInt64: true });
-    return this.documentToSqliteRow(parsed);
+    const row = this.documentToSqliteRow(parsed);
+    const replicaId = parsed._id;
+    return { row, replicaId };
   }
 
   documentToSqliteRow(document: mongo.Document): SqliteRow {
