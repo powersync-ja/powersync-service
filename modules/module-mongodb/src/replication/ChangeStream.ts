@@ -26,7 +26,12 @@ import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
-import { ChangeStreamBatch, rawChangeStream } from './RawChangeStream.js';
+import {
+  ChangeStreamBatch,
+  parseChangeDocument,
+  ProjectedChangeStreamDocument,
+  rawChangeStream
+} from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 import { DefaultSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 
@@ -646,7 +651,7 @@ export class ChangeStream {
   async writeChange(
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable,
-    change: mongo.ChangeStreamDocument
+    change: ProjectedChangeStreamDocument
   ): Promise<storage.FlushedResult | null> {
     if (!table.syncAny) {
       this.logger.debug(`Collection ${table.qualifiedName} not used in sync rules - skipping`);
@@ -655,7 +660,7 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const baseRecord = this.sourceRowConverter.documentToSqliteRow(change.fullDocument);
+      const baseRecord = this.sourceRowConverter.rawToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
@@ -674,7 +679,7 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const after = this.sourceRowConverter.documentToSqliteRow(change.fullDocument!);
+      const after = this.sourceRowConverter.rawToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
@@ -853,7 +858,7 @@ export class ChangeStream {
           this.checkpointStreamId
         );
 
-        let splitDocument: mongo.ChangeStreamDocument | null = null;
+        let splitDocument: ProjectedChangeStreamDocument | null = null;
 
         let flexDbNameWorkaroundLogged = false;
         let changesSinceLastCheckpoint = 0;
@@ -899,9 +904,7 @@ export class ChangeStream {
           const batchStart = Date.now();
           for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
             const rawChangeDocument = events[eventIndex];
-            const originalChangeDocument = mongo.BSON.deserialize(rawChangeDocument, {
-              useBigInt64: true
-            }) as mongo.ChangeStreamDocument;
+            const originalChangeDocument = parseChangeDocument(rawChangeDocument);
             if (this.abort_signal.aborted) {
               break;
             }
@@ -1149,7 +1152,7 @@ export class ChangeStream {
 /**
  * Transaction key for a change stream event, used to detect transaction boundaries. Returns null if the event is not part of a transaction.
  */
-function transactionKey(doc: mongo.ChangeStreamDocument): string | null {
+function transactionKey(doc: Pick<mongo.ChangeStreamDocument, 'lsid' | 'txnNumber'>): string | null {
   if (doc.txnNumber == null || doc.lsid == null) {
     return null;
   }
