@@ -21,7 +21,7 @@ export interface SourceRowConverter {
 }
 
 export class DefaultSourceRowConverter implements SourceRowConverter {
-  constructor(public readonly compatibilityContext: CompatibilityContext) {}
+  constructor(private readonly compatibilityContext: CompatibilityContext) {}
 
   rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
     const parsed = mongo.BSON.deserialize(source, { useBigInt64: true });

@@ -79,7 +79,7 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   }
 }
 
-type BSONElement = mongo.BSON.OnDemand['BSONElement'];
+const idKey = Buffer.from('_id');
 
 /**
  * Parse an _id from a buffer, without parsing the entire document.
@@ -87,30 +87,38 @@ type BSONElement = mongo.BSON.OnDemand['BSONElement'];
  * @returns the parsed id, as well as a serialized document including only _id.
  */
 export function parseDocumentId(buffer: Buffer): { id: any; idBuffer: Buffer } {
+  // Use the "experimental" onDemand API to parse the _id without fully parsing
+  // the entire document.
   // For reference, see how MongoDB uses the onDemand API here:
   // https://github.com/mongodb/node-mongodb-native/blob/f36b7546e937d980cc7decb760eb8f561334fa6a/src/cmap/wire_protocol/on_demand/document.ts#L54
+  // This still performs more work than strictly required, since the onDemand API iterates through every key in the document.
+  // We may replace this with a custom BSON parser later.
 
+  // Note: The current js-bson implementation always returns an actual pre-poplated array.
+  // That does not affect us directly (other than performance), since we're always only iterating through it once.
   const elementsIterable = mongo.BSON.onDemand.parseToElements(buffer);
-  const elements: BSONElement[] = Array.isArray(elementsIterable) ? elementsIterable : [...elementsIterable];
-  outer: for (let [_type, nameOffset, nameLength, offset, length] of elements) {
-    // Find the _id key
+  for (let [_type, nameOffset, nameLength, offset, length] of elementsIterable) {
+    // Loop until we find the _id key
     if (nameLength != 3) {
       continue;
     }
-
-    for (let i = 0; i < 3; i++) {
-      if (buffer.at(nameOffset + i) != '_id'.charCodeAt(i)) {
-        continue outer;
-      }
+    if (!buffer.subarray(nameOffset, nameOffset + nameLength).equals(idKey)) {
+      continue;
     }
 
-    // We create a new "document" containing only the _id, by directly manipulating buffers
-    const baseOffset = nameOffset - 1;
-    const baseLength = offset - baseOffset + length;
+    // We create a new "document" containing only the _id, by directly manipulating buffers.
     // https://bsonspec.org/spec.html
     // document	::=	int32 e_list unsigned_byte(0)
+    // e_list	::=	element e_list
+    // element ::= signed_byte e_name ...
+
+    // Subtract 1 to start at the type flag (signed_byte)
+    const baseOffset = nameOffset - 1;
+    // element ends at offset + length
+    const baseLength = offset + length - baseOffset;
+    // Our buffer wraps the _id element: 4 bytes before for the size, 1 null byte at the end.
     const genBuffer = Buffer.allocUnsafe(baseLength + 5);
-    mongo.BSON.onDemand.NumberUtils.setInt32LE(genBuffer, 0, baseLength + 5);
+    genBuffer.writeInt32LE(baseLength + 5, 0);
     buffer.copy(genBuffer, 4, baseOffset, baseOffset + baseLength);
     genBuffer[genBuffer.length - 1] = 0;
     return { idBuffer: genBuffer, id: bson.deserialize(genBuffer, { useBigInt64: true })._id };
