@@ -36,6 +36,22 @@ export interface ChangeStreamBatch {
   byteSize: number;
 }
 
+const deserialize = mongo.BSON.deserialize;
+const DESERIALIZE_DEFAULT = { useBigInt64: true };
+const DESERIALIZE_RAW: mongo.BSON.DeserializeOptions = {
+  ...DESERIALIZE_DEFAULT,
+  raw: true,
+  // No need to validate utf8 for the core change stream fields
+  validation: { utf8: false }
+};
+const DESERIALIZE_CHANGE_STREAM = {
+  ...DESERIALIZE_DEFAULT,
+  // These are embedded _arrays_ that we want to preserve as buffers
+  fieldsAsRaw: { firstBatch: true, nextBatch: true },
+  // No need to validate utf8 for the core change stream response
+  validation: { utf8: false }
+};
+
 export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[], options: RawChangeStreamOptions) {
   // We generally attempt to follow the spec at: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
   // Intentional differences:
@@ -142,10 +158,7 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
-      const cursor = mongo.BSON.deserialize(aggregateResult.cursor, {
-        useBigInt64: true,
-        fieldsAsRaw: { firstBatch: true }
-      });
+      const cursor = deserialize(aggregateResult.cursor, DESERIALIZE_CHANGE_STREAM);
 
       cursorId = BigInt(cursor.id);
       nsCollection = namespaceCollection(cursor.ns);
@@ -188,10 +201,7 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
-      const cursor = mongo.BSON.deserialize(getMoreResult.cursor, {
-        useBigInt64: true,
-        fieldsAsRaw: { nextBatch: true }
-      });
+      const cursor = deserialize(getMoreResult.cursor, DESERIALIZE_CHANGE_STREAM);
       cursorId = BigInt(cursor.id);
       const nextBatch = cursor.nextBatch;
 
@@ -222,6 +232,81 @@ async function* rawChangeStreamInner(
 }
 
 class ResumableChangeStreamError extends Error {}
+
+type RawBsonValue =
+  | string
+  | number
+  | boolean
+  | bigint
+  | null
+  | undefined
+  | Date
+  | Buffer
+  | mongo.Binary
+  | mongo.ObjectId
+  | mongo.Timestamp
+  | mongo.Long
+  | mongo.Int32
+  | mongo.Double
+  | mongo.Decimal128
+  | mongo.MaxKey
+  | mongo.MinKey
+  | mongo.BSONRegExp
+  | mongo.BSONSymbol
+  | mongo.Code
+  | mongo.DBRef
+  | mongo.UUID;
+
+type Rawify<T> = T extends RawBsonValue
+  ? T
+  : T extends (infer U)[]
+    ? Rawify<U>[]
+    : T extends readonly (infer U)[]
+      ? readonly Rawify<U>[]
+      : Buffer;
+
+/**
+ * Converts the type as parsed using {raw: true}
+ */
+type MapRawDocument<T> = T extends unknown ? { [K in keyof T]: Rawify<T[K]> } : never;
+
+export type ProjectedChangeStreamDocument =
+  | Omit<mongo.ChangeStreamDropDocument, 'wallTime' | 'collectionUUID'>
+  | Omit<mongo.ChangeStreamRenameDocument, 'wallTime'>
+  | Omit<mongo.ChangeStreamDeleteDocument<Buffer>, 'wallTime'>
+  | Omit<mongo.ChangeStreamInsertDocument<Buffer>, 'wallTime'>
+  | Omit<mongo.ChangeStreamUpdateDocument<Buffer>, 'wallTime' | 'updateDescription'>
+  | Omit<mongo.ChangeStreamReplaceDocument<Buffer>, 'wallTime'>;
+
+type ChangeStreamDocumentInput = MapRawDocument<ProjectedChangeStreamDocument>;
+
+/**
+ * Parse a change stream document, while keeping `fullDocument` as a Buffer.
+ *
+ * @param Buffer the raw change stream document
+ */
+export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocument {
+  const doc = deserialize(buffer, DESERIALIZE_RAW) as ChangeStreamDocumentInput;
+  // We update the document in-place
+  doc._id = deserialize(doc._id, DESERIALIZE_DEFAULT) as any;
+  if (doc.lsid != null) {
+    doc.lsid = deserialize(doc.lsid, DESERIALIZE_DEFAULT) as any;
+  }
+  if (doc.splitEvent != null) {
+    doc.splitEvent = deserialize(doc.splitEvent, DESERIALIZE_DEFAULT) as any;
+  }
+
+  if ('ns' in doc) {
+    doc.ns = deserialize(doc.ns, DESERIALIZE_DEFAULT) as any;
+  }
+  if ('to' in doc) {
+    doc.to = deserialize(doc.to, DESERIALIZE_DEFAULT) as any;
+  }
+  if ('documentKey' in doc) {
+    doc.documentKey = deserialize(doc.documentKey, DESERIALIZE_DEFAULT) as any;
+  }
+  return doc as any;
+}
 
 function isResumableChangeStreamError(e: unknown) {
   // See: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md#resumable-error
