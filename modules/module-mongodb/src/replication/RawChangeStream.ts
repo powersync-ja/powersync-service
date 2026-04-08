@@ -223,6 +223,81 @@ async function* rawChangeStreamInner(
 
 class ResumableChangeStreamError extends Error {}
 
+type RawBsonValue =
+  | string
+  | number
+  | boolean
+  | bigint
+  | null
+  | undefined
+  | Date
+  | Buffer
+  | mongo.Binary
+  | mongo.ObjectId
+  | mongo.Timestamp
+  | mongo.Long
+  | mongo.Int32
+  | mongo.Double
+  | mongo.Decimal128
+  | mongo.MaxKey
+  | mongo.MinKey
+  | mongo.BSONRegExp
+  | mongo.BSONSymbol
+  | mongo.Code
+  | mongo.DBRef
+  | mongo.UUID;
+
+type Rawify<T> = T extends RawBsonValue
+  ? T
+  : T extends (infer U)[]
+    ? Rawify<U>[]
+    : T extends readonly (infer U)[]
+      ? readonly Rawify<U>[]
+      : Buffer;
+
+/**
+ * Converts the type as parsed using {raw: true}
+ */
+type MapRawDocument<T> = T extends unknown ? { [K in keyof T]: Rawify<T[K]> } : never;
+
+export type ProjectedChangeStreamDocument =
+  | Omit<mongo.ChangeStreamDropDocument, 'wallTime' | 'collectionUUID'>
+  | Omit<mongo.ChangeStreamRenameDocument, 'wallTime'>
+  | Omit<mongo.ChangeStreamDeleteDocument<Buffer>, 'wallTime'>
+  | Omit<mongo.ChangeStreamInsertDocument<Buffer>, 'wallTime'>
+  | Omit<mongo.ChangeStreamUpdateDocument<Buffer>, 'wallTime' | 'updateDescription'>
+  | Omit<mongo.ChangeStreamReplaceDocument<Buffer>, 'wallTime'>;
+
+type ChangeStreamDocumentInput = MapRawDocument<ProjectedChangeStreamDocument>;
+
+/**
+ * Parse a change stream document, while keeping `fullDocument` as a Buffer.
+ *
+ * @param Buffer the raw change stream document
+ */
+export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocument {
+  const doc = mongo.BSON.deserialize(buffer, { useBigInt64: true, raw: true }) as ChangeStreamDocumentInput;
+  // We update the document in-place
+  doc._id = mongo.BSON.deserialize(doc._id) as any;
+  if (doc.lsid != null) {
+    doc.lsid = mongo.BSON.deserialize(doc.lsid) as any;
+  }
+  if (doc.splitEvent != null) {
+    doc.splitEvent = mongo.BSON.deserialize(doc.splitEvent) as any;
+  }
+
+  if ('ns' in doc) {
+    doc.ns = mongo.BSON.deserialize(doc.ns) as any;
+  }
+  if ('to' in doc) {
+    doc.to = mongo.BSON.deserialize(doc.to) as any;
+  }
+  if ('documentKey' in doc) {
+    doc.documentKey = mongo.BSON.deserialize(doc.documentKey, { useBigInt64: true }) as any;
+  }
+  return doc as any;
+}
+
 function isResumableChangeStreamError(e: unknown) {
   // See: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md#resumable-error
   if (!isMongoServerError(e)) {
