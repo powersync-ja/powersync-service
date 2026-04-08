@@ -24,6 +24,14 @@ class JsonBufferWriter {
     return this.buffer.toString('utf8', 0, this.length);
   }
 
+  getLength() {
+    return this.length;
+  }
+
+  truncate(length: number) {
+    this.length = length;
+  }
+
   writeByte(value: number) {
     this.ensureCapacity(1);
     this.buffer[this.length++] = value;
@@ -308,14 +316,14 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
       }
       case 0x04: {
         jsonWriter.reset();
-        const result = serializeNestedArrayToJson(bytes, offset, 1, jsonWriter);
+        const result = serializeNestedArrayToJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
         offset = result.nextOffset;
         break;
       }
       case 0x03: {
         jsonWriter.reset();
-        const result = serializeNestedObjectToJson(bytes, offset, 1, jsonWriter);
+        const result = serializeNestedObjectToJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
         offset = result.nextOffset;
         break;
@@ -335,9 +343,7 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x11: {
-        const increment = bytes.readUInt32LE(offset);
-        const time = bytes.readUInt32LE(offset + 4);
-        row[key] = `{"t":${time},"i":${increment}}`;
+        row[key] = timestampToBigInt(bytes, offset);
         offset += 8;
         break;
       }
@@ -360,11 +366,34 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
       case 0x0b: {
         const { pattern, options, nextOffset } = parseRegex(bytes, offset);
         jsonWriter.reset();
-        jsonWriter.writeAscii('{"pattern":');
-        jsonWriter.writeQuotedJsonString(pattern);
-        jsonWriter.writeAscii(',"options":');
-        jsonWriter.writeQuotedJsonString(options);
-        jsonWriter.writeByte(0x7d);
+        writeRegexJson(jsonWriter, pattern, options);
+        row[key] = jsonWriter.toString();
+        offset = nextOffset;
+        break;
+      }
+      case 0x0c: {
+        jsonWriter.reset();
+        const nextOffset = writeDbPointerJson(bytes, offset, jsonWriter);
+        row[key] = jsonWriter.toString();
+        offset = nextOffset;
+        break;
+      }
+      case 0x0d: {
+        jsonWriter.reset();
+        const nextOffset = writeCodeJson(bytes, offset, 0, jsonWriter);
+        row[key] = jsonWriter.toString();
+        offset = nextOffset;
+        break;
+      }
+      case 0x0e: {
+        const { value, nextOffset } = readBsonString(bytes, offset);
+        row[key] = value;
+        offset = nextOffset;
+        break;
+      }
+      case 0x0f: {
+        jsonWriter.reset();
+        const nextOffset = writeCodeWithScopeJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
         offset = nextOffset;
         break;
@@ -394,6 +423,15 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
 
 function readInt32LE(bytes: Buffer, offset: number): number {
   return bytes.readInt32LE(offset);
+}
+
+function readBsonString(bytes: Buffer, offset: number): { value: string; nextOffset: number } {
+  const length = readInt32LE(bytes, offset);
+  const stringStart = offset + 4;
+  return {
+    value: bytes.toString('utf8', stringStart, stringStart + length - 1),
+    nextOffset: stringStart + length
+  };
 }
 
 function readCString(bytes: Buffer, offset: number): { value: string; nextOffset: number } {
@@ -447,6 +485,10 @@ function decimal128ToString(bytes: Buffer, offset: number): string {
   return new mongo.Decimal128(bytes.subarray(offset, offset + 16)).toString();
 }
 
+function timestampToBigInt(bytes: Buffer, offset: number): bigint {
+  return (BigInt(bytes.readUInt32LE(offset + 4)) << 32n) | BigInt(bytes.readUInt32LE(offset));
+}
+
 function uuidOrHex(bytes: Buffer): string {
   const hex = bytes.toString('hex');
   if (bytes.length != 16) {
@@ -460,13 +502,23 @@ function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | s
   const subtype = bytes[offset + 4];
   const dataStart = offset + 5;
   const dataEnd = dataStart + length;
-  const data = bytes.subarray(dataStart, dataEnd);
+  const data = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
 
-  if (subtype === mongo.Binary.SUBTYPE_UUID || subtype === mongo.Binary.SUBTYPE_UUID_OLD) {
+  if (subtype === mongo.Binary.SUBTYPE_UUID) {
     return { value: uuidOrHex(data), nextOffset: dataEnd };
   }
 
   return { value: data, nextOffset: dataEnd };
+}
+
+function binaryDataSlice(bytes: Buffer, dataStart: number, dataEnd: number, subtype: number) {
+  if (subtype !== mongo.Binary.SUBTYPE_BYTE_ARRAY) {
+    return bytes.subarray(dataStart, dataEnd);
+  }
+
+  const legacyLength = readInt32LE(bytes, dataStart);
+  const legacyStart = dataStart + 4;
+  return bytes.subarray(legacyStart, legacyStart + legacyLength);
 }
 
 function skipBsonValue(bytes: Buffer, offset: number, type: number) {
@@ -503,6 +555,20 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
       }
       return optionsEnd + 1;
     }
+    case 0x0c: {
+      const { nextOffset } = readBsonString(bytes, offset);
+      return nextOffset + 12;
+    }
+    case 0x0d: {
+      return readBsonString(bytes, offset).nextOffset;
+    }
+    case 0x0e: {
+      return readBsonString(bytes, offset).nextOffset;
+    }
+    case 0x0f: {
+      const length = readInt32LE(bytes, offset);
+      return offset + length;
+    }
     case 0x10:
       return offset + 4;
     case 0x11:
@@ -538,6 +604,7 @@ function serializeNestedObjectToJson(
     if (keyEnd < 0) {
       throw new Error('Invalid BSON: missing cstring terminator');
     }
+    const writerOffset = writer.getLength();
     if (!first) {
       writer.writeByte(0x2c);
     }
@@ -549,6 +616,7 @@ function serializeNestedObjectToJson(
     cursor = afterValue;
 
     if (!defined) {
+      writer.truncate(writerOffset);
       continue;
     }
 
@@ -612,10 +680,8 @@ function serializeNestedElementValue(
       return serializeNestedObjectElement(bytes, offset, depth, writer);
     case 0x04:
       return serializeNestedArrayElement(bytes, offset, depth, writer);
-    case 0x05: {
-      const next = skipBsonValue(bytes, offset, type);
-      return { nextOffset: next, defined: false };
-    }
+    case 0x05:
+      return serializeNestedBinaryElement(bytes, offset, writer);
     case 0x06:
       return { nextOffset: offset, defined: false };
     case 0x07: {
@@ -634,18 +700,20 @@ function serializeNestedElementValue(
       return { nextOffset: offset, defined: true };
     case 0x0b:
       return serializeNestedRegexElement(bytes, offset, writer);
+    case 0x0c:
+      return serializeNestedDbPointerElement(bytes, offset, writer);
+    case 0x0d:
+      return serializeNestedCodeElement(bytes, offset, depth, writer);
+    case 0x0e:
+      return serializeNestedSymbolElement(bytes, offset, writer);
+    case 0x0f:
+      return serializeNestedCodeWithScopeElement(bytes, offset, depth, writer);
     case 0x10: {
       writer.writeAscii(String(readInt32LE(bytes, offset)));
       return { nextOffset: offset + 4, defined: true };
     }
     case 0x11: {
-      const increment = bytes.readUInt32LE(offset);
-      const time = bytes.readUInt32LE(offset + 4);
-      writer.writeAscii('{"t":');
-      writer.writeAscii(String(time));
-      writer.writeAscii(',"i":');
-      writer.writeAscii(String(increment));
-      writer.writeByte(0x7d);
+      writer.writeAscii(timestampToBigInt(bytes, offset).toString());
       return { nextOffset: offset + 8, defined: true };
     }
     case 0x12: {
@@ -675,10 +743,11 @@ function serializeNestedStringElement(
   offset: number,
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
-  const length = readInt32LE(bytes, offset);
+  const { nextOffset } = readBsonString(bytes, offset);
   const stringStart = offset + 4;
+  const length = nextOffset - stringStart;
   writer.writeQuotedUtf8Slice(bytes, stringStart, stringStart + length - 1);
-  return { nextOffset: stringStart + length, defined: true };
+  return { nextOffset, defined: true };
 }
 
 function serializeNestedObjectElement(
@@ -716,11 +785,7 @@ function serializeNestedRegexElement(
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
   const { pattern, options, nextOffset } = parseRegex(bytes, offset);
-  writer.writeAscii('{"pattern":');
-  writer.writeQuotedJsonString(pattern);
-  writer.writeAscii(',"options":');
-  writer.writeQuotedJsonString(options);
-  writer.writeByte(0x7d);
+  writeRegexJson(writer, pattern, options);
   return { nextOffset, defined: true };
 }
 
@@ -734,8 +799,7 @@ function legacyDateTimeString(millis: number) {
 
   const year = date.getUTCFullYear();
   if (year < 0 || year > 9999) {
-    const iso = date.toISOString();
-    return `${iso.slice(0, 10)} ${iso.slice(11)}`;
+    return date.toISOString().replace('T', ' ');
   }
 
   return (
@@ -791,4 +855,93 @@ function regexOptionsToJsFlags(options: string) {
 
 function hexLower(bytes: Buffer, offset: number, length: number): string {
   return bytes.toString('hex', offset, offset + length);
+}
+
+function writeRegexJson(writer: JsonBufferWriter, pattern: string, options: string) {
+  writer.writeAscii('{"pattern":');
+  writer.writeQuotedJsonString(pattern);
+  writer.writeAscii(',"options":');
+  writer.writeQuotedJsonString(options);
+  writer.writeByte(0x7d);
+}
+
+function writeCodeJson(bytes: Buffer, offset: number, depth: number, writer: JsonBufferWriter) {
+  const { value: code, nextOffset } = readBsonString(bytes, offset);
+  writer.writeAscii('{"code":');
+  writer.writeQuotedJsonString(code);
+  writer.writeAscii(',"scope":null}');
+  return nextOffset;
+}
+
+function writeCodeWithScopeJson(bytes: Buffer, offset: number, depth: number, writer: JsonBufferWriter) {
+  const totalLength = readInt32LE(bytes, offset);
+  const { value: code, nextOffset: afterCode } = readBsonString(bytes, offset + 4);
+  writer.writeAscii('{"code":');
+  writer.writeQuotedJsonString(code);
+  writer.writeAscii(',"scope":');
+  serializeNestedObjectToJson(bytes, afterCode, depth + 1, writer);
+  writer.writeByte(0x7d);
+  return offset + totalLength;
+}
+
+function writeDbPointerJson(bytes: Buffer, offset: number, writer: JsonBufferWriter) {
+  const { value: collection, nextOffset } = readBsonString(bytes, offset);
+  writer.writeAscii('{"collection":');
+  writer.writeQuotedJsonString(collection);
+  writer.writeAscii(',"oid":');
+  writer.writeQuotedHexLower(bytes, nextOffset, 12);
+  writer.writeAscii(',"fields":{}}');
+  return nextOffset + 12;
+}
+
+function serializeNestedBinaryElement(
+  bytes: Buffer,
+  offset: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  const length = readInt32LE(bytes, offset);
+  const subtype = bytes[offset + 4];
+  const dataStart = offset + 5;
+  const dataEnd = dataStart + length;
+
+  if (subtype === mongo.Binary.SUBTYPE_UUID) {
+    writer.writeQuotedJsonString(uuidOrHex(binaryDataSlice(bytes, dataStart, dataEnd, subtype)));
+    return { nextOffset: dataEnd, defined: true };
+  }
+
+  return { nextOffset: dataEnd, defined: false };
+}
+
+function serializeNestedDbPointerElement(
+  bytes: Buffer,
+  offset: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  return { nextOffset: writeDbPointerJson(bytes, offset, writer), defined: true };
+}
+
+function serializeNestedCodeElement(
+  bytes: Buffer,
+  offset: number,
+  depth: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  return { nextOffset: writeCodeJson(bytes, offset, depth, writer), defined: true };
+}
+
+function serializeNestedSymbolElement(
+  bytes: Buffer,
+  offset: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  return serializeNestedStringElement(bytes, offset, writer);
+}
+
+function serializeNestedCodeWithScopeElement(
+  bytes: Buffer,
+  offset: number,
+  depth: number,
+  writer: JsonBufferWriter
+): { nextOffset: number; defined: boolean } {
+  return { nextOffset: writeCodeWithScopeJson(bytes, offset, depth, writer), defined: true };
 }

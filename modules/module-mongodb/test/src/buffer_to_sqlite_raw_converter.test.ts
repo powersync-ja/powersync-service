@@ -23,12 +23,10 @@ type RowCapture = { ok: true; row: unknown } | { ok: false; message: string };
 type OutputCapture = { ok: true; output: unknown } | { ok: false; message: string };
 type ConverterCase = {
   name: string;
-  failingPlacements: Placement[];
   buildBuffer: (placement: Placement) => Buffer;
 };
 
 const PLACEMENTS: Placement[] = ['top', 'array', 'nested'];
-const ALL_PLACEMENTS: Placement[] = ['top', 'array', 'nested'];
 const CONTEXT = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 const defaultConverter = new DefaultSourceRowConverter(CONTEXT);
 const customConverter = new CustomSourceRowConverter(CONTEXT);
@@ -84,18 +82,16 @@ function rawCaseDocument(id: string, placement: Placement, type: number, payload
   return bsonDocument([bsonElement(0x02, '_id', bsonString(id)), valueElement]);
 }
 
-function serializableCase(name: string, value: unknown, failingPlacements: Placement[] = []): ConverterCase {
+function serializableCase(name: string, value: unknown): ConverterCase {
   return {
     name,
-    failingPlacements,
     buildBuffer: (placement) => serializeCaseDocument(`${name}:${placement}`, placement, value)
   };
 }
 
-function rawCase(name: string, type: number, payload: Buffer, failingPlacements: Placement[] = []): ConverterCase {
+function rawCase(name: string, type: number, payload: Buffer): ConverterCase {
   return {
     name,
-    failingPlacements,
     buildBuffer: (placement) => rawCaseDocument(`${name}:${placement}`, placement, type, payload)
   };
 }
@@ -274,44 +270,38 @@ const rawParityCases: ConverterCase[] = [
   serializableCase('date', normalDate),
   serializableCase('null', null),
   serializableCase('regex', new BSONRegExp('a\\s+"b"', 'ims')),
-  rawCase('undefined', 0x06, Buffer.alloc(0), ['nested']),
-  serializableCase('code', new Code('return 1;'), ALL_PLACEMENTS),
-  serializableCase('symbol', new BSONSymbol('sym'), ALL_PLACEMENTS),
+  rawCase('undefined', 0x06, Buffer.alloc(0)),
+  serializableCase('code', new Code('return 1;')),
+  serializableCase('symbol', new BSONSymbol('sym')),
   rawCase(
     'dbpointer',
     0x0c,
-    Buffer.concat([bsonString('mycollection'), Buffer.from('66e834cc91d805df11fa0ecb', 'hex')]),
-    ALL_PLACEMENTS
+    Buffer.concat([bsonString('mycollection'), Buffer.from('66e834cc91d805df11fa0ecb', 'hex')])
   ),
-  serializableCase('codeScope', new Code('return x;', { x: 1 }), ALL_PLACEMENTS),
+  serializableCase('codeScope', new Code('return x;', { x: 1 })),
   serializableCase('int32', new Int32(123)),
-  serializableCase('timestamp', Timestamp.fromBits(123, 456), ALL_PLACEMENTS),
+  serializableCase('timestamp', Timestamp.fromBits(123, 456)),
   serializableCase('int64', Long.fromBigInt(9007199254740993n)),
   serializableCase('decimal128', Decimal128.fromString('1234.5678')),
   serializableCase('minKey', new MinKey()),
   serializableCase('maxKey', new MaxKey()),
-  serializableCase('binary:default', new Binary(Buffer.from([0, 1, 2, 255]), Binary.SUBTYPE_DEFAULT), ['nested']),
-  serializableCase('binary:function', new Binary(Buffer.from([1, 2, 3]), Binary.SUBTYPE_FUNCTION), ['nested']),
-  serializableCase('binary:byteArray', new Binary(Buffer.from([4, 5, 6]), Binary.SUBTYPE_BYTE_ARRAY), [
-    'top',
-    'nested'
-  ]),
-  serializableCase('binary:uuidOld', new Binary(uuidBytes, Binary.SUBTYPE_UUID_OLD), ['top', 'nested']),
-  serializableCase('binary:uuid', new Binary(uuidBytes, Binary.SUBTYPE_UUID), ['array', 'nested']),
-  serializableCase('binary:md5', new Binary(Buffer.from([7, 8, 9]), Binary.SUBTYPE_MD5), ['nested']),
-  serializableCase('binary:encrypted', new Binary(Buffer.from([10, 11, 12]), Binary.SUBTYPE_ENCRYPTED), ['nested']),
-  serializableCase('binary:column', new Binary(Buffer.from([13, 14, 15]), Binary.SUBTYPE_COLUMN), ['nested']),
-  serializableCase('binary:sensitive', new Binary(Buffer.from([16, 17, 18]), Binary.SUBTYPE_SENSITIVE), ['nested']),
-  serializableCase('binary:vector', new Binary(Buffer.from([19, 20, 21]), Binary.SUBTYPE_VECTOR), ['nested']),
-  serializableCase('binary:userDefined', new Binary(Buffer.from([22, 23, 24]), Binary.SUBTYPE_USER_DEFINED), ['nested'])
+  serializableCase('binary:default', new Binary(Buffer.from([0, 1, 2, 255]), Binary.SUBTYPE_DEFAULT)),
+  serializableCase('binary:function', new Binary(Buffer.from([1, 2, 3]), Binary.SUBTYPE_FUNCTION)),
+  serializableCase('binary:byteArray', new Binary(Buffer.from([4, 5, 6]), Binary.SUBTYPE_BYTE_ARRAY)),
+  serializableCase('binary:uuidOld', new Binary(uuidBytes, Binary.SUBTYPE_UUID_OLD)),
+  serializableCase('binary:uuid', new Binary(uuidBytes, Binary.SUBTYPE_UUID)),
+  serializableCase('binary:md5', new Binary(Buffer.from([7, 8, 9]), Binary.SUBTYPE_MD5)),
+  serializableCase('binary:encrypted', new Binary(Buffer.from([10, 11, 12]), Binary.SUBTYPE_ENCRYPTED)),
+  serializableCase('binary:column', new Binary(Buffer.from([13, 14, 15]), Binary.SUBTYPE_COLUMN)),
+  serializableCase('binary:sensitive', new Binary(Buffer.from([16, 17, 18]), Binary.SUBTYPE_SENSITIVE)),
+  serializableCase('binary:vector', new Binary(Buffer.from([19, 20, 21]), Binary.SUBTYPE_VECTOR)),
+  serializableCase('binary:userDefined', new Binary(Buffer.from([22, 23, 24]), Binary.SUBTYPE_USER_DEFINED))
 ];
 
 describe('SourceRowConverter.rawToSqliteRow row parity', () => {
   for (const parityCase of rawParityCases) {
     for (const placement of PLACEMENTS) {
-      const run = parityCase.failingPlacements.includes(placement) ? test.fails : test;
-      // test.fails documents current raw-path mismatches without changing the implementation.
-      run(`${parityCase.name} as ${placementLabel(placement)}`, () => {
+      test(`${parityCase.name} as ${placementLabel(placement)}`, () => {
         expectRowParity(parityCase.buildBuffer(placement));
       });
     }
@@ -362,16 +352,16 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
   });
 
   for (const placement of PLACEMENTS) {
-    test.fails(`out-of-range positive year date diverges as ${placementLabel(placement)}`, () => {
+    test(`matches out-of-range positive year date as ${placementLabel(placement)}`, () => {
       expectRowParity(serializeCaseDocument(`date:+010000:${placement}`, placement, positiveExtendedDate));
     });
 
-    test.fails(`out-of-range negative year date diverges as ${placementLabel(placement)}`, () => {
+    test(`matches out-of-range negative year date as ${placementLabel(placement)}`, () => {
       expectRowParity(serializeCaseDocument(`date:-000001:${placement}`, placement, negativeExtendedDate));
     });
   }
 
-  test.fails('21 nested object levels diverge', () => {
+  test('matches 21 nested object levels', () => {
     expectRowParity(
       BSON.serialize({
         _id: 'depth-21',
@@ -382,7 +372,7 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
 });
 
 describe('SourceRowConverter.rawToSqliteRow full output parity', () => {
-  test.fails('replicaId differs even when row parity succeeds', () => {
+  test('matches replicaId when row parity succeeds', () => {
     const source = BSON.serialize({
       _id: 'replica-id',
       value: new Int32(7)
