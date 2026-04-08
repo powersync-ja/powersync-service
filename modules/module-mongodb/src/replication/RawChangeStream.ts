@@ -38,8 +38,19 @@ export interface ChangeStreamBatch {
 
 const deserialize = mongo.BSON.deserialize;
 const DESERIALIZE_DEFAULT = { useBigInt64: true };
-const DESERIALIZE_RAW: mongo.BSON.DeserializeOptions = { ...DESERIALIZE_DEFAULT, raw: true };
-const DESERIALIZE_CHANGE_STREAM = { ...DESERIALIZE_DEFAULT, fieldsAsRaw: { firstBatch: true, nextBatch: true } };
+const DESERIALIZE_RAW: mongo.BSON.DeserializeOptions = {
+  ...DESERIALIZE_DEFAULT,
+  raw: true,
+  // No need to validate utf8 for the core change stream fields
+  validation: { utf8: false }
+};
+const DESERIALIZE_CHANGE_STREAM = {
+  ...DESERIALIZE_DEFAULT,
+  // These are embedded _arrays_ that we want to preserve as buffers
+  fieldsAsRaw: { firstBatch: true, nextBatch: true },
+  // No need to validate utf8 for the core change stream response
+  validation: { utf8: false }
+};
 
 export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[], options: RawChangeStreamOptions) {
   // We generally attempt to follow the spec at: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
