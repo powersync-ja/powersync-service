@@ -280,9 +280,11 @@ class JsonBufferWriter {
   }
 }
 
+const SHARED_WRITER = new JsonBufferWriter(1024 * 1024);
+
 export function bufferToSqlite(bytes: Buffer): SqliteRow {
   const row: SqliteRow = {};
-  const jsonWriter = new JsonBufferWriter();
+  const jsonWriter = SHARED_WRITER;
   const bodyEnd = readInt32LE(bytes, 0) - 1;
   let offset = 4;
 
