@@ -57,6 +57,25 @@ describe('config', () => {
     expect(normalized.password).equals('pass');
   });
 
+  test('Should decode URL-encoded credentials', () => {
+    const uri = 'mongodb://user:pass%3Dword%40host@localhost:27017/powersync_test';
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri
+    });
+    expect(normalized.username).equals('user');
+    expect(normalized.password).equals('pass=word@host');
+  });
+
+  test('Should decode URL-encoded database name', () => {
+    const uri = 'mongodb://localhost:27017/my%20database';
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri
+    });
+    expect(normalized.database).equals('my database');
+  });
+
   test('Should normalize a +srv URI', () => {
     const uri = 'mongodb+srv://user:pass@localhost/powersync_test';
     const normalized = normalizeMongoConfig({
