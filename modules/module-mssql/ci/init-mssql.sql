@@ -26,14 +26,38 @@ END
 GRANT INSERT, UPDATE ON dbo._powersync_checkpoints TO [$(DB_USER)];
 GO
 
--- Enable CDC for the powersync checkpoints table
-IF NOT EXISTS (SELECT 1 FROM cdc.change_tables WHERE source_object_id = OBJECT_ID(N'dbo._powersync_checkpoints'))
-    BEGIN
-    EXEC sys.sp_cdc_enable_table
-        @source_schema = N'dbo',
-        @source_name   = N'_powersync_checkpoints',
-        @role_name     = N'cdc_reader',
-        @supports_net_changes = 0;
+DECLARE @tries int = 30;
+DECLARE @done bit = 0;
+-- Enable CDC for the powersync checkpoints table with retry
+WHILE @tries > 0 AND @done = 0
+BEGIN
+    BEGIN TRY
+        IF NOT EXISTS (SELECT 1 FROM cdc.change_tables WHERE source_object_id = OBJECT_ID(N'dbo._powersync_checkpoints'))
+        BEGIN
+            EXEC sys.sp_cdc_enable_table
+            @source_schema = N'dbo',
+            @source_name   = N'_powersync_checkpoints',
+            @role_name     = N'cdc_reader',
+            @supports_net_changes = 0;
+        END
+        SET @done = 1;
+    END TRY
+    BEGIN CATCH
+        IF ERROR_NUMBER() IN (22832, 22836, 14258)
+        BEGIN
+            WAITFOR DELAY '00:00:02';
+            SET @tries -= 1;
+        END
+        ELSE
+        BEGIN
+            THROW;
+        END
+    END CATCH
+END;
+
+IF @done = 0
+BEGIN
+    THROW 50002, 'Failed to enable CDC for PowerSync checkpoints table.', 1;
 END
 GO
 
@@ -46,6 +70,6 @@ BEGIN
 END;
 
 -- Set the CDC capture job polling interval to 0 seconds (default is 5 seconds).
--- At the cost of higher CPU usage, this minimizes latency for change capture.
+-- At the cost of higher CPU usage, this minimizes the latency for change capture.
 EXEC sys.sp_cdc_change_job @job_type = N'capture', @pollinginterval = 0;
 GO
