@@ -842,7 +842,7 @@ function serializeNestedBinaryElement(
   // Nested binary values are omitted from JSON unless they are subtype 4 UUIDs,
   // which are represented as strings for parity with the default path.
   if (subtype === BSON_BINARY_SUBTYPE_UUID && slice.length === 16) {
-    writer.writeQuotedJsonString(uuidToString(slice));
+    writer.writeQuotedUuid(slice, 0);
     return { nextOffset: dataEnd, defined: true };
   }
 
