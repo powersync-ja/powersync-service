@@ -259,6 +259,19 @@ function readBsonString(bytes: Buffer, offset: number): { value: string; nextOff
   };
 }
 
+function readBsonStringEnd(bytes: Buffer, offset: number): number {
+  const length = readInt32LE(bytes, offset);
+  const stringStart = offset + 4;
+  const stringEnd = stringStart + length;
+  if (length < 1 || stringEnd > bytes.length) {
+    throw new Error('Invalid BSON string length');
+  }
+  if (bytes[stringEnd - 1] !== 0) {
+    throw new Error('Invalid BSON string terminator');
+  }
+  return stringEnd;
+}
+
 function readCString(bytes: Buffer, offset: number): { value: string; nextOffset: number } {
   const end = bytes.indexOf(0, offset);
   if (end < 0) {
@@ -395,16 +408,16 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
     }
     case BSON_TYPE_DB_POINTER: {
       // DBPointer
-      const { nextOffset } = readBsonString(bytes, offset);
+      const nextOffset = readBsonStringEnd(bytes, offset);
       return nextOffset + 12;
     }
     case BSON_TYPE_CODE: {
       // JavaScript code
-      return readBsonString(bytes, offset).nextOffset;
+      return readBsonStringEnd(bytes, offset);
     }
     case BSON_TYPE_SYMBOL: {
       // Symbol
-      return readBsonString(bytes, offset).nextOffset;
+      return readBsonStringEnd(bytes, offset);
     }
     case BSON_TYPE_CODE_WITH_SCOPE: {
       // JavaScript code with scope
@@ -616,7 +629,7 @@ function serializeNestedStringElement(
   offset: number,
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
-  const { nextOffset } = readBsonString(bytes, offset);
+  const nextOffset = readBsonStringEnd(bytes, offset);
   const stringStart = offset + 4;
   const length = nextOffset - stringStart;
   writer.writeQuotedUtf8Slice(bytes, stringStart, stringStart + length - 1);
