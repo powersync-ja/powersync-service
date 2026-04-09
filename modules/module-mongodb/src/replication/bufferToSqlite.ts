@@ -378,24 +378,24 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
       const length = readInt32LE(bytes, offset);
       return offset + 4 + length;
     }
-    case BSON_TYPE_DOCUMENT: // Embedded document
-    case BSON_TYPE_ARRAY: // Array
+    case BSON_TYPE_DOCUMENT:
+    case BSON_TYPE_ARRAY:
       return offset + readInt32LE(bytes, offset);
     case BSON_TYPE_BINARY: {
       // Binary
       const length = readInt32LE(bytes, offset);
       return offset + 4 + 1 + length;
     }
-    case BSON_TYPE_UNDEFINED: // Undefined
-    case BSON_TYPE_NULL: // Null
-    case BSON_TYPE_MIN_KEY: // MinKey
-    case BSON_TYPE_MAX_KEY: // MaxKey
+    case BSON_TYPE_UNDEFINED:
+    case BSON_TYPE_NULL:
+    case BSON_TYPE_MIN_KEY:
+    case BSON_TYPE_MAX_KEY:
       return offset;
-    case BSON_TYPE_OBJECT_ID: // ObjectId
+    case BSON_TYPE_OBJECT_ID:
       return offset + 12;
-    case BSON_TYPE_BOOLEAN: // Boolean
+    case BSON_TYPE_BOOLEAN:
       return offset + 1;
-    case BSON_TYPE_UTC_DATETIME: // UTC datetime
+    case BSON_TYPE_UTC_DATETIME:
       return offset + 8;
     case BSON_TYPE_REGEX: {
       // Regular expression
@@ -424,13 +424,13 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
       const length = readInt32LE(bytes, offset);
       return offset + length;
     }
-    case BSON_TYPE_INT32: // Int32
+    case BSON_TYPE_INT32:
       return offset + 4;
-    case BSON_TYPE_TIMESTAMP: // Timestamp
+    case BSON_TYPE_TIMESTAMP:
       return offset + 8;
-    case BSON_TYPE_INT64: // Int64
+    case BSON_TYPE_INT64:
       return offset + 8;
-    case BSON_TYPE_DECIMAL128: // Decimal128
+    case BSON_TYPE_DECIMAL128:
       return offset + 16;
     default:
       throw new Error(`Unsupported BSON type for skip: 0x${type.toString(16)}`);
@@ -891,4 +891,54 @@ function serializeNestedCodeWithScopeElement(
     nextOffset: writeCodeWithScopeJson(bytes, offset, depth, writer, dateRenderMode),
     defined: true
   };
+}
+
+const idKey = Buffer.from('_id');
+
+/**
+ * Parse an _id from a buffer, without parsing the entire document.
+ *
+ * The parsed _id is parsed using standard bson.deserialize - different from bufferToSqlite.
+ *
+ * @returns the parsed id, as well as a serialized document including only _id.
+ */
+export function parseDocumentId(bytes: Buffer): { id: any; idBuffer: Buffer } {
+  const bodyEnd = readDocumentLength(bytes, 0) - 1;
+  let offset = 4;
+
+  while (offset < bodyEnd) {
+    const baseOffset = offset;
+    const type = bytes[baseOffset];
+    // In most cases the first key should be _id, but we also handle cases where
+    // it occurs later.
+    const keyStart = baseOffset + 1;
+    const afterKey = skipCString(bytes, keyStart);
+    const keyEnd = afterKey - 1; // without null terminator
+    const nextOffset = skipBsonValue(bytes, afterKey, type);
+    offset = nextOffset;
+    if (keyEnd - keyStart != 3) {
+      continue;
+    }
+
+    if (!idKey.equals(bytes.subarray(keyStart, keyEnd))) {
+      // Not _id - check the next key
+      continue;
+    }
+
+    // We create a new "document" containing only the _id, by directly manipulating buffers.
+    // https://bsonspec.org/spec.html
+    // document	::=	int32 e_list unsigned_byte(0)
+    // e_list	::=	element e_list
+    // element ::= signed_byte e_name ...
+    const baseLength = nextOffset - baseOffset;
+
+    // Our buffer wraps the _id element: 4 bytes before for the size, 1 null byte at the end.
+    const genBuffer = Buffer.allocUnsafe(baseLength + 5);
+    genBuffer.writeInt32LE(baseLength + 5, 0);
+    bytes.copy(genBuffer, 4, baseOffset, baseOffset + baseLength);
+    genBuffer[genBuffer.length - 1] = 0;
+    return { idBuffer: genBuffer, id: mongo.BSON.deserialize(genBuffer, { useBigInt64: true })._id };
+  }
+
+  throw new Error(`Attempt to parse document without _id`);
 }
