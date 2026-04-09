@@ -24,7 +24,12 @@ export interface SourceRowConverter {
   documentToSqliteRow(source: mongo.Document): SqliteRow;
 }
 
-export class DefaultSourceRowConverter implements SourceRowConverter {
+/**
+ * Older converter using bson.deserialize -> constructAfterRecord -> applyRowContext.
+ *
+ * @deprecated Only used for parity testing
+ */
+export class LegacySourceRowConverter implements SourceRowConverter {
   constructor(private readonly compatibilityContext: CompatibilityContext) {}
 
   rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
@@ -40,7 +45,7 @@ export class DefaultSourceRowConverter implements SourceRowConverter {
   }
 }
 
-export class CustomSourceRowConverter implements SourceRowConverter {
+export class DirectSourceRowConverter implements SourceRowConverter {
   private readonly dateRenderMode: DateRenderMode;
 
   constructor(compatibilityContext: CompatibilityContext) {

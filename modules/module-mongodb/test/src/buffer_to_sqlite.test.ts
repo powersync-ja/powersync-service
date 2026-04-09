@@ -22,8 +22,8 @@ import {
 import { describe, expect, test } from 'vitest';
 
 import {
-  CustomSourceRowConverter,
-  DefaultSourceRowConverter,
+  DirectSourceRowConverter,
+  LegacySourceRowConverter,
   SourceRowConverter
 } from '@module/replication/SourceRowConverter.js';
 
@@ -43,8 +43,8 @@ type ConverterCase = {
 // We test each one.
 const PLACEMENTS: Placement[] = ['top', 'array', 'nested'];
 const CONTEXT = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
-const defaultConverter = new DefaultSourceRowConverter(CONTEXT);
-const customConverter = new CustomSourceRowConverter(CONTEXT);
+const legacyConverter = new LegacySourceRowConverter(CONTEXT);
+const directConverter = new DirectSourceRowConverter(CONTEXT);
 
 const normalDate = new Date('2023-03-06T13:47:00.000Z');
 const positiveExtendedDate = new Date(253402300800000);
@@ -382,19 +382,19 @@ for (const dateCase of DATE_COMPATIBILITY_CASES) {
 describe('SourceRowConverter.rawToSqliteRow expected output', () => {
   for (const parityCase of testCases) {
     const context = parityCase.context ?? CONTEXT;
-    const defaultConverter = new DefaultSourceRowConverter(context);
-    const customConverter = new CustomSourceRowConverter(context);
+    const legacyConverter = new LegacySourceRowConverter(context);
+    const directConverter = new DirectSourceRowConverter(context);
 
     for (const placement of PLACEMENTS) {
       test(`default output for ${parityCase.name} as ${placementLabel(placement)}`, () => {
-        expectNormalizedRow(defaultConverter, parityCase.buildBuffer(placement), {
+        expectNormalizedRow(legacyConverter, parityCase.buildBuffer(placement), {
           _id: parityCase.expectedId?.(placement) ?? `${parityCase.name}:${placement}`,
           value: parityCase.expected[placement]
         });
       });
 
       test(`custom output for ${parityCase.name} as ${placementLabel(placement)}`, () => {
-        expectNormalizedRow(customConverter, parityCase.buildBuffer(placement), {
+        expectNormalizedRow(directConverter, parityCase.buildBuffer(placement), {
           _id: parityCase.expectedId?.(placement) ?? `${parityCase.name}:${placement}`,
           value: parityCase.expected[placement]
         });
@@ -404,7 +404,7 @@ describe('SourceRowConverter.rawToSqliteRow expected output', () => {
 
   test('default output for 21 nested object levels', () => {
     expectNormalizedRow(
-      defaultConverter,
+      legacyConverter,
       BSON.serialize({
         _id: 'depth-21',
         value: deepNestedObject(21)
@@ -418,7 +418,7 @@ describe('SourceRowConverter.rawToSqliteRow expected output', () => {
 
   test('custom output for 21 nested object levels', () => {
     expectNormalizedRow(
-      customConverter,
+      directConverter,
       BSON.serialize({
         _id: 'depth-21',
         value: deepNestedObject(21)
@@ -594,11 +594,11 @@ describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
         // Parity is intentionally not expected here. The default path converts BSON regexes
         // through JS RegExp.flags or reconstructs JS RegExp semantics, while the raw
         // path preserves the BSON pattern/options bytes as-is.
-        expectNormalizedRow(defaultConverter, source, {
+        expectNormalizedRow(legacyConverter, source, {
           _id: `${regexCase.name}:${placement}`,
           value: regexCase.defaultExpected[placement]
         });
-        expectNormalizedRow(customConverter, source, {
+        expectNormalizedRow(directConverter, source, {
           _id: `${regexCase.name}:${placement}`,
           value: regexCase.customExpected[placement]
         });
@@ -609,11 +609,11 @@ describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
   test('unsupported BSON regex flag is preserved only on the custom raw converter', () => {
     const source = rawCaseDocument('regex:invalid:z', 'top', 0x0b, Buffer.concat([cstring('a'), cstring('z')]));
 
-    expectNormalizedRow(defaultConverter, source, {
+    expectNormalizedRow(legacyConverter, source, {
       _id: 'regex:invalid:z',
       value: '{"pattern":"a","options":""}'
     });
-    expectNormalizedRow(customConverter, source, {
+    expectNormalizedRow(directConverter, source, {
       _id: 'regex:invalid:z',
       value: '{"pattern":"a","options":"z"}'
     });
@@ -622,9 +622,9 @@ describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
   test('duplicate BSON regex flags are preserved only on the custom raw converter', () => {
     const source = rawCaseDocument('regex:invalid:ii', 'top', 0x0b, Buffer.concat([cstring('a'), cstring('ii')]));
 
-    expectRowFailure(defaultConverter, source, "Invalid flags supplied to RegExp constructor 'ii'");
+    expectRowFailure(legacyConverter, source, "Invalid flags supplied to RegExp constructor 'ii'");
     // The raw converter preserves the BSON option string even when it is not valid JS RegExp flags.
-    expectNormalizedRow(customConverter, source, {
+    expectNormalizedRow(directConverter, source, {
       _id: 'regex:invalid:ii',
       value: '{"pattern":"a","options":"ii"}'
     });
@@ -641,8 +641,8 @@ describe('SourceRowConverter.rawToSqliteRow invalid UTF-8', () => {
       bsonElement(0x02, 'value', Buffer.concat([int32(2), Buffer.from([0xff, 0x00])]))
     ]);
 
-    expectRowFailure(defaultConverter, source, 'Invalid UTF-8 string in BSON document');
-    expectNormalizedRow(customConverter, source, {
+    expectRowFailure(legacyConverter, source, 'Invalid UTF-8 string in BSON document');
+    expectNormalizedRow(directConverter, source, {
       _id: 'invalid-utf8:top-string',
       value: '�'
     });
@@ -658,8 +658,8 @@ describe('SourceRowConverter.rawToSqliteRow invalid UTF-8', () => {
       )
     ]);
 
-    expectRowFailure(defaultConverter, source, 'Invalid UTF-8 string in BSON document');
-    expectNormalizedRow(customConverter, source, {
+    expectRowFailure(legacyConverter, source, 'Invalid UTF-8 string in BSON document');
+    expectNormalizedRow(directConverter, source, {
       _id: 'invalid-utf8:nested-string',
       value: '{"nested":"�"}'
     });
@@ -674,8 +674,8 @@ describe('SourceRowConverter.rawToSqliteRow malformed BSON lengths', () => {
       bsonElement(0x02, 'value', Buffer.concat([int32(1000), Buffer.from([0xff, 0x00])]))
     ]);
 
-    expect(captureRow(defaultConverter, source).ok).toBe(false);
-    expectRowFailure(customConverter, source, 'Invalid BSON string length');
+    expect(captureRow(legacyConverter, source).ok).toBe(false);
+    expectRowFailure(directConverter, source, 'Invalid BSON string length');
   });
 });
 
@@ -739,7 +739,7 @@ describe('SourceRowConverter.rawToSqliteRow full output parity', () => {
       value: new Int32(7)
     }) as Buffer;
 
-    expect(captureOutput(customConverter, source)).toEqual(captureOutput(defaultConverter, source));
+    expect(captureOutput(directConverter, source)).toEqual(captureOutput(legacyConverter, source));
   });
 
   test('default full output matches expected replicaId and row', () => {
@@ -748,7 +748,7 @@ describe('SourceRowConverter.rawToSqliteRow full output parity', () => {
       value: new Int32(7)
     }) as Buffer;
 
-    expect(captureOutput(defaultConverter, source)).toEqual({
+    expect(captureOutput(legacyConverter, source)).toEqual({
       ok: true,
       output: normalize({
         replicaId: 'replica-id',
@@ -766,7 +766,7 @@ describe('SourceRowConverter.rawToSqliteRow full output parity', () => {
       value: new Int32(7)
     }) as Buffer;
 
-    expect(captureOutput(customConverter, source)).toEqual({
+    expect(captureOutput(directConverter, source)).toEqual({
       ok: true,
       output: normalize({
         replicaId: 'replica-id',
@@ -911,7 +911,7 @@ function captureOutput(converter: SourceRowConverter, source: Buffer): OutputCap
 }
 
 function expectRowParity(source: Buffer) {
-  expect(captureRow(customConverter, source)).toEqual(captureRow(defaultConverter, source));
+  expect(captureRow(directConverter, source)).toEqual(captureRow(legacyConverter, source));
 }
 
 function expectNormalizedRow(converter: SourceRowConverter, source: Buffer, expected: Record<string, unknown>) {
