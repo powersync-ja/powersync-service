@@ -8,7 +8,7 @@ import {
 import { describe, expect, test } from 'vitest';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
-import { parseDocumentId } from '@module/replication/MongoSnapshotQuery.js';
+import { parseDocumentId } from '@module/replication/bufferToSqlite.js';
 import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from '@module/replication/RawChangeStream.js';
 import { DirectSourceRowConverter } from '@module/replication/SourceRowConverter.js';
 import { PostImagesOption } from '@module/types/types.js';

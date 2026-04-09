@@ -1,8 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { applyRowContext, CompatibilityContext, SqliteRow } from '@powersync/service-sync-rules';
-import { bufferToSqlite, DateRenderMode, getDateRenderMode } from './bufferToSqlite.js';
+import { bufferToSqlite, DateRenderMode, getDateRenderMode, parseDocumentId } from './bufferToSqlite.js';
 import { constructAfterRecord } from './MongoRelation.js';
-import { parseDocumentId } from './MongoSnapshotQuery.js';
 
 export interface SourceRowConverter {
   /**
