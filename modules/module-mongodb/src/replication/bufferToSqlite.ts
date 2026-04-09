@@ -66,7 +66,7 @@ const SHARED_WRITER = new JsonBufferWriter();
  * we avoid many small allocations, and can significantly increase throughput.
  *
  * This attempts to match the behavior of `bson.deserialize -> constructAfterRecord -> applyRowContext` for the most part,
- * with some intentional differneces:
+ * with some intentional differences:
  * 1. Regular expression patterns options are preserved as-is, while the above normalizes to JS RegExp values.
  * 2. Full UTF-8 validation is not performed - we attempt to continue using replacement characters, as long as the resulting output remains valid.
  * 3. bson.deserialize has special-case handler for converting documents containing {$ref} -> DBRef. We don't do that here.
@@ -794,10 +794,17 @@ function writeCodeWithScopeJson(
 
 function writeDbPointerJson(bytes: Buffer, offset: number, writer: JsonBufferWriter) {
   const { value: collection, nextOffset } = readBsonString(bytes, offset);
+  const separator = collection.indexOf('.');
+  const db = separator >= 0 ? collection.slice(0, separator) : null;
+  const collectionName = separator >= 0 ? collection.slice(separator + 1) : collection;
   writer.writeAscii('{"collection":');
-  writer.writeQuotedJsonString(collection);
+  writer.writeQuotedJsonString(collectionName);
   writer.writeAscii(',"oid":');
   writer.writeQuotedHexLower(bytes, nextOffset, 12);
+  if (db != null) {
+    writer.writeAscii(',"db":');
+    writer.writeQuotedJsonString(db);
+  }
   writer.writeAscii(',"fields":{}}');
   return nextOffset + 12;
 }
