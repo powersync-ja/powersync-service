@@ -113,22 +113,22 @@ const testCases: ConverterCase[] = [
   serializableCase(
     'binary:default',
     new Binary(Buffer.from([0, 1, 2, 255]), Binary.SUBTYPE_DEFAULT),
-    placements(Buffer.from([0, 1, 2, 255]), '[null]', '{}')
+    placements(new Uint8Array([0, 1, 2, 255]), '[null]', '{}')
   ),
   serializableCase(
     'binary:function',
     new Binary(Buffer.from([1, 2, 3]), Binary.SUBTYPE_FUNCTION),
-    placements(Buffer.from([1, 2, 3]), '[null]', '{}')
+    placements(new Uint8Array([1, 2, 3]), '[null]', '{}')
   ),
   serializableCase(
     'binary:byteArray',
     new Binary(Buffer.from([4, 5, 6]), Binary.SUBTYPE_BYTE_ARRAY),
-    placements(Buffer.from([4, 5, 6]), '[null]', '{}')
+    placements(new Uint8Array([4, 5, 6]), '[null]', '{}')
   ),
   serializableCase(
     'binary:uuidOld',
     new Binary(uuidBytes, Binary.SUBTYPE_UUID_OLD),
-    placements(Buffer.from(uuidBytes), '[null]', '{}')
+    placements(new Uint8Array(uuidBytes), '[null]', '{}')
   ),
   serializableCase(
     'binary:uuid',
@@ -138,32 +138,32 @@ const testCases: ConverterCase[] = [
   serializableCase(
     'binary:md5',
     new Binary(Buffer.from([7, 8, 9]), Binary.SUBTYPE_MD5),
-    placements(Buffer.from([7, 8, 9]), '[null]', '{}')
+    placements(new Uint8Array([7, 8, 9]), '[null]', '{}')
   ),
   serializableCase(
     'binary:encrypted',
     new Binary(Buffer.from([10, 11, 12]), Binary.SUBTYPE_ENCRYPTED),
-    placements(Buffer.from([10, 11, 12]), '[null]', '{}')
+    placements(new Uint8Array([10, 11, 12]), '[null]', '{}')
   ),
   serializableCase(
     'binary:column',
     new Binary(Buffer.from([13, 14, 15]), Binary.SUBTYPE_COLUMN),
-    placements(Buffer.from([13, 14, 15]), '[null]', '{}')
+    placements(new Uint8Array([13, 14, 15]), '[null]', '{}')
   ),
   serializableCase(
     'binary:sensitive',
     new Binary(Buffer.from([16, 17, 18]), Binary.SUBTYPE_SENSITIVE),
-    placements(Buffer.from([16, 17, 18]), '[null]', '{}')
+    placements(new Uint8Array([16, 17, 18]), '[null]', '{}')
   ),
   serializableCase(
     'binary:vector',
     new Binary(Buffer.from([19, 20, 21]), Binary.SUBTYPE_VECTOR),
-    placements(Buffer.from([19, 20, 21]), '[null]', '{}')
+    placements(new Uint8Array([19, 20, 21]), '[null]', '{}')
   ),
   serializableCase(
     'binary:userDefined',
     new Binary(Buffer.from([22, 23, 24]), Binary.SUBTYPE_USER_DEFINED),
-    placements(Buffer.from([22, 23, 24]), '[null]', '{}')
+    placements(new Uint8Array([22, 23, 24]), '[null]', '{}')
   ),
   // Degenerate arrays: The string keys are not spec-compliant, but ignored by the parsers.
   {
@@ -346,7 +346,7 @@ for (const length of INVALID_UUID_LENGTHS) {
     serializableCase(
       `binary:uuid:invalid-length:${length}`,
       new Binary(Buffer.alloc(length, 0x11), Binary.SUBTYPE_UUID),
-      placements(Buffer.alloc(length, 0x11), '[null]', '{}')
+      placements(new Uint8Array(Buffer.alloc(length, 0x11).buffer), '[null]', '{}')
     )
   );
 }
@@ -857,11 +857,13 @@ function dateBufferForPlacement(placement: Placement): Buffer {
 }
 
 /**
- * Normalize Buffer -> hex string to make testing easier.
+ * Normalize Uint8Array -> hex string to make test output nicer.
  */
 function normalize(value: unknown): unknown {
-  // return value;
-  if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+  if (Buffer.isBuffer(value)) {
+    throw new Error(`Unexpected buffer: Use standard Uint8Array instead.`);
+  }
+  if (value instanceof Uint8Array) {
     return { __bytes: Buffer.from(value).toString('hex') };
   }
   if (Array.isArray(value)) {

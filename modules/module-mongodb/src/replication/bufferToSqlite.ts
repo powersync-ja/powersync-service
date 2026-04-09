@@ -312,7 +312,7 @@ function uuidToString(bytes: Buffer): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | string; nextOffset: number } {
+function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Uint8Array | string; nextOffset: number } {
   const length = readInt32LE(bytes, offset);
   if (length < 0) {
     throw new Error('Invalid BSON binary length');
@@ -331,13 +331,17 @@ function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | s
     return { value: uuidToString(data), nextOffset: dataEnd };
   }
 
-  return { value: data, nextOffset: dataEnd };
+  return { value: bufferToUint8Array(data), nextOffset: dataEnd };
+}
+
+function bufferToUint8Array(bytes: Buffer): Uint8Array {
+  return new Uint8Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
 }
 
 /**
  * Handle a sub-array for binary data, including the legacy 2 subtype.
  */
-function binaryDataSlice(bytes: Buffer, dataStart: number, dataEnd: number, subtype: number) {
+function binaryDataSlice(bytes: Buffer, dataStart: number, dataEnd: number, subtype: number): Buffer {
   if (subtype !== BSON_BINARY_SUBTYPE_BYTE_ARRAY) {
     return bytes.subarray(dataStart, dataEnd);
   }
