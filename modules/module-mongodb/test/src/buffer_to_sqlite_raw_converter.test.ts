@@ -414,6 +414,41 @@ describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
   });
 });
 
+describe('SourceRowConverter.rawToSqliteRow invalid UTF-8', () => {
+  // The upstream bson parser validates UTF-8 strings by default.
+  // Our custom parser accepts invalid UTF-8 strings, using the replacement character in JSON.
+
+  test('invalid UTF-8 in top-level string is accepted only on the custom raw converter', () => {
+    const source = bsonDocument([
+      bsonElement(0x02, '_id', bsonString('invalid-utf8:top-string')),
+      bsonElement(0x02, 'value', Buffer.concat([int32(2), Buffer.from([0xff, 0x00])]))
+    ]);
+
+    expectRowFailure(defaultConverter, source, 'Invalid UTF-8 string in BSON document');
+    expectNormalizedRow(customConverter, source, {
+      _id: 'invalid-utf8:top-string',
+      value: '�'
+    });
+  });
+
+  test('invalid UTF-8 in nested string is accepted only on the custom raw converter', () => {
+    const source = bsonDocument([
+      bsonElement(0x02, '_id', bsonString('invalid-utf8:nested-string')),
+      bsonElement(
+        0x03,
+        'value',
+        bsonDocument([bsonElement(0x02, 'nested', Buffer.concat([int32(2), Buffer.from([0xff, 0x00])]))])
+      )
+    ]);
+
+    expectRowFailure(defaultConverter, source, 'Invalid UTF-8 string in BSON document');
+    expectNormalizedRow(customConverter, source, {
+      _id: 'invalid-utf8:nested-string',
+      value: '{"nested":"�"}'
+    });
+  });
+});
+
 describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
   test('matches across randomized supported documents', () => {
     const rng = makeRng(0x5eedc0de);
