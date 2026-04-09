@@ -113,12 +113,11 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
   } else if (typeof data == 'string') {
     return data;
   } else if (typeof data == 'number') {
-    if (!Number.isFinite(data)) {
-      // Only finite numbers can be represented in JSON.
-      return null;
-    }
     if (autoBigNum && Number.isInteger(data)) {
       return BigInt(data);
+    } else if (!Number.isFinite(data)) {
+      // Only finite numbers can be represented in JSON.
+      return null;
     } else {
       return data;
     }

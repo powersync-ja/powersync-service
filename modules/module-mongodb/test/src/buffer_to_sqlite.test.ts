@@ -21,7 +21,11 @@ import {
 } from 'bson';
 import { describe, expect, test } from 'vitest';
 
-import { CustomSourceRowConverter, DefaultSourceRowConverter } from '@module/replication/SourceRowConverter.js';
+import {
+  CustomSourceRowConverter,
+  DefaultSourceRowConverter,
+  SourceRowConverter
+} from '@module/replication/SourceRowConverter.js';
 
 type Placement = 'top' | 'array' | 'nested';
 type ExpectedPlacements = Record<Placement, unknown>;
@@ -852,10 +856,11 @@ function dateBufferForPlacement(placement: Placement): Buffer {
   return serializeCaseDocument(`compatibility-date:${placement}`, placement, normalDate);
 }
 
+/**
+ * Normalize Buffer -> hex string to make testing easier.
+ */
 function normalize(value: unknown): unknown {
-  if (typeof value === 'bigint') {
-    return { __bigint: value.toString() };
-  }
+  // return value;
   if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
     return { __bytes: Buffer.from(value).toString('hex') };
   }
@@ -876,7 +881,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function captureRow(converter: DefaultSourceRowConverter | CustomSourceRowConverter, source: Buffer): RowCapture {
+function captureRow(converter: SourceRowConverter, source: Buffer): RowCapture {
   try {
     return {
       ok: true,
@@ -887,18 +892,14 @@ function captureRow(converter: DefaultSourceRowConverter | CustomSourceRowConver
   }
 }
 
-function expectRowFailure(
-  converter: DefaultSourceRowConverter | CustomSourceRowConverter,
-  source: Buffer,
-  message: string
-) {
+function expectRowFailure(converter: SourceRowConverter, source: Buffer, message: string) {
   expect(captureRow(converter, source)).toEqual({
     ok: false,
     message
   });
 }
 
-function captureOutput(converter: DefaultSourceRowConverter | CustomSourceRowConverter, source: Buffer): OutputCapture {
+function captureOutput(converter: SourceRowConverter, source: Buffer): OutputCapture {
   try {
     return {
       ok: true,
@@ -913,11 +914,7 @@ function expectRowParity(source: Buffer) {
   expect(captureRow(customConverter, source)).toEqual(captureRow(defaultConverter, source));
 }
 
-function expectNormalizedRow(
-  converter: DefaultSourceRowConverter | CustomSourceRowConverter,
-  source: Buffer,
-  expected: Record<string, unknown>
-) {
+function expectNormalizedRow(converter: SourceRowConverter, source: Buffer, expected: Record<string, unknown>) {
   expect(captureRow(converter, source)).toEqual({
     ok: true,
     row: normalize(expected)
