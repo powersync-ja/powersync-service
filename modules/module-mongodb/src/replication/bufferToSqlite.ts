@@ -293,10 +293,11 @@ const SHARED_WRITER = new JsonBufferWriter(1024 * 1024);
 export function bufferToSqlite(bytes: Buffer): SqliteRow {
   const row: SqliteRow = {};
   const jsonWriter = SHARED_WRITER;
-  const bodyEnd = readInt32LE(bytes, 0) - 1;
+  const bodyEnd = readDocumentLength(bytes, 0) - 1;
   let offset = 4;
 
   while (offset < bodyEnd) {
+    const previousOffset = offset;
     const type = bytes[offset++];
     const { value: key, nextOffset: afterKey } = readCString(bytes, offset);
     offset = afterKey;
@@ -308,10 +309,9 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x02: {
-        const length = readInt32LE(bytes, offset);
-        const stringStart = offset + 4;
-        row[key] = bytes.toString('utf8', stringStart, stringStart + length - 1);
-        offset = stringStart + length;
+        const { value, nextOffset } = readBsonString(bytes, offset);
+        row[key] = value;
+        offset = nextOffset;
         break;
       }
       case 0x04: {
@@ -416,6 +416,8 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
     }
+
+    assertAdvanced(previousOffset, offset);
   }
 
   return row;
@@ -425,12 +427,30 @@ function readInt32LE(bytes: Buffer, offset: number): number {
   return bytes.readInt32LE(offset);
 }
 
+function readDocumentLength(bytes: Buffer, offset: number): number {
+  const length = readInt32LE(bytes, offset);
+  if (length < 5 || offset + length > bytes.length) {
+    throw new Error('Invalid BSON document length');
+  }
+  if (bytes[offset + length - 1] !== 0) {
+    throw new Error('Invalid BSON document terminator');
+  }
+  return length;
+}
+
 function readBsonString(bytes: Buffer, offset: number): { value: string; nextOffset: number } {
   const length = readInt32LE(bytes, offset);
   const stringStart = offset + 4;
+  const stringEnd = stringStart + length;
+  if (length < 1 || stringEnd > bytes.length) {
+    throw new Error('Invalid BSON string length');
+  }
+  if (bytes[stringEnd - 1] !== 0) {
+    throw new Error('Invalid BSON string terminator');
+  }
   return {
-    value: bytes.toString('utf8', stringStart, stringStart + length - 1),
-    nextOffset: stringStart + length
+    value: bytes.toString('utf8', stringStart, stringEnd - 1),
+    nextOffset: stringEnd
   };
 }
 
@@ -500,9 +520,15 @@ function uuidToString(bytes: Buffer): string {
 
 function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | string; nextOffset: number } {
   const length = readInt32LE(bytes, offset);
+  if (length < 0) {
+    throw new Error('Invalid BSON binary length');
+  }
   const subtype = bytes[offset + 4];
   const dataStart = offset + 5;
   const dataEnd = dataStart + length;
+  if (dataEnd > bytes.length) {
+    throw new Error('Invalid BSON binary length');
+  }
   const data = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
 
   if (subtype === mongo.Binary.SUBTYPE_UUID && data.length === 16) {
@@ -519,6 +545,9 @@ function binaryDataSlice(bytes: Buffer, dataStart: number, dataEnd: number, subt
 
   const legacyLength = readInt32LE(bytes, dataStart);
   const legacyStart = dataStart + 4;
+  if (legacyLength < 0 || legacyStart + legacyLength > dataEnd) {
+    throw new Error('Invalid BSON legacy binary length');
+  }
   return bytes.subarray(legacyStart, legacyStart + legacyLength);
 }
 
@@ -593,13 +622,14 @@ function serializeNestedObjectToJson(
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
   }
 
-  const totalLength = readInt32LE(bytes, offset);
+  const totalLength = readDocumentLength(bytes, offset);
   const bodyEnd = offset + totalLength - 1;
   let cursor = offset + 4;
   writer.writeByte(0x7b);
   let first = true;
 
   while (cursor < bodyEnd) {
+    const previousCursor = cursor;
     const type = bytes[cursor++];
     const keyEnd = bytes.indexOf(0, cursor);
     if (keyEnd < 0) {
@@ -615,6 +645,7 @@ function serializeNestedObjectToJson(
 
     const { nextOffset: afterValue, defined } = serializeNestedElementValue(bytes, cursor, type, depth, writer);
     cursor = afterValue;
+    assertAdvanced(previousCursor, cursor);
 
     if (!defined) {
       writer.truncate(writerOffset);
@@ -638,13 +669,14 @@ function serializeNestedArrayToJson(
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
   }
 
-  const totalLength = readInt32LE(bytes, offset);
+  const totalLength = readDocumentLength(bytes, offset);
   const bodyEnd = offset + totalLength - 1;
   let cursor = offset + 4;
   writer.writeByte(0x5b);
   let first = true;
 
   while (cursor < bodyEnd) {
+    const previousCursor = cursor;
     const type = bytes[cursor++];
     cursor = skipCString(bytes, cursor);
 
@@ -655,6 +687,7 @@ function serializeNestedArrayToJson(
 
     const { nextOffset: afterValue, defined } = serializeNestedElementValue(bytes, cursor, type, depth, writer);
     cursor = afterValue;
+    assertAdvanced(previousCursor, cursor);
 
     if (!defined) {
       writer.writeAscii('null');
@@ -897,9 +930,15 @@ function serializeNestedBinaryElement(
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
   const length = readInt32LE(bytes, offset);
+  if (length < 0) {
+    throw new Error('Invalid BSON binary length');
+  }
   const subtype = bytes[offset + 4];
   const dataStart = offset + 5;
   const dataEnd = dataStart + length;
+  if (dataEnd > bytes.length) {
+    throw new Error('Invalid BSON binary length');
+  }
 
   const slice = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
   if (subtype === mongo.Binary.SUBTYPE_UUID && slice.length === 16) {
@@ -908,6 +947,12 @@ function serializeNestedBinaryElement(
   }
 
   return { nextOffset: dataEnd, defined: false };
+}
+
+function assertAdvanced(previousOffset: number, nextOffset: number) {
+  if (nextOffset <= previousOffset) {
+    throw new Error('Invalid BSON parser state: non-advancing offset');
+  }
 }
 
 function serializeNestedDbPointerElement(
