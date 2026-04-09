@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { applyRowContext, CompatibilityContext, SqliteRow } from '@powersync/service-sync-rules';
-import { bufferToSqlite } from './bufferToSqlite.js';
+import { bufferToSqlite, DateRenderMode, getDateRenderMode } from './bufferToSqlite.js';
 import { constructAfterRecord } from './MongoRelation.js';
 import { parseDocumentId } from './MongoSnapshotQuery.js';
 
@@ -18,6 +18,8 @@ export interface SourceRowConverter {
    * a SqliteRow for use in sync config.
    *
    * The document must be parsed using { useBigInt64: true }.
+   *
+   * @deprecated This is remaining as a helper for tests only.
    */
   documentToSqliteRow(source: mongo.Document): SqliteRow;
 }
@@ -39,15 +41,20 @@ export class DefaultSourceRowConverter implements SourceRowConverter {
 }
 
 export class CustomSourceRowConverter implements SourceRowConverter {
-  constructor(public readonly compatibilityContext: CompatibilityContext) {}
+  private readonly dateRenderMode: DateRenderMode;
+
+  constructor(compatibilityContext: CompatibilityContext) {
+    this.dateRenderMode = getDateRenderMode(compatibilityContext);
+  }
 
   rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
-    const row = bufferToSqlite(source);
+    const row = bufferToSqlite(source, this.dateRenderMode);
     const replicaId = parseDocumentId(source).id;
     return { row, replicaId };
   }
 
   documentToSqliteRow(document: mongo.Document): SqliteRow {
+    // This is slow, but should not be used other than in tests
     const buffer = mongo.BSON.serialize(document) as Buffer;
     return this.rawToSqliteRow(buffer).row;
   }

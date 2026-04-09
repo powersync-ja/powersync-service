@@ -15,12 +15,13 @@ export const BYTE_COMMA = 0x2c; // ,
 export const BYTE_COLON = 0x3a; // :
 export const BYTE_ZERO = 0x30; // 0
 export const BYTE_ONE = 0x31; // 1
-const BYTE_SPACE = 0x20; // ' '
+export const BYTE_T = 0x54; // T
+export const BYTE_SPACE = 0x20; // ' '
 const BYTE_DASH = 0x2d; // -
 const BYTE_DOT = 0x2e; // .
 const BYTE_Z = 0x5a; // Z
 const BYTE_B = 0x62; // b
-const BYTE_T = 0x74; // t
+const BYTE_T_LOWER = 0x74; // t
 const BYTE_N = 0x6e; // n
 const BYTE_F = 0x66; // f
 const BYTE_R = 0x72; // r
@@ -227,7 +228,7 @@ export class JsonBufferWriter {
           break;
         case BYTE_TAB:
           buffer[length++] = BYTE_BACKSLASH;
-          buffer[length++] = BYTE_T;
+          buffer[length++] = BYTE_T_LOWER;
           break;
         case BYTE_NEWLINE:
           buffer[length++] = BYTE_BACKSLASH;
@@ -299,7 +300,7 @@ export class JsonBufferWriter {
     this.buffer = next;
   }
 
-  writeLegacyDateTime(
+  writeDateTime(
     year: number,
     month: number,
     day: number,
@@ -307,9 +308,13 @@ export class JsonBufferWriter {
     minute: number,
     second: number,
     millisecond: number,
-    quoted: boolean
+    quoted: boolean,
+    separator: number,
+    includeMilliseconds: boolean
   ) {
-    // Technically 24 when not quoted, but no harm in over-allocating
+    // A more specific value would be this:
+    //   (quoted ? 2 : 0) + 20 + (includeMilliseconds ? 4 : 1)
+    // But there is no harm in over-allocating by 6 bytes.
     this.ensureCapacity(26);
     const buffer = this.buffer;
     let offset = this.length;
@@ -328,7 +333,7 @@ export class JsonBufferWriter {
     buffer[offset++] = BYTE_DASH;
     buffer[offset++] = BYTE_ZERO + ((day / 10) | 0);
     buffer[offset++] = BYTE_ZERO + (day % 10);
-    buffer[offset++] = BYTE_SPACE;
+    buffer[offset++] = separator;
     buffer[offset++] = BYTE_ZERO + ((hour / 10) | 0);
     buffer[offset++] = BYTE_ZERO + (hour % 10);
     buffer[offset++] = BYTE_COLON;
@@ -337,10 +342,14 @@ export class JsonBufferWriter {
     buffer[offset++] = BYTE_COLON;
     buffer[offset++] = BYTE_ZERO + ((second / 10) | 0);
     buffer[offset++] = BYTE_ZERO + (second % 10);
-    buffer[offset++] = BYTE_DOT;
-    buffer[offset++] = BYTE_ZERO + ((millisecond / 100) | 0);
-    buffer[offset++] = BYTE_ZERO + (((millisecond / 10) | 0) % 10);
-    buffer[offset++] = BYTE_ZERO + (millisecond % 10);
+
+    if (includeMilliseconds) {
+      buffer[offset++] = BYTE_DOT;
+      buffer[offset++] = BYTE_ZERO + ((millisecond / 100) | 0);
+      buffer[offset++] = BYTE_ZERO + (((millisecond / 10) | 0) % 10);
+      buffer[offset++] = BYTE_ZERO + (millisecond % 10);
+    }
+
     buffer[offset++] = BYTE_Z;
 
     if (quoted) {
