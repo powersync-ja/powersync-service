@@ -62,11 +62,21 @@ export class JsonBufferWriter {
     this.length = length;
   }
 
+  /**
+   * Write a single raw byte.
+   *
+   * Caller is responsible for ensuring this produces valid JSON.
+   */
   writeByte(value: number) {
     this.ensureCapacity(1);
     this.buffer[this.length++] = value;
   }
 
+  /**
+   * Write raw ascii string - one byte per character. No quoting or escaping is performed.
+   *
+   * Caller is responsible for ensuring this produces valid JSON.
+   */
   writeAscii(text: string) {
     const length = text.length;
     this.ensureCapacity(length);
@@ -74,17 +84,15 @@ export class JsonBufferWriter {
     this.length += length;
   }
 
-  writeUtf8(text: string) {
+  /**
+   * Write UTF-8 string. No quoting or escaping is performed.
+   *
+   * Caller is responsible for ensuring this produces valid JSON.
+   */
+  private writeUtf8(text: string) {
     const length = Buffer.byteLength(text);
     this.ensureCapacity(length);
     this.buffer.write(text, this.length, length, 'utf8');
-    this.length += length;
-  }
-
-  writeBufferSlice(bytes: Buffer, start: number, end: number) {
-    const length = end - start;
-    this.ensureCapacity(length);
-    bytes.copy(this.buffer, this.length, start, end);
     this.length += length;
   }
 
