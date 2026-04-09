@@ -37,10 +37,14 @@ const BSON_TYPE_INT64 = 0x12;
 const BSON_TYPE_DECIMAL128 = 0x13;
 const BSON_TYPE_MIN_KEY = 0xff;
 const BSON_TYPE_MAX_KEY = 0x7f;
-const BSON_BINARY_SUBTYPE_BYTE_ARRAY = mongo.Binary.SUBTYPE_BYTE_ARRAY;
-const BSON_BINARY_SUBTYPE_UUID = mongo.Binary.SUBTYPE_UUID;
+const BSON_BINARY_SUBTYPE_BYTE_ARRAY = 2;
+const BSON_BINARY_SUBTYPE_UUID = 4;
 
-const SHARED_WRITER = new JsonBufferWriter(1024 * 1024);
+// We use a single shared write, to avoid repeatedly re-allocating buffers.
+// Since this is only used in a synchronous call, this is safe.
+// This never releases memory once a large buffer has been allocated, but that is fine
+// for replication use.
+const SHARED_WRITER = new JsonBufferWriter();
 
 export function bufferToSqlite(bytes: Buffer): SqliteRow {
   const row: SqliteRow = {};
@@ -59,20 +63,17 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
 
     switch (type) {
       case BSON_TYPE_OBJECT_ID: {
-        // ObjectId
         row[key] = hexLower(bytes, offset, 12);
         offset += 12;
         break;
       }
       case BSON_TYPE_STRING: {
-        // String
         const { value, nextOffset } = readBsonString(bytes, offset);
         row[key] = value;
         offset = nextOffset;
         break;
       }
       case BSON_TYPE_ARRAY: {
-        // Array
         jsonWriter.reset();
         const result = serializeNestedArrayToJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
@@ -80,7 +81,6 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case BSON_TYPE_DOCUMENT: {
-        // Embedded document
         jsonWriter.reset();
         const result = serializeNestedObjectToJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
@@ -88,49 +88,41 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case BSON_TYPE_BOOLEAN: {
-        // Boolean
         row[key] = bytes[offset++] ? 1n : 0n;
         break;
       }
       case BSON_TYPE_UTC_DATETIME: {
-        // UTC datetime
         row[key] = legacyDateTimeString(Number(bytes.readBigInt64LE(offset)));
         offset += 8;
         break;
       }
       case BSON_TYPE_INT32: {
-        // Int32
         row[key] = BigInt(readInt32LE(bytes, offset));
         offset += 4;
         break;
       }
       case BSON_TYPE_TIMESTAMP: {
-        // Timestamp
         row[key] = timestampToBigInt(bytes, offset);
         offset += 8;
         break;
       }
       case BSON_TYPE_INT64: {
-        // Int64
         row[key] = bytes.readBigInt64LE(offset);
         offset += 8;
         break;
       }
       case BSON_TYPE_DECIMAL128: {
-        // Decimal128
         row[key] = decimal128ToString(bytes, offset);
         offset += 16;
         break;
       }
       case BSON_TYPE_BINARY: {
-        // Binary
         const { value, nextOffset } = parseTopLevelBinary(bytes, offset);
         row[key] = value;
         offset = nextOffset;
         break;
       }
       case BSON_TYPE_REGEX: {
-        // Regular expression
         const { pattern, options, nextOffset } = parseRegex(bytes, offset);
         jsonWriter.reset();
         writeRegexJson(jsonWriter, pattern, options);
@@ -162,21 +154,19 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case BSON_TYPE_CODE_WITH_SCOPE: {
-        // JavaScript code with scope
         jsonWriter.reset();
         const nextOffset = writeCodeWithScopeJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
         offset = nextOffset;
         break;
       }
-      case BSON_TYPE_UNDEFINED: // Undefined
-      case BSON_TYPE_NULL: // Null
-      case BSON_TYPE_MIN_KEY: // MinKey
-      case BSON_TYPE_MAX_KEY: // MaxKey
+      case BSON_TYPE_UNDEFINED:
+      case BSON_TYPE_NULL:
+      case BSON_TYPE_MIN_KEY:
+      case BSON_TYPE_MAX_KEY:
         row[key] = null;
         break;
       case BSON_TYPE_DOUBLE: {
-        // Double
         const value = bytes.readDoubleLE(offset);
         offset += 8;
         // Match the default path: integral doubles are widened to bigint.
@@ -248,19 +238,6 @@ function skipCString(bytes: Buffer, offset: number): number {
   return end + 1;
 }
 
-function quoteJsonFast(text: string) {
-  if (text.length > 64) {
-    return JSON.stringify(text);
-  }
-  for (let i = 0; i < text.length; i++) {
-    const ch = text.charCodeAt(i);
-    if (ch < 0x20 || ch > 0x7e || ch === 0x22 || ch === 0x5c) {
-      return JSON.stringify(text);
-    }
-  }
-  return `"${text}"`;
-}
-
 function parseRegex(bytes: Buffer, offset: number): { pattern: string; options: string; nextOffset: number } {
   const patternEnd = bytes.indexOf(0, offset);
   const optionsEnd = bytes.indexOf(0, patternEnd + 1);
@@ -279,6 +256,7 @@ function parseRegex(bytes: Buffer, offset: number): { pattern: string; options: 
 }
 
 function decimal128ToString(bytes: Buffer, offset: number): string {
+  // Just use the upstream parser for this
   return new mongo.Decimal128(bytes.subarray(offset, offset + 16)).toString();
 }
 
@@ -287,9 +265,8 @@ function timestampToBigInt(bytes: Buffer, offset: number): bigint {
 }
 
 /**
- *
  * @param bytes must be exactly 16 bytes in length - check before calling this.
- * @returns
+ * @returns lower-case hex form of the UUID
  */
 function uuidToString(bytes: Buffer): string {
   const hex = bytes.toString('hex');
@@ -318,6 +295,9 @@ function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | s
   return { value: data, nextOffset: dataEnd };
 }
 
+/**
+ * Handle a sub-array for binary data, including the legacy 2 subtype.
+ */
 function binaryDataSlice(bytes: Buffer, dataStart: number, dataEnd: number, subtype: number) {
   if (subtype !== BSON_BINARY_SUBTYPE_BYTE_ARRAY) {
     return bytes.subarray(dataStart, dataEnd);
@@ -662,6 +642,7 @@ function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number) 
 
   const year = date.getUTCFullYear();
   if (year < 0 || year > 9999) {
+    // Fall back to slower approach
     writer.writeQuotedJsonString(legacyDateTimeString(millis));
     return;
   }
@@ -739,7 +720,7 @@ function serializeNestedBinaryElement(
   const slice = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
   // Nested binary values are omitted from JSON unless they are subtype 4 UUIDs,
   // which are represented as strings for parity with the default path.
-  if (subtype === mongo.Binary.SUBTYPE_UUID && slice.length === 16) {
+  if (subtype === BSON_BINARY_SUBTYPE_UUID && slice.length === 16) {
     writer.writeQuotedJsonString(uuidToString(slice));
     return { nextOffset: dataEnd, defined: true };
   }
