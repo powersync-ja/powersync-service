@@ -473,10 +473,9 @@ function parseRegex(bytes: Buffer, offset: number): { pattern: string; options: 
     throw new Error('Invalid BSON regex');
   }
   const pattern = bytes.toString('utf8', offset, patternEnd);
-  const optionsRaw = bytes.toString('utf8', patternEnd + 1, optionsEnd);
   return {
     pattern,
-    options: regexOptionsToJsFlags(optionsRaw),
+    options: bytes.toString('utf8', patternEnd + 1, optionsEnd),
     nextOffset: optionsEnd + 1
   };
 }
@@ -849,14 +848,6 @@ function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number) 
     date.getUTCSeconds(),
     date.getUTCMilliseconds()
   );
-}
-
-function regexOptionsToJsFlags(options: string) {
-  let out = '';
-  if (options.includes('s')) out += 'g';
-  if (options.includes('i')) out += 'i';
-  if (options.includes('m')) out += 'm';
-  return out;
 }
 
 function hexLower(bytes: Buffer, offset: number, length: number): string {
