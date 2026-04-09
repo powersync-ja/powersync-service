@@ -1,298 +1,20 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { SqliteRow } from '@powersync/service-sync-rules';
+import { JsonBufferWriter } from './JsonBufferWriter.js';
 
 const NESTED_DEPTH_LIMIT = 20;
-const JSON_BUFFER_INITIAL_CAPACITY = 1024 * 1024;
 const TWO_DIGITS = Array.from({ length: 100 }, (_value, index) => index.toString().padStart(2, '0'));
 const THREE_DIGITS = Array.from({ length: 1000 }, (_value, index) => index.toString().padStart(3, '0'));
 const SHARED_UTC_DATE = new Date(0);
-const HEX_LOWER_BYTES = Buffer.from('0123456789abcdef', 'ascii');
-
-class JsonBufferWriter {
-  private buffer: Buffer;
-  private length = 0;
-
-  constructor(capacity = JSON_BUFFER_INITIAL_CAPACITY) {
-    this.buffer = Buffer.allocUnsafe(capacity);
-  }
-
-  reset() {
-    this.length = 0;
-  }
-
-  toString() {
-    return this.buffer.toString('utf8', 0, this.length);
-  }
-
-  getLength() {
-    return this.length;
-  }
-
-  truncate(length: number) {
-    this.length = length;
-  }
-
-  writeByte(value: number) {
-    this.ensureCapacity(1);
-    this.buffer[this.length++] = value;
-  }
-
-  writeAscii(text: string) {
-    const length = text.length;
-    this.ensureCapacity(length);
-    this.buffer.write(text, this.length, length, 'ascii');
-    this.length += length;
-  }
-
-  writeUtf8(text: string) {
-    const length = Buffer.byteLength(text);
-    this.ensureCapacity(length);
-    this.buffer.write(text, this.length, length, 'utf8');
-    this.length += length;
-  }
-
-  writeBufferSlice(bytes: Buffer, start: number, end: number) {
-    const length = end - start;
-    this.ensureCapacity(length);
-    bytes.copy(this.buffer, this.length, start, end);
-    this.length += length;
-  }
-
-  writeQuotedJsonString(text: string) {
-    this.writeByte(0x22);
-    let start = 0;
-
-    for (let i = 0; i < text.length; i++) {
-      const ch = text.charCodeAt(i);
-      let escaped: string | undefined;
-
-      switch (ch) {
-        case 0x22:
-          escaped = '\\"';
-          break;
-        case 0x5c:
-          escaped = '\\\\';
-          break;
-        case 0x08:
-          escaped = '\\b';
-          break;
-        case 0x09:
-          escaped = '\\t';
-          break;
-        case 0x0a:
-          escaped = '\\n';
-          break;
-        case 0x0c:
-          escaped = '\\f';
-          break;
-        case 0x0d:
-          escaped = '\\r';
-          break;
-        default:
-          if (ch < 0x20) {
-            escaped = `\\u${ch.toString(16).padStart(4, '0')}`;
-          }
-      }
-
-      if (escaped == null) {
-        continue;
-      }
-
-      if (start < i) {
-        this.writeUtf8(text.slice(start, i));
-      }
-      this.writeAscii(escaped);
-      start = i + 1;
-    }
-
-    if (start < text.length) {
-      this.writeUtf8(text.slice(start));
-    }
-
-    this.writeByte(0x22);
-  }
-
-  writeQuotedUtf8Slice(bytes: Buffer, start: number, end: number) {
-    let firstEscape = -1;
-    for (let index = start; index < end; index++) {
-      const value = bytes[index];
-      if (value < 0x20 || value === 0x22 || value === 0x5c) {
-        firstEscape = index;
-        break;
-      }
-    }
-
-    const rawLength = end - start;
-    this.ensureCapacity(rawLength + 2);
-    let buffer = this.buffer;
-    let length = this.length;
-
-    buffer[length++] = 0x22;
-
-    if (firstEscape < 0) {
-      bytes.copy(buffer, length, start, end);
-      length += rawLength;
-      buffer[length++] = 0x22;
-      this.length = length;
-      return;
-    }
-
-    if (firstEscape > start) {
-      bytes.copy(buffer, length, start, firstEscape);
-      length += firstEscape - start;
-    }
-
-    let chunkStart = firstEscape;
-    for (let index = firstEscape; index < end; index++) {
-      const value = bytes[index];
-      if (value >= 0x20 && value !== 0x22 && value !== 0x5c) {
-        continue;
-      }
-
-      if (chunkStart < index) {
-        const chunkLength = index - chunkStart;
-        this.ensureCapacity(chunkLength + 6);
-        buffer = this.buffer;
-        bytes.copy(buffer, length, chunkStart, index);
-        length += chunkLength;
-      } else {
-        this.ensureCapacity(6);
-        buffer = this.buffer;
-      }
-
-      switch (value) {
-        case 0x22:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x22;
-          break;
-        case 0x5c:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x5c;
-          break;
-        case 0x08:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x62;
-          break;
-        case 0x09:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x74;
-          break;
-        case 0x0a:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x6e;
-          break;
-        case 0x0c:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x66;
-          break;
-        case 0x0d:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x72;
-          break;
-        default:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x75;
-          buffer[length++] = 0x30;
-          buffer[length++] = 0x30;
-          buffer[length++] = HEX_LOWER_BYTES[value >> 4];
-          buffer[length++] = HEX_LOWER_BYTES[value & 0x0f];
-          break;
-      }
-
-      chunkStart = index + 1;
-    }
-
-    if (chunkStart < end) {
-      const chunkLength = end - chunkStart;
-      this.ensureCapacity(chunkLength + 1);
-      buffer = this.buffer;
-      bytes.copy(buffer, length, chunkStart, end);
-      length += chunkLength;
-    } else {
-      this.ensureCapacity(1);
-      buffer = this.buffer;
-    }
-
-    buffer[length++] = 0x22;
-    this.length = length;
-  }
-
-  writeQuotedHexLower(bytes: Buffer, start: number, length: number) {
-    this.ensureCapacity(length * 2 + 2);
-    this.buffer[this.length++] = 0x22;
-    for (let index = start; index < start + length; index++) {
-      const value = bytes[index];
-      this.buffer[this.length++] = HEX_LOWER_BYTES[value >> 4];
-      this.buffer[this.length++] = HEX_LOWER_BYTES[value & 0x0f];
-    }
-    this.buffer[this.length++] = 0x22;
-  }
-
-  private ensureCapacity(extra: number) {
-    const required = this.length + extra;
-    if (required <= this.buffer.length) {
-      return;
-    }
-
-    let nextLength = this.buffer.length;
-    while (nextLength < required) {
-      nextLength *= 2;
-    }
-
-    const next = Buffer.allocUnsafe(nextLength);
-    this.buffer.copy(next, 0, 0, this.length);
-    this.buffer = next;
-  }
-
-  writeLegacyDateTime(
-    year: number,
-    month: number,
-    day: number,
-    hour: number,
-    minute: number,
-    second: number,
-    millisecond: number
-  ) {
-    this.ensureCapacity(26);
-    const buffer = this.buffer;
-    let offset = this.length;
-
-    buffer[offset++] = 0x22;
-    buffer[offset++] = 0x30 + ((year / 1000) | 0);
-    buffer[offset++] = 0x30 + (((year / 100) | 0) % 10);
-    buffer[offset++] = 0x30 + (((year / 10) | 0) % 10);
-    buffer[offset++] = 0x30 + (year % 10);
-    buffer[offset++] = 0x2d;
-    buffer[offset++] = 0x30 + ((month / 10) | 0);
-    buffer[offset++] = 0x30 + (month % 10);
-    buffer[offset++] = 0x2d;
-    buffer[offset++] = 0x30 + ((day / 10) | 0);
-    buffer[offset++] = 0x30 + (day % 10);
-    buffer[offset++] = 0x20;
-    buffer[offset++] = 0x30 + ((hour / 10) | 0);
-    buffer[offset++] = 0x30 + (hour % 10);
-    buffer[offset++] = 0x3a;
-    buffer[offset++] = 0x30 + ((minute / 10) | 0);
-    buffer[offset++] = 0x30 + (minute % 10);
-    buffer[offset++] = 0x3a;
-    buffer[offset++] = 0x30 + ((second / 10) | 0);
-    buffer[offset++] = 0x30 + (second % 10);
-    buffer[offset++] = 0x2e;
-    buffer[offset++] = 0x30 + ((millisecond / 100) | 0);
-    buffer[offset++] = 0x30 + (((millisecond / 10) | 0) % 10);
-    buffer[offset++] = 0x30 + (millisecond % 10);
-    buffer[offset++] = 0x5a;
-    buffer[offset++] = 0x22;
-
-    this.length = offset;
-  }
-}
 
 const SHARED_WRITER = new JsonBufferWriter(1024 * 1024);
 
 export function bufferToSqlite(bytes: Buffer): SqliteRow {
   const row: SqliteRow = {};
   const jsonWriter = SHARED_WRITER;
+  // BSON documents are length-prefixed and null-terminated. We parse directly
+  // from raw bytes, so structural validation happens here rather than in the
+  // upstream BSON decoder.
   const bodyEnd = readDocumentLength(bytes, 0) - 1;
   let offset = 4;
 
@@ -304,17 +26,20 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
 
     switch (type) {
       case 0x07: {
+        // ObjectId
         row[key] = hexLower(bytes, offset, 12);
         offset += 12;
         break;
       }
       case 0x02: {
+        // String
         const { value, nextOffset } = readBsonString(bytes, offset);
         row[key] = value;
         offset = nextOffset;
         break;
       }
       case 0x04: {
+        // Array
         jsonWriter.reset();
         const result = serializeNestedArrayToJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
@@ -322,6 +47,7 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x03: {
+        // Embedded document
         jsonWriter.reset();
         const result = serializeNestedObjectToJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
@@ -329,41 +55,49 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x08: {
+        // Boolean
         row[key] = bytes[offset++] ? 1n : 0n;
         break;
       }
       case 0x09: {
+        // UTC datetime
         row[key] = legacyDateTimeString(Number(bytes.readBigInt64LE(offset)));
         offset += 8;
         break;
       }
       case 0x10: {
+        // Int32
         row[key] = BigInt(readInt32LE(bytes, offset));
         offset += 4;
         break;
       }
       case 0x11: {
+        // Timestamp
         row[key] = timestampToBigInt(bytes, offset);
         offset += 8;
         break;
       }
       case 0x12: {
+        // Int64
         row[key] = bytes.readBigInt64LE(offset);
         offset += 8;
         break;
       }
       case 0x13: {
+        // Decimal128
         row[key] = decimal128ToString(bytes, offset);
         offset += 16;
         break;
       }
       case 0x05: {
+        // Binary
         const { value, nextOffset } = parseTopLevelBinary(bytes, offset);
         row[key] = value;
         offset = nextOffset;
         break;
       }
       case 0x0b: {
+        // Regular expression
         const { pattern, options, nextOffset } = parseRegex(bytes, offset);
         jsonWriter.reset();
         writeRegexJson(jsonWriter, pattern, options);
@@ -372,6 +106,7 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x0c: {
+        // DBPointer
         jsonWriter.reset();
         const nextOffset = writeDbPointerJson(bytes, offset, jsonWriter);
         row[key] = jsonWriter.toString();
@@ -379,6 +114,7 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x0d: {
+        // JavaScript code
         jsonWriter.reset();
         const nextOffset = writeCodeJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
@@ -386,31 +122,37 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case 0x0e: {
+        // Symbol
         const { value, nextOffset } = readBsonString(bytes, offset);
         row[key] = value;
         offset = nextOffset;
         break;
       }
       case 0x0f: {
+        // JavaScript code with scope
         jsonWriter.reset();
         const nextOffset = writeCodeWithScopeJson(bytes, offset, 0, jsonWriter);
         row[key] = jsonWriter.toString();
         offset = nextOffset;
         break;
       }
-      case 0x06:
-      case 0x0a:
-      case 0xff:
-      case 0x7f:
+      case 0x06: // Undefined
+      case 0x0a: // Null
+      case 0xff: // MinKey
+      case 0x7f: // MaxKey
         row[key] = null;
         break;
       case 0x01: {
+        // Double
         const value = bytes.readDoubleLE(offset);
         offset += 8;
+        // Match the default path: integral doubles are widened to bigint.
         row[key] = Number.isInteger(value) ? BigInt(value) : value;
         break;
       }
       default: {
+        // Unknown top-level types are treated as null for parity with the
+        // default converter, but we still advance through the raw bytes.
         row[key] = null;
         offset = skipBsonValue(bytes, offset, type);
         break;
@@ -495,6 +237,9 @@ function parseRegex(bytes: Buffer, offset: number): { pattern: string; options: 
   const pattern = bytes.toString('utf8', offset, patternEnd);
   return {
     pattern,
+    // Preserve the raw BSON option string exactly as encoded. The default path
+    // normalizes via JS RegExp semantics, but the custom path intentionally
+    // keeps the BSON flags verbatim.
     options: bytes.toString('utf8', patternEnd + 1, optionsEnd),
     nextOffset: optionsEnd + 1
   };
@@ -531,6 +276,8 @@ function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | s
   }
   const data = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
 
+  // Only subtype 4 UUIDs are surfaced as strings. All other binary subtypes
+  // stay as raw bytes at the top level.
   if (subtype === mongo.Binary.SUBTYPE_UUID && data.length === 16) {
     return { value: uuidToString(data), nextOffset: dataEnd };
   }
@@ -543,6 +290,7 @@ function binaryDataSlice(bytes: Buffer, dataStart: number, dataEnd: number, subt
     return bytes.subarray(dataStart, dataEnd);
   }
 
+  // Legacy subtype 2 embeds its own nested length before the actual bytes.
   const legacyLength = readInt32LE(bytes, dataStart);
   const legacyStart = dataStart + 4;
   if (legacyLength < 0 || legacyStart + legacyLength > dataEnd) {
@@ -553,31 +301,34 @@ function binaryDataSlice(bytes: Buffer, dataStart: number, dataEnd: number, subt
 
 function skipBsonValue(bytes: Buffer, offset: number, type: number) {
   switch (type) {
-    case 0x01:
+    case 0x01: // Double
       return offset + 8;
     case 0x02: {
+      // String
       const length = readInt32LE(bytes, offset);
       return offset + 4 + length;
     }
-    case 0x03:
-    case 0x04:
+    case 0x03: // Embedded document
+    case 0x04: // Array
       return offset + readInt32LE(bytes, offset);
     case 0x05: {
+      // Binary
       const length = readInt32LE(bytes, offset);
       return offset + 4 + 1 + length;
     }
-    case 0x06:
-    case 0x0a:
-    case 0xff:
-    case 0x7f:
+    case 0x06: // Undefined
+    case 0x0a: // Null
+    case 0xff: // MinKey
+    case 0x7f: // MaxKey
       return offset;
-    case 0x07:
+    case 0x07: // ObjectId
       return offset + 12;
-    case 0x08:
+    case 0x08: // Boolean
       return offset + 1;
-    case 0x09:
+    case 0x09: // UTC datetime
       return offset + 8;
     case 0x0b: {
+      // Regular expression
       const patternEnd = bytes.indexOf(0, offset);
       const optionsEnd = bytes.indexOf(0, patternEnd + 1);
       if (patternEnd < 0 || optionsEnd < 0) {
@@ -586,26 +337,30 @@ function skipBsonValue(bytes: Buffer, offset: number, type: number) {
       return optionsEnd + 1;
     }
     case 0x0c: {
+      // DBPointer
       const { nextOffset } = readBsonString(bytes, offset);
       return nextOffset + 12;
     }
     case 0x0d: {
+      // JavaScript code
       return readBsonString(bytes, offset).nextOffset;
     }
     case 0x0e: {
+      // Symbol
       return readBsonString(bytes, offset).nextOffset;
     }
     case 0x0f: {
+      // JavaScript code with scope
       const length = readInt32LE(bytes, offset);
       return offset + length;
     }
-    case 0x10:
+    case 0x10: // Int32
       return offset + 4;
-    case 0x11:
+    case 0x11: // Timestamp
       return offset + 8;
-    case 0x12:
+    case 0x12: // Int64
       return offset + 8;
-    case 0x13:
+    case 0x13: // Decimal128
       return offset + 16;
     default:
       throw new Error(`Unsupported BSON type for skip: 0x${type.toString(16)}`);
@@ -645,6 +400,8 @@ function serializeNestedObjectToJson(
 
     const { nextOffset: afterValue, defined } = serializeNestedElementValue(bytes, cursor, type, depth, writer);
     cursor = afterValue;
+    // Malformed BSON must fail fast instead of getting the parser stuck on the
+    // same element forever.
     assertAdvanced(previousCursor, cursor);
 
     if (!defined) {
@@ -706,55 +463,59 @@ function serializeNestedElementValue(
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
   switch (type) {
-    case 0x01:
+    case 0x01: // Double
       return serializeNestedDoubleElement(bytes, offset, writer);
-    case 0x02:
+    case 0x02: // String
       return serializeNestedStringElement(bytes, offset, writer);
-    case 0x03:
+    case 0x03: // Embedded document
       return serializeNestedObjectElement(bytes, offset, depth, writer);
-    case 0x04:
+    case 0x04: // Array
       return serializeNestedArrayElement(bytes, offset, depth, writer);
-    case 0x05:
+    case 0x05: // Binary
       return serializeNestedBinaryElement(bytes, offset, writer);
-    case 0x06:
+    case 0x06: // Undefined
       return { nextOffset: offset, defined: false };
     case 0x07: {
+      // ObjectId
       writer.writeQuotedHexLower(bytes, offset, 12);
       return { nextOffset: offset + 12, defined: true };
     }
-    case 0x08:
+    case 0x08: // Boolean
       writer.writeByte(bytes[offset] ? 0x31 : 0x30);
       return { nextOffset: offset + 1, defined: true };
-    case 0x09:
+    case 0x09: // UTC datetime
       return serializeNestedDateTimeElement(bytes, offset, writer);
-    case 0x0a:
-    case 0xff:
-    case 0x7f:
+    case 0x0a: // Null
+    case 0xff: // MinKey
+    case 0x7f: // MaxKey
       writer.writeAscii('null');
       return { nextOffset: offset, defined: true };
-    case 0x0b:
+    case 0x0b: // Regular expression
       return serializeNestedRegexElement(bytes, offset, writer);
-    case 0x0c:
+    case 0x0c: // DBPointer
       return serializeNestedDbPointerElement(bytes, offset, writer);
-    case 0x0d:
+    case 0x0d: // JavaScript code
       return serializeNestedCodeElement(bytes, offset, depth, writer);
-    case 0x0e:
+    case 0x0e: // Symbol
       return serializeNestedSymbolElement(bytes, offset, writer);
-    case 0x0f:
+    case 0x0f: // JavaScript code with scope
       return serializeNestedCodeWithScopeElement(bytes, offset, depth, writer);
     case 0x10: {
+      // Int32
       writer.writeAscii(String(readInt32LE(bytes, offset)));
       return { nextOffset: offset + 4, defined: true };
     }
     case 0x11: {
+      // Timestamp
       writer.writeAscii(timestampToBigInt(bytes, offset).toString());
       return { nextOffset: offset + 8, defined: true };
     }
     case 0x12: {
+      // Int64
       writer.writeAscii(bytes.readBigInt64LE(offset).toString());
       return { nextOffset: offset + 8, defined: true };
     }
-    case 0x13:
+    case 0x13: // Decimal128
       writer.writeQuotedJsonString(decimal128ToString(bytes, offset));
       return { nextOffset: offset + 16, defined: true };
     default:
@@ -911,6 +672,8 @@ function writeCodeWithScopeJson(bytes: Buffer, offset: number, depth: number, wr
   writer.writeAscii(',"scope":');
   serializeNestedObjectToJson(bytes, afterCode, depth + 1, writer);
   writer.writeByte(0x7d);
+  // code_w_scope carries its own total byte length, so we trust that wrapper
+  // rather than reconstructing the end position from the nested scope.
   return offset + totalLength;
 }
 
@@ -941,6 +704,8 @@ function serializeNestedBinaryElement(
   }
 
   const slice = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
+  // Nested binary values are omitted from JSON unless they are subtype 4 UUIDs,
+  // which are represented as strings for parity with the default path.
   if (subtype === mongo.Binary.SUBTYPE_UUID && slice.length === 16) {
     writer.writeQuotedJsonString(uuidToString(slice));
     return { nextOffset: dataEnd, defined: true };
