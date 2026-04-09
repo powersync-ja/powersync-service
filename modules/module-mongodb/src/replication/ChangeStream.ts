@@ -33,7 +33,7 @@ import {
   rawChangeStream
 } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
-import { DefaultSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
+import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -118,7 +118,7 @@ export class ChangeStream {
     this.sync_rules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
     });
-    this.sourceRowConverter = new DefaultSourceRowConverter(this.sync_rules.compatibility);
+    this.sourceRowConverter = new DirectSourceRowConverter(this.sync_rules.compatibility);
 
     // The change stream aggregation command should timeout before the socket times out,
     // so we use 90% of the socket timeout value.

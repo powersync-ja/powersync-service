@@ -8,11 +8,14 @@ import {
 import { describe, expect, test } from 'vitest';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
-import { DefaultSourceRowConverter } from '@module/replication/SourceRowConverter.js';
+import { DirectSourceRowConverter } from '@module/replication/SourceRowConverter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
 
 describe('mongo data types', () => {
+  // These test the full data cycle by writing to mongodb, then checking the change stream and direct collection queries.
+  // More direct tests directly on the BSON values are in buffer_to_sqlite.test.ts.
+
   async function setupTable(db: mongo.Db) {
     await clearTestDb(db);
   }
@@ -143,7 +146,7 @@ describe('mongo data types', () => {
   }
 
   function checkResults(documents: mongo.Document[]) {
-    const converter = new DefaultSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    const converter = new DirectSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
     const sqliteValue = documents.map((d) => converter.documentToSqliteRow(d));
 
     expect(sqliteValue[0]).toMatchObject({
@@ -196,7 +199,7 @@ describe('mongo data types', () => {
   }
 
   function checkResultsNested(documents: mongo.Document[]) {
-    const converter = new DefaultSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    const converter = new DirectSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
     const sqliteValue = documents.map((d) => converter.documentToSqliteRow(d));
 
     expect(sqliteValue[0]).toMatchObject({
@@ -545,7 +548,7 @@ bucket_definitions:
         .toArray();
       const [row] = rawResults;
 
-      const oldFormat = new DefaultSourceRowConverter(
+      const oldFormat = new DirectSourceRowConverter(
         CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
       ).documentToSqliteRow(row);
       expect(oldFormat).toMatchObject({
@@ -553,7 +556,7 @@ bucket_definitions:
         noFraction: '2023-03-06 13:47:01.000Z'
       });
 
-      const newFormat = new DefaultSourceRowConverter(
+      const newFormat = new DirectSourceRowConverter(
         new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
       ).documentToSqliteRow(row);
       expect(newFormat).toMatchObject({
@@ -561,7 +564,7 @@ bucket_definitions:
         noFraction: '2023-03-06T13:47:01.000Z'
       });
 
-      const reducedPrecisionFormat = new DefaultSourceRowConverter(
+      const reducedPrecisionFormat = new DirectSourceRowConverter(
         new CompatibilityContext({
           edition: CompatibilityEdition.SYNC_STREAMS,
           maxTimeValuePrecision: TimeValuePrecision.seconds
