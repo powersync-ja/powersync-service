@@ -70,6 +70,13 @@ const testCases: ConverterCase[] = [
     jsonStringPlacements('line 1\nline "2" \\ snowman ☃ \u0001')
   ),
   serializableCase(
+    'string:surrogate-pair',
+    'emoji: \ud83d\ude00 rocket: \ud83d\ude80',
+    jsonStringPlacements('emoji: \ud83d\ude00 rocket: \ud83d\ude80')
+  ),
+  // This one is not quite valid utf-8 - it becomes U+FFFD.
+  serializableCase('string:half-surrogate-pair', 'foo: \ud83d"', jsonStringPlacements('foo: \ufffd"')),
+  serializableCase(
     'document',
     { alpha: 1, bravo: 'two', charlie: true, delta: null },
     jsonTextPlacements('{"alpha":1,"bravo":"two","charlie":1,"delta":null}')
