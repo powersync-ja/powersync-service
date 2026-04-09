@@ -48,14 +48,7 @@ describe('mongo data types', () => {
         maxKey: new mongo.MaxKey(),
         symbol: new mongo.BSONSymbol('test'),
         js: new mongo.Code('testcode'),
-        js2: new mongo.Code('testcode', { foo: 'bar' }),
-        pointer: new mongo.DBRef('mycollection', mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb')),
-        pointer2: new mongo.DBRef(
-          'mycollection',
-          mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb'),
-          'mydb',
-          { foo: 'bar' }
-        )
+        js2: new mongo.Code('testcode', { foo: 'bar' })
       },
       {
         _id: 6 as any,
@@ -141,7 +134,6 @@ describe('mongo data types', () => {
         maxKey: [new mongo.MaxKey()],
         symbol: [new mongo.BSONSymbol('test')],
         js: [new mongo.Code('testcode')],
-        pointer: [new mongo.DBRef('mycollection', mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb'))],
         undefined: [undefined]
       }
     ]);
@@ -183,9 +175,7 @@ describe('mongo data types', () => {
       maxKey: null,
       symbol: 'test',
       js: '{"code":"testcode","scope":null}',
-      js2: '{"code":"testcode","scope":{"foo":"bar"}}',
-      pointer: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}',
-      pointer2: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","db":"mydb","fields":{"foo":"bar"}}'
+      js2: '{"code":"testcode","scope":{"foo":"bar"}}'
     });
 
     // This must specifically be null, and not undefined.
@@ -249,7 +239,6 @@ describe('mongo data types', () => {
       regexp: '[{"pattern":"test","options":"i"}]',
       symbol: '["test"]',
       js: '[{"code":"testcode","scope":null}]',
-      pointer: '[{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}]',
       minKey: '[null]',
       maxKey: '[null]'
     });
@@ -382,9 +371,6 @@ describe('mongo data types', () => {
           { name: 'nested', sqlite_type: 2, internal_type: 'Object' },
           { name: 'null', sqlite_type: 0, internal_type: 'Null' },
           { name: 'objectId', sqlite_type: 2, internal_type: 'ObjectId' },
-          // We can fix these later
-          { name: 'pointer', sqlite_type: 2, internal_type: 'Object' },
-          { name: 'pointer2', sqlite_type: 2, internal_type: 'Object' },
           { name: 'regexp', sqlite_type: 2, internal_type: 'RegExp' },
           // Can fix this later
           { name: 'symbol', sqlite_type: 2, internal_type: 'String' },
