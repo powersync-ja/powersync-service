@@ -219,63 +219,59 @@ describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
   // The default implementation parsed to a JS-compatible RegExp, converting
   // some options such as s -> g, and failing hard on some invalid cases such as "ii".
   // The custom implementation preserves options as-is, even when invalid according to the BSON spec.
-  const regexFlagDivergenceCases = [
+  // Additionally, the default implementation performed some RegExp pattern normalization, which we don't do
+  // in the custom parser.
+  const regexDivergenceCases = [
     {
       name: 'regex',
-      value: new BSONRegExp('a\\s+"b"', 'ims'),
+      buildBuffer: (placement: Placement) =>
+        serializeCaseDocument(`regex:${placement}`, placement, new BSONRegExp('a\\s+"b"', 'ims')),
+      testDescription: 'preserves BSON regex options on custom converter',
       defaultExpected: jsonTextPlacements('{"pattern":"a\\\\s+\\"b\\"","options":"gim"}'),
       customExpected: jsonTextPlacements('{"pattern":"a\\\\s+\\"b\\"","options":"ims"}')
     },
     {
       name: 'regex:flags:s',
-      value: new BSONRegExp('a', 's'),
+      buildBuffer: (placement: Placement) =>
+        serializeCaseDocument(`regex:flags:s:${placement}`, placement, new BSONRegExp('a', 's')),
+      testDescription: 'preserves BSON regex options on custom converter',
       defaultExpected: jsonTextPlacements('{"pattern":"a","options":"g"}'),
       customExpected: jsonTextPlacements('{"pattern":"a","options":"s"}')
     },
     {
       name: 'regex:flags:x',
-      value: new BSONRegExp('a', 'x'),
+      buildBuffer: (placement: Placement) =>
+        serializeCaseDocument(`regex:flags:x:${placement}`, placement, new BSONRegExp('a', 'x')),
+      testDescription: 'preserves BSON regex options on custom converter',
       defaultExpected: jsonTextPlacements('{"pattern":"a","options":""}'),
       customExpected: jsonTextPlacements('{"pattern":"a","options":"x"}')
     },
     {
       name: 'regex:flags:u',
-      value: new BSONRegExp('a', 'u'),
+      buildBuffer: (placement: Placement) =>
+        serializeCaseDocument(`regex:flags:u:${placement}`, placement, new BSONRegExp('a', 'u')),
+      testDescription: 'preserves BSON regex options on custom converter',
       defaultExpected: jsonTextPlacements('{"pattern":"a","options":""}'),
       customExpected: jsonTextPlacements('{"pattern":"a","options":"u"}')
     },
     {
       name: 'regex:flags:imsxu',
-      value: new BSONRegExp('a', 'imsxu'),
+      buildBuffer: (placement: Placement) =>
+        serializeCaseDocument(`regex:flags:imsxu:${placement}`, placement, new BSONRegExp('a', 'imsxu')),
+      testDescription: 'preserves BSON regex options on custom converter',
       defaultExpected: jsonTextPlacements('{"pattern":"a","options":"gim"}'),
       customExpected: jsonTextPlacements('{"pattern":"a","options":"imsux"}')
-    }
-  ] as const;
-
-  for (const regexCase of regexFlagDivergenceCases) {
-    for (const placement of PLACEMENTS) {
-      test(`${regexCase.name} preserves BSON regex options on custom converter as ${placementLabel(placement)}`, () => {
-        const source = serializeCaseDocument(`${regexCase.name}:${placement}`, placement, regexCase.value);
-
-        // Parity is intentionally not expected here. The default path converts BSON regexes
-        // through JS RegExp.flags, while the raw path preserves the BSON option string as-is.
-        expectNormalizedRow(defaultConverter, source, {
-          _id: `${regexCase.name}:${placement}`,
-          value: regexCase.defaultExpected[placement]
-        });
-        expectNormalizedRow(customConverter, source, {
-          _id: `${regexCase.name}:${placement}`,
-          value: regexCase.customExpected[placement]
-        });
-      });
-    }
-  }
-
-  const rawRegexEscapingCases = [
+    },
     {
       name: 'regex:raw:quote-and-backslash-options',
-      pattern: 'a"b\\c\n\t☃',
-      options: 'i"\\x',
+      buildBuffer: (placement: Placement) =>
+        rawCaseDocument(
+          `regex:raw:quote-and-backslash-options:${placement}`,
+          placement,
+          0x0b,
+          Buffer.concat([cstring('a"b\\c\n\t☃'), cstring('i"\\x')])
+        ),
+      testDescription: 'escapes special characters correctly',
       defaultExpected: placements(
         '{"pattern":"a\\"b\\\\c\\\\n\\t☃","options":"i"}',
         '[{"pattern":"a\\"b\\\\c\\\\n\\t☃","options":"i"}]',
@@ -289,8 +285,14 @@ describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
     },
     {
       name: 'regex:raw:quoted-options-only',
-      pattern: 'line1\nline2\t"q"',
-      options: '"\\',
+      buildBuffer: (placement: Placement) =>
+        rawCaseDocument(
+          `regex:raw:quoted-options-only:${placement}`,
+          placement,
+          0x0b,
+          Buffer.concat([cstring('line1\nline2\t"q"'), cstring('"\\')])
+        ),
+      testDescription: 'escapes special characters correctly',
       defaultExpected: placements(
         '{"pattern":"line1\\\\nline2\\t\\"q\\"","options":""}',
         '[{"pattern":"line1\\\\nline2\\t\\"q\\"","options":""}]',
@@ -301,22 +303,80 @@ describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
         '[{"pattern":"line1\\nline2\\t\\"q\\"","options":"\\"\\\\"}]',
         '{"nested":{"pattern":"line1\\nline2\\t\\"q\\"","options":"\\"\\\\"}}'
       )
+    },
+    {
+      name: 'regex:raw:unsorted-valid-options',
+      buildBuffer: (placement: Placement) =>
+        rawCaseDocument(
+          `regex:raw:unsorted-valid-options:${placement}`,
+          placement,
+          0x0b,
+          Buffer.concat([cstring('a'), cstring('mi')])
+        ),
+      testDescription: 'documents default-vs-raw normalization differences',
+      defaultExpected: placements(
+        '{"pattern":"a","options":"im"}',
+        '[{"pattern":"a","options":"im"}]',
+        '{"nested":{"pattern":"a","options":"im"}}'
+      ),
+      customExpected: placements(
+        '{"pattern":"a","options":"mi"}',
+        '[{"pattern":"a","options":"mi"}]',
+        '{"nested":{"pattern":"a","options":"mi"}}'
+      )
+    },
+    {
+      name: 'regex:raw:unsorted-mixed-options',
+      buildBuffer: (placement: Placement) =>
+        rawCaseDocument(
+          `regex:raw:unsorted-mixed-options:${placement}`,
+          placement,
+          0x0b,
+          Buffer.concat([cstring('a'), cstring('xim')])
+        ),
+      testDescription: 'documents default-vs-raw normalization differences',
+      defaultExpected: placements(
+        '{"pattern":"a","options":"im"}',
+        '[{"pattern":"a","options":"im"}]',
+        '{"nested":{"pattern":"a","options":"im"}}'
+      ),
+      customExpected: placements(
+        '{"pattern":"a","options":"xim"}',
+        '[{"pattern":"a","options":"xim"}]',
+        '{"nested":{"pattern":"a","options":"xim"}}'
+      )
+    },
+    {
+      name: 'regex:raw:empty-pattern',
+      buildBuffer: (placement: Placement) =>
+        rawCaseDocument(
+          `regex:raw:empty-pattern:${placement}`,
+          placement,
+          0x0b,
+          Buffer.concat([cstring(''), cstring('x"\\')])
+        ),
+      testDescription: 'documents default-vs-raw normalization differences',
+      defaultExpected: placements(
+        '{"pattern":"(?:)","options":""}',
+        '[{"pattern":"(?:)","options":""}]',
+        '{"nested":{"pattern":"(?:)","options":""}}'
+      ),
+      customExpected: placements(
+        '{"pattern":"","options":"x\\"\\\\"}',
+        '[{"pattern":"","options":"x\\"\\\\"}]',
+        '{"nested":{"pattern":"","options":"x\\"\\\\"}}'
+      )
     }
   ] as const;
 
-  for (const regexCase of rawRegexEscapingCases) {
+  for (const regexCase of regexDivergenceCases) {
     for (const placement of PLACEMENTS) {
-      test(`${regexCase.name} escapes special characters correctly as ${placementLabel(placement)}`, () => {
-        const source = rawCaseDocument(
-          `${regexCase.name}:${placement}`,
-          placement,
-          0x0b,
-          Buffer.concat([cstring(regexCase.pattern), cstring(regexCase.options)])
-        );
+      test(`${regexCase.name} ${regexCase.testDescription} as ${placementLabel(placement)}`, () => {
+        const source = regexCase.buildBuffer(placement);
 
-        // Parity is intentionally not expected here. The default path normalizes
-        // regex options through JS RegExp semantics, while the raw path preserves
-        // the literal BSON option string and must still JSON-escape it correctly.
+        // Parity is intentionally not expected here. The default path converts BSON regexes
+        // through JS RegExp.flags or reconstructs JS RegExp semantics, while the raw
+        // path preserves the BSON pattern/options bytes as-is.
         expectNormalizedRow(defaultConverter, source, {
           _id: `${regexCase.name}:${placement}`,
           value: regexCase.defaultExpected[placement]
