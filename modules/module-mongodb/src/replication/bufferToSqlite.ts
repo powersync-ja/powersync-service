@@ -59,6 +59,29 @@ export const enum DateRenderMode {
 // for replication use.
 const SHARED_WRITER = new JsonBufferWriter();
 
+/**
+ * Convert a buffer containing BSON bytes to a SqliteRow.
+ *
+ * This is using a custom BSON parser and JSON serializer for performance reasons. By bypassing bson.deserialize,
+ * we avoid many small allocations, and can significantly increase throughput.
+ *
+ * This attempts to match the behavior of `bson.deserialize -> constructAfterRecord -> applyRowContext` for the most part,
+ * with some intentional differneces:
+ * 1. Regular expression patterns options are preserved as-is, while the above normalizes to JS RegExp values.
+ * 2. Full UTF-8 validation is not performed - we attempt to continue using replacement characters, as long as the resulting output remains valid.
+ *
+ * General principles followed:
+ * 1. Correctness: Never produce invalid JSON.
+ * 2. Performance: Optimize to be as performant as possible for common cases.
+ * 3. Full BSON support: Support all valid BSON documents as input, including deprecated types, but without specifically optimizing for performance here.
+ * 4. The source database is responsible for producing valid BSON - we don't test for all edge cases of invalid BSON.
+ * 5. We do a best-effort attempt to support "degenerate" BSON cases as documented at https://specifications.readthedocs.io/en/latest/bson-corpus/bson-corpus/, since MongoDB can produce many of these cases.
+ *
+ * @param bytes the source BSON bytes
+ * @param dateRenderMode derive using getDateRenderMode(compatibilityContext)
+ *
+ * @returns a SqliteRow
+ */
 export function bufferToSqlite(bytes: Buffer, dateRenderMode: DateRenderMode): SqliteRow {
   const row: SqliteRow = {};
   const jsonWriter = SHARED_WRITER;
