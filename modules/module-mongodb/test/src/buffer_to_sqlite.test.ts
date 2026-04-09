@@ -10,6 +10,7 @@ import {
   BSONRegExp,
   BSONSymbol,
   Code,
+  DBRef,
   Decimal128,
   Double,
   Int32,
@@ -90,6 +91,32 @@ const testCases: ConverterCase[] = [
     0x0c,
     Buffer.concat([bsonString('mycollection'), Buffer.from('66e834cc91d805df11fa0ecb', 'hex')]),
     jsonTextPlacements('{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}')
+  ),
+  rawCase(
+    'dbpointer:empty-collection',
+    0x0c,
+    Buffer.concat([bsonString(''), Buffer.from('66e834cc91d805df11fa0ecb', 'hex')]),
+    jsonTextPlacements('{"collection":"","oid":"66e834cc91d805df11fa0ecb","fields":{}}')
+  ),
+  rawCase(
+    'dbpointer:escaped-collection',
+    0x0c,
+    Buffer.concat([bsonString('my_\\"coll\\"\\\\name/☃'), Buffer.from('66e834cc91d805df11fa0ecb', 'hex')]),
+    jsonTextPlacements(
+      '{"collection":"my_\\\\\\"coll\\\\\\"\\\\\\\\name/☃","oid":"66e834cc91d805df11fa0ecb","fields":{}}'
+    )
+  ),
+  rawCase(
+    'dbpointer:different-oid',
+    0x0c,
+    Buffer.concat([bsonString('other'), Buffer.from('00112233445566778899aabb', 'hex')]),
+    jsonTextPlacements('{"collection":"other","oid":"00112233445566778899aabb","fields":{}}')
+  ),
+  rawCase(
+    'dbpointer:with-db',
+    0x0c,
+    Buffer.concat([bsonString('mydb.mycollection'), Buffer.from('66e834cc91d805df11fa0ecb', 'hex')]),
+    jsonTextPlacements('{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","db":"mydb","fields":{}}')
   ),
   serializableCase(
     'codeScope',
@@ -775,6 +802,30 @@ describe('SourceRowConverter.rawToSqliteRow full output parity', () => {
           value: 7n
         }
       })
+    });
+  });
+});
+
+describe('SourceRowConverter.rawToSqliteRow DBRef handling', () => {
+  test('documents why DBRef differs from deprecated DBPointer handling', () => {
+    // These are _not_ serialized as a DBPointer value. It is a normal document,
+    // with $ref, $id, $db keys.
+    const source = BSON.serialize({
+      _id: 'dbref',
+      value: new DBRef('mycollection', new ObjectId('66e834cc91d805df11fa0ecb'), 'mydb', { foo: 'bar' })
+    }) as Buffer;
+
+    // LegacySourceRowConverter serializes the DBRef instance fields.
+    expectNormalizedRow(legacyConverter, source, {
+      _id: 'dbref',
+      value: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","db":"mydb","fields":{"foo":"bar"}}'
+    });
+
+    // DirectSourceRowConverter serializes the raw BSON document shape for DBRef.
+    // We intentionally do not attempt to convert this type.
+    expectNormalizedRow(directConverter, source, {
+      _id: 'dbref',
+      value: '{"$ref":"mycollection","$id":"66e834cc91d805df11fa0ecb","$db":"mydb","foo":"bar"}'
     });
   });
 });
