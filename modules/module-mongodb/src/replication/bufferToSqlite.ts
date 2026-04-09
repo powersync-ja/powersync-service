@@ -69,6 +69,7 @@ const SHARED_WRITER = new JsonBufferWriter();
  * with some intentional differneces:
  * 1. Regular expression patterns options are preserved as-is, while the above normalizes to JS RegExp values.
  * 2. Full UTF-8 validation is not performed - we attempt to continue using replacement characters, as long as the resulting output remains valid.
+ * 3. bson.deserialize has special-case handler for converting documents containing {$ref} -> DBRef. We don't do that here.
  *
  * General principles followed:
  * 1. Correctness: Never produce invalid JSON.

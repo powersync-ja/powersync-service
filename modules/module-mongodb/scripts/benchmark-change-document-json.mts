@@ -1,7 +1,7 @@
 import { CompatibilityContext } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { performance } from 'node:perf_hooks';
-import { CustomSourceRowConverter, DefaultSourceRowConverter, parseChangeDocument } from '../dist/index.js';
+import { DirectSourceRowConverter, LegacySourceRowConverter, parseChangeDocument } from '../dist/index.js';
 
 // This is a synthetic benchmark to test performance of parseChangeDocument
 // versus the normal bson.deserialize().
@@ -98,8 +98,8 @@ type BenchmarkResult = {
   mibPerSecond: number;
 };
 
-const rawConverter = new CustomSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
-const docConverter = new DefaultSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+const rawConverter = new DirectSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+const docConverter = new LegacySourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
 
 const BENCHMARKS: readonly Benchmark[] = [
   {
@@ -305,12 +305,6 @@ function runBenchmark(
   };
 }
 
-function printHeader() {
-  console.log('Comparing parseChangeDocument against plain bson.deserialize');
-  console.log('The key comparison is "parseChangeDocument + fullDocument" vs "bson.deserialize".');
-  console.log('');
-}
-
 function printRow(values: string[]): void {
   const widths = [16, 10, 10, 38, 10, 10];
   const line = values
@@ -320,7 +314,6 @@ function printRow(values: string[]): void {
   console.log(line);
 }
 
-printHeader();
 printRow(['Scenario', 'Full doc', 'Event', 'Benchmark', 'Ops/s', 'MiB/s']);
 printRow(['--------', '--------', '-----', '---------', '-----', '-----']);
 
