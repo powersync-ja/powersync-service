@@ -1,4 +1,9 @@
-import { CompatibilityContext } from '@powersync/service-sync-rules';
+import {
+  CompatibilityContext,
+  CompatibilityEdition,
+  CompatibilityOption,
+  TimeValuePrecision
+} from '@powersync/service-sync-rules';
 import {
   Binary,
   BSON,
@@ -26,6 +31,8 @@ type ConverterCase = {
   name: string;
   buildBuffer: (placement: Placement) => Buffer;
   expected: ExpectedPlacements;
+  context?: CompatibilityContext;
+  expectedId?: (placement: Placement) => string;
 };
 
 // Serialization differs in cases between top-level values, values in arrays and values in nested documents.
@@ -224,6 +231,111 @@ const testCases: ConverterCase[] = [
 ];
 
 const INVALID_UUID_LENGTHS = [0, 1, 15, 17] as const;
+const DATE_COMPATIBILITY_CASES = [
+  {
+    name: 'legacy-edition',
+    context: CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY,
+    normal: '2023-03-06 13:47:00.000Z',
+    positiveExtended: '+010000-01-01 00:00:00.000Z',
+    negativeExtended: '-000001-12-31 23:59:59.999Z'
+  },
+  {
+    name: 'sync-streams-edition',
+    context: new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }),
+    normal: '2023-03-06T13:47:00.000Z',
+    positiveExtended: '+010000-01-01T00:00:00.000Z',
+    negativeExtended: '-000001-12-31T23:59:59.999Z'
+  },
+  {
+    name: 'compiled-streams-edition',
+    context: new CompatibilityContext({ edition: CompatibilityEdition.COMPILED_STREAMS }),
+    normal: '2023-03-06T13:47:00.000Z',
+    positiveExtended: '+010000-01-01T00:00:00.000Z',
+    negativeExtended: '-000001-12-31T23:59:59.999Z'
+  },
+  {
+    name: 'legacy-with-iso-override-enabled',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.LEGACY,
+      overrides: new Map([[CompatibilityOption.timestampsIso8601, true]])
+    }),
+    normal: '2023-03-06T13:47:00.000Z',
+    positiveExtended: '+010000-01-01T00:00:00.000Z',
+    negativeExtended: '-000001-12-31T23:59:59.999Z'
+  },
+  {
+    name: 'sync-streams-with-iso-override-disabled',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.SYNC_STREAMS,
+      overrides: new Map([[CompatibilityOption.timestampsIso8601, false]])
+    }),
+    normal: '2023-03-06 13:47:00.000Z',
+    positiveExtended: '+010000-01-01 00:00:00.000Z',
+    negativeExtended: '-000001-12-31 23:59:59.999Z'
+  },
+  {
+    name: 'sync-streams-seconds-precision',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.SYNC_STREAMS,
+      maxTimeValuePrecision: TimeValuePrecision.seconds
+    }),
+    normal: '2023-03-06T13:47:00Z',
+    positiveExtended: '+010000-01-01T00:00:00Z',
+    negativeExtended: '-000001-12-31T23:59:59Z'
+  },
+  {
+    name: 'sync-streams-milliseconds-precision',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.SYNC_STREAMS,
+      maxTimeValuePrecision: TimeValuePrecision.milliseconds
+    }),
+    normal: '2023-03-06T13:47:00.000Z',
+    positiveExtended: '+010000-01-01T00:00:00.000Z',
+    negativeExtended: '-000001-12-31T23:59:59.999Z'
+  },
+  {
+    name: 'sync-streams-microseconds-clamped',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.SYNC_STREAMS,
+      maxTimeValuePrecision: TimeValuePrecision.microseconds
+    }),
+    normal: '2023-03-06T13:47:00.000Z',
+    positiveExtended: '+010000-01-01T00:00:00.000Z',
+    negativeExtended: '-000001-12-31T23:59:59.999Z'
+  },
+  {
+    name: 'sync-streams-nanoseconds-clamped',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.SYNC_STREAMS,
+      maxTimeValuePrecision: TimeValuePrecision.nanoseconds
+    }),
+    normal: '2023-03-06T13:47:00.000Z',
+    positiveExtended: '+010000-01-01T00:00:00.000Z',
+    negativeExtended: '-000001-12-31T23:59:59.999Z'
+  },
+  {
+    name: 'legacy-with-iso-override-and-seconds',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.LEGACY,
+      overrides: new Map([[CompatibilityOption.timestampsIso8601, true]]),
+      maxTimeValuePrecision: TimeValuePrecision.seconds
+    }),
+    normal: '2023-03-06T13:47:00Z',
+    positiveExtended: '+010000-01-01T00:00:00Z',
+    negativeExtended: '-000001-12-31T23:59:59Z'
+  },
+  {
+    name: 'sync-streams-iso-disabled-ignores-precision',
+    context: new CompatibilityContext({
+      edition: CompatibilityEdition.SYNC_STREAMS,
+      overrides: new Map([[CompatibilityOption.timestampsIso8601, false]]),
+      maxTimeValuePrecision: TimeValuePrecision.seconds
+    }),
+    normal: '2023-03-06 13:47:00.000Z',
+    positiveExtended: '+010000-01-01 00:00:00.000Z',
+    negativeExtended: '-000001-12-31 23:59:59.999Z'
+  }
+] as const;
 
 for (const length of INVALID_UUID_LENGTHS) {
   testCases.push(
@@ -235,19 +347,51 @@ for (const length of INVALID_UUID_LENGTHS) {
   );
 }
 
+for (const dateCase of DATE_COMPATIBILITY_CASES) {
+  testCases.push(
+    {
+      name: `date:compat:${dateCase.name}`,
+      context: dateCase.context,
+      buildBuffer: dateBufferForPlacement,
+      expectedId: (placement) => `compatibility-date:${placement}`,
+      expected: jsonStringPlacements(dateCase.normal)
+    },
+    {
+      name: `date:+010000:compat:${dateCase.name}`,
+      context: dateCase.context,
+      buildBuffer: (placement) =>
+        serializeCaseDocument(`compatibility-date:+010000:${placement}`, placement, positiveExtendedDate),
+      expectedId: (placement) => `compatibility-date:+010000:${placement}`,
+      expected: jsonStringPlacements(dateCase.positiveExtended)
+    },
+    {
+      name: `date:-000001:compat:${dateCase.name}`,
+      context: dateCase.context,
+      buildBuffer: (placement) =>
+        serializeCaseDocument(`compatibility-date:-000001:${placement}`, placement, negativeExtendedDate),
+      expectedId: (placement) => `compatibility-date:-000001:${placement}`,
+      expected: jsonStringPlacements(dateCase.negativeExtended)
+    }
+  );
+}
+
 describe('SourceRowConverter.rawToSqliteRow expected output', () => {
   for (const parityCase of testCases) {
+    const context = parityCase.context ?? CONTEXT;
+    const defaultConverter = new DefaultSourceRowConverter(context);
+    const customConverter = new CustomSourceRowConverter(context);
+
     for (const placement of PLACEMENTS) {
       test(`default output for ${parityCase.name} as ${placementLabel(placement)}`, () => {
         expectNormalizedRow(defaultConverter, parityCase.buildBuffer(placement), {
-          _id: `${parityCase.name}:${placement}`,
+          _id: parityCase.expectedId?.(placement) ?? `${parityCase.name}:${placement}`,
           value: parityCase.expected[placement]
         });
       });
 
       test(`custom output for ${parityCase.name} as ${placementLabel(placement)}`, () => {
         expectNormalizedRow(customConverter, parityCase.buildBuffer(placement), {
-          _id: `${parityCase.name}:${placement}`,
+          _id: parityCase.expectedId?.(placement) ?? `${parityCase.name}:${placement}`,
           value: parityCase.expected[placement]
         });
       });
@@ -702,6 +846,10 @@ function rawCase(name: string, type: number, payload: Buffer, expected: Expected
     buildBuffer: (placement) => rawCaseDocument(`${name}:${placement}`, placement, type, payload),
     expected
   };
+}
+
+function dateBufferForPlacement(placement: Placement): Buffer {
+  return serializeCaseDocument(`compatibility-date:${placement}`, placement, normalDate);
 }
 
 function normalize(value: unknown): unknown {

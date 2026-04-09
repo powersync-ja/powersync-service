@@ -1,5 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { SqliteRow } from '@powersync/service-sync-rules';
+import {
+  CompatibilityContext,
+  CompatibilityOption,
+  DateTimeSourceOptions,
+  DateTimeValue,
+  SqliteRow,
+  TimeValuePrecision
+} from '@powersync/service-sync-rules';
 import {
   BYTE_COLON,
   BYTE_COMMA,
@@ -8,6 +15,8 @@ import {
   BYTE_ONE,
   BYTE_RBRACE,
   BYTE_RBRACKET,
+  BYTE_SPACE,
+  BYTE_T,
   BYTE_ZERO,
   JsonBufferWriter
 } from './JsonBufferWriter.js';
@@ -38,13 +47,19 @@ const BSON_TYPE_MAX_KEY = 0x7f;
 const BSON_BINARY_SUBTYPE_BYTE_ARRAY = 2;
 const BSON_BINARY_SUBTYPE_UUID = 4;
 
+export const enum DateRenderMode {
+  LEGACY_MILLISECONDS,
+  ISO_MILLISECONDS,
+  ISO_SECONDS
+}
+
 // We use a single shared write, to avoid repeatedly re-allocating buffers.
 // Since this is only used in a synchronous call, this is safe.
 // This never releases memory once a large buffer has been allocated, but that is fine
 // for replication use.
 const SHARED_WRITER = new JsonBufferWriter();
 
-export function bufferToSqlite(bytes: Buffer): SqliteRow {
+export function bufferToSqlite(bytes: Buffer, dateRenderMode: DateRenderMode): SqliteRow {
   const row: SqliteRow = {};
   const jsonWriter = SHARED_WRITER;
   // BSON documents are length-prefixed and null-terminated. We parse directly
@@ -73,14 +88,14 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
       }
       case BSON_TYPE_ARRAY: {
         jsonWriter.reset();
-        const result = serializeNestedArrayToJson(bytes, offset, 0, jsonWriter);
+        const result = serializeNestedArrayToJson(bytes, offset, 0, jsonWriter, dateRenderMode);
         row[key] = jsonWriter.toString();
         offset = result.nextOffset;
         break;
       }
       case BSON_TYPE_DOCUMENT: {
         jsonWriter.reset();
-        const result = serializeNestedObjectToJson(bytes, offset, 0, jsonWriter);
+        const result = serializeNestedObjectToJson(bytes, offset, 0, jsonWriter, dateRenderMode);
         row[key] = jsonWriter.toString();
         offset = result.nextOffset;
         break;
@@ -92,7 +107,7 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
       case BSON_TYPE_UTC_DATETIME: {
         // Even though this is not JSON, we use the same JSON writer for this.
         jsonWriter.reset();
-        appendLegacyDateTimeToWriter(jsonWriter, Number(bytes.readBigInt64LE(offset)), false);
+        appendDateTimeToWriter(jsonWriter, Number(bytes.readBigInt64LE(offset)), false, dateRenderMode);
         row[key] = jsonWriter.toString();
         offset += 8;
         break;
@@ -156,7 +171,7 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
       }
       case BSON_TYPE_CODE_WITH_SCOPE: {
         jsonWriter.reset();
-        const nextOffset = writeCodeWithScopeJson(bytes, offset, 0, jsonWriter);
+        const nextOffset = writeCodeWithScopeJson(bytes, offset, 0, jsonWriter, dateRenderMode);
         row[key] = jsonWriter.toString();
         offset = nextOffset;
         break;
@@ -385,7 +400,8 @@ function serializeNestedObjectToJson(
   bytes: Buffer,
   offset: number,
   depth: number,
-  writer: JsonBufferWriter
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
 ): { nextOffset: number } {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
@@ -412,7 +428,14 @@ function serializeNestedObjectToJson(
     writer.writeByte(BYTE_COLON);
     cursor = keyEnd + 1;
 
-    const { nextOffset: afterValue, defined } = serializeNestedElementValue(bytes, cursor, type, depth, writer);
+    const { nextOffset: afterValue, defined } = serializeNestedElementValue(
+      bytes,
+      cursor,
+      type,
+      depth,
+      writer,
+      dateRenderMode
+    );
     cursor = afterValue;
     // Malformed BSON must fail fast instead of getting the parser stuck on the
     // same element forever.
@@ -434,7 +457,8 @@ function serializeNestedArrayToJson(
   bytes: Buffer,
   offset: number,
   depth: number,
-  writer: JsonBufferWriter
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
 ): { nextOffset: number } {
   if (depth > NESTED_DEPTH_LIMIT) {
     throw new Error(`json nested object depth exceeds the limit of ${NESTED_DEPTH_LIMIT}`);
@@ -456,7 +480,14 @@ function serializeNestedArrayToJson(
     }
     first = false;
 
-    const { nextOffset: afterValue, defined } = serializeNestedElementValue(bytes, cursor, type, depth, writer);
+    const { nextOffset: afterValue, defined } = serializeNestedElementValue(
+      bytes,
+      cursor,
+      type,
+      depth,
+      writer,
+      dateRenderMode
+    );
     cursor = afterValue;
     assertAdvanced(previousCursor, cursor);
 
@@ -474,7 +505,8 @@ function serializeNestedElementValue(
   offset: number,
   type: number,
   depth: number,
-  writer: JsonBufferWriter
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
 ): { nextOffset: number; defined: boolean } {
   switch (type) {
     case BSON_TYPE_DOUBLE: // Double
@@ -482,9 +514,9 @@ function serializeNestedElementValue(
     case BSON_TYPE_STRING: // String
       return serializeNestedStringElement(bytes, offset, writer);
     case BSON_TYPE_DOCUMENT: // Embedded document
-      return serializeNestedObjectElement(bytes, offset, depth, writer);
+      return serializeNestedObjectElement(bytes, offset, depth, writer, dateRenderMode);
     case BSON_TYPE_ARRAY: // Array
-      return serializeNestedArrayElement(bytes, offset, depth, writer);
+      return serializeNestedArrayElement(bytes, offset, depth, writer, dateRenderMode);
     case BSON_TYPE_BINARY: // Binary
       return serializeNestedBinaryElement(bytes, offset, writer);
     case BSON_TYPE_UNDEFINED: // Undefined
@@ -498,7 +530,7 @@ function serializeNestedElementValue(
       writer.writeByte(bytes[offset] ? BYTE_ONE : BYTE_ZERO);
       return { nextOffset: offset + 1, defined: true };
     case BSON_TYPE_UTC_DATETIME: // UTC datetime
-      return serializeNestedDateTimeElement(bytes, offset, writer);
+      return serializeNestedDateTimeElement(bytes, offset, writer, dateRenderMode);
     case BSON_TYPE_NULL: // Null
     case BSON_TYPE_MIN_KEY: // MinKey
     case BSON_TYPE_MAX_KEY: // MaxKey
@@ -513,7 +545,7 @@ function serializeNestedElementValue(
     case BSON_TYPE_SYMBOL: // Symbol
       return serializeNestedSymbolElement(bytes, offset, writer);
     case BSON_TYPE_CODE_WITH_SCOPE: // JavaScript code with scope
-      return serializeNestedCodeWithScopeElement(bytes, offset, depth, writer);
+      return serializeNestedCodeWithScopeElement(bytes, offset, depth, writer, dateRenderMode);
     case BSON_TYPE_INT32: {
       // Int32
       writer.writeAscii(String(readInt32LE(bytes, offset)));
@@ -567,9 +599,10 @@ function serializeNestedObjectElement(
   bytes: Buffer,
   offset: number,
   depth: number,
-  writer: JsonBufferWriter
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
 ): { nextOffset: number; defined: boolean } {
-  const result = serializeNestedObjectToJson(bytes, offset, depth + 1, writer);
+  const result = serializeNestedObjectToJson(bytes, offset, depth + 1, writer, dateRenderMode);
   return { nextOffset: result.nextOffset, defined: true };
 }
 
@@ -577,18 +610,20 @@ function serializeNestedArrayElement(
   bytes: Buffer,
   offset: number,
   depth: number,
-  writer: JsonBufferWriter
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
 ): { nextOffset: number; defined: boolean } {
-  const result = serializeNestedArrayToJson(bytes, offset, depth + 1, writer);
+  const result = serializeNestedArrayToJson(bytes, offset, depth + 1, writer, dateRenderMode);
   return { nextOffset: result.nextOffset, defined: true };
 }
 
 function serializeNestedDateTimeElement(
   bytes: Buffer,
   offset: number,
-  writer: JsonBufferWriter
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
 ): { nextOffset: number; defined: boolean } {
-  appendLegacyDateTimeToWriter(writer, Number(bytes.readBigInt64LE(offset)), true);
+  appendDateTimeToWriter(writer, Number(bytes.readBigInt64LE(offset)), true, dateRenderMode);
   return { nextOffset: offset + 8, defined: true };
 }
 
@@ -603,15 +638,60 @@ function serializeNestedRegexElement(
 }
 
 /**
+ * KLUDGE: The DateTimeValue API needs a CompatibilityContext, but we don't want to pass that
+ * around through the entire stack when the DateRenderMode encapsulates it.
+ *
+ * This translates back from DateRenderMode to CompatibilityContext.
+ */
+const DATETIME_COMPATIBILITY_OPTIONS: Record<DateRenderMode, CompatibilityContext> = {
+  [DateRenderMode.LEGACY_MILLISECONDS]: CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY,
+  [DateRenderMode.ISO_MILLISECONDS]: new CompatibilityContext({
+    edition: 2,
+    maxTimeValuePrecision: TimeValuePrecision.milliseconds
+  }),
+  [DateRenderMode.ISO_SECONDS]: new CompatibilityContext({
+    edition: 2,
+    maxTimeValuePrecision: TimeValuePrecision.seconds
+  })
+};
+
+const MONGO_TIME_OPTIONS: DateTimeSourceOptions = {
+  subSecondPrecision: TimeValuePrecision.milliseconds,
+  defaultSubSecondPrecision: TimeValuePrecision.milliseconds
+};
+
+/**
  * Fallback date serialization.
  *
  * This is slow, but handles edge cases.
  */
-function legacyExtendedDateTimeString(date: Date): string {
-  return date.toISOString().replace('T', ' ');
+function extendedDateTimeString(millis: number, dateRenderMode: DateRenderMode): string {
+  const isoString = new Date(millis).toISOString();
+  const compatibilityContext = DATETIME_COMPATIBILITY_OPTIONS[dateRenderMode];
+  return new DateTimeValue(isoString, undefined, MONGO_TIME_OPTIONS).toSqliteValue(compatibilityContext) as string;
 }
 
-function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number, quoted: boolean) {
+export function getDateRenderMode(compatibilityContext: CompatibilityContext): DateRenderMode {
+  if (!compatibilityContext.isEnabled(CompatibilityOption.timestampsIso8601)) {
+    return DateRenderMode.LEGACY_MILLISECONDS;
+  }
+
+  const maxPrecision = compatibilityContext.maxTimeValuePrecision ?? TimeValuePrecision.milliseconds;
+  if (maxPrecision === TimeValuePrecision.seconds) {
+    return DateRenderMode.ISO_SECONDS;
+  }
+
+  // MongoDB only supports millisecond precision, so this also convers configured values of
+  // microseconds and nanoseconds.
+  return DateRenderMode.ISO_MILLISECONDS;
+}
+
+function appendDateTimeToWriter(
+  writer: JsonBufferWriter,
+  millis: number,
+  quoted: boolean,
+  dateRenderMode: DateRenderMode
+) {
   const date = SHARED_UTC_DATE;
   date.setTime(millis);
 
@@ -622,7 +702,7 @@ function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number, 
   const year = date.getUTCFullYear();
   if (year < 0 || year > 9999) {
     // Abnormal date ranges. We support these, but don't optimize for performance.
-    const string = legacyExtendedDateTimeString(date);
+    const string = extendedDateTimeString(millis, dateRenderMode);
     if (quoted) {
       writer.writeQuotedJsonString(string);
     } else {
@@ -631,7 +711,7 @@ function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number, 
     return;
   }
 
-  writer.writeLegacyDateTime(
+  writer.writeDateTime(
     year,
     date.getUTCMonth() + 1,
     date.getUTCDate(),
@@ -639,7 +719,9 @@ function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number, 
     date.getUTCMinutes(),
     date.getUTCSeconds(),
     date.getUTCMilliseconds(),
-    quoted
+    quoted,
+    dateRenderMode === DateRenderMode.LEGACY_MILLISECONDS ? BYTE_SPACE : BYTE_T,
+    dateRenderMode !== DateRenderMode.ISO_SECONDS
   );
 }
 
@@ -663,13 +745,19 @@ function writeCodeJson(bytes: Buffer, offset: number, depth: number, writer: Jso
   return nextOffset;
 }
 
-function writeCodeWithScopeJson(bytes: Buffer, offset: number, depth: number, writer: JsonBufferWriter) {
+function writeCodeWithScopeJson(
+  bytes: Buffer,
+  offset: number,
+  depth: number,
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
+) {
   const totalLength = readInt32LE(bytes, offset);
   const { value: code, nextOffset: afterCode } = readBsonString(bytes, offset + 4);
   writer.writeAscii('{"code":');
   writer.writeQuotedJsonString(code);
   writer.writeAscii(',"scope":');
-  serializeNestedObjectToJson(bytes, afterCode, depth + 1, writer);
+  serializeNestedObjectToJson(bytes, afterCode, depth + 1, writer, dateRenderMode);
   writer.writeByte(BYTE_RBRACE);
   // code_w_scope carries its own total byte length, so we trust that wrapper
   // rather than reconstructing the end position from the nested scope.
@@ -748,7 +836,11 @@ function serializeNestedCodeWithScopeElement(
   bytes: Buffer,
   offset: number,
   depth: number,
-  writer: JsonBufferWriter
+  writer: JsonBufferWriter,
+  dateRenderMode: DateRenderMode
 ): { nextOffset: number; defined: boolean } {
-  return { nextOffset: writeCodeWithScopeJson(bytes, offset, depth, writer), defined: true };
+  return {
+    nextOffset: writeCodeWithScopeJson(bytes, offset, depth, writer, dateRenderMode),
+    defined: true
+  };
 }
