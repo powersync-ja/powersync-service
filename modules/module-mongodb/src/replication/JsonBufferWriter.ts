@@ -284,6 +284,26 @@ export class JsonBufferWriter {
     this.buffer[this.length++] = BYTE_DQUOTE;
   }
 
+  /**
+   * Quote and write 16 UUID bytes in canonical lower-case form.
+   */
+  writeQuotedUuid(bytes: Buffer, start: number) {
+    this.ensureCapacity(38);
+    const buffer = this.buffer;
+    let length = this.length;
+    buffer[length++] = BYTE_DQUOTE;
+    for (let index = 0; index < 16; index++) {
+      if (index === 4 || index === 6 || index === 8 || index === 10) {
+        buffer[length++] = BYTE_DASH;
+      }
+      const value = bytes[start + index];
+      buffer[length++] = HEX_LOWER_BYTES[value >> 4];
+      buffer[length++] = HEX_LOWER_BYTES[value & 0x0f];
+    }
+    buffer[length++] = BYTE_DQUOTE;
+    this.length = length;
+  }
+
   private ensureCapacity(extra: number) {
     const required = this.length + extra;
     if (required <= this.buffer.length) {
