@@ -1,5 +1,25 @@
 # @powersync/service-module-postgres
 
+## 0.19.4
+
+### Patch Changes
+
+- 41875f7: Detect WAL slot invalidation mid-snapshot, warn on WAL budget depletion, block futile retries, and surface WAL budget in the diagnostics API.
+- 89020fe: Optimize Postgres validation checks to use fewer round-trips.
+- Updated dependencies [41875f7]
+- Updated dependencies [afc9890]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [4611a49]
+- Updated dependencies [b6a7896]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [756746c]
+  - @powersync/service-types@0.15.1
+  - @powersync/service-core@1.20.5
+  - @powersync/lib-services-framework@0.9.3
+  - @powersync/service-sync-rules@0.35.0
+  - @powersync/lib-service-postgres@0.4.26
+  - @powersync/service-jpgwire@0.21.17
+
 ## 0.19.3
 
 ### Patch Changes

@@ -1,5 +1,25 @@
 # @powersync/service-module-postgres-storage
 
+## 0.13.4
+
+### Patch Changes
+
+- b6a7896: Report errors from compiled sync plans.
+- 756746c: Fix PSYNC_S2305 logging when parameter limit is exceeded.
+- Updated dependencies [41875f7]
+- Updated dependencies [afc9890]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [4611a49]
+- Updated dependencies [b6a7896]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [756746c]
+  - @powersync/service-types@0.15.1
+  - @powersync/service-core@1.20.5
+  - @powersync/lib-services-framework@0.9.3
+  - @powersync/service-sync-rules@0.35.0
+  - @powersync/lib-service-postgres@0.4.26
+  - @powersync/service-jpgwire@0.21.17
+
 ## 0.13.3
 
 ### Patch Changes
