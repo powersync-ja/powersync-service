@@ -1,5 +1,23 @@
 # @powersync/service-core
 
+## 1.20.5
+
+### Patch Changes
+
+- 41875f7: Detect WAL slot invalidation mid-snapshot, warn on WAL budget depletion, block futile retries, and surface WAL budget in the diagnostics API.
+- b6a7896: Report errors from compiled sync plans.
+- 2b72c2a: Prevent premature `partial_checkpoint_complete` lines for Sync Stream subscriptions with custom priorities. These would cause checksum errors before.
+- 756746c: Fix PSYNC_S2305 logging when parameter limit is exceeded.
+- Updated dependencies [41875f7]
+- Updated dependencies [afc9890]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [4611a49]
+- Updated dependencies [756746c]
+  - @powersync/service-types@0.15.1
+  - @powersync/lib-services-framework@0.9.3
+  - @powersync/service-sync-rules@0.35.0
+  - @powersync/service-rsocket-router@0.2.19
+
 ## 1.20.4
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @powersync/service-sync-rules
 
+## 0.35.0
+
+### Minor Changes
+
+- 2b72c2a: Require `priorityOverride` when requesting streams, return priority in queried buckets.
+
+### Patch Changes
+
+- 4611a49: Sync streams: Fix allowed function mismatch between compiler and evaluator. This turns crashes on unsupported functions into warnings.
+
 ## 0.34.1
 
 ### Patch Changes
