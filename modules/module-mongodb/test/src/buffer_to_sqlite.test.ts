@@ -28,6 +28,8 @@ type ConverterCase = {
   expected: ExpectedPlacements;
 };
 
+// Serialization differs in cases between top-level values, values in arrays and values in nested documents.
+// We test each one.
 const PLACEMENTS: Placement[] = ['top', 'array', 'nested'];
 const CONTEXT = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 const defaultConverter = new DefaultSourceRowConverter(CONTEXT);

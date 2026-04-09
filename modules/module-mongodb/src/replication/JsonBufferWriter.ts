@@ -1,5 +1,26 @@
 const JSON_BUFFER_INITIAL_CAPACITY = 1024 * 1024;
 const HEX_LOWER_BYTES = Buffer.from('0123456789abcdef', 'ascii');
+export const BYTE_DQUOTE = 0x22; // "
+export const BYTE_BACKSLASH = 0x5c; // \
+export const BYTE_BACKSPACE = 0x08; // \b
+export const BYTE_TAB = 0x09; // \t
+export const BYTE_NEWLINE = 0x0a; // \n
+export const BYTE_FORM_FEED = 0x0c; // \f
+export const BYTE_CARRIAGE_RETURN = 0x0d; // \r
+export const BYTE_LBRACE = 0x7b; // {
+export const BYTE_RBRACE = 0x7d; // }
+export const BYTE_LBRACKET = 0x5b; // [
+export const BYTE_RBRACKET = 0x5d; // ]
+export const BYTE_COMMA = 0x2c; // ,
+export const BYTE_COLON = 0x3a; // :
+export const BYTE_ZERO = 0x30; // 0
+export const BYTE_ONE = 0x31; // 1
+const BYTE_B = 0x62; // b
+const BYTE_T = 0x74; // t
+const BYTE_N = 0x6e; // n
+const BYTE_F = 0x66; // f
+const BYTE_R = 0x72; // r
+const BYTE_U = 0x75; // u
 
 /**
  * Low-level class to generate JSON.
@@ -71,7 +92,7 @@ export class JsonBufferWriter {
    * Quote and write a string, escaping characters as needed.
    */
   writeQuotedJsonString(text: string) {
-    this.writeByte(0x22);
+    this.writeByte(BYTE_DQUOTE);
     let start = 0;
 
     for (let i = 0; i < text.length; i++) {
@@ -79,25 +100,25 @@ export class JsonBufferWriter {
       let escaped: string | undefined;
 
       switch (ch) {
-        case 0x22:
+        case BYTE_DQUOTE:
           escaped = '\\"';
           break;
-        case 0x5c:
+        case BYTE_BACKSLASH:
           escaped = '\\\\';
           break;
-        case 0x08:
+        case BYTE_BACKSPACE:
           escaped = '\\b';
           break;
-        case 0x09:
+        case BYTE_TAB:
           escaped = '\\t';
           break;
-        case 0x0a:
+        case BYTE_NEWLINE:
           escaped = '\\n';
           break;
-        case 0x0c:
+        case BYTE_FORM_FEED:
           escaped = '\\f';
           break;
-        case 0x0d:
+        case BYTE_CARRIAGE_RETURN:
           escaped = '\\r';
           break;
         default:
@@ -121,7 +142,7 @@ export class JsonBufferWriter {
       this.writeUtf8(text.slice(start));
     }
 
-    this.writeByte(0x22);
+    this.writeByte(BYTE_DQUOTE);
   }
 
   /**
@@ -135,7 +156,7 @@ export class JsonBufferWriter {
     let firstEscape = -1;
     for (let index = start; index < end; index++) {
       const value = bytes[index];
-      if (value < 0x20 || value === 0x22 || value === 0x5c) {
+      if (value < 0x20 || value === BYTE_DQUOTE || value === BYTE_BACKSLASH) {
         firstEscape = index;
         break;
       }
@@ -146,12 +167,12 @@ export class JsonBufferWriter {
     let buffer = this.buffer;
     let length = this.length;
 
-    buffer[length++] = 0x22;
+    buffer[length++] = BYTE_DQUOTE;
 
     if (firstEscape < 0) {
       bytes.copy(buffer, length, start, end);
       length += rawLength;
-      buffer[length++] = 0x22;
+      buffer[length++] = BYTE_DQUOTE;
       this.length = length;
       return;
     }
@@ -164,7 +185,7 @@ export class JsonBufferWriter {
     let chunkStart = firstEscape;
     for (let index = firstEscape; index < end; index++) {
       const value = bytes[index];
-      if (value >= 0x20 && value !== 0x22 && value !== 0x5c) {
+      if (value >= 0x20 && value !== BYTE_DQUOTE && value !== BYTE_BACKSLASH) {
         continue;
       }
 
@@ -180,39 +201,39 @@ export class JsonBufferWriter {
       }
 
       switch (value) {
-        case 0x22:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x22;
+        case BYTE_DQUOTE:
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_DQUOTE;
           break;
-        case 0x5c:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x5c;
+        case BYTE_BACKSLASH:
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_BACKSLASH;
           break;
-        case 0x08:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x62;
+        case BYTE_BACKSPACE:
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_B;
           break;
-        case 0x09:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x74;
+        case BYTE_TAB:
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_T;
           break;
-        case 0x0a:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x6e;
+        case BYTE_NEWLINE:
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_N;
           break;
-        case 0x0c:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x66;
+        case BYTE_FORM_FEED:
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_F;
           break;
-        case 0x0d:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x72;
+        case BYTE_CARRIAGE_RETURN:
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_R;
           break;
         default:
-          buffer[length++] = 0x5c;
-          buffer[length++] = 0x75;
-          buffer[length++] = 0x30;
-          buffer[length++] = 0x30;
+          buffer[length++] = BYTE_BACKSLASH;
+          buffer[length++] = BYTE_U;
+          buffer[length++] = BYTE_ZERO;
+          buffer[length++] = BYTE_ZERO;
           buffer[length++] = HEX_LOWER_BYTES[value >> 4];
           buffer[length++] = HEX_LOWER_BYTES[value & 0x0f];
           break;
@@ -232,24 +253,22 @@ export class JsonBufferWriter {
       buffer = this.buffer;
     }
 
-    buffer[length++] = 0x22;
+    buffer[length++] = BYTE_DQUOTE;
     this.length = length;
   }
 
   /**
-   * Write bytes as hex.
-   *
-   * This does not add any quotes - the caller is responsible for that.
+   * Quote and write bytes as hex.
    */
   writeQuotedHexLower(bytes: Buffer, start: number, length: number) {
     this.ensureCapacity(length * 2 + 2);
-    this.buffer[this.length++] = 0x22;
+    this.buffer[this.length++] = BYTE_DQUOTE;
     for (let index = start; index < start + length; index++) {
       const value = bytes[index];
       this.buffer[this.length++] = HEX_LOWER_BYTES[value >> 4];
       this.buffer[this.length++] = HEX_LOWER_BYTES[value & 0x0f];
     }
-    this.buffer[this.length++] = 0x22;
+    this.buffer[this.length++] = BYTE_DQUOTE;
   }
 
   private ensureCapacity(extra: number) {
