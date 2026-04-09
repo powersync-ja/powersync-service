@@ -13,8 +13,6 @@ import {
 } from './JsonBufferWriter.js';
 
 const NESTED_DEPTH_LIMIT = 20;
-const TWO_DIGITS = Array.from({ length: 100 }, (_value, index) => index.toString().padStart(2, '0'));
-const THREE_DIGITS = Array.from({ length: 1000 }, (_value, index) => index.toString().padStart(3, '0'));
 const SHARED_UTC_DATE = new Date(0);
 const BSON_TYPE_DOUBLE = 0x01;
 const BSON_TYPE_STRING = 0x02;
@@ -92,7 +90,10 @@ export function bufferToSqlite(bytes: Buffer): SqliteRow {
         break;
       }
       case BSON_TYPE_UTC_DATETIME: {
-        row[key] = legacyDateTimeString(Number(bytes.readBigInt64LE(offset)));
+        // Even though this is not JSON, we use the same JSON writer for this.
+        jsonWriter.reset();
+        appendLegacyDateTimeToWriter(jsonWriter, Number(bytes.readBigInt64LE(offset)), false);
+        row[key] = jsonWriter.toString();
         offset += 8;
         break;
       }
@@ -587,7 +588,7 @@ function serializeNestedDateTimeElement(
   offset: number,
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
-  appendLegacyDateTimeToWriter(writer, Number(bytes.readBigInt64LE(offset)));
+  appendLegacyDateTimeToWriter(writer, Number(bytes.readBigInt64LE(offset)), true);
   return { nextOffset: offset + 8, defined: true };
 }
 
@@ -601,40 +602,18 @@ function serializeNestedRegexElement(
   return { nextOffset, defined: true };
 }
 
-function legacyDateTimeString(millis: number) {
-  SHARED_UTC_DATE.setTime(millis);
-  const date = SHARED_UTC_DATE;
-
-  if (Number.isNaN(date.getTime())) {
-    throw new RangeError('Invalid time value');
-  }
-
-  const year = date.getUTCFullYear();
-  if (year < 0 || year > 9999) {
-    return date.toISOString().replace('T', ' ');
-  }
-
-  return (
-    String(year).padStart(4, '0') +
-    '-' +
-    TWO_DIGITS[date.getUTCMonth() + 1] +
-    '-' +
-    TWO_DIGITS[date.getUTCDate()] +
-    ' ' +
-    TWO_DIGITS[date.getUTCHours()] +
-    ':' +
-    TWO_DIGITS[date.getUTCMinutes()] +
-    ':' +
-    TWO_DIGITS[date.getUTCSeconds()] +
-    '.' +
-    THREE_DIGITS[date.getUTCMilliseconds()] +
-    'Z'
-  );
+/**
+ * Fallback date serialization.
+ *
+ * This is slow, but handles edge cases.
+ */
+function legacyExtendedDateTimeString(date: Date): string {
+  return date.toISOString().replace('T', ' ');
 }
 
-function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number) {
-  SHARED_UTC_DATE.setTime(millis);
+function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number, quoted: boolean) {
   const date = SHARED_UTC_DATE;
+  date.setTime(millis);
 
   if (Number.isNaN(date.getTime())) {
     throw new RangeError('Invalid time value');
@@ -642,8 +621,13 @@ function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number) 
 
   const year = date.getUTCFullYear();
   if (year < 0 || year > 9999) {
-    // Fall back to slower approach
-    writer.writeQuotedJsonString(legacyDateTimeString(millis));
+    // Abnormal date ranges. We support these, but don't optimize for performance.
+    const string = legacyExtendedDateTimeString(date);
+    if (quoted) {
+      writer.writeQuotedJsonString(string);
+    } else {
+      writer.writeUtf8(string);
+    }
     return;
   }
 
@@ -654,7 +638,8 @@ function appendLegacyDateTimeToWriter(writer: JsonBufferWriter, millis: number) 
     date.getUTCHours(),
     date.getUTCMinutes(),
     date.getUTCSeconds(),
-    date.getUTCMilliseconds()
+    date.getUTCMilliseconds(),
+    quoted
   );
 }
 
