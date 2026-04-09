@@ -67,11 +67,8 @@ const testCases: ConverterCase[] = [
   serializableCase('date:+010000', positiveExtendedDate, jsonStringPlacements('+010000-01-01 00:00:00.000Z')),
   serializableCase('date:-000001', negativeExtendedDate, jsonStringPlacements('-000001-12-31 23:59:59.999Z')),
   serializableCase('null', null, placements(null, '[null]', '{"nested":null}')),
-  serializableCase(
-    'regex',
-    new BSONRegExp('a\\s+"b"', 'ims'),
-    jsonTextPlacements('{"pattern":"a\\\\s+\\"b\\"","options":"gim"}')
-  ),
+  serializableCase('regex:flags:i', new BSONRegExp('a', 'i'), jsonTextPlacements('{"pattern":"a","options":"i"}')),
+  serializableCase('regex:flags:m', new BSONRegExp('a', 'm'), jsonTextPlacements('{"pattern":"a","options":"m"}')),
   rawCase('undefined', 0x06, Buffer.alloc(0), placements(null, '[null]', '{}')),
   serializableCase('code', new Code('return 1;'), jsonTextPlacements('{"code":"return 1;","scope":null}')),
   serializableCase('symbol', new BSONSymbol('sym'), jsonStringPlacements('sym')),
@@ -214,6 +211,146 @@ describe('SourceRowConverter.rawToSqliteRow expected output', () => {
         value: depth21Expected
       }
     );
+  });
+});
+
+describe('SourceRowConverter.rawToSqliteRow regex option preservation', () => {
+  // These cases intentionally diverge from the default implementation:
+  // The default implementation parsed to a JS-compatible RegExp, converting
+  // some options such as s -> g, and failing hard on some invalid cases such as "ii".
+  // The custom implementation preserves options as-is, even when invalid according to the BSON spec.
+  const regexFlagDivergenceCases = [
+    {
+      name: 'regex',
+      value: new BSONRegExp('a\\s+"b"', 'ims'),
+      defaultExpected: jsonTextPlacements('{"pattern":"a\\\\s+\\"b\\"","options":"gim"}'),
+      customExpected: jsonTextPlacements('{"pattern":"a\\\\s+\\"b\\"","options":"ims"}')
+    },
+    {
+      name: 'regex:flags:s',
+      value: new BSONRegExp('a', 's'),
+      defaultExpected: jsonTextPlacements('{"pattern":"a","options":"g"}'),
+      customExpected: jsonTextPlacements('{"pattern":"a","options":"s"}')
+    },
+    {
+      name: 'regex:flags:x',
+      value: new BSONRegExp('a', 'x'),
+      defaultExpected: jsonTextPlacements('{"pattern":"a","options":""}'),
+      customExpected: jsonTextPlacements('{"pattern":"a","options":"x"}')
+    },
+    {
+      name: 'regex:flags:u',
+      value: new BSONRegExp('a', 'u'),
+      defaultExpected: jsonTextPlacements('{"pattern":"a","options":""}'),
+      customExpected: jsonTextPlacements('{"pattern":"a","options":"u"}')
+    },
+    {
+      name: 'regex:flags:imsxu',
+      value: new BSONRegExp('a', 'imsxu'),
+      defaultExpected: jsonTextPlacements('{"pattern":"a","options":"gim"}'),
+      customExpected: jsonTextPlacements('{"pattern":"a","options":"imsux"}')
+    }
+  ] as const;
+
+  for (const regexCase of regexFlagDivergenceCases) {
+    for (const placement of PLACEMENTS) {
+      test(`${regexCase.name} preserves BSON regex options on custom converter as ${placementLabel(placement)}`, () => {
+        const source = serializeCaseDocument(`${regexCase.name}:${placement}`, placement, regexCase.value);
+
+        // Parity is intentionally not expected here. The default path converts BSON regexes
+        // through JS RegExp.flags, while the raw path preserves the BSON option string as-is.
+        expectNormalizedRow(defaultConverter, source, {
+          _id: `${regexCase.name}:${placement}`,
+          value: regexCase.defaultExpected[placement]
+        });
+        expectNormalizedRow(customConverter, source, {
+          _id: `${regexCase.name}:${placement}`,
+          value: regexCase.customExpected[placement]
+        });
+      });
+    }
+  }
+
+  const rawRegexEscapingCases = [
+    {
+      name: 'regex:raw:quote-and-backslash-options',
+      pattern: 'a"b\\c\n\t☃',
+      options: 'i"\\x',
+      defaultExpected: placements(
+        '{"pattern":"a\\"b\\\\c\\\\n\\t☃","options":"i"}',
+        '[{"pattern":"a\\"b\\\\c\\\\n\\t☃","options":"i"}]',
+        '{"nested":{"pattern":"a\\"b\\\\c\\\\n\\t☃","options":"i"}}'
+      ),
+      customExpected: placements(
+        '{"pattern":"a\\"b\\\\c\\n\\t☃","options":"i\\"\\\\x"}',
+        '[{"pattern":"a\\"b\\\\c\\n\\t☃","options":"i\\"\\\\x"}]',
+        '{"nested":{"pattern":"a\\"b\\\\c\\n\\t☃","options":"i\\"\\\\x"}}'
+      )
+    },
+    {
+      name: 'regex:raw:quoted-options-only',
+      pattern: 'line1\nline2\t"q"',
+      options: '"\\',
+      defaultExpected: placements(
+        '{"pattern":"line1\\\\nline2\\t\\"q\\"","options":""}',
+        '[{"pattern":"line1\\\\nline2\\t\\"q\\"","options":""}]',
+        '{"nested":{"pattern":"line1\\\\nline2\\t\\"q\\"","options":""}}'
+      ),
+      customExpected: placements(
+        '{"pattern":"line1\\nline2\\t\\"q\\"","options":"\\"\\\\"}',
+        '[{"pattern":"line1\\nline2\\t\\"q\\"","options":"\\"\\\\"}]',
+        '{"nested":{"pattern":"line1\\nline2\\t\\"q\\"","options":"\\"\\\\"}}'
+      )
+    }
+  ] as const;
+
+  for (const regexCase of rawRegexEscapingCases) {
+    for (const placement of PLACEMENTS) {
+      test(`${regexCase.name} escapes special characters correctly as ${placementLabel(placement)}`, () => {
+        const source = rawCaseDocument(
+          `${regexCase.name}:${placement}`,
+          placement,
+          0x0b,
+          Buffer.concat([cstring(regexCase.pattern), cstring(regexCase.options)])
+        );
+
+        // Parity is intentionally not expected here. The default path normalizes
+        // regex options through JS RegExp semantics, while the raw path preserves
+        // the literal BSON option string and must still JSON-escape it correctly.
+        expectNormalizedRow(defaultConverter, source, {
+          _id: `${regexCase.name}:${placement}`,
+          value: regexCase.defaultExpected[placement]
+        });
+        expectNormalizedRow(customConverter, source, {
+          _id: `${regexCase.name}:${placement}`,
+          value: regexCase.customExpected[placement]
+        });
+      });
+    }
+  }
+
+  test('unsupported BSON regex flag is preserved only on the custom raw converter', () => {
+    const source = rawCaseDocument('regex:invalid:z', 'top', 0x0b, Buffer.concat([cstring('a'), cstring('z')]));
+
+    expectNormalizedRow(defaultConverter, source, {
+      _id: 'regex:invalid:z',
+      value: '{"pattern":"a","options":""}'
+    });
+    expectNormalizedRow(customConverter, source, {
+      _id: 'regex:invalid:z',
+      value: '{"pattern":"a","options":"z"}'
+    });
+  });
+
+  test('duplicate BSON regex flags are preserved only on the custom raw converter', () => {
+    const source = rawCaseDocument('regex:invalid:ii', 'top', 0x0b, Buffer.concat([cstring('a'), cstring('ii')]));
+
+    expectRowFailure(defaultConverter, source, "Invalid flags supplied to RegExp constructor 'ii'");
+    // The raw converter preserves the BSON option string even when it is not valid JS RegExp flags.
+    expectNormalizedRow(customConverter, source, {
+      _id: 'regex:invalid:ii',
+      value: '{"pattern":"a","options":"ii"}'
+    });
   });
 });
 
@@ -423,6 +560,17 @@ function captureRow(converter: DefaultSourceRowConverter | CustomSourceRowConver
   } catch (error) {
     return { ok: false, message: errorMessage(error) };
   }
+}
+
+function expectRowFailure(
+  converter: DefaultSourceRowConverter | CustomSourceRowConverter,
+  source: Buffer,
+  message: string
+) {
+  expect(captureRow(converter, source)).toEqual({
+    ok: false,
+    message
+  });
 }
 
 function captureOutput(converter: DefaultSourceRowConverter | CustomSourceRowConverter, source: Buffer): OutputCapture {
