@@ -291,6 +291,13 @@ function deepNestedObject(depth: number): unknown {
 
 const rawParityCases: ConverterCase[] = [
   serializableCase('double', new Double(1.25), placements(1.25, '[1.25]', '{"nested":1.25}')),
+  serializableCase('double:nan', new Double(NaN), placements(NaN, '[null]', '{"nested":null}')),
+  serializableCase('double:infinity', new Double(Infinity), placements(Infinity, '[null]', '{"nested":null}')),
+  serializableCase(
+    'double:negativeInfinity',
+    new Double(-Infinity),
+    placements(-Infinity, '[null]', '{"nested":null}')
+  ),
   serializableCase(
     'string',
     'line 1\nline "2" \\ snowman ☃ \u0001',
@@ -437,78 +444,6 @@ describe('SourceRowConverter.rawToSqliteRow expected output', () => {
     }
   }
 
-  test('default output for nested NaN uses JSON null', () => {
-    const source = BSON.serialize({
-      _id: 'nested-nan',
-      value: { nested: new Double(NaN) }
-    }) as Buffer;
-
-    expectNormalizedRow(defaultConverter, source, {
-      _id: 'nested-nan',
-      value: '{"nested":null}'
-    });
-  });
-
-  test('custom output for nested NaN uses JSON null', () => {
-    const source = BSON.serialize({
-      _id: 'nested-nan',
-      value: { nested: new Double(NaN) }
-    }) as Buffer;
-
-    expectNormalizedRow(customConverter, source, {
-      _id: 'nested-nan',
-      value: '{"nested":null}'
-    });
-  });
-
-  test('default output for nested Infinity uses JSON null', () => {
-    const source = BSON.serialize({
-      _id: 'nested-infinity',
-      value: { nested: new Double(Infinity) }
-    }) as Buffer;
-
-    expectNormalizedRow(defaultConverter, source, {
-      _id: 'nested-infinity',
-      value: '{"nested":null}'
-    });
-  });
-
-  test('custom output for nested Infinity uses JSON null', () => {
-    const source = BSON.serialize({
-      _id: 'nested-infinity',
-      value: { nested: new Double(Infinity) }
-    }) as Buffer;
-
-    expectNormalizedRow(customConverter, source, {
-      _id: 'nested-infinity',
-      value: '{"nested":null}'
-    });
-  });
-
-  test('default output for array -Infinity uses JSON null', () => {
-    const source = BSON.serialize({
-      _id: 'array-negative-infinity',
-      value: [new Double(-Infinity)]
-    }) as Buffer;
-
-    expectNormalizedRow(defaultConverter, source, {
-      _id: 'array-negative-infinity',
-      value: '[null]'
-    });
-  });
-
-  test('custom output for array -Infinity uses JSON null', () => {
-    const source = BSON.serialize({
-      _id: 'array-negative-infinity',
-      value: [new Double(-Infinity)]
-    }) as Buffer;
-
-    expectNormalizedRow(customConverter, source, {
-      _id: 'array-negative-infinity',
-      value: '[null]'
-    });
-  });
-
   for (const placement of PLACEMENTS) {
     test(`default output for out-of-range positive year date as ${placementLabel(placement)}`, () => {
       expectNormalizedRow(
@@ -645,36 +580,6 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
     }) as Buffer;
 
     expectRowParity(source);
-  });
-
-  test('nested NaN should produce valid JSON', () => {
-    const source = BSON.serialize({
-      _id: 'nested-nan',
-      value: { nested: new Double(NaN) }
-    }) as Buffer;
-
-    const row = defaultConverter.rawToSqliteRow(source).row;
-    expect(() => JSON.parse(row.value as string)).not.toThrow();
-  });
-
-  test('nested Infinity should produce valid JSON', () => {
-    const source = BSON.serialize({
-      _id: 'nested-infinity',
-      value: { nested: new Double(Infinity) }
-    }) as Buffer;
-
-    const row = defaultConverter.rawToSqliteRow(source).row;
-    expect(() => JSON.parse(row.value as string)).not.toThrow();
-  });
-
-  test('array -Infinity should produce valid JSON', () => {
-    const source = BSON.serialize({
-      _id: 'array-negative-infinity',
-      value: [new Double(-Infinity)]
-    }) as Buffer;
-
-    const row = defaultConverter.rawToSqliteRow(source).row;
-    expect(() => JSON.parse(row.value as string)).not.toThrow();
   });
 
   for (const placement of PLACEMENTS) {
