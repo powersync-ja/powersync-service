@@ -151,7 +151,74 @@ const testCases: ConverterCase[] = [
     'binary:userDefined',
     new Binary(Buffer.from([22, 23, 24]), Binary.SUBTYPE_USER_DEFINED),
     placements(Buffer.from([22, 23, 24]), '[null]', '{}')
-  )
+  ),
+  // Degenerate arrays: The string keys are not spec-compliant, but ignored by the parsers.
+  {
+    name: 'array:invalid-key:alpha',
+    buildBuffer: (placement) =>
+      rawCaseDocument(
+        `array:invalid-key:alpha:${placement}`,
+        placement,
+        0x04,
+        bsonDocument([bsonElement(0x10, 'alpha', int32(1))])
+      ),
+    expected: placements('[1]', '[[1]]', '{"nested":[1]}')
+  },
+  {
+    name: 'array:invalid-key:leading-zero',
+    buildBuffer: (placement) =>
+      rawCaseDocument(
+        `array:invalid-key:leading-zero:${placement}`,
+        placement,
+        0x04,
+        bsonDocument([bsonElement(0x10, '01', int32(1))])
+      ),
+    expected: placements('[1]', '[[1]]', '{"nested":[1]}')
+  },
+  {
+    name: 'array:invalid-key:gap',
+    buildBuffer: (placement) =>
+      rawCaseDocument(
+        `array:invalid-key:gap:${placement}`,
+        placement,
+        0x04,
+        bsonDocument([bsonElement(0x10, '1', int32(1))])
+      ),
+    expected: placements('[1]', '[[1]]', '{"nested":[1]}')
+  },
+  {
+    name: 'array:invalid-key:negative',
+    buildBuffer: (placement) =>
+      rawCaseDocument(
+        `array:invalid-key:negative:${placement}`,
+        placement,
+        0x04,
+        bsonDocument([bsonElement(0x10, '-1', int32(1))])
+      ),
+    expected: placements('[1]', '[[1]]', '{"nested":[1]}')
+  },
+  {
+    name: 'array:invalid-key:mixed',
+    buildBuffer: (placement) =>
+      rawCaseDocument(
+        `array:invalid-key:mixed:${placement}`,
+        placement,
+        0x04,
+        bsonDocument([bsonElement(0x10, '0', int32(1)), bsonElement(0x10, 'alpha', int32(2))])
+      ),
+    expected: placements('[1,2]', '[[1,2]]', '{"nested":[1,2]}')
+  },
+  {
+    name: 'array:invalid-key:reversed',
+    buildBuffer: (placement) =>
+      rawCaseDocument(
+        `array:invalid-key:reversed:${placement}`,
+        placement,
+        0x04,
+        bsonDocument([bsonElement(0x10, '1', int32(1)), bsonElement(0x10, '0', int32(2))])
+      ),
+    expected: placements('[1,2]', '[[1,2]]', '{"nested":[1,2]}')
+  }
 ];
 
 const INVALID_UUID_LENGTHS = [0, 1, 15, 17] as const;
