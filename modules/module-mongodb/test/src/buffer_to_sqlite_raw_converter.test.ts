@@ -449,6 +449,19 @@ describe('SourceRowConverter.rawToSqliteRow invalid UTF-8', () => {
   });
 });
 
+describe('SourceRowConverter.rawToSqliteRow malformed BSON lengths', () => {
+  test('overlong top-level string length fails instead of hanging', () => {
+    const source = bsonDocument([
+      bsonElement(0x02, '_id', bsonString('malformed-length:top-string')),
+      // Declares far more string bytes than exist in the document.
+      bsonElement(0x02, 'value', Buffer.concat([int32(1000), Buffer.from([0xff, 0x00])]))
+    ]);
+
+    expect(captureRow(defaultConverter, source).ok).toBe(false);
+    expectRowFailure(customConverter, source, 'Invalid BSON string length');
+  });
+});
+
 describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
   test('matches across randomized supported documents', () => {
     const rng = makeRng(0x5eedc0de);
