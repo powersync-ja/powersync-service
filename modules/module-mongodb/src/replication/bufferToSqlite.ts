@@ -489,11 +489,13 @@ function timestampToBigInt(bytes: Buffer, offset: number): bigint {
   return (BigInt(bytes.readUInt32LE(offset + 4)) << 32n) | BigInt(bytes.readUInt32LE(offset));
 }
 
-function uuidOrHex(bytes: Buffer): string {
+/**
+ *
+ * @param bytes must be exactly 16 bytes in length - check before calling this.
+ * @returns
+ */
+function uuidToString(bytes: Buffer): string {
   const hex = bytes.toString('hex');
-  if (bytes.length != 16) {
-    return hex;
-  }
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
@@ -504,8 +506,8 @@ function parseTopLevelBinary(bytes: Buffer, offset: number): { value: Buffer | s
   const dataEnd = dataStart + length;
   const data = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
 
-  if (subtype === mongo.Binary.SUBTYPE_UUID) {
-    return { value: uuidOrHex(data), nextOffset: dataEnd };
+  if (subtype === mongo.Binary.SUBTYPE_UUID && data.length === 16) {
+    return { value: uuidToString(data), nextOffset: dataEnd };
   }
 
   return { value: data, nextOffset: dataEnd };
@@ -734,7 +736,11 @@ function serializeNestedDoubleElement(
   writer: JsonBufferWriter
 ): { nextOffset: number; defined: boolean } {
   const value = bytes.readDoubleLE(offset);
-  writer.writeAscii(value.toString());
+  if (!Number.isFinite(value)) {
+    writer.writeAscii('null');
+  } else {
+    writer.writeAscii(value.toString());
+  }
   return { nextOffset: offset + 8, defined: true };
 }
 
@@ -904,8 +910,9 @@ function serializeNestedBinaryElement(
   const dataStart = offset + 5;
   const dataEnd = dataStart + length;
 
-  if (subtype === mongo.Binary.SUBTYPE_UUID) {
-    writer.writeQuotedJsonString(uuidOrHex(binaryDataSlice(bytes, dataStart, dataEnd, subtype)));
+  const slice = binaryDataSlice(bytes, dataStart, dataEnd, subtype);
+  if (subtype === mongo.Binary.SUBTYPE_UUID && slice.length === 16) {
+    writer.writeQuotedJsonString(uuidToString(slice));
     return { nextOffset: dataEnd, defined: true };
   }
 
