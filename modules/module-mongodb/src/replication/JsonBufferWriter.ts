@@ -15,6 +15,10 @@ export const BYTE_COMMA = 0x2c; // ,
 export const BYTE_COLON = 0x3a; // :
 export const BYTE_ZERO = 0x30; // 0
 export const BYTE_ONE = 0x31; // 1
+const BYTE_SPACE = 0x20; // ' '
+const BYTE_DASH = 0x2d; // -
+const BYTE_DOT = 0x2e; // .
+const BYTE_Z = 0x5a; // Z
 const BYTE_B = 0x62; // b
 const BYTE_T = 0x74; // t
 const BYTE_N = 0x6e; // n
@@ -89,7 +93,7 @@ export class JsonBufferWriter {
    *
    * Caller is responsible for ensuring this produces valid JSON.
    */
-  private writeUtf8(text: string) {
+  writeUtf8(text: string) {
     const length = Buffer.byteLength(text);
     this.ensureCapacity(length);
     this.buffer.write(text, this.length, length, 'utf8');
@@ -302,38 +306,46 @@ export class JsonBufferWriter {
     hour: number,
     minute: number,
     second: number,
-    millisecond: number
+    millisecond: number,
+    quoted: boolean
   ) {
+    // Technically 24 when not quoted, but no harm in over-allocating
     this.ensureCapacity(26);
     const buffer = this.buffer;
     let offset = this.length;
 
-    buffer[offset++] = 0x22;
-    buffer[offset++] = 0x30 + ((year / 1000) | 0);
-    buffer[offset++] = 0x30 + (((year / 100) | 0) % 10);
-    buffer[offset++] = 0x30 + (((year / 10) | 0) % 10);
-    buffer[offset++] = 0x30 + (year % 10);
-    buffer[offset++] = 0x2d;
-    buffer[offset++] = 0x30 + ((month / 10) | 0);
-    buffer[offset++] = 0x30 + (month % 10);
-    buffer[offset++] = 0x2d;
-    buffer[offset++] = 0x30 + ((day / 10) | 0);
-    buffer[offset++] = 0x30 + (day % 10);
-    buffer[offset++] = 0x20;
-    buffer[offset++] = 0x30 + ((hour / 10) | 0);
-    buffer[offset++] = 0x30 + (hour % 10);
-    buffer[offset++] = 0x3a;
-    buffer[offset++] = 0x30 + ((minute / 10) | 0);
-    buffer[offset++] = 0x30 + (minute % 10);
-    buffer[offset++] = 0x3a;
-    buffer[offset++] = 0x30 + ((second / 10) | 0);
-    buffer[offset++] = 0x30 + (second % 10);
-    buffer[offset++] = 0x2e;
-    buffer[offset++] = 0x30 + ((millisecond / 100) | 0);
-    buffer[offset++] = 0x30 + (((millisecond / 10) | 0) % 10);
-    buffer[offset++] = 0x30 + (millisecond % 10);
-    buffer[offset++] = 0x5a;
-    buffer[offset++] = 0x22;
+    if (quoted) {
+      buffer[offset++] = BYTE_DQUOTE;
+    }
+
+    buffer[offset++] = BYTE_ZERO + ((year / 1000) | 0);
+    buffer[offset++] = BYTE_ZERO + (((year / 100) | 0) % 10);
+    buffer[offset++] = BYTE_ZERO + (((year / 10) | 0) % 10);
+    buffer[offset++] = BYTE_ZERO + (year % 10);
+    buffer[offset++] = BYTE_DASH;
+    buffer[offset++] = BYTE_ZERO + ((month / 10) | 0);
+    buffer[offset++] = BYTE_ZERO + (month % 10);
+    buffer[offset++] = BYTE_DASH;
+    buffer[offset++] = BYTE_ZERO + ((day / 10) | 0);
+    buffer[offset++] = BYTE_ZERO + (day % 10);
+    buffer[offset++] = BYTE_SPACE;
+    buffer[offset++] = BYTE_ZERO + ((hour / 10) | 0);
+    buffer[offset++] = BYTE_ZERO + (hour % 10);
+    buffer[offset++] = BYTE_COLON;
+    buffer[offset++] = BYTE_ZERO + ((minute / 10) | 0);
+    buffer[offset++] = BYTE_ZERO + (minute % 10);
+    buffer[offset++] = BYTE_COLON;
+    buffer[offset++] = BYTE_ZERO + ((second / 10) | 0);
+    buffer[offset++] = BYTE_ZERO + (second % 10);
+    buffer[offset++] = BYTE_DOT;
+    buffer[offset++] = BYTE_ZERO + ((millisecond / 100) | 0);
+    buffer[offset++] = BYTE_ZERO + (((millisecond / 10) | 0) % 10);
+    buffer[offset++] = BYTE_ZERO + (millisecond % 10);
+    buffer[offset++] = BYTE_Z;
+
+    if (quoted) {
+      buffer[offset++] = BYTE_DQUOTE;
+    }
 
     this.length = offset;
   }
