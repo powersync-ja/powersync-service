@@ -1,7 +1,6 @@
 import { GetIntanceOptions, storage } from '@powersync/service-core';
 
 import { DO_NOT_LOG, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { v4 as uuid } from 'uuid';
 
 import * as lib_mongo from '@powersync/lib-service-mongodb';
@@ -208,10 +207,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         last_keepalive_ts: null
       };
       if (storageConfig.incrementalReprocessing) {
-        const parsed = SqlSyncRules.fromYaml(options.config.yaml, {
-          schema: undefined,
-          defaultSchema: 'not_applicable'
-        });
+        const parsed = options.config.parsed;
         doc.rule_mapping = BucketDefinitionMapping.fromParsedSyncRules(parsed).serialize();
       }
       await this.db.sync_rules.insertOne(doc);
