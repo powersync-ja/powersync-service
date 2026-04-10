@@ -280,6 +280,7 @@ export class ChangeStream {
         await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
         lastCheckpointCreated = performance.now();
       }
+      batchesSeen += 1;
 
       for (let rawChangeDocument of events) {
         const changeDocument = mongo.BSON.deserialize(rawChangeDocument, { useBigInt64: true });
@@ -298,7 +299,6 @@ export class ChangeStream {
         }
 
         eventsSeen += 1;
-        batchesSeen += 1;
       }
     }
 
@@ -985,17 +985,17 @@ export class ChangeStream {
                * would process below.
                *
                * However we don't commit the LSN after collections are dropped.
-               * The prevents the `startAfter` or `resumeToken` from advancing past the drop events.
+               * This prevents the `startAfter` or `resumeToken` from advancing past the drop events.
                * The stream also closes after the drop events.
                * This causes an infinite loop of processing the collection drop events.
                *
-               * This check here invalidates the change stream if our `_checkpoints` collection
+               * This check here invalidates the change stream if our `_powersync_checkpoints` collection
                * is dropped. This allows for detecting when the DB is dropped.
                */
               if (changeDocument.operationType == 'drop') {
                 throw new ChangeStreamInvalidatedError(
                   'Internal collections have been dropped',
-                  new Error('_checkpoints collection was dropped')
+                  new Error('_powersync_checkpoints collection was dropped')
                 );
               }
 
