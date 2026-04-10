@@ -144,6 +144,7 @@ export const syncRulesSchema: ajvModule.Schema = {
         },
         storage_version: {
           type: 'integer',
+          description: 'Storage version used by the storage database. By default, the latest stable version is used.',
           default: DEFAULT_STORAGE_VERSION.version,
           enum: [...STORAGE_VERSIONS.keys()]
         },
