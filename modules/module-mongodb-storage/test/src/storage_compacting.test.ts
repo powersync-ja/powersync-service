@@ -1,7 +1,7 @@
+import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
-import { MongoCompactor } from '../../src/storage/implementation/MongoCompactor.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY } from './util.js';
 
 describe('Mongo Sync Bucket Storage Compact', () => {
@@ -64,9 +64,16 @@ bucket_definitions:
 
     test('full compact', async () => {
       const { bucketStorage, checkpoint, factory, syncRules } = await setup();
+      const storageDb = bucketStorage.db;
 
       // Simulate bucket_state from old version not being available
-      await factory.db.bucket_state.deleteMany({});
+      if (storageDb.storageConfig.incrementalReprocessing) {
+        // This should actually never happen on V3, but we test this anyway.
+        // Can remove this if it causes issues in the future.
+        await (storageDb as VersionedPowerSyncMongoV3).bucketStateV3(bucketStorage.group_id).deleteMany({});
+      } else {
+        await factory.db.bucket_state.deleteMany({});
+      }
 
       await bucketStorage.compact({
         clearBatchLimit: 200,
@@ -108,6 +115,7 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const storageDb = (bucketStorage as any).db;
 
       await populate(bucketStorage, 2);
       const { checkpoint } = await bucketStorage.getCheckpoint();
@@ -158,35 +166,54 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const storageDb = bucketStorage.db;
 
       // This simulates bucket_state created using bigint bytes.
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
-      await factory.db.bucket_state.insertOne({
-        _id: {
-          g: bucketStorage.group_id,
-          b: 'global[]'
-        },
-        last_op: 5n,
-        compacted_state: {
-          op_id: 3n,
-          count: 3,
-          checksum: 0n,
-          bytes: 7n
-        },
-        estimate_since_compact: {
-          count: 2,
-          bytes: 5n
-        }
-      });
+      if (storageDb.storageConfig.incrementalReprocessing) {
+        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketStateV3(bucketStorage.group_id);
+        await bucketStateCollection.insertOne({
+          _id: {
+            d: '1',
+            b: 'global[]'
+          },
+          last_op: 5n,
+          compacted_state: {
+            op_id: 3n,
+            count: 3,
+            checksum: 0n,
+            bytes: 7n
+          },
+          estimate_since_compact: {
+            count: 2,
+            bytes: 5n
+          }
+        });
+      } else {
+        await factory.db.bucket_state.insertOne({
+          _id: {
+            g: bucketStorage.group_id,
+            b: 'global[]'
+          },
+          last_op: 5n,
+          compacted_state: {
+            op_id: 3n,
+            count: 3,
+            checksum: 0n,
+            bytes: 7n
+          },
+          estimate_since_compact: {
+            count: 2,
+            bytes: 5n
+          }
+        });
+      }
 
-      // This test uses a couple of internal APIs of the compactor - there is no simple way
-      // to test this using the current public APIs.
-      const compactor = new MongoCompactor(bucketStorage, (bucketStorage as any).db, {
-        maxOpId: 5n
-      });
+      // This test uses a couple of "internal" APIs of the compactor.
+      const compactor = bucketStorage.createMongoCompactor({ maxOpId: 5n });
 
-      const dirtyBuckets = (compactor as any).dirtyBucketBatches({
+      const dirtyBuckets = compactor.dirtyBucketBatches({
         minBucketChanges: 1,
         minChangeRatio: 0.39
       });
@@ -205,6 +232,7 @@ bucket_definitions:
       expect(checksumBuckets).toEqual([
         {
           bucket: 'global[]',
+          definitionId: storageDb.storageConfig.incrementalReprocessing ? '1' : null,
           estimatedCount: 5
         }
       ]);
