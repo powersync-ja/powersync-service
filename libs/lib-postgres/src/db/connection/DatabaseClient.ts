@@ -1,4 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
+import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
 import { AbstractPostgresConnection, sql } from './AbstractPostgresConnection.js';
 import { ConnectionLease, ConnectionSlot, NotificationListener } from './ConnectionSlot.js';
@@ -31,6 +32,8 @@ export const TRANSACTION_CONNECTION_COUNT = 5;
  * which require being executed on the same connection.
  */
 export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientListener> {
+  [DO_NOT_LOG] = true;
+
   closed: boolean;
 
   pool: pgwire.PgClient;

@@ -4,8 +4,10 @@ import {
   SerializedCompatibilityContext,
   serializeSyncPlan,
   SqlSyncRules,
-  SyncConfig
+  SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
+import { ReplicationError } from '@powersync/service-types';
+import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import { ParseSyncRulesOptions, PersistedSyncRules, PersistedSyncRulesContent } from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
@@ -178,13 +180,14 @@ export interface SerializedSyncPlan {
    * them.
    */
   eventDescriptors: Record<string, string[]>;
+  errors?: ReplicationError[];
 }
 
 export function updateSyncRulesFromYaml(
   content: string,
   options?: Omit<UpdateSyncRulesOptions, 'config'> & { validate?: boolean }
 ): UpdateSyncRulesOptions {
-  const { config } = SqlSyncRules.fromYaml(content, {
+  const config = SqlSyncRules.fromYaml(content, {
     // No schema-based validation at this point
     schema: undefined,
     defaultSchema: 'not_applicable', // Not needed for validation
@@ -195,24 +198,25 @@ export function updateSyncRulesFromYaml(
 }
 
 export function updateSyncRulesFromConfig(
-  parsed: SyncConfig,
+  { config, errors }: SyncConfigWithErrors,
   options?: Omit<UpdateSyncRulesOptions, 'config'>
 ): UpdateSyncRulesOptions {
   let plan: SerializedSyncPlan | null = null;
-  if (parsed instanceof PrecompiledSyncConfig) {
+  if (config instanceof PrecompiledSyncConfig) {
     const eventDescriptors: Record<string, string[]> = {};
-    for (const event of parsed.eventDescriptors) {
+    for (const event of config.eventDescriptors) {
       eventDescriptors[event.name] = event.sourceQueries.map((q) => q.sql);
     }
 
     plan = {
-      compatibility: parsed.compatibility.serialize(),
-      plan: serializeSyncPlan(parsed.plan),
-      eventDescriptors
+      compatibility: config.compatibility.serialize(),
+      plan: serializeSyncPlan(config.plan),
+      eventDescriptors,
+      errors: errors.map((e) => syncConfigYamlErrorToReplicationError(e))
     };
   }
 
-  return { config: { yaml: parsed.content, plan }, ...options };
+  return { config: { yaml: config.content, plan }, ...options };
 }
 
 export interface GetIntanceOptions {

@@ -265,8 +265,10 @@ export async function withMaxWalSize(db: pgwire.PgClient, size: string) {
   try {
     const r1 = await db.query(`SHOW max_slot_wal_keep_size`);
 
-    await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '100MB'`);
+    await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '${size}'`);
     await db.query(`SELECT pg_reload_conf()`);
+    // Wait for the config reload to propagate to all backends
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     const oldSize = r1.results[0].rows[0].decodeWithoutCustomTypes(0);
 
@@ -274,6 +276,8 @@ export async function withMaxWalSize(db: pgwire.PgClient, size: string) {
       [Symbol.asyncDispose]: async () => {
         await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '${oldSize}'`);
         await db.query(`SELECT pg_reload_conf()`);
+        // Wait for the config reload to propagate to all backends
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
     };
   } catch (e) {

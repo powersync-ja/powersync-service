@@ -18,6 +18,7 @@ export type PostgresBucketStorageOptions = {
 };
 
 export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
+  [framework.DO_NOT_LOG] = true;
   readonly db: lib_postgres.DatabaseClient;
   public readonly slot_name_prefix: string;
 

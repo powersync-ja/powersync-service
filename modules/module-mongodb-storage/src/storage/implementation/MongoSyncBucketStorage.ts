@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
+  DO_NOT_LOG,
   logger,
   ReplicationAbortedError,
   ServiceAssertionError
@@ -67,6 +68,8 @@ export class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
+  [DO_NOT_LOG] = true;
+
   private readonly db: VersionedPowerSyncMongo;
   readonly checksums: MongoChecksums;
 
@@ -1043,15 +1046,19 @@ interface InternalCheckpointChanges extends CheckpointChanges {
 }
 
 class MongoReplicationCheckpoint implements ReplicationCheckpoint {
+  #storage: MongoSyncBucketStorage;
+
   constructor(
-    private storage: MongoSyncBucketStorage,
+    storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
     public snapshotTime: mongo.Timestamp
-  ) {}
+  ) {
+    this.#storage = storage;
+  }
 
   async getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-    return this.storage.getParameterSets(this, lookups);
+    return this.#storage.getParameterSets(this, lookups);
   }
 }
 
