@@ -4,6 +4,7 @@ import { YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { HydratedSyncRules } from './HydratedSyncRules.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
+import { ParsedStorageVersion } from './StorageVersion.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
 import { applyRowContext } from './utils.js';
@@ -17,6 +18,10 @@ export abstract class SyncConfig {
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+  /**
+   * If not defined, the storage module picks the latest stable version.
+   */
+  storageVersion: ParsedStorageVersion | undefined;
   eventDescriptors: SqlEventDescriptor[] = [];
 
   /**
