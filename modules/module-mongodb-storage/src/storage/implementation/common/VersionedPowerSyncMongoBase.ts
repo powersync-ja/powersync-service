@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import { PowerSyncMongo } from '../db.js';
 import { CommonSourceTableDocument, StorageConfig } from '../models.js';
 
@@ -6,6 +7,7 @@ export abstract class BaseVersionedPowerSyncMongo {
   readonly client: mongo.MongoClient;
   readonly db: mongo.Db;
   readonly storageConfig: StorageConfig;
+  [DO_NOT_LOG] = true;
 
   constructor(
     protected readonly upstream: PowerSyncMongo,

@@ -50,6 +50,8 @@ export class PostgresSyncRulesStorage
   extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
+  [framework.DO_NOT_LOG] = true;
+
   public readonly group_id: number;
   public readonly sync_rules: storage.PersistedSyncRulesContent;
   public readonly slot_name: string;

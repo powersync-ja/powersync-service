@@ -1,6 +1,6 @@
 import { ErrorRateLimiter } from '@powersync/service-core';
 import { setTimeout } from 'timers/promises';
-import { MissingReplicationSlotError } from './WalStream.js';
+import { MissingReplicationSlotError } from './MissingReplicationSlotError.js';
 
 export class PostgresErrorRateLimiter implements ErrorRateLimiter {
   nextAllowed: number = Date.now();

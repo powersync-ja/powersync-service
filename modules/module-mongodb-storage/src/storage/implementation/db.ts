@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
+import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
 import { BaseVersionedPowerSyncMongo } from './common/VersionedPowerSyncMongoBase.js';
 import {
@@ -34,6 +35,8 @@ export interface PowerSyncMongoOptions {
 }
 
 export class PowerSyncMongo {
+  [DO_NOT_LOG] = true;
+
   readonly current_data: mongo.Collection<CurrentDataDocument>;
   readonly bucket_data: mongo.Collection<BucketDataDocumentV1>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;

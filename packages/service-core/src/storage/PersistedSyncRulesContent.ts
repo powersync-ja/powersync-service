@@ -4,6 +4,7 @@ import {
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
+  ErrorLocation,
   HydratedSyncRules,
   HydrationState,
   javaScriptExpressionEngine,
@@ -11,7 +12,8 @@ import {
   SqlEventDescriptor,
   SqlSyncRules,
   SyncConfigWithErrors,
-  versionedHydrationState
+  versionedHydrationState,
+  YamlError
 } from '@powersync/service-sync-rules';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ReplicationLock } from './ReplicationLock.js';
@@ -101,7 +103,21 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
         sourceText: this.sync_rules_content
       });
 
-      config = { config: precompiled, errors: [] };
+      const errors: YamlError[] = [];
+      if (this.compiled_plan.errors) {
+        for (const error of this.compiled_plan.errors) {
+          const location: ErrorLocation | undefined = error.location && {
+            start: error.location.start_offset,
+            end: error.location.end_offset
+          };
+          const asYamlError = new YamlError(new Error(error.message), location);
+          asYamlError.type = error.level;
+
+          errors.push(asYamlError);
+        }
+      }
+
+      config = { config: precompiled, errors };
     } else {
       config = SqlSyncRules.fromYaml(this.sync_rules_content, options);
     }
