@@ -144,8 +144,10 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
   }
 
   asUpdateOptions(options?: Omit<UpdateSyncRulesOptions, 'config'>): UpdateSyncRulesOptions {
+    // defaultSchema is not relevant for the parsed version here
+    const parsed = this.parsed({ defaultSchema: 'not_applicable' });
     return {
-      config: { yaml: this.sync_rules_content, plan: this.compiled_plan },
+      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed: parsed.sync_rules },
       ...options
     };
   }

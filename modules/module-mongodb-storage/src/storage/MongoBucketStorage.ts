@@ -7,14 +7,16 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { generateSlotName } from '../utils/util.js';
+import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
+import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
+import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage } from './implementation/MongoSyncBucketStorage.js';
 
 export interface MongoBucketStorageOptions {
-  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
 }
 
 export class MongoBucketStorage extends storage.BucketStorageFactory {
@@ -53,7 +55,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       id = Number(id);
     }
     const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
-    const storage = new MongoSyncBucketStorage(
+    const storage = createMongoSyncBucketStorage(
       this,
       id,
       syncRules as MongoPersistedSyncRulesContent,
@@ -156,7 +158,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
     const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
     const storageConfig = getMongoStorageConfig(storageVersion);
-    await this.db.initializeStorageVersion(storageConfig);
 
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;
 
@@ -205,6 +206,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         last_fatal_error_ts: null,
         last_keepalive_ts: null
       };
+      if (storageConfig.incrementalReprocessing) {
+        const parsed = options.config.parsed;
+        doc.rule_mapping = BucketDefinitionMapping.fromParsedSyncRules(parsed).serialize();
+      }
       await this.db.sync_rules.insertOne(doc);
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContent(this.db, doc);
@@ -296,63 +301,90 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       }
     };
 
-    const active_sync_rules = await this.getActiveSyncRules({ defaultSchema: 'public' });
-    if (active_sync_rules == null) {
-      return {
-        operations_size_bytes: 0,
-        parameters_size_bytes: 0,
-        replication_size_bytes: 0
-      };
-    }
-    const operations_aggregate = await this.db.bucket_data
+    // For now, we get storage metrics over all v1 and v3 collections.
+    // In the future, we may split these metrics to report separately for active replication streams versus processing streams.
 
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
-          }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+    const aggregateStaticCollection = async <T extends mongo.Document>(collection: mongo.Collection<T>) => {
+      // We check whether the collection exists before getting the statistics. This avoids repeated
+      // errors in the MongoDB logs if the collection hasn't been created yet.
+      const exists =
+        (await this.db.db.listCollections({ name: collection.collectionName }, { nameOnly: true }).toArray()).length >
+        0;
+      if (!exists) {
+        return [{ storageStats: { size: 0 } }];
+      }
 
-    const parameters_aggregate = await this.db.bucket_parameters
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
+      return collection
+        .aggregate([
+          {
+            $collStats: {
+              storageStats: {}
+            }
           }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+        ])
+        .toArray()
+        .catch(ignoreNotExisting);
+    };
 
-    const v1_replication_aggregate = await this.db.current_data
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
-          }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+    const operations_aggregate = await aggregateStaticCollection(this.db.bucket_data);
+    const v3_operation_aggregates = await Promise.all(
+      (await this.db.listBucketDataCollectionsV3()).map((collection) =>
+        collection
+          .aggregate([
+            {
+              $collStats: {
+                storageStats: {}
+              }
+            }
+          ])
+          .toArray()
+          .catch(ignoreNotExisting)
+      )
+    );
 
-    const v3_replication_aggregate = await this.db.v3_current_data
-      .aggregate([
-        {
-          $collStats: {
-            storageStats: {}
-          }
-        }
-      ])
-      .toArray()
-      .catch(ignoreNotExisting);
+    const parameters_aggregate = await aggregateStaticCollection(this.db.bucket_parameters);
+
+    const v3_parameter_aggregates = await Promise.all(
+      (await this.db.listAllParameterIndexCollectionsV3()).map((collection) =>
+        collection
+          .aggregate([
+            {
+              $collStats: {
+                storageStats: {}
+              }
+            }
+          ])
+          .toArray()
+          .catch(ignoreNotExisting)
+      )
+    );
+
+    const v1_source_record_aggregate = await aggregateStaticCollection(this.db.current_data);
+
+    const source_record_aggregates = await Promise.all(
+      (await this.db.listAllSourceRecordCollectionsV3()).map((collection) =>
+        collection
+          .aggregate([
+            {
+              $collStats: {
+                storageStats: {}
+              }
+            }
+          ])
+          .toArray()
+          .catch(ignoreNotExisting)
+      )
+    );
     return {
-      operations_size_bytes: Number(operations_aggregate[0].storageStats.size),
-      parameters_size_bytes: Number(parameters_aggregate[0].storageStats.size),
+      operations_size_bytes:
+        Number(operations_aggregate[0].storageStats.size) +
+        v3_operation_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
+      parameters_size_bytes:
+        Number(parameters_aggregate[0].storageStats.size) +
+        v3_parameter_aggregates.reduce((total, aggregate) => total + Number(aggregate[0].storageStats.size), 0),
       replication_size_bytes:
-        Number(v1_replication_aggregate[0].storageStats.size) + Number(v3_replication_aggregate[0].storageStats.size)
+        Number(v1_source_record_aggregate[0]?.storageStats?.size ?? 0) +
+        source_record_aggregates.reduce((total, aggregate) => total + Number(aggregate[0]?.storageStats?.size ?? 0), 0)
     };
   }
 

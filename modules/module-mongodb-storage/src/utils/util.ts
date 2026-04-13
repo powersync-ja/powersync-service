@@ -1,10 +1,12 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { ReplicationAbortedError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage, utils } from '@powersync/service-core';
 import * as bson from 'bson';
 import * as crypto from 'crypto';
+import * as timers from 'node:timers/promises';
 import * as uuid from 'uuid';
-import { BucketDataDocument } from '../storage/implementation/models.js';
+import { BucketDataDoc } from '../storage/implementation/common/BucketDataDoc.js';
 
 export function idPrefixFilter<T>(prefix: Partial<T>, rest: (keyof T)[]): mongo.Condition<T> {
   let filter = {
@@ -69,10 +71,10 @@ export async function readSingleBatch<T>(cursor: mongo.AbstractCursor<T>): Promi
   }
 }
 
-export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
+export function mapOpEntry(row: BucketDataDoc): utils.OplogEntry {
   if (row.op == 'PUT' || row.op == 'REMOVE') {
     return {
-      op_id: utils.internalToExternalOpId(row._id.o),
+      op_id: utils.internalToExternalOpId(row.o),
       op: row.op,
       object_type: row.table,
       object_id: row.row_id,
@@ -84,7 +86,7 @@ export function mapOpEntry(row: BucketDataDocument): utils.OplogEntry {
     // MOVE, CLEAR
 
     return {
-      op_id: utils.internalToExternalOpId(row._id.o),
+      op_id: utils.internalToExternalOpId(row.o),
       op: row.op,
       checksum: Number(row.checksum)
     };
@@ -126,6 +128,33 @@ export function setSessionSnapshotTime(session: mongo.ClientSession, time: bson.
     (session as any).snapshotTime = time;
   } else {
     throw new ServiceAssertionError(`Session snapshotTime is already set`);
+  }
+}
+
+export async function retryOnMongoMaxTimeMSExpired<T>(
+  operation: () => Promise<T>,
+  options: {
+    signal?: AbortSignal;
+    abortMessage?: string;
+    retryDelayMs: number;
+    onRetry?: (retryCount: number) => void;
+  }
+): Promise<T> {
+  let retryCount = 0;
+  while (true) {
+    if (options.signal?.aborted) {
+      throw new ReplicationAbortedError(options.abortMessage ?? 'Aborted MongoDB operation', options.signal.reason);
+    }
+    try {
+      return await operation();
+    } catch (e) {
+      if (!lib_mongo.isMongoServerError(e) || e.codeName !== 'MaxTimeMSExpired') {
+        throw e;
+      }
+      retryCount += 1;
+      options.onRetry?.(retryCount);
+      await timers.setTimeout(options.retryDelayMs);
+    }
   }
 }
 
