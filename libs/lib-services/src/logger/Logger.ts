@@ -29,7 +29,17 @@ export const DO_NOT_LOG = Symbol('DO_NOT_LOG');
  */
 const logFilter = (key: string, value: unknown) => {
   if (value != null && typeof value == 'object' && (value as any)[DO_NOT_LOG]) {
-    throw new ServiceAssertionError(`${Object.getPrototypeOf(value)?.constructor?.name} must not be logged`);
+    const name = Object.getPrototypeOf(value)?.constructor?.name;
+    const message = `${key}: ${name} must not be logged`;
+    if (process.env.NODE_ENV == 'production') {
+      // In production, log a warning and filter out the value.
+      // We do this in case a DO_NOT_LOG value is only logged in rare edge cases not covered by tests,
+      // and we don't want to cause cascading failures in that case.
+      logger.error(message);
+      return undefined;
+    }
+    // In local development and testing, this is a hard error to surface the issue clearly.
+    throw new ServiceAssertionError(message);
   }
   return value;
 };
