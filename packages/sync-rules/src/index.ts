@@ -22,6 +22,7 @@ export * from './SqlDataQuery.js';
 export * from './SqlParameterQuery.js';
 export * from './SqlSyncRules.js';
 export * from './StaticSchema.js';
+export * from './StorageVersion.js';
 export { syncStreamFromSql } from './streams/from_sql.js';
 export { STREAM_FUNCTIONS } from './streams/functions.js';
 export { SyncStream } from './streams/stream.js';

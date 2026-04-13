@@ -154,7 +154,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<PostgresPersistedSyncRulesContent> {
-    const storageVersion = options.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+    const storageVersion =
+      options.storageVersion ?? options.config.parsed.config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
     const storageConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
     if (storageConfig == null) {
       throw new framework.ServiceError(

@@ -1186,4 +1186,47 @@ streams:
       }
     }
   });
+
+  test('parse storage version', () => {
+    const { config: rules } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  storage_version: 2
+
+streams: {}`,
+      { ...PARSE_OPTIONS, throwOnError: true }
+    );
+    expect(rules.storageVersion).toEqual(2);
+  });
+
+  test('warns on unstable storage version', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  storage_version: 3
+
+streams: []`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+    expect(rules.storageVersion).toEqual(3);
+    expect(errors[0].message).toContain('Storage version 3 is unstable');
+    expect(errors[0].type).toBe('warning');
+  });
+
+  test('errors on unsupported storage version', () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  storage_version: 1
+
+streams: []`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+    expect(rules.storageVersion).toBeUndefined();
+    expect(errors[0].message).toContain('Storage version 1 is not supported');
+    expect(errors[0].type).toBe('fatal');
+  });
 });
