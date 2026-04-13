@@ -1,17 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
-  applyRowContext,
   CompatibilityContext,
   CompatibilityEdition,
-  SqliteInputRow,
   SqlSyncRules,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
-import { ChangeStream } from '@module/replication/ChangeStream.js';
-import { constructAfterRecord } from '@module/replication/MongoRelation.js';
+import { DefaultSourceRowConverter } from '@module/replication/SourceRowConverter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
 
@@ -145,8 +142,9 @@ describe('mongo data types', () => {
     ]);
   }
 
-  function checkResults(transformed: SqliteInputRow[]) {
-    const sqliteValue = transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+  function checkResults(documents: mongo.Document[]) {
+    const converter = new DefaultSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    const sqliteValue = documents.map((d) => converter.documentToSqliteRow(d));
 
     expect(sqliteValue[0]).toMatchObject({
       _id: 1n,
@@ -197,8 +195,9 @@ describe('mongo data types', () => {
     });
   }
 
-  function checkResultsNested(transformed: SqliteInputRow[]) {
-    const sqliteValue = transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+  function checkResultsNested(documents: mongo.Document[]) {
+    const converter = new DefaultSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    const sqliteValue = documents.map((d) => converter.documentToSqliteRow(d));
 
     expect(sqliteValue[0]).toMatchObject({
       _id: 1n,
@@ -266,8 +265,7 @@ describe('mongo data types', () => {
         .toArray();
       // It is tricky to save "undefined" with mongo, so we check that it succeeded.
       expect(rawResults[4].undefined).toBeUndefined();
-      const transformed = [...ChangeStream.getQueryData(rawResults)];
-      checkResults(transformed);
+      checkResults(rawResults);
     } finally {
       await client.close();
     }
@@ -287,9 +285,8 @@ describe('mongo data types', () => {
         .find({}, { sort: { _id: 1 } })
         .toArray();
       expect(rawResults[3].undefined).toEqual([undefined]);
-      const transformed = [...ChangeStream.getQueryData(rawResults)];
 
-      checkResultsNested(transformed);
+      checkResultsNested(rawResults);
     } finally {
       await client.close();
     }
@@ -313,9 +310,8 @@ describe('mongo data types', () => {
       await insert(collection);
       await insertUndefined(db, 'test_data');
 
-      const transformed = await getReplicationTx(stream, 6);
-
-      checkResults(transformed);
+      const documents = await getReplicationTx(stream, 6);
+      checkResults(documents);
     } finally {
       await client.close();
     }
@@ -337,9 +333,8 @@ describe('mongo data types', () => {
       await insertNested(collection);
       await insertUndefined(db, 'test_data_arrays', true);
 
-      const transformed = await getReplicationTx(stream, 6);
-
-      checkResultsNested(transformed);
+      const documents = await getReplicationTx(stream, 6);
+      checkResultsNested(documents);
     } finally {
       await client.close();
     }
@@ -548,27 +543,31 @@ bucket_definitions:
         .collection('test_data')
         .find({}, { sort: { _id: 1 } })
         .toArray();
-      const [row] = [...ChangeStream.getQueryData(rawResults)];
+      const [row] = rawResults;
 
-      const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      const oldFormat = new DefaultSourceRowConverter(
+        CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
+      ).documentToSqliteRow(row);
       expect(oldFormat).toMatchObject({
         fraction: '2023-03-06 13:47:01.123Z',
         noFraction: '2023-03-06 13:47:01.000Z'
       });
 
-      const newFormat = applyRowContext(row, new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }));
+      const newFormat = new DefaultSourceRowConverter(
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      ).documentToSqliteRow(row);
       expect(newFormat).toMatchObject({
         fraction: '2023-03-06T13:47:01.123Z',
         noFraction: '2023-03-06T13:47:01.000Z'
       });
 
-      const reducedPrecisionFormat = applyRowContext(
-        row,
+      const reducedPrecisionFormat = new DefaultSourceRowConverter(
         new CompatibilityContext({
           edition: CompatibilityEdition.SYNC_STREAMS,
           maxTimeValuePrecision: TimeValuePrecision.seconds
         })
-      );
+      ).documentToSqliteRow(row);
+
       expect(reducedPrecisionFormat).toMatchObject({
         fraction: '2023-03-06T13:47:01Z',
         noFraction: '2023-03-06T13:47:01Z'
@@ -582,18 +581,18 @@ bucket_definitions:
 /**
  * Return all the inserts from the first transaction in the replication stream.
  */
-async function getReplicationTx(replicationStream: mongo.ChangeStream, count: number) {
-  let transformed: SqliteInputRow[] = [];
+async function getReplicationTx(replicationStream: mongo.ChangeStream, count: number): Promise<mongo.Document[]> {
+  let documents: mongo.Document[] = [];
   for await (const doc of replicationStream) {
     // Specifically filter out map_input / map_output collections
     if (!(doc as any)?.ns?.coll?.startsWith('test_data')) {
       continue;
     }
-    transformed.push(constructAfterRecord((doc as any).fullDocument));
-    if (transformed.length == count) {
+    documents.push((doc as any).fullDocument);
+    if (documents.length == count) {
       break;
     }
   }
-  transformed.sort((a, b) => Number(a._id) - Number(b._id));
-  return transformed;
+  documents.sort((a, b) => Number(a._id) - Number(b._id));
+  return documents;
 }

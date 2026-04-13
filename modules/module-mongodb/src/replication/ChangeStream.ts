@@ -18,28 +18,22 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import {
-  DatabaseInputRow,
-  HydratedSyncRules,
-  SqliteInputRow,
-  SqliteRow,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
-import {
-  constructAfterRecord,
-  createCheckpoint,
-  getCacheIdentifier,
-  getMongoRelation,
-  STANDALONE_CHECKPOINT_ID
-} from './MongoRelation.js';
+import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
-import { ChangeStreamBatch, rawChangeStream } from './RawChangeStream.js';
+import {
+  ChangeStreamBatch,
+  parseChangeDocument,
+  ProjectedChangeStreamDocument,
+  rawChangeStream
+} from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { DefaultSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -110,6 +104,8 @@ export class ChangeStream {
 
   private changeStreamTimeout: number;
 
+  private readonly sourceRowConverter: SourceRowConverter;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -122,6 +118,8 @@ export class ChangeStream {
     this.sync_rules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
     });
+    this.sourceRowConverter = new DefaultSourceRowConverter(this.sync_rules.compatibility);
+
     // The change stream aggregation command should timeout before the socket times out,
     // so we use 90% of the socket timeout value.
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
@@ -283,7 +281,7 @@ export class ChangeStream {
       batchesSeen += 1;
 
       for (let rawChangeDocument of events) {
-        const changeDocument = mongo.BSON.deserialize(rawChangeDocument, { useBigInt64: true });
+        const changeDocument = parseChangeDocument(rawChangeDocument);
         const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
         if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
@@ -472,12 +470,6 @@ export class ChangeStream {
     return { $match: nsFilter, multipleDatabases };
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
-    for (let row of results) {
-      yield constructAfterRecord(row);
-    }
-  }
-
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
@@ -517,8 +509,8 @@ export class ChangeStream {
 
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
-      for (let document of docBatch) {
-        const record = this.constructAfterRecord(document);
+      for (let buffer of docBatch) {
+        const { row: record, replicaId: replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -527,7 +519,7 @@ export class ChangeStream {
           before: undefined,
           beforeReplicaId: undefined,
           after: record,
-          afterReplicaId: document._id
+          afterReplicaId: replicaId
         });
       }
 
@@ -656,15 +648,10 @@ export class ChangeStream {
     return result.table;
   }
 
-  private constructAfterRecord(document: mongo.Document): SqliteRow {
-    const inputRow = constructAfterRecord(document);
-    return this.sync_rules.applyRowContext<never>(inputRow);
-  }
-
   async writeChange(
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable,
-    change: mongo.ChangeStreamDocument
+    change: ProjectedChangeStreamDocument
   ): Promise<storage.FlushedResult | null> {
     if (!table.syncAny) {
       this.logger.debug(`Collection ${table.qualifiedName} not used in sync rules - skipping`);
@@ -673,13 +660,16 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const baseRecord = this.constructAfterRecord(change.fullDocument);
+      const { row: baseRecord, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
         after: baseRecord,
+        // Same as _replicaId
+        // We specifically need to use the source _id, not the converted one in baseRecord,
+        // to preserve _id uniqueness properties.
         afterReplicaId: change.documentKey._id
       });
     } else if (change.operationType == 'update' || change.operationType == 'replace') {
@@ -692,14 +682,14 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const after = this.constructAfterRecord(change.fullDocument!);
+      const { row: after, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
         after: after,
-        afterReplicaId: change.documentKey._id
+        afterReplicaId: change.documentKey._id // Same as _replicaId
       });
     } else if (change.operationType == 'delete') {
       return await batch.save({
@@ -871,7 +861,7 @@ export class ChangeStream {
           this.checkpointStreamId
         );
 
-        let splitDocument: mongo.ChangeStreamDocument | null = null;
+        let splitDocument: ProjectedChangeStreamDocument | null = null;
 
         let flexDbNameWorkaroundLogged = false;
         let changesSinceLastCheckpoint = 0;
@@ -917,9 +907,7 @@ export class ChangeStream {
           const batchStart = Date.now();
           for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
             const rawChangeDocument = events[eventIndex];
-            const originalChangeDocument = mongo.BSON.deserialize(rawChangeDocument, {
-              useBigInt64: true
-            }) as mongo.ChangeStreamDocument;
+            const originalChangeDocument = parseChangeDocument(rawChangeDocument);
             if (this.abort_signal.aborted) {
               break;
             }
@@ -1167,7 +1155,7 @@ export class ChangeStream {
 /**
  * Transaction key for a change stream event, used to detect transaction boundaries. Returns null if the event is not part of a transaction.
  */
-function transactionKey(doc: mongo.ChangeStreamDocument): string | null {
+function transactionKey(doc: Pick<mongo.ChangeStreamDocument, 'lsid' | 'txnNumber'>): string | null {
   if (doc.txnNumber == null || doc.lsid == null) {
     return null;
   }
