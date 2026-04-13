@@ -257,6 +257,53 @@ bucket_definitions:
     expect(data).toMatchObject([test_utils.putOp('test_DATA', { id: test_id, description: 'test1' })]);
   });
 
+  test('replicating from multiple databases in the same cluster', async () => {
+    await using context = await openContext();
+    const { client, db } = context;
+    const otherDb = client.db(`${db.databaseName}_other_${storageVersion}`);
+    await otherDb.dropDatabase();
+    await using _ = {
+      [Symbol.asyncDispose]: async () => {
+        await otherDb.dropDatabase();
+      }
+    };
+
+    await context.updateSyncRules(`
+      bucket_definitions:
+        global:
+          data:
+            - SELECT _id as id, description FROM "${db.databaseName}"."test_data_default"
+            - SELECT _id as id, description FROM "${otherDb.databaseName}"."test_data_other"
+      `);
+
+    await db.createCollection('test_data_default');
+    await otherDb.createCollection('test_data_other');
+    await context.replicateSnapshot();
+    context.startStreaming();
+
+    const defaultResult = await db.collection('test_data_default').insertOne({ description: 'default db' });
+    const otherResult = await otherDb.collection('test_data_other').insertOne({ description: 'other db' });
+
+    const data = await context.getBucketData('global[]');
+
+    expect(data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining(
+          test_utils.putOp('test_data_default', {
+            id: defaultResult.insertedId.toHexString(),
+            description: 'default db'
+          })
+        ),
+        expect.objectContaining(
+          test_utils.putOp('test_data_other', {
+            id: otherResult.insertedId.toHexString(),
+            description: 'other db'
+          })
+        )
+      ])
+    );
+  });
+
   test('replicating large values', async () => {
     await using context = await openContext();
     const { db } = context;
