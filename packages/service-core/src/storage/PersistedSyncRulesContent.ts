@@ -103,6 +103,10 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
         sourceText: this.sync_rules_content
       });
 
+      // Note: If the original content did not define a storage version, this will still set the storage version.
+      // This means asUpdateOptions will not change the storage version, even if the default changes.
+      precompiled.storageVersion = this.storageVersion;
+
       const errors: YamlError[] = [];
       if (this.compiled_plan.errors) {
         for (const error of this.compiled_plan.errors) {

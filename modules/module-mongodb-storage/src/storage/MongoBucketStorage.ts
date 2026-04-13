@@ -157,7 +157,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
     const storageVersion =
-      options.storageVersion ?? options.config.parsed.config.storageVersion?.version ?? storage.CURRENT_STORAGE_VERSION;
+      options.storageVersion ?? options.config.parsed.config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
     const storageConfig = getMongoStorageConfig(storageVersion);
 
     let rules: MongoPersistedSyncRulesContent | undefined = undefined;

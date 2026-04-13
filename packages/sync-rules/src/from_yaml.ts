@@ -13,7 +13,7 @@ import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { validateSyncRulesSchema } from './json_schema.js';
 import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
-import { ParsedStorageVersion, parseStorageVersion } from './StorageVersion.js';
+import { validateStorageVersion } from './StorageVersion.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
@@ -70,11 +70,11 @@ export class SyncConfigFromYaml {
     }
 
     let compatibility: CompatibilityContext;
-    let storageVersion: ParsedStorageVersion | undefined;
+    let storageVersion: number | undefined;
     if (parsed.has('config')) {
       const declaredOptions = parsed.get('config') as YAMLMap;
       compatibility = this.#parseCompatibilityOptions(declaredOptions);
-      storageVersion = this.#parseStorageVersion(declaredOptions);
+      storageVersion = this.#validateStorageVersion(declaredOptions);
     } else {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
     }
@@ -416,14 +416,14 @@ export class SyncConfigFromYaml {
     return rules;
   }
 
-  #parseStorageVersion(config: YAMLMap): ParsedStorageVersion | undefined {
+  #validateStorageVersion(config: YAMLMap): number | undefined {
     const storageScalar = config.get('storage_version', true);
     if (storageScalar != null) {
       if (typeof storageScalar.value == 'number') {
-        const version = parseStorageVersion(storageScalar.value);
+        const rawVersion = storageScalar.value;
+        const version = validateStorageVersion(storageScalar.value);
         if (version == null) {
           this.#errors.push(this.#yamlError(storageScalar, `Storage version ${storageScalar.value} is not supported`));
-          return undefined;
         } else if (!version.stable) {
           const error = this.#yamlError(
             storageScalar,
@@ -432,7 +432,7 @@ export class SyncConfigFromYaml {
           error.type = 'warning';
           this.#errors.push(error);
         }
-        return version;
+        return rawVersion;
       } else {
         this.#errors.push(this.#yamlError(storageScalar, 'Storage version must be numeric'));
         return undefined;
