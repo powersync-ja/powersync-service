@@ -32,6 +32,7 @@ import { SqlScope } from './scope.js';
 import { PostgresToSqlite, PreparedSubquery } from './sqlite.js';
 import {
   BaseSourceResultSet,
+  CloneTableReferences,
   PhysicalSourceResultSet,
   SourceResultSet,
   SyntacticResultSetSource,
@@ -277,7 +278,10 @@ export class StreamQueryParser {
   }
 
   private addSubquery(source: SyntacticResultSetSource, subquery: PreparedSubquery) {
-    subquery.tables.forEach((v, k) => this.resultSets.set(k, v));
+    subquery.tables.forEach((v, k) => {
+      this.resultSets.set(k, v);
+    });
+
     if (subquery.where) {
       this.where.push(subquery.where);
     }
@@ -295,7 +299,9 @@ export class StreamQueryParser {
       // If this references a CTE in scope, use that instead of names.
       const cte = from.name.schema == null ? scope.resolveCommonTableExpression(from.name.name) : null;
       if (cte) {
-        this.addSubquery(source, cte);
+        // Inline the CTE here by cloning it for this specific reference, see the comment on CloneTableReferences for
+        // why this is necessary.
+        this.addSubquery(source, CloneTableReferences.clonePreparedSubquery(cte, this.nodeLocations));
       } else {
         // Not a CTE, so treat it as a source database table.
         const pattern = new ImplicitSchemaTablePattern(from.name.schema ?? null, from.name.name);
@@ -496,7 +502,7 @@ export class StreamQueryParser {
       // references.
       const defaultResultSet = this.statementScope.defaultResultSet;
       if (defaultResultSet) {
-        return this.resolveSoure(defaultResultSet);
+        return this.resolveSource(defaultResultSet);
       } else {
         this.errors.report('Invalid unqualified reference since multiple tables are in scope', node);
         return null;
@@ -508,11 +514,11 @@ export class StreamQueryParser {
         return null;
       }
 
-      return this.resolveSoure(result);
+      return this.resolveSource(result);
     }
   }
 
-  private resolveSoure(source: SyntacticResultSetSource): SourceResultSet | PreparedSubquery {
+  private resolveSource(source: SyntacticResultSetSource): SourceResultSet | PreparedSubquery {
     if (this.resultSets.has(source)) {
       return this.resultSets.get(source)!;
     } else if (this.subqueryResultSets.has(source)) {

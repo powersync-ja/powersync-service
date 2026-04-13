@@ -1,8 +1,12 @@
 import { PGNode } from 'pgsql-ast-parser';
 import { ImplicitSchemaTablePattern, SourceSchemaTable } from '../index.js';
+import { SqlExpression } from '../sync_plan/expression.js';
+import { MapSourceVisitor, visitExpr } from '../sync_plan/expression_visitor.js';
 import { equalsIgnoringResultSetList } from './compatibility.js';
 import { StableHasher } from './equality.js';
+import { ColumnInRow, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
 import { SingleDependencyExpression } from './filter.js';
+import { PreparedSubquery } from './sqlite.js';
 
 /**
  * A result set that a query stream selects from.
@@ -42,6 +46,8 @@ export abstract class BaseSourceResultSet {
    * is also the result set itself.
    */
   abstract get evaluationTarget(): SourceResultSet;
+
+  abstract clone(references: CloneTableReferences): BaseSourceResultSet;
 
   static areCompatible(a: SourceResultSet, b: SourceResultSet): boolean {
     if (a === b) {
@@ -85,6 +91,14 @@ export class PhysicalSourceResultSet extends BaseSourceResultSet {
 
   get description(): string {
     return this.tablePattern.name;
+  }
+
+  clone(references: CloneTableReferences): PhysicalSourceResultSet {
+    return new PhysicalSourceResultSet(
+      this.tablePattern,
+      references.getClonedSyntacticSource(this.source),
+      this.schemaTablesForWarnings
+    );
   }
 }
 
@@ -162,5 +176,86 @@ export class TableValuedResultSet extends BaseSourceResultSet {
       other.tableValuedFunctionName == this.tableValuedFunctionName &&
       equalsIgnoringResultSetList.equals(other.parameters, this.parameters)
     );
+  }
+
+  clone(references: CloneTableReferences): TableValuedResultSet {
+    return new TableValuedResultSet(
+      this.tableValuedFunctionName,
+      this.parameters.map((p) => new SingleDependencyExpression(references.cloneSyncExpression(p.expression))),
+      references.getClonedSyntacticSource(this.source)
+    );
+  }
+}
+
+/**
+ * Clones result set instances and associated expressions.
+ *
+ * This is necessary to safely implement common table expressions in Sync Streams: We use the identity of
+ * {@link SourceResultSet} instances to track dependencies between expressions and to convert `WHERE` clauses into a
+ * querier and parameter lookups. Semantically, when a CTE is joined multiple times, each CTE acts as an independently-
+ * joined subquery. To implement these semantics correctly, we need to join result set instances every time we add a
+ * CTE to a query.
+ */
+export class CloneTableReferences {
+  private synctacticClone = new Map<SyntacticResultSetSource, SyntacticResultSetSource>();
+  private clonedResultSets = new Map<SourceResultSet, SourceResultSet>();
+
+  private cloneExpressions: MapSourceVisitor<ExpressionInput, ExpressionInput>;
+
+  constructor(originalResultSets: Map<SyntacticResultSetSource, SourceResultSet>, locations: NodeLocations) {
+    this.cloneExpressions = new MapSourceVisitor<ExpressionInput, ExpressionInput>((data) => {
+      if (data instanceof ColumnInRow) {
+        return new ColumnInRow(data.syntacticOrigin, this.getClonedSource(data.resultSet), data.column);
+      }
+
+      return data;
+    }, locations);
+
+    for (const source of originalResultSets.keys()) {
+      const clone = new SyntacticResultSetSource(source.origin, source.explicitName);
+      this.synctacticClone.set(source, clone);
+    }
+
+    for (const value of originalResultSets.values()) {
+      this.clonedResultSets.set(value, value.clone(this));
+    }
+  }
+
+  getClonedSyntacticSource(source: SyntacticResultSetSource): SyntacticResultSetSource {
+    return this.synctacticClone.get(source)!;
+  }
+
+  getClonedSource(source: SourceResultSet): SourceResultSet {
+    return this.clonedResultSets.get(source)!;
+  }
+
+  cloneExpression(source: SqlExpression<ExpressionInput>): SqlExpression<ExpressionInput> {
+    return visitExpr(this.cloneExpressions, source, null);
+  }
+
+  cloneSyncExpression(expr: SyncExpression): SyncExpression {
+    return new SyncExpression(this.cloneExpression(expr.node), expr.locations);
+  }
+
+  static clonePreparedSubquery(subquery: PreparedSubquery, locations: NodeLocations): PreparedSubquery {
+    const cloner = new CloneTableReferences(subquery.tables, locations);
+
+    const resultColumns: Record<string, SqlExpression<ExpressionInput>> = {};
+    const tables = new Map<SyntacticResultSetSource, SourceResultSet>();
+    let where: SqlExpression<ExpressionInput> | null = null;
+
+    for (const [name, value] of Object.entries(subquery.resultColumns)) {
+      resultColumns[name] = cloner.cloneExpression(value);
+    }
+
+    if (subquery.where) {
+      where = cloner.cloneExpression(subquery.where);
+    }
+
+    return {
+      resultColumns,
+      tables,
+      where
+    };
   }
 }
