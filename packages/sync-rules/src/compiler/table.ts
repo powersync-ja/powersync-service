@@ -197,7 +197,7 @@ export class TableValuedResultSet extends BaseSourceResultSet {
  * CTE to a query.
  */
 export class CloneTableReferences {
-  private synctacticClone = new Map<SyntacticResultSetSource, SyntacticResultSetSource>();
+  private syntacticClone = new Map<SyntacticResultSetSource, SyntacticResultSetSource>();
   private clonedResultSets = new Map<SourceResultSet, SourceResultSet>();
 
   private cloneExpressions: MapSourceVisitor<ExpressionInput, ExpressionInput>;
@@ -213,7 +213,7 @@ export class CloneTableReferences {
 
     for (const source of originalResultSets.keys()) {
       const clone = new SyntacticResultSetSource(source.origin, source.explicitName);
-      this.synctacticClone.set(source, clone);
+      this.syntacticClone.set(source, clone);
     }
 
     for (const value of originalResultSets.values()) {
@@ -222,11 +222,17 @@ export class CloneTableReferences {
   }
 
   getClonedSyntacticSource(source: SyntacticResultSetSource): SyntacticResultSetSource {
-    return this.synctacticClone.get(source)!;
+    const cloned = this.syntacticClone.get(source);
+    if (cloned == null) throw new Error('Syntactic source not part of original result sets');
+
+    return cloned;
   }
 
   getClonedSource(source: SourceResultSet): SourceResultSet {
-    return this.clonedResultSets.get(source)!;
+    const cloned = this.clonedResultSets.get(source);
+    if (cloned == null) throw new Error('Source not part of original result sets');
+
+    return cloned;
   }
 
   cloneExpression(source: SqlExpression<ExpressionInput>): SqlExpression<ExpressionInput> {
@@ -247,6 +253,9 @@ export class CloneTableReferences {
     for (const [name, value] of Object.entries(subquery.resultColumns)) {
       resultColumns[name] = cloner.cloneExpression(value);
     }
+    subquery.tables.forEach((v, k) => {
+      tables.set(cloner.getClonedSyntacticSource(k), cloner.getClonedSource(v));
+    });
 
     if (subquery.where) {
       where = cloner.cloneExpression(subquery.where);
