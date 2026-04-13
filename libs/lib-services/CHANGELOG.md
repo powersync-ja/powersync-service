@@ -1,5 +1,17 @@
 # @powersync/lib-services-framework
 
+## 0.9.3
+
+### Patch Changes
+
+- afc9890: Update better-ajv-errors dependency.
+- 756746c: Fix PSYNC_S2305 logging when parameter limit is exceeded.
+- Updated dependencies [41875f7]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [4611a49]
+  - @powersync/service-errors@0.4.2
+  - @powersync/service-sync-rules@0.35.0
+
 ## 0.9.2
 
 ### Patch Changes
