@@ -278,9 +278,7 @@ export class StreamQueryParser {
   }
 
   private addSubquery(source: SyntacticResultSetSource, subquery: PreparedSubquery) {
-    subquery.tables.forEach((v, k) => {
-      this.resultSets.set(k, v);
-    });
+    subquery.tables.forEach((v, k) => this.resultSets.set(k, v));
 
     if (subquery.where) {
       this.where.push(subquery.where);
