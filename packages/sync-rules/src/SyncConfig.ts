@@ -20,7 +20,7 @@ export abstract class SyncConfig {
   /**
    * If not defined, the storage module picks the latest stable version.
    *
-   * Having a number set here does _not_ mean it is a supported version.
+   * Only supported storage versions can be set here when parsing from yaml.
    */
   storageVersion: number | undefined;
   eventDescriptors: SqlEventDescriptor[] = [];

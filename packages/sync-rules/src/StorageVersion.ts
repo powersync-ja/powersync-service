@@ -1,3 +1,13 @@
+/**
+ * This is only for the purpose of validating the version in the sync config, for reporting configurable versions
+ * upfront.
+ *
+ * The service itself may:
+ * 1. Support additional storage versions, such as legacy storage versions.
+ * 2. Attach specific behavior to storage versions.
+ *
+ * See: service-core/src/storage/StorageVersionConfig.js
+ */
 export interface ValidatedStorageVersion {
   version: number;
 

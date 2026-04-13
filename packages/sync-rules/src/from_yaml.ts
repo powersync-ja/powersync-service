@@ -432,7 +432,7 @@ export class SyncConfigFromYaml {
           error.type = 'warning';
           this.#errors.push(error);
         }
-        return rawVersion;
+        return version?.version;
       } else {
         this.#errors.push(this.#yamlError(storageScalar, 'Storage version must be numeric'));
         return undefined;
