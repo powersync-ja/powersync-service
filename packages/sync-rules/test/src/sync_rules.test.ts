@@ -1197,7 +1197,7 @@ config:
 streams: {}`,
       { ...PARSE_OPTIONS, throwOnError: true }
     );
-    expect(rules.storageVersion).toEqual({ version: 2, stable: true });
+    expect(rules.storageVersion).toEqual(2);
   });
 
   test('warns on unstable storage version', () => {
@@ -1210,7 +1210,7 @@ config:
 streams: []`,
       { ...PARSE_OPTIONS, throwOnError: false }
     );
-    expect(rules.storageVersion).toEqual({ version: 3, stable: false });
+    expect(rules.storageVersion).toEqual(3);
     expect(errors[0].message).toContain('Storage version 3 is unstable');
     expect(errors[0].type).toBe('warning');
   });
