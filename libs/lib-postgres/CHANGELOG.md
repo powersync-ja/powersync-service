@@ -1,5 +1,17 @@
 # @powersync/lib-service-postgres
 
+## 0.4.26
+
+### Patch Changes
+
+- 756746c: Fix PSYNC_S2305 logging when parameter limit is exceeded.
+- Updated dependencies [41875f7]
+- Updated dependencies [afc9890]
+- Updated dependencies [756746c]
+  - @powersync/service-types@0.15.1
+  - @powersync/lib-services-framework@0.9.3
+  - @powersync/service-jpgwire@0.21.17
+
 ## 0.4.25
 
 ### Patch Changes

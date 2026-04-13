@@ -1,5 +1,23 @@
 # @powersync/service-module-mongodb
 
+## 0.15.4
+
+### Patch Changes
+
+- Updated dependencies [41875f7]
+- Updated dependencies [85508d1]
+- Updated dependencies [afc9890]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [4611a49]
+- Updated dependencies [b6a7896]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [756746c]
+  - @powersync/service-types@0.15.1
+  - @powersync/service-core@1.20.5
+  - @powersync/lib-service-mongodb@0.6.24
+  - @powersync/lib-services-framework@0.9.3
+  - @powersync/service-sync-rules@0.35.0
+
 ## 0.15.3
 
 ### Patch Changes
