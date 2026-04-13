@@ -1,5 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { applyRowContext, CompatibilityContext, SqliteRow } from '@powersync/service-sync-rules';
+import { bufferToSqlite, DateRenderMode, getDateRenderMode, parseDocumentId } from './bufferToSqlite.js';
 import { constructAfterRecord } from './MongoRelation.js';
 
 export interface SourceRowConverter {
@@ -16,11 +17,18 @@ export interface SourceRowConverter {
    * a SqliteRow for use in sync config.
    *
    * The document must be parsed using { useBigInt64: true }.
+   *
+   * @deprecated This is remaining as a helper for tests only.
    */
   documentToSqliteRow(source: mongo.Document): SqliteRow;
 }
 
-export class DefaultSourceRowConverter implements SourceRowConverter {
+/**
+ * Older converter using bson.deserialize -> constructAfterRecord -> applyRowContext.
+ *
+ * @deprecated Only used for parity testing
+ */
+export class LegacySourceRowConverter implements SourceRowConverter {
   constructor(private readonly compatibilityContext: CompatibilityContext) {}
 
   rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
@@ -33,5 +41,25 @@ export class DefaultSourceRowConverter implements SourceRowConverter {
   documentToSqliteRow(document: mongo.Document): SqliteRow {
     const input = constructAfterRecord(document);
     return applyRowContext<never>(input, this.compatibilityContext);
+  }
+}
+
+export class DirectSourceRowConverter implements SourceRowConverter {
+  private readonly dateRenderMode: DateRenderMode;
+
+  constructor(compatibilityContext: CompatibilityContext) {
+    this.dateRenderMode = getDateRenderMode(compatibilityContext);
+  }
+
+  rawToSqliteRow(source: Buffer): { row: SqliteRow; replicaId: any } {
+    const row = bufferToSqlite(source, this.dateRenderMode);
+    const replicaId = parseDocumentId(source).id;
+    return { row, replicaId };
+  }
+
+  documentToSqliteRow(document: mongo.Document): SqliteRow {
+    // This is slow, but should not be used other than in tests
+    const buffer = mongo.BSON.serialize(document) as Buffer;
+    return this.rawToSqliteRow(buffer).row;
   }
 }

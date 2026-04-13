@@ -1,7 +1,7 @@
+import { parseDocumentId } from '@module/replication/bufferToSqlite.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { bson } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
-import { parseDocumentId } from '../../src/replication/MongoSnapshotQuery.js';
 
 function expectSameId(actual: any, expected: any) {
   expect(actual).toEqual(expected);
