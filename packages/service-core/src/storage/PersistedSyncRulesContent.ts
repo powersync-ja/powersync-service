@@ -103,6 +103,10 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
         sourceText: this.sync_rules_content
       });
 
+      // Note: If the original content did not define a storage version, this will still set the storage version.
+      // This means asUpdateOptions will not change the storage version, even if the default changes.
+      precompiled.storageVersion = this.storageVersion;
+
       const errors: YamlError[] = [];
       if (this.compiled_plan.errors) {
         for (const error of this.compiled_plan.errors) {
@@ -144,8 +148,10 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
   }
 
   asUpdateOptions(options?: Omit<UpdateSyncRulesOptions, 'config'>): UpdateSyncRulesOptions {
+    // defaultSchema is not relevant for the parsed version here
+    const parsed = this.parsed({ defaultSchema: 'not_applicable' });
     return {
-      config: { yaml: this.sync_rules_content, plan: this.compiled_plan },
+      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed: parsed.sync_rules },
       ...options
     };
   }

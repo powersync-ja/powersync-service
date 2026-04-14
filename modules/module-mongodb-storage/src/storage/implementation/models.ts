@@ -3,6 +3,9 @@ import { InternalOpId, SerializedSyncPlan, storage } from '@powersync/service-co
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
+import { ParameterIndexId } from './BucketDefinitionMapping.js';
+import type { CurrentDataDocument, SourceTableDocumentV1 } from './v1/models.js';
+import type { CurrentBucketV3, CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from './v3/models.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -22,33 +25,18 @@ export interface SourceKey {
   k: ReplicaId;
 }
 
+export interface SourceTableKey {
+  /** source table id */
+  t: bson.ObjectId;
+  /** source key */
+  k: ReplicaId;
+}
+
 export interface BucketDataKey {
-  /** group_id */
-  g: number;
   /** bucket name */
   b: string;
   /** op_id */
   o: bigint;
-}
-
-export interface CurrentDataDocument {
-  _id: SourceKey;
-  data: bson.Binary;
-  buckets: CurrentBucket[];
-  lookups: bson.Binary[];
-}
-
-export interface CurrentDataDocumentV3 {
-  _id: SourceKey;
-  data: bson.Binary;
-  buckets: CurrentBucket[];
-  lookups: bson.Binary[];
-  /**
-   * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
-   *
-   * This must only be set if buckets = [], lookups = [].
-   */
-  pending_delete?: bigint;
 }
 
 export interface CurrentBucket {
@@ -57,15 +45,33 @@ export interface CurrentBucket {
   id: string;
 }
 
-export interface BucketParameterDocument {
+export interface BucketParameterDocumentBase<TKey> {
   _id: bigint;
-  key: SourceKey;
+  key: TKey;
   lookup: bson.Binary;
   bucket_parameters: Record<string, SqliteJsonValue>[];
 }
 
-export interface BucketDataDocument {
-  _id: BucketDataKey;
+export interface TaggedBucketParameterDocument extends BucketParameterDocumentBase<SourceKey | SourceTableKey> {
+  index: ParameterIndexId;
+}
+
+export function bucketParameterDocumentToTagged<TKey extends SourceKey | SourceTableKey>(
+  document: BucketParameterDocumentBase<TKey>,
+  index: ParameterIndexId
+): TaggedBucketParameterDocument {
+  return {
+    ...document,
+    index
+  };
+}
+
+export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
+
+/**
+ * Common properties for storage V1, storage V3 and in-memory BucketDataDoc.
+ */
+export interface BucketDataProperties {
   op: OpType;
   source_table?: bson.ObjectId;
   source_key?: ReplicaId;
@@ -76,11 +82,22 @@ export interface BucketDataDocument {
   target_op?: bigint | null;
 }
 
-export type OpType = 'PUT' | 'REMOVE' | 'MOVE' | 'CLEAR';
+export interface BucketDataDocumentBase extends BucketDataProperties {
+  _id: { b: string };
+}
+
+/**
+ * Internal-only tag used for v1 bucket_data rows before they are converted to the v1 on-disk shape.
+ */
+export const LEGACY_BUCKET_DATA_DEFINITION_ID = '0';
+
+/**
+ * Internal-only tag used for v1 bucket_parameters rows before they are converted to the v1 on-disk shape.
+ */
+export const LEGACY_BUCKET_PARAMETER_INDEX_ID = '0';
 
 export interface SourceTableDocument {
   _id: bson.ObjectId;
-  group_id: number;
   connection_id: number;
   relation_id: number | string | undefined;
   schema_name: string;
@@ -100,20 +117,21 @@ export interface SourceTableDocumentSnapshotStatus {
 /**
  * Record the state of each bucket.
  *
- * Right now, this is just used to track when buckets are updated, for efficient incremental sync.
- * In the future, this could be used to track operation counts, both for diagnostic purposes, and for
- * determining when a compact and/or defragment could be beneficial.
+ * The primary use case is to track when buckets are updated, for efficient incremental sync.
  *
- * Note: There is currently no migration to populate this collection from existing data - it is only
+ * The secondary use case is to track operation counts to determine whether or not a bucket should be compacted.
+ *
+ * Note: For storage V1, there is no migration to populate this collection from existing data - it is only
  * populated by new updates.
+ *
+ * For storage V3, these will always be present.
  */
-export interface BucketStateDocument {
+export interface BucketStateDocumentBase {
   _id: {
-    g: number;
     b: string;
   };
   /**
-   * Important: There is an unique index on {'_id.g': 1, last_op: 1}.
+   * Important: There is an unique index on last_op per logical stream.
    * That means the last_op must match an actual op in the bucket, and not the commit checkpoint.
    */
   last_op: bigint;
@@ -215,6 +233,20 @@ export interface SyncRuleDocument {
   content: string;
   serialized_plan?: SerializedSyncPlan | null;
 
+  /**
+   * Required for V3+ storage.
+   */
+  rule_mapping?: {
+    /**
+     * Map of uniqueName -> id, unique per replication stream.
+     */
+    definitions: Record<string, string>;
+    /**
+     * Map of (lookupName, queryId) -> id, unique per replication stream.
+     */
+    parameter_indexes: Record<string, string>;
+  };
+
   lock?: {
     id: string;
     expires_at: Date;
@@ -231,9 +263,14 @@ export interface StorageConfig extends storage.StorageVersionConfig {
    * a Long before summing.
    */
   longChecksums: boolean;
+  /**
+   * Enables v3 MongoDB storage behavior used for incremental reprocessing.
+   */
+  incrementalReprocessing: boolean;
 }
 
 const LONG_CHECKSUMS_STORAGE_VERSION = 2;
+const INCREMENTAL_REPROCESSING_STORAGE_VERSION = storage.STORAGE_VERSION_3;
 
 export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
@@ -241,7 +278,11 @@ export function getMongoStorageConfig(storageVersion: number): StorageConfig {
     throw new ServiceError(ErrorCode.PSYNC_S1005, `Unsupported storage version ${storageVersion}`);
   }
 
-  return { ...baseConfig, longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION };
+  return {
+    ...baseConfig,
+    longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION,
+    incrementalReprocessing: storageVersion >= INCREMENTAL_REPROCESSING_STORAGE_VERSION
+  };
 }
 
 export interface CheckpointEventDocument {
@@ -286,3 +327,8 @@ export interface InstanceDocument {
 }
 
 export interface ClientConnectionDocument extends event_types.ClientConnection {}
+
+export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
+export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
+export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
+export type CommonSourceTableDocument = SourceTableDocumentV1 | SourceTableDocumentV3;

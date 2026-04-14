@@ -1,4 +1,4 @@
-import { isMongoNetworkTimeoutError, isMongoServerError, mongo } from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   DatabaseConnectionError,
@@ -18,28 +18,22 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import {
-  DatabaseInputRow,
-  HydratedSyncRules,
-  SqliteInputRow,
-  SqliteRow,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
-import { trackChangeStreamBsonBytes } from './internal-mongodb-utils.js';
 import { MongoManager } from './MongoManager.js';
-import {
-  constructAfterRecord,
-  createCheckpoint,
-  getCacheIdentifier,
-  getMongoRelation,
-  STANDALONE_CHECKPOINT_ID
-} from './MongoRelation.js';
+import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
+import {
+  ChangeStreamBatch,
+  parseChangeDocument,
+  ProjectedChangeStreamDocument,
+  rawChangeStream
+} from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
+import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
 
 export interface ChangeStreamOptions {
   connections: MongoManager;
@@ -115,6 +109,8 @@ export class ChangeStream {
 
   private changeStreamTimeout: number;
 
+  private readonly sourceRowConverter: SourceRowConverter;
+
   private isCosmosDb = false;
   private cosmosDbDetected = false;
 
@@ -133,6 +129,8 @@ export class ChangeStream {
     this.sync_rules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
     });
+    this.sourceRowConverter = new DirectSourceRowConverter(this.sync_rules.compatibility);
+
     // The change stream aggregation command should timeout before the socket times out,
     // so we use 90% of the socket timeout value.
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
@@ -300,77 +298,74 @@ export class ChangeStream {
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
+    // Create a checkpoint, and open a change stream.
+    // For standard MongoDB, we use startAtOperationTime with the checkpoint's operationTime.
+    // For Cosmos DB, rawChangeStreamBatches sends the aggregate immediately (not lazy),
+    // so we open the stream with lsn: null first, then create the checkpoint — the event
+    // will be captured because the stream is already listening.
     let firstCheckpointLsn: string;
+    let streamLsn: string | null;
+
+    const filters = this.getSourceNamespaceFilters();
 
     if (this.isCosmosDb) {
-      // Cosmos DB: no startAtOperationTime available. Open the stream first
-      // (to establish the start position), then create the checkpoint. The
-      // checkpoint event will be captured because it happens after the stream
-      // is already listening.
-      // Force initialization with tryNext() since ChangeStream is lazy.
-      // Use a small non-zero maxAwaitTimeMS — with 0, tryNext() always returns
-      // null because the driver's getMore returns before events are available.
-      var streamManager = this.openChangeStream({ lsn: null, maxAwaitTimeMs: 100 });
-      await streamManager.stream.tryNext();
+      // Cosmos DB: no startAtOperationTime. Open stream first, then create checkpoint.
+      streamLsn = null;
       firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
         mode: 'sentinel'
       });
     } else {
-      // Standard MongoDB: create checkpoint first to get operationTime,
-      // then open the stream from that point.
       firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
-      var streamManager = this.openChangeStream({
-        lsn: firstCheckpointLsn,
-        maxAwaitTimeMs: 0
-      });
+      streamLsn = firstCheckpointLsn;
     }
-    // @ts-ignore streamManager is always assigned
-    await using _streamManager = streamManager;
 
-    const { stream } = streamManager;
     const startTime = performance.now();
     let lastCheckpointCreated = performance.now();
     let eventsSeen = 0;
+    let batchesSeen = 0;
 
-    while (performance.now() - startTime < LSN_TIMEOUT_SECONDS * 1000) {
+    const iter = this.rawChangeStreamBatches({
+      lsn: streamLsn,
+      maxAwaitTimeMS: 0,
+      signal: this.abort_signal,
+      filters
+    });
+    for await (let { events } of iter) {
+      if (performance.now() - startTime >= LSN_TIMEOUT_SECONDS * 1000) {
+        break;
+      }
       if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
         await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
           mode: this.isCosmosDb ? 'sentinel' : 'lsn'
         });
         lastCheckpointCreated = performance.now();
       }
+      batchesSeen += 1;
 
-      // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
-      const changeDocument = await stream.tryNext().catch((e) => {
-        throw mapChangeStreamError(e);
-      });
-      if (changeDocument == null) {
-        continue;
-      }
+      for (let rawChangeDocument of events) {
+        const changeDocument = parseChangeDocument(rawChangeDocument);
+        const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
 
-      const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
-
-      if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
-        const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
-        if (!this.checkpointStreamId.equals(checkpointId)) {
-          continue;
+        if (ns?.coll == CHECKPOINTS_COLLECTION && 'documentKey' in changeDocument) {
+          const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
+          if (!this.checkpointStreamId.equals(checkpointId)) {
+            continue;
+          }
+          const { comparable: lsn } = new MongoLSN({
+            timestamp: this.getEventTimestamp(changeDocument),
+            resume_token: changeDocument._id
+          });
+          return lsn;
         }
 
-        const { comparable: lsn } = new MongoLSN({
-          timestamp: this.getEventTimestamp(changeDocument),
-          resume_token: changeDocument._id
-        });
-
-        return lsn;
+        eventsSeen += 1;
       }
-
-      eventsSeen += 1;
     }
 
     // Could happen if there is a very large replication lag?
     throw new ServiceError(
       ErrorCode.PSYNC_S1301,
-      `Timeout after while waiting for checkpoint document for ${LSN_TIMEOUT_SECONDS}s. Streamed events = ${eventsSeen}`
+      `Timeout after while waiting for checkpoint document for ${LSN_TIMEOUT_SECONDS}s. Streamed events = ${eventsSeen}, batches = ${batchesSeen}`
     );
   }
 
@@ -378,15 +373,17 @@ export class ChangeStream {
    * Given a snapshot LSN, validate that we can read from it, by opening a change stream.
    */
   private async validateSnapshotLsn(lsn: string) {
-    await using streamManager = this.openChangeStream({ lsn: lsn, maxAwaitTimeMs: 0 });
-    const { stream } = streamManager;
-    try {
-      // tryNext() doesn't block, while next() / hasNext() does block until there is data on the stream
-      await stream.tryNext();
-    } catch (e) {
-      // Note: A timeout here is not handled as a ChangeStreamInvalidatedError, even though
-      // we possibly cannot recover from it.
-      throw mapChangeStreamError(e);
+    const filters = this.getSourceNamespaceFilters();
+    const stream = this.rawChangeStreamBatches({
+      lsn: lsn,
+      // maxAwaitTimeMS should never actually be used here
+      maxAwaitTimeMS: 0,
+      filters
+    });
+    for await (let _batch of stream) {
+      // We got a response from the aggregate command, so consider the LSN valid.
+      // Close the stream immediately.
+      break;
     }
   }
 
@@ -540,12 +537,6 @@ export class ChangeStream {
     return { $match: nsFilter, multipleDatabases };
   }
 
-  static *getQueryData(results: Iterable<DatabaseInputRow>): Generator<SqliteInputRow> {
-    for (let row of results) {
-      yield constructAfterRecord(row);
-    }
-  }
-
   private async snapshotTable(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     const rowsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
@@ -585,8 +576,8 @@ export class ChangeStream {
 
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
-      for (let document of docBatch) {
-        const record = this.constructAfterRecord(document);
+      for (let buffer of docBatch) {
+        const { row: record, replicaId: replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -595,7 +586,7 @@ export class ChangeStream {
           before: undefined,
           beforeReplicaId: undefined,
           after: record,
-          afterReplicaId: document._id
+          afterReplicaId: replicaId
         });
       }
 
@@ -724,15 +715,10 @@ export class ChangeStream {
     return result.table;
   }
 
-  private constructAfterRecord(document: mongo.Document): SqliteRow {
-    const inputRow = constructAfterRecord(document);
-    return this.sync_rules.applyRowContext<never>(inputRow);
-  }
-
   async writeChange(
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable,
-    change: mongo.ChangeStreamDocument
+    change: ProjectedChangeStreamDocument
   ): Promise<storage.FlushedResult | null> {
     if (!table.syncAny) {
       this.logger.debug(`Collection ${table.qualifiedName} not used in sync rules - skipping`);
@@ -741,13 +727,16 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const baseRecord = this.constructAfterRecord(change.fullDocument);
+      const { row: baseRecord, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
         after: baseRecord,
+        // Same as _replicaId
+        // We specifically need to use the source _id, not the converted one in baseRecord,
+        // to preserve _id uniqueness properties.
         afterReplicaId: change.documentKey._id
       });
     } else if (change.operationType == 'update' || change.operationType == 'replace') {
@@ -760,14 +749,14 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const after = this.constructAfterRecord(change.fullDocument!);
+      const { row: after, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
         before: undefined,
         beforeReplicaId: undefined,
         after: after,
-        afterReplicaId: change.documentKey._id
+        afterReplicaId: change.documentKey._id // Same as _replicaId
       });
     } else if (change.operationType == 'delete') {
       return await batch.save({
@@ -829,7 +818,7 @@ export class ChangeStream {
     }
   }
 
-  private getEventTimestamp(changeDocument: mongo.ChangeStreamDocument): mongo.Timestamp {
+  private getEventTimestamp(changeDocument: ProjectedChangeStreamDocument): mongo.Timestamp {
     if (!this.isCosmosDb && changeDocument.clusterTime) {
       return changeDocument.clusterTime;
     }
@@ -841,22 +830,18 @@ export class ChangeStream {
     throw new Error('Change event has neither clusterTime nor wallTime');
   }
 
-  private openChangeStream(options: { lsn: string | null; maxAwaitTimeMs?: number }) {
+  private rawChangeStreamBatches(options: {
+    lsn: string | null;
+    maxAwaitTimeMS?: number;
+    batchSize?: number;
+    filters: { $match: any; multipleDatabases: boolean };
+    signal?: AbortSignal;
+  }): AsyncIterableIterator<ChangeStreamBatch> {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
     const resumeAfter = lastLsn?.resumeToken;
 
-    const filters = this.getSourceNamespaceFilters();
-
-    const pipeline: mongo.Document[] = [
-      {
-        $match: filters.$match
-      }
-    ];
-
-    if (!this.isCosmosDb) {
-      pipeline.push({ $changeStreamSplitLargeEvent: {} });
-    }
+    const filters = options.filters;
 
     let fullDocument: 'required' | 'updateLookup';
 
@@ -871,14 +856,25 @@ export class ChangeStream {
     } else {
       fullDocument = 'updateLookup';
     }
-    const streamOptions: mongo.ChangeStreamOptions = {
-      maxAwaitTimeMS: options.maxAwaitTimeMs ?? this.maxAwaitTimeMS,
-      fullDocument: fullDocument,
-      maxTimeMS: this.changeStreamTimeout
+    const streamOptions: mongo.ChangeStreamOptions & mongo.Document = {
+      fullDocument: fullDocument
     };
 
     if (!this.isCosmosDb) {
       streamOptions.showExpandedEvents = true;
+    }
+
+    const pipeline: mongo.Document[] = [
+      {
+        $changeStream: streamOptions
+      },
+      {
+        $match: filters.$match
+      }
+    ];
+
+    if (!this.isCosmosDb) {
+      pipeline.push({ $changeStreamSplitLargeEvent: {} });
     }
 
     /**
@@ -893,47 +889,25 @@ export class ChangeStream {
       streamOptions.startAtOperationTime = startAfter;
     }
 
-    let stream: mongo.ChangeStream<mongo.Document>;
+    let watchDb: mongo.Db;
     if (filters.multipleDatabases || this.isCosmosDb) {
       // Requires readAnyDatabase@admin on Atlas.
       // Cosmos DB does not support database-level change streams, so we always
-      // use client.watch(). The $match filter on namespaces handles collection filtering.
-      stream = this.client.watch(pipeline, streamOptions);
+      // use cluster-level aggregate. The $match filter on namespaces handles collection filtering.
+      watchDb = this.client.db('admin');
+      streamOptions.allChangesForCluster = true;
     } else {
-      // Same general result, but requires less permissions than the above
-      stream = this.defaultDb.watch(pipeline, streamOptions);
+      watchDb = this.defaultDb;
     }
 
-    this.abort_signal.addEventListener('abort', () => {
-      stream.close();
+    return rawChangeStream(watchDb, pipeline, {
+      batchSize: options.batchSize ?? this.snapshotChunkLength,
+      maxAwaitTimeMS: options.maxAwaitTimeMS ?? this.maxAwaitTimeMS,
+      maxTimeMS: this.changeStreamTimeout,
+
+      signal: options.signal,
+      logger: this.logger
     });
-
-    return {
-      stream,
-      filters,
-      [Symbol.asyncDispose]: async () => {
-        return stream.close();
-      }
-    };
-  }
-
-  private getBufferedChangeCount(stream: mongo.ChangeStream<mongo.Document>): number {
-    // The driver keeps fetched change stream documents on the underlying cursor, but does
-    // not expose that through the public ChangeStream API. We use this to detect backlog
-    // building up before we have processed the corresponding source changes locally.
-    // If the driver API changes, we'll have a hard error here.
-    // We specifically want to avoid a silent performance regression if the driver behavior changes.
-    const cursor = (
-      stream as mongo.ChangeStream<mongo.Document> & {
-        cursor: mongo.AbstractCursor<mongo.ChangeStreamDocument<mongo.Document>>;
-      }
-    ).cursor;
-    if (cursor == null || typeof cursor.bufferedCount != 'function') {
-      throw new ReplicationAssertionError(
-        'MongoDB ChangeStream no longer exposes an internal cursor with bufferedCount'
-      );
-    }
-    return cursor.bufferedCount();
   }
 
   async streamChangesInternal() {
@@ -964,26 +938,13 @@ export class ChangeStream {
 
         this.logger.info(`Resume streaming at ${startAfter?.inspect()} / ${lastLsn}  | Token age: ${tokenAgeSeconds}s`);
 
-        await using streamManager = this.openChangeStream({ lsn: resumeFromLsn });
-        const { stream, filters } = streamManager;
-        if (this.abort_signal.aborted) {
-          await stream.close();
-          return;
-        }
-        trackChangeStreamBsonBytes(stream, (bytes) => {
-          bytesReplicatedMetric.add(bytes);
-          // Each of these represent a single response message from MongoDB.
-          chunksReplicatedMetric.add(1);
+        const filters = this.getSourceNamespaceFilters();
+        // This is closed when the for loop below returns/breaks/throws
+        const batchStream = this.rawChangeStreamBatches({
+          lsn: resumeFromLsn,
+          filters,
+          signal: this.abort_signal
         });
-
-        if (this.isCosmosDb) {
-          // Force ChangeStream initialization before creating the checkpoint.
-          // ChangeStream is lazy — the aggregate command isn't sent until the
-          // first tryNext()/hasNext() call. Without this, createCheckpoint()
-          // commits an event before the stream starts listening, and the event
-          // is missed because it's before the stream's start position.
-          await stream.tryNext();
-        }
 
         // Always start with a checkpoint.
         // This helps us to clear errors when restarting, even if there is
@@ -995,7 +956,7 @@ export class ChangeStream {
           { mode: this.isCosmosDb ? 'sentinel' : 'lsn' }
         );
 
-        let splitDocument: mongo.ChangeStreamDocument | null = null;
+        let splitDocument: ProjectedChangeStreamDocument | null = null;
 
         let flexDbNameWorkaroundLogged = false;
         let changesSinceLastCheckpoint = 0;
@@ -1003,29 +964,17 @@ export class ChangeStream {
         let lastEmptyResume = performance.now();
         let lastTxnKey: string | null = null;
 
-        while (true) {
+        for await (let eventBatch of batchStream) {
+          const { events, resumeToken } = eventBatch;
+          bytesReplicatedMetric.add(eventBatch.byteSize);
+          chunksReplicatedMetric.add(1);
           if (this.abort_signal.aborted) {
             break;
           }
-
-          const originalChangeDocument = await stream.tryNext().catch((e) => {
-            throw mapChangeStreamError(e);
-          });
-          // The stream was closed, we will only ever receive `null` from it
-          if (!originalChangeDocument && stream.closed) {
-            break;
-          }
-
-          if (this.abort_signal.aborted) {
-            break;
-          }
-
-          if (originalChangeDocument == null) {
-            // We get a new null document after `maxAwaitTimeMS` if there were no other events.
-            // In this case, stream.resumeToken is the resume token associated with the last response.
-            // stream.resumeToken is not updated if stream.tryNext() returns data, while stream.next()
-            // does update it.
-            // From observed behavior, the actual resumeToken changes around once every 10 seconds.
+          this.touch();
+          if (events.length == 0) {
+            // No changes in this batch, but we still want to keep the connection alive.
+            // We do this by persisting a keepalive checkpoint.
             // If we don't update it on empty events, we do keep consistency, but resuming the stream
             // with old tokens may cause connection timeouts.
             // We throttle this further by only persisting a keepalive once a minute.
@@ -1037,7 +986,7 @@ export class ChangeStream {
                 // Persist the token directly with a wallTime-derived timestamp.
                 const lsn = new MongoLSN({
                   timestamp: mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000)),
-                  resume_token: stream.resumeToken
+                  resume_token: resumeToken
                 }).comparable;
                 await batch.keepalive(lsn);
                 this.touch();
@@ -1045,22 +994,32 @@ export class ChangeStream {
                 this.logger.info(`Idle change stream (CosmosDB). Persisted resumeToken.`);
               } else {
                 // Standard MongoDB: parse timestamp from resume token
-                const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(stream.resumeToken);
+                const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(resumeToken);
                 await batch.keepalive(lsn);
                 this.touch();
                 lastEmptyResume = performance.now();
+                // Log the token update. This helps as a general "replication is still active" message in the logs.
+                // This token would typically be around 10s behind.
                 this.logger.info(
                   `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
                 );
               }
               this.replicationLag.markStarted();
             }
+
             continue;
           }
 
           this.touch();
 
-          try {
+          const batchStart = Date.now();
+          for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
+            const rawChangeDocument = events[eventIndex];
+            const originalChangeDocument = parseChangeDocument(rawChangeDocument);
+            if (this.abort_signal.aborted) {
+              break;
+            }
+
             // Skip events at or before the resume point to prevent duplicate processing.
             // This guard is only needed for the legacy startAtOperationTime path where
             // the server may redeliver events at the boundary. When resumeAfter is used
@@ -1068,257 +1027,261 @@ export class ChangeStream {
             // On Cosmos DB, this check is harmful: wallTime has second precision
             // (increment 0), so events within the same second as the last checkpoint
             // would be incorrectly dropped — causing silent data loss after restart.
-            //
-            // The "data events not dropped after restart (lte guard)" integration test
-            // verifies that data survives restart on Cosmos DB. However, it cannot
-            // reproduce the specific same-second timing condition (the getCheckpoint
-            // call needed to initialize the stream advances past the current second).
-            // The isCosmosDb guard is verifiable by code inspection: on Cosmos DB the
-            // comparison is skipped entirely, so no events can be dropped by it.
-            if (
-              !this.isCosmosDb &&
-              startAfter != null &&
-              this.getEventTimestamp(originalChangeDocument).lte(startAfter)
-            ) {
-              continue;
-            }
-          } catch {
-            // Neither clusterTime nor wallTime present — don't skip the event
-          }
-
-          let changeDocument = originalChangeDocument;
-          if (originalChangeDocument?.splitEvent != null) {
-            // Handle split events from $changeStreamSplitLargeEvent.
-            // This is only relevant for very large update operations.
-            const splitEvent = originalChangeDocument?.splitEvent;
-
-            if (splitDocument == null) {
-              splitDocument = originalChangeDocument;
-            } else {
-              splitDocument = Object.assign(splitDocument, originalChangeDocument);
-            }
-
-            if (splitEvent.fragment == splitEvent.of) {
-              // Got all fragments
-              changeDocument = splitDocument;
-              splitDocument = null;
-            } else {
-              // Wait for more fragments
-              continue;
-            }
-          } else if (splitDocument != null) {
-            // We were waiting for fragments, but got a different event
-            throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
-          }
-
-          if (
-            !filters.multipleDatabases &&
-            'ns' in changeDocument &&
-            changeDocument.ns.db != this.defaultDb.databaseName &&
-            changeDocument.ns.db.endsWith(`_${this.defaultDb.databaseName}`)
-          ) {
-            // When all of the following conditions are met:
-            // 1. We're replicating from an Atlas Flex instance.
-            // 2. There were changestream events recorded while the PowerSync service is paused.
-            // 3. We're only replicating from a single database.
-            // Then we've observed an ns with for example {db: '67b83e86cd20730f1e766dde_ps'},
-            // instead of the expected {db: 'ps'}.
-            // We correct this.
-            changeDocument.ns.db = this.defaultDb.databaseName;
-
-            if (!flexDbNameWorkaroundLogged) {
-              flexDbNameWorkaroundLogged = true;
-              this.logger.warn(
-                `Incorrect DB name in change stream: ${changeDocument.ns.db}. Changed to ${this.defaultDb.databaseName}.`
-              );
-            }
-          }
-
-          const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
-
-          if (ns?.coll == CHECKPOINTS_COLLECTION) {
-            /**
-             * Dropping the database does not provide an `invalidate` event.
-             * We typically would receive `drop` events for the collection which we
-             * would process below.
-             *
-             * However we don't commit the LSN after collections are dropped.
-             * The prevents the `startAfter` or `resumeToken` from advancing past the drop events.
-             * The stream also closes after the drop events.
-             * This causes an infinite loop of processing the collection drop events.
-             *
-             * This check here invalidates the change stream if our `_checkpoints` collection
-             * is dropped. This allows for detecting when the DB is dropped.
-             */
-            if (changeDocument.operationType == 'drop') {
-              throw new ChangeStreamInvalidatedError(
-                'Internal collections have been dropped',
-                new Error('_checkpoints collection was dropped')
-              );
-            }
-
-            if (
-              !(
-                changeDocument.operationType == 'insert' ||
-                changeDocument.operationType == 'update' ||
-                changeDocument.operationType == 'replace'
-              )
-            ) {
-              continue;
-            }
-
-            // We handle two types of checkpoint events:
-            // 1. "Standalone" checkpoints, typically write checkpoints. We want to process these
-            //    immediately, regardless of where they were created.
-            // 2. "Batch" checkpoints for the current stream. This is used as a form of dynamic rate
-            //    limiting of commits, so we specifically want to exclude checkpoints from other streams.
-            //
-            // It may be useful to also throttle commits due to standalone checkpoints in the future.
-            // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
-
-            const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
-
-            if (checkpointId == STANDALONE_CHECKPOINT_ID) {
-              // Standalone / write checkpoint received.
-              // When we are caught up, commit immediately to keep write checkpoint latency low.
-              // Once there is already a batch checkpoint pending, or the driver has buffered more
-              // change stream events, collapse standalone checkpoints into the normal batch
-              // checkpoint flow to avoid commit churn under sustained load.
-              if (waitForCheckpointLsn != null || this.getBufferedChangeCount(stream) > 0) {
-                if (waitForCheckpointLsn == null) {
-                  waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                    mode: this.isCosmosDb ? 'sentinel' : 'lsn'
-                  });
-                }
+            try {
+              if (
+                !this.isCosmosDb &&
+                startAfter != null &&
+                this.getEventTimestamp(originalChangeDocument).lte(startAfter)
+              ) {
                 continue;
               }
-            } else if (!this.checkpointStreamId.equals(checkpointId)) {
-              continue;
+            } catch {
+              // Neither clusterTime nor wallTime present — don't skip the event
             }
 
-            const { comparable: lsn } = new MongoLSN({
-              timestamp: this.getEventTimestamp(changeDocument),
-              resume_token: changeDocument._id
-            });
-            if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
-              // Checkpoint out of order - should never happen with MongoDB.
-              // If it does happen, we throw an error to stop the replication - restarting should recover.
-              // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
-              // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
-              // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
-              throw new ReplicationAssertionError(
-                `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(this.getEventTimestamp(changeDocument)).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
-              );
+            let changeDocument = originalChangeDocument;
+            if (originalChangeDocument?.splitEvent != null) {
+              // Handle split events from $changeStreamSplitLargeEvent.
+              // This is only relevant for very large update operations.
+              const splitEvent = originalChangeDocument?.splitEvent;
+
+              if (splitDocument == null) {
+                splitDocument = originalChangeDocument;
+              } else {
+                splitDocument = Object.assign(splitDocument, originalChangeDocument);
+              }
+
+              if (splitEvent.fragment == splitEvent.of) {
+                // Got all fragments
+                changeDocument = splitDocument;
+                splitDocument = null;
+              } else {
+                // Wait for more fragments
+                continue;
+              }
+            } else if (splitDocument != null) {
+              // We were waiting for fragments, but got a different event
+              throw new ReplicationAssertionError(`Incomplete splitEvent: ${JSON.stringify(splitDocument.splitEvent)}`);
             }
 
-            if (waitForCheckpointLsn != null) {
-              if (waitForCheckpointLsn.startsWith('sentinel:')) {
-                // Cosmos DB sentinel matching: resolve when we see the matching event
-                if (!changeDocument.fullDocument) {
-                  this.logger.warn('Checkpoint event missing fullDocument — cannot match sentinel');
+            if (
+              !filters.multipleDatabases &&
+              'ns' in changeDocument &&
+              changeDocument.ns.db != this.defaultDb.databaseName &&
+              changeDocument.ns.db.endsWith(`_${this.defaultDb.databaseName}`)
+            ) {
+              // When all of the following conditions are met:
+              // 1. We're replicating from an Atlas Flex instance.
+              // 2. There were changestream events recorded while the PowerSync service is paused.
+              // 3. We're only replicating from a single database.
+              // Then we've observed an ns with for example {db: '67b83e86cd20730f1e766dde_ps'},
+              // instead of the expected {db: 'ps'}.
+              // We correct this.
+              changeDocument.ns.db = this.defaultDb.databaseName;
+
+              if (!flexDbNameWorkaroundLogged) {
+                flexDbNameWorkaroundLogged = true;
+                this.logger.warn(
+                  `Incorrect DB name in change stream: ${changeDocument.ns.db}. Changed to ${this.defaultDb.databaseName}.`
+                );
+              }
+            }
+
+            const ns = 'ns' in changeDocument && 'coll' in changeDocument.ns ? changeDocument.ns : undefined;
+
+            if (ns?.coll == CHECKPOINTS_COLLECTION) {
+              /**
+               * Dropping the database does not provide an `invalidate` event.
+               * We typically would receive `drop` events for the collection which we
+               * would process below.
+               *
+               * However we don't commit the LSN after collections are dropped.
+               * This prevents the `startAfter` or `resumeToken` from advancing past the drop events.
+               * The stream also closes after the drop events.
+               * This causes an infinite loop of processing the collection drop events.
+               *
+               * This check here invalidates the change stream if our `_powersync_checkpoints` collection
+               * is dropped. This allows for detecting when the DB is dropped.
+               */
+              if (changeDocument.operationType == 'drop') {
+                throw new ChangeStreamInvalidatedError(
+                  'Internal collections have been dropped',
+                  new Error('_powersync_checkpoints collection was dropped')
+                );
+              }
+
+              if (
+                !(
+                  changeDocument.operationType == 'insert' ||
+                  changeDocument.operationType == 'update' ||
+                  changeDocument.operationType == 'replace'
+                )
+              ) {
+                continue;
+              }
+
+              // We handle two types of checkpoint events:
+              // 1. "Standalone" checkpoints, typically write checkpoints. We want to process these
+              //    immediately, regardless of where they were created.
+              // 2. "Batch" checkpoints for the current stream. This is used as a form of dynamic rate
+              //    limiting of commits, so we specifically want to exclude checkpoints from other streams.
+              //
+              // It may be useful to also throttle commits due to standalone checkpoints in the future.
+              // However, these typically have a much lower rate than batch checkpoints, so we don't do that for now.
+
+              const checkpointId = changeDocument.documentKey._id as string | mongo.ObjectId;
+
+              if (checkpointId == STANDALONE_CHECKPOINT_ID) {
+                // Standalone / write checkpoint received.
+                // When we are caught up, commit immediately to keep write checkpoint latency low.
+                // Once there is already a batch checkpoint pending, or the driver has buffered more
+                // change stream events, collapse standalone checkpoints into the normal batch
+                // checkpoint flow to avoid commit churn under sustained load.
+                const hasBufferedChanges = eventIndex < events.length - 1;
+                if (waitForCheckpointLsn != null || hasBufferedChanges) {
+                  if (waitForCheckpointLsn == null) {
+                    waitForCheckpointLsn = await createCheckpoint(
+                      this.client,
+                      this.defaultDb,
+                      this.checkpointStreamId,
+                      {
+                        mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+                      }
+                    );
+                  }
                   continue;
                 }
-                const [, sentinelId, sentinelI] = waitForCheckpointLsn.split(':');
-                const docId = String(changeDocument.documentKey._id);
-                const docI = (changeDocument as any).fullDocument?.i;
+              } else if (!this.checkpointStreamId.equals(checkpointId)) {
+                continue;
+              }
 
-                if (docId === sentinelId && String(docI) === sentinelI) {
+              const { comparable: lsn } = new MongoLSN({
+                timestamp: this.getEventTimestamp(changeDocument),
+                resume_token: changeDocument._id
+              });
+              if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
+                // Checkpoint out of order - should never happen with MongoDB.
+                // If it does happen, we throw an error to stop the replication - restarting should recover.
+                // Since we use batch.lastCheckpointLsn for the next resumeAfter, this should not result in an infinite loop.
+                // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
+                // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
+                throw new ReplicationAssertionError(
+                  `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(this.getEventTimestamp(changeDocument)).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
+                );
+              }
+
+              if (waitForCheckpointLsn != null) {
+                if (waitForCheckpointLsn.startsWith('sentinel:')) {
+                  // Cosmos DB sentinel matching: resolve when we see the matching event
+                  if (!changeDocument.fullDocument) {
+                    this.logger.warn('Checkpoint event missing fullDocument — cannot match sentinel');
+                    continue;
+                  }
+                  const [, sentinelId, sentinelI] = waitForCheckpointLsn.split(':');
+                  const docId = String(changeDocument.documentKey._id);
+                  // fullDocument is a raw BSON Buffer from parseChangeDocument — deserialize to access .i
+                  const fullDoc = mongo.BSON.deserialize(changeDocument.fullDocument as Buffer, { useBigInt64: true });
+                  const docI = fullDoc?.i;
+
+                  if (docId === sentinelId && String(docI) === sentinelI) {
+                    waitForCheckpointLsn = null;
+                  }
+                } else if (lsn >= waitForCheckpointLsn) {
+                  // Standard MongoDB: LSN comparison (existing path)
                   waitForCheckpointLsn = null;
                 }
-              } else if (lsn >= waitForCheckpointLsn) {
-                // Standard MongoDB: LSN comparison (existing path)
-                waitForCheckpointLsn = null;
               }
-            }
-            const { checkpointBlocked } = await batch.commit(lsn, {
-              oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
-            });
-
-            if (!checkpointBlocked) {
-              this.replicationLag.markCommitted();
-              changesSinceLastCheckpoint = 0;
-            }
-          } else if (
-            changeDocument.operationType == 'insert' ||
-            changeDocument.operationType == 'update' ||
-            changeDocument.operationType == 'replace' ||
-            changeDocument.operationType == 'delete'
-          ) {
-            if (waitForCheckpointLsn == null) {
-              waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
-                mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+              const { checkpointBlocked } = await batch.commit(lsn, {
+                oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
               });
-            }
 
-            const rel = getMongoRelation(changeDocument.ns);
-            const table = await this.getRelation(batch, rel, {
-              // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
-              // for whatever reason, then we do need to snapshot it.
-              // This may result in some duplicate operations when a collection is created for the first time after
-              // sync rules was deployed.
-              snapshot: true
-            });
-            if (table.syncAny) {
-              this.replicationLag.trackUncommittedChange(
-                (changeDocument as any).wallTime ??
-                  (changeDocument.clusterTime ? timestampToDate(changeDocument.clusterTime) : null)
-              );
-
-              const transactionKeyValue = transactionKey(changeDocument);
-
-              if (transactionKeyValue == null || lastTxnKey != transactionKeyValue) {
-                // Very crude metric for counting transactions replicated.
-                // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
-                // Individual writes may not have a txnNumber, in which case we count them as separate transactions.
-                lastTxnKey = transactionKeyValue;
-                transactionsReplicatedMetric.add(1);
-              }
-
-              const flushResult = await this.writeChange(batch, table, changeDocument);
-              changesSinceLastCheckpoint += 1;
-              if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
-                // When we are catching up replication after an initial snapshot, there may be a very long delay
-                // before we do a commit(). In that case, we need to periodically persist the resume LSN, so
-                // we don't restart from scratch if we restart replication.
-                // The same could apply if we need to catch up on replication after some downtime.
-                const { comparable: lsn } = new MongoLSN({
-                  timestamp: this.getEventTimestamp(changeDocument),
-                  resume_token: changeDocument._id
-                });
-                this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
-                await batch.setResumeLsn(lsn);
+              if (!checkpointBlocked) {
+                this.replicationLag.markCommitted();
                 changesSinceLastCheckpoint = 0;
               }
+            } else if (
+              changeDocument.operationType == 'insert' ||
+              changeDocument.operationType == 'update' ||
+              changeDocument.operationType == 'replace' ||
+              changeDocument.operationType == 'delete'
+            ) {
+              if (waitForCheckpointLsn == null) {
+                waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
+                  mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+                });
+              }
+
+              const rel = getMongoRelation(changeDocument.ns);
+              const table = await this.getRelation(batch, rel, {
+                // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
+                // for whatever reason, then we do need to snapshot it.
+                // This may result in some duplicate operations when a collection is created for the first time after
+                // sync rules was deployed.
+                snapshot: true
+              });
+              if (table.syncAny) {
+                this.replicationLag.trackUncommittedChange(
+                  (changeDocument as any).wallTime ??
+                    (changeDocument.clusterTime ? timestampToDate(changeDocument.clusterTime) : null)
+                );
+
+                const transactionKeyValue = transactionKey(changeDocument);
+
+                if (transactionKeyValue == null || lastTxnKey != transactionKeyValue) {
+                  // Very crude metric for counting transactions replicated.
+                  // We ignore operations other than basic CRUD, and ignore changes to _powersync_checkpoints.
+                  // Individual writes may not have a txnNumber, in which case we count them as separate transactions.
+                  lastTxnKey = transactionKeyValue;
+                  transactionsReplicatedMetric.add(1);
+                }
+
+                const flushResult = await this.writeChange(batch, table, changeDocument);
+                changesSinceLastCheckpoint += 1;
+                if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
+                  // When we are catching up replication after an initial snapshot, there may be a very long delay
+                  // before we do a commit(). In that case, we need to periodically persist the resume LSN, so
+                  // we don't restart from scratch if we restart replication.
+                  // The same could apply if we need to catch up on replication after some downtime.
+                  const { comparable: lsn } = new MongoLSN({
+                    timestamp: this.getEventTimestamp(changeDocument),
+                    resume_token: changeDocument._id
+                  });
+                  this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
+                  await batch.setResumeLsn(lsn);
+                  changesSinceLastCheckpoint = 0;
+                }
+              }
+            } else if (changeDocument.operationType == 'drop') {
+              const rel = getMongoRelation(changeDocument.ns);
+              const table = await this.getRelation(batch, rel, {
+                // We're "dropping" this collection, so never snapshot it.
+                snapshot: false
+              });
+              if (table.syncAny) {
+                await batch.drop([table]);
+                this.relationCache.delete(table);
+              }
+            } else if (changeDocument.operationType == 'rename') {
+              const relFrom = getMongoRelation(changeDocument.ns);
+              const relTo = getMongoRelation(changeDocument.to);
+              const tableFrom = await this.getRelation(batch, relFrom, {
+                // We're "dropping" this collection, so never snapshot it.
+                snapshot: false
+              });
+              if (tableFrom.syncAny) {
+                await batch.drop([tableFrom]);
+                this.relationCache.delete(relFrom);
+              }
+              // Here we do need to snapshot the new table
+              const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
+              await this.handleRelation(batch, relTo, {
+                // This is a new (renamed) collection, so always snapshot it.
+                snapshot: true,
+                collectionInfo: collection
+              });
             }
-          } else if (changeDocument.operationType == 'drop') {
-            const rel = getMongoRelation(changeDocument.ns);
-            const table = await this.getRelation(batch, rel, {
-              // We're "dropping" this collection, so never snapshot it.
-              snapshot: false
-            });
-            if (table.syncAny) {
-              await batch.drop([table]);
-              this.relationCache.delete(table);
-            }
-          } else if (changeDocument.operationType == 'rename') {
-            const relFrom = getMongoRelation(changeDocument.ns);
-            const relTo = getMongoRelation(changeDocument.to);
-            const tableFrom = await this.getRelation(batch, relFrom, {
-              // We're "dropping" this collection, so never snapshot it.
-              snapshot: false
-            });
-            if (tableFrom.syncAny) {
-              await batch.drop([tableFrom]);
-              this.relationCache.delete(relFrom);
-            }
-            // Here we do need to snapshot the new table
-            const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
-            await this.handleRelation(batch, relTo, {
-              // This is a new (renamed) collection, so always snapshot it.
-              snapshot: true,
-              collectionInfo: collection
-            });
           }
+          this.logger.info(`Processed batch of ${events.length} changes in ${Date.now() - batchStart}ms`);
         }
       }
     );
@@ -1341,32 +1304,10 @@ export class ChangeStream {
   }
 }
 
-function mapChangeStreamError(e: any) {
-  if (isMongoNetworkTimeoutError(e)) {
-    // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
-    // We wrap the error to make it more useful.
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-  } else if (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-    // maxTimeMS was reached. Example message:
-    // MongoServerError: Executor error during aggregate command on namespace: powersync_test_data.$cmd.aggregate :: caused by :: operation exceeded time limit
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-  } else if (
-    isMongoServerError(e) &&
-    e.codeName == 'NoMatchingDocument' &&
-    e.errmsg?.includes('post-image was not found')
-  ) {
-    throw new ChangeStreamInvalidatedError(e.errmsg, e);
-  } else if (isMongoServerError(e) && e.hasErrorLabel('NonResumableChangeStreamError')) {
-    throw new ChangeStreamInvalidatedError(e.message, e);
-  } else {
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1346, `Error reading MongoDB ChangeStream`, e);
-  }
-}
-
 /**
  * Transaction key for a change stream event, used to detect transaction boundaries. Returns null if the event is not part of a transaction.
  */
-function transactionKey(doc: mongo.ChangeStreamDocument): string | null {
+function transactionKey(doc: Pick<mongo.ChangeStreamDocument, 'lsid' | 'txnNumber'>): string | null {
   if (doc.txnNumber == null || doc.lsid == null) {
     return null;
   }

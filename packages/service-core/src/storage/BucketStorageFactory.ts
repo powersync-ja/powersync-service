@@ -161,6 +161,12 @@ export interface UpdateSyncRulesOptions {
      * compiler.
      */
     plan: SerializedSyncPlan | null;
+
+    /**
+     * Parsed sync rules version, primarily to generate a definition mapping.
+     * Not persisted, and the defaultSchema used for parsing is not relevant.
+     */
+    parsed: SyncConfigWithErrors;
   };
   lock?: boolean;
   storageVersion?: number;
@@ -198,10 +204,11 @@ export function updateSyncRulesFromYaml(
 }
 
 export function updateSyncRulesFromConfig(
-  { config, errors }: SyncConfigWithErrors,
+  parsed: SyncConfigWithErrors,
   options?: Omit<UpdateSyncRulesOptions, 'config'>
 ): UpdateSyncRulesOptions {
   let plan: SerializedSyncPlan | null = null;
+  const { config, errors } = parsed;
   if (config instanceof PrecompiledSyncConfig) {
     const eventDescriptors: Record<string, string[]> = {};
     for (const event of config.eventDescriptors) {
@@ -216,7 +223,7 @@ export function updateSyncRulesFromConfig(
     };
   }
 
-  return { config: { yaml: config.content, plan }, ...options };
+  return { config: { yaml: config.content, plan, parsed }, ...options };
 }
 
 export interface GetIntanceOptions {

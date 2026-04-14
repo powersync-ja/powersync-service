@@ -4,7 +4,7 @@ import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service
 
 import * as storage from '../storage/storage-index.js';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
-import { RouteAPI } from './RouteAPI.js';
+import { RouteAPI, SlotWalBudgetInfo } from './RouteAPI.js';
 
 export interface DiagnosticsOptions {
   /**
@@ -63,6 +63,7 @@ export async function getSyncRulesStatus(
   const systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
   const status = await systemStorage?.getStatus();
   let replication_lag_bytes: number | undefined = undefined;
+  let slot_wal_budget: SlotWalBudgetInfo | undefined = undefined;
 
   let tables_flat: TableInfo[] = [];
 
@@ -87,6 +88,16 @@ export async function getSyncRulesStatus(
       } catch (e) {
         // Ignore
         logger.warn(`Unable to get replication lag`, e);
+      }
+
+      if (apiHandler.getSlotWalBudget) {
+        try {
+          slot_wal_budget = await apiHandler.getSlotWalBudget({
+            slotName: sync_rules.slot_name
+          });
+        } catch (e) {
+          logger.warn(`Unable to get WAL budget`, e);
+        }
       }
     }
   } else {
@@ -182,6 +193,9 @@ export async function getSyncRulesStatus(
         last_checkpoint_ts: sync_rules.last_checkpoint_ts?.toISOString(),
         last_keepalive_ts: sync_rules.last_keepalive_ts?.toISOString(),
         replication_lag_bytes: replication_lag_bytes,
+        wal_status: slot_wal_budget?.wal_status,
+        safe_wal_size: slot_wal_budget?.safe_wal_size,
+        max_slot_wal_keep_size: slot_wal_budget?.max_slot_wal_keep_size,
         tables: tables_flat
       }
     ],

@@ -985,6 +985,7 @@ bucket_definitions:
       expect(errorMessages[0]).toContain('tasks: 20');
       expect(errorMessages[0]).toContain('comments: 10');
 
+      expect(errorData[0].checkpoint).toEqual(1n);
       expect(errorData[0].parameter_query_results).toBe(60);
       expect(errorData[0].parameter_query_results_by_definition).toEqual({
         projects: 30,

@@ -1,5 +1,12 @@
 # @powersync/service-client
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [41875f7]
+  - @powersync/service-types@0.15.1
+
 ## 0.0.4
 
 ### Patch Changes

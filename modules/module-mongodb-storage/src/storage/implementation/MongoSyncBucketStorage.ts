@@ -2,6 +2,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
+  DO_NOT_LOG,
   logger,
   ReplicationAbortedError,
   ServiceAssertionError
@@ -10,46 +11,41 @@ import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
-  deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
-  internalToExternalOpId,
   maxLsn,
   mergeAsyncIterables,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
-  ProtocolOpId,
   ReplicationCheckpoint,
   storage,
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { JSONBig } from '@powersync/service-jsonbig';
 import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
-import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils/util.js';
+import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { VersionedPowerSyncMongo } from './db.js';
-import {
-  BucketDataDocument,
-  BucketDataKey,
-  BucketStateDocument,
-  SourceKey,
-  SourceTableDocument,
-  StorageConfig
-} from './models.js';
-import { MongoBucketBatch } from './MongoBucketBatch.js';
+import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
+import type { VersionedPowerSyncMongo } from './db.js';
+import { CommonSourceTableDocument, StorageConfig } from './models.js';
+import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
-import { MongoCompactor } from './MongoCompactor.js';
+import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
-  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig'>;
+  checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
   storageConfig: StorageConfig;
+}
+
+interface InternalCheckpointChanges extends CheckpointChanges {
+  updatedWriteCheckpoints: Map<string, bigint>;
+  invalidateWriteCheckpoints: boolean;
 }
 
 /**
@@ -63,30 +59,30 @@ export interface MongoSyncBucketStorageOptions {
  */
 const CHECKPOINT_TIMEOUT_MS = 60_000;
 
-export class MongoSyncBucketStorage
+export abstract class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  private readonly db: VersionedPowerSyncMongo;
+  readonly db: VersionedPowerSyncMongo;
+  [DO_NOT_LOG] = true;
+
   readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
+  #storageInitialized = false;
 
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    private readonly sync_rules: MongoPersistedSyncRulesContent,
+    protected readonly sync_rules: MongoPersistedSyncRulesContent,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
     super();
     this.db = factory.db.versioned(sync_rules.getStorageConfig());
-    this.checksums = new MongoChecksums(this.db, this.group_id, {
-      ...options.checksumOptions,
-      storageConfig: options?.storageConfig
-    });
+    this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
@@ -94,8 +90,33 @@ export class MongoSyncBucketStorage
     });
   }
 
+  /**
+   * Not for external use - public here for tests only.
+   *
+   * @internal
+   */
+  abstract createMongoCompactor(options: MongoCompactOptions): MongoCompactor;
+
+  protected abstract createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums;
+  protected abstract createMongoParameterCompactor(
+    checkpoint: InternalOpId,
+    options: storage.CompactOptions
+  ): MongoParameterCompactor;
+
   get writeCheckpointMode() {
     return this.writeCheckpointAPI.writeCheckpointMode;
+  }
+
+  get mapping() {
+    return this.sync_rules.mapping;
+  }
+
+  protected get versionContext(): MongoSyncBucketStorageContext {
+    return {
+      db: this.db,
+      group_id: this.group_id,
+      mapping: this.mapping
+    };
   }
 
   setWriteCheckpointMode(mode: storage.WriteCheckpointMode): void {
@@ -115,10 +136,6 @@ export class MongoSyncBucketStorage
 
   getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
-    /**
-     * Check if the cached sync rules, if present, had the same options.
-     * Parse sync rules if the options are different or if there is no cached value.
-     */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
       this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
     }
@@ -140,26 +157,15 @@ export class MongoSyncBucketStorage
         }
       );
       if (!doc?.snapshot_done || !['ACTIVE', 'ERRORED'].includes(doc.state)) {
-        // Sync rules not active - return null
         return null;
       }
 
-      // Specifically using operationTime instead of clusterTime
-      // There are 3 fields in the response:
-      // 1. operationTime, not exposed for snapshot sessions (used for causal consistency)
-      // 2. clusterTime (used for connection management)
-      // 3. atClusterTime, which is session.snapshotTime
-      // We use atClusterTime, to match the driver's internal snapshot handling.
-      // There are cases where clusterTime > operationTime and atClusterTime,
-      // which could cause snapshot queries using this as the snapshotTime to timeout.
-      // This was specifically observed on MongoDB 6.0 and 7.0.
       const snapshotTime = (session as any).snapshotTime as bson.Timestamp | undefined;
       if (snapshotTime == null) {
         throw new ServiceAssertionError('Missing snapshotTime in getCheckpoint()');
       }
       return new MongoReplicationCheckpoint(
         this,
-        // null/0n is a valid checkpoint in some cases, for example if the initial snapshot was empty
         doc.last_checkpoint ?? 0n,
         doc.last_checkpoint_lsn ?? null,
         snapshotTime
@@ -167,7 +173,23 @@ export class MongoSyncBucketStorage
     });
   }
 
+  protected abstract initializeVersionStorage(): Promise<void>;
+
+  private async initializeStorage() {
+    if (this.#storageInitialized) {
+      return;
+    }
+
+    await this.db.initializeStreamStorage(this.group_id);
+    await this.initializeVersionStorage();
+    this.#storageInitialized = true;
+  }
+
+  protected abstract createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch;
+
   async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
+    await this.initializeStorage();
+
     const doc = await this.db.sync_rules.findOne(
       {
         _id: this.group_id
@@ -176,10 +198,11 @@ export class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    const writer = new MongoBucketBatch({
+    const batchOptions = {
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
+      mapping: this.sync_rules.mapping,
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: checkpoint_lsn,
@@ -188,14 +211,12 @@ export class MongoSyncBucketStorage
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable
-    });
+    };
+    const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
     return writer;
   }
 
-  /**
-   * @deprecated Use `createWriter()` with `await using` instead.
-   */
   async startBatch(
     options: storage.CreateWriterOptions,
     callback: (batch: storage.BucketStorageBatch) => Promise<void>
@@ -205,6 +226,16 @@ export class MongoSyncBucketStorage
     await writer.flush();
     return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
   }
+
+  protected abstract sourceTableBaseId(): Partial<CommonSourceTableDocument>;
+
+  protected abstract augmentCreatedSourceTableDocument(
+    createDoc: CommonSourceTableDocument,
+    options: storage.ResolveTableOptions,
+    candidateSourceTable: storage.SourceTable
+  ): void;
+
+  protected abstract initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void>;
 
   async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
@@ -217,23 +248,36 @@ export class MongoSyncBucketStorage
       type_oid: column.typeId
     }));
     let result: storage.ResolveTableResult | null = null;
+    let initializeSourceRecordsFor: bson.ObjectId | null = null;
+
+    const baseId = this.sourceTableBaseId();
     await this.db.client.withSession(async (session) => {
-      const col = this.db.source_tables;
-      let filter: Partial<SourceTableDocument> = {
-        group_id: group_id,
+      const col = this.db.commonSourceTables(group_id);
+      let filter: Partial<CommonSourceTableDocument> = {
+        ...baseId,
         connection_id: connection_id,
         schema_name: schema,
         table_name: name,
         replica_id_columns2: normalizedReplicaIdColumns
       };
+
       if (objectId != null) {
         filter.relation_id = objectId;
       }
       let doc = await col.findOne(filter, { session });
       if (doc == null) {
-        doc = {
-          _id: new bson.ObjectId(),
-          group_id: group_id,
+        const candidateSourceTable = new storage.SourceTable({
+          id: new bson.ObjectId(),
+          connectionTag: connection_tag,
+          objectId: objectId,
+          schema: schema,
+          name: name,
+          replicaIdColumns: replicaIdColumns,
+          snapshotComplete: false
+        });
+        const createDoc: CommonSourceTableDocument = {
+          _id: candidateSourceTable.id as bson.ObjectId,
+          ...(baseId as any),
           connection_id: connection_id,
           relation_id: objectId,
           schema_name: schema,
@@ -243,8 +287,11 @@ export class MongoSyncBucketStorage
           snapshot_done: false,
           snapshot_status: undefined
         };
+        this.augmentCreatedSourceTableDocument(createDoc, options, candidateSourceTable);
+        doc = createDoc;
 
         await col.insertOne(doc, { session });
+        initializeSourceRecordsFor = doc._id;
       }
       const sourceTable = new storage.SourceTable({
         id: doc._id,
@@ -268,16 +315,14 @@ export class MongoSyncBucketStorage
             };
 
       let dropTables: storage.SourceTable[] = [];
-      // Detect tables that are either renamed, or have different replica_id_columns
       let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
       if (objectId != null) {
-        // Only detect renames if the source uses relation ids.
         truncateFilter.push({ relation_id: objectId });
       }
       const truncate = await col
         .find(
           {
-            group_id: group_id,
+            ...baseId,
             connection_id: connection_id,
             _id: { $ne: doc._id },
             $or: truncateFilter
@@ -304,223 +349,36 @@ export class MongoSyncBucketStorage
         dropTables: dropTables
       };
     });
+    if (initializeSourceRecordsFor != null) {
+      await this.initializeResolvedSourceRecords(initializeSourceRecordsFor);
+    }
     return result!;
   }
+
+  protected abstract getParameterSetsImpl(
+    checkpoint: MongoReplicationCheckpoint,
+    lookups: ScopedParameterLookup[]
+  ): Promise<SqliteJsonRow[]>;
 
   async getParameterSets(
     checkpoint: MongoReplicationCheckpoint,
     lookups: ScopedParameterLookup[]
   ): Promise<SqliteJsonRow[]> {
-    return this.db.client.withSession({ snapshot: true }, async (session) => {
-      // Set the session's snapshot time to the checkpoint's snapshot time.
-      // An alternative would be to create the session when the checkpoint is created, but managing
-      // the session lifetime would become more complex.
-      // Starting and ending sessions are cheap (synchronous when no transactions are used),
-      // so this should be fine.
-      // This is a roundabout way of setting {readConcern: {atClusterTime: clusterTime}}, since
-      // that is not exposed directly by the driver.
-      // Future versions of the driver may change the snapshotTime behavior, so we need tests to
-      // validate that this works as expected. We test this in the compacting tests.
-      setSessionSnapshotTime(session, checkpoint.snapshotTime);
-      const lookupFilter = lookups.map((lookup) => {
-        return storage.serializeLookup(lookup);
-      });
-      // This query does not use indexes super efficiently, apart from the lookup filter.
-      // From some experimentation I could do individual lookups more efficient using an index
-      // on {'key.g': 1, lookup: 1, 'key.t': 1, 'key.k': 1, _id: -1},
-      // but could not do the same using $group.
-      // For now, just rely on compacting to remove extraneous data.
-      // For a description of the data format, see the `/docs/parameters-lookups.md` file.
-      const rows = await this.db.bucket_parameters
-        .aggregate(
-          [
-            {
-              $match: {
-                'key.g': this.group_id,
-                lookup: { $in: lookupFilter },
-                _id: { $lte: checkpoint.checkpoint }
-              }
-            },
-            {
-              $sort: {
-                _id: -1
-              }
-            },
-            {
-              $group: {
-                _id: { key: '$key', lookup: '$lookup' },
-                bucket_parameters: {
-                  $first: '$bucket_parameters'
-                }
-              }
-            }
-          ],
-          {
-            session,
-            readConcern: 'snapshot',
-            // Limit the time for the operation to complete, to avoid getting connection timeouts
-            maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-          }
-        )
-        .toArray()
-        .catch((e) => {
-          throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
-        });
-      const groupedParameters = rows.map((row) => {
-        return row.bucket_parameters;
-      });
-      return groupedParameters.flat();
-    });
+    return this.getParameterSetsImpl(checkpoint, lookups);
   }
+
+  protected abstract getBucketDataBatchImpl(
+    checkpoint: utils.InternalOpId,
+    dataBuckets: storage.BucketDataRequest[],
+    options?: storage.BucketDataBatchOptions
+  ): AsyncIterable<storage.SyncBucketDataChunk>;
 
   async *getBucketDataBatch(
     checkpoint: utils.InternalOpId,
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    if (dataBuckets.length == 0) {
-      return;
-    }
-    let filters: mongo.Filter<BucketDataDocument>[] = [];
-    const bucketMap = new Map(dataBuckets.map((request) => [request.bucket, request.start]));
-
-    if (checkpoint == null) {
-      throw new ServiceAssertionError('checkpoint is null');
-    }
-    const end = checkpoint;
-    for (let { bucket: name, start } of dataBuckets) {
-      filters.push({
-        _id: {
-          $gt: {
-            g: this.group_id,
-            b: name,
-            o: start
-          },
-          $lte: {
-            g: this.group_id,
-            b: name,
-            o: end as any
-          }
-        }
-      });
-    }
-
-    // Internal naming:
-    // We do a query for one "batch", which may consist of multiple "chunks".
-    // Each chunk is limited to single bucket, and is limited in length and size.
-    // There are also overall batch length and size limits.
-
-    const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
-    const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
-
-    const cursor = this.db.bucket_data.find(
-      {
-        $or: filters
-      },
-      {
-        session: undefined,
-        sort: { _id: 1 },
-        limit: batchLimit,
-        // Increase batch size above the default 101, so that we can fill an entire batch in
-        // one go.
-        // batchSize is 1 more than limit to auto-close the cursor.
-        // See https://github.com/mongodb/node-mongodb-native/pull/4580
-        batchSize: batchLimit + 1,
-        // Raw mode is returns an array of Buffer instead of parsed documents.
-        // We use it so that:
-        // 1. We can calculate the document size accurately without serializing again.
-        // 2. We can delay parsing the results until it's needed.
-        // We manually use bson.deserialize below
-        raw: true,
-
-        // Limit the time for the operation to complete, to avoid getting connection timeouts
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      }
-    ) as unknown as mongo.FindCursor<Buffer>;
-
-    // We want to limit results to a single batch to avoid high memory usage.
-    // This approach uses MongoDB's batch limits to limit the data here, which limits
-    // to the lower of the batch count and size limits.
-    // This is similar to using `singleBatch: true` in the find options, but allows
-    // detecting "hasMore".
-    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
-      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
-    });
-    if (data.length == batchLimit) {
-      // Limit reached - could have more data, despite the cursor being drained.
-      batchHasMore = true;
-    }
-
-    let chunkSizeBytes = 0;
-    let currentChunk: utils.SyncBucketData | null = null;
-    let targetOp: InternalOpId | null = null;
-
-    // Ordered by _id, meaning buckets are grouped together
-    for (let rawData of data) {
-      const row = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocument;
-      const bucket = row._id.b;
-
-      if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
-        // We need to start a new chunk
-        let start: ProtocolOpId | undefined = undefined;
-        if (currentChunk != null) {
-          // There is an existing chunk we need to yield
-          if (currentChunk.bucket == bucket) {
-            // Current and new chunk have the same bucket, so need has_more on the current one.
-            // If currentChunk.bucket != bucket, then we reached the end of the previous bucket,
-            // and has_more = false in that case.
-            currentChunk.has_more = true;
-            start = currentChunk.next_after;
-          }
-
-          const yieldChunk = currentChunk;
-          currentChunk = null;
-          chunkSizeBytes = 0;
-          yield { chunkData: yieldChunk, targetOp: targetOp };
-          targetOp = null;
-        }
-
-        if (start == null) {
-          const startOpId = bucketMap.get(bucket);
-          if (startOpId == null) {
-            throw new ServiceAssertionError(`data for unexpected bucket: ${bucket}`);
-          }
-          start = internalToExternalOpId(startOpId);
-        }
-        currentChunk = {
-          bucket,
-          after: start,
-          has_more: false,
-          data: [],
-          next_after: start
-        };
-        targetOp = null;
-      }
-
-      const entry = mapOpEntry(row);
-
-      if (row.target_op != null) {
-        // MOVE, CLEAR
-        if (targetOp == null || row.target_op > targetOp) {
-          targetOp = row.target_op;
-        }
-      }
-
-      currentChunk.data.push(entry);
-      currentChunk.next_after = entry.op_id;
-
-      chunkSizeBytes += rawData.byteLength;
-    }
-
-    if (currentChunk != null) {
-      const yieldChunk = currentChunk;
-      currentChunk = null;
-      // This is the final chunk in the batch.
-      // There may be more data if and only if the batch we retrieved isn't complete.
-      yieldChunk.has_more = batchHasMore;
-      yield { chunkData: yieldChunk, targetOp: targetOp };
-      targetOp = null;
-    }
+    yield* this.getBucketDataBatchImpl(checkpoint, dataBuckets, options);
   }
 
   async getChecksums(
@@ -535,7 +393,6 @@ export class MongoSyncBucketStorage
   }
 
   async terminate(options?: storage.TerminateOptions) {
-    // Default is to clear the storage except when explicitly requested not to.
     if (!options || options?.clearStorage) {
       await this.clear(options);
     }
@@ -580,32 +437,22 @@ export class MongoSyncBucketStorage
     };
   }
 
+  protected abstract clearBucketData(signal?: AbortSignal): Promise<void>;
+
+  protected abstract clearParameterIndexes(signal?: AbortSignal): Promise<void>;
+
+  protected abstract clearSourceRecords(signal?: AbortSignal): Promise<void>;
+
+  protected abstract clearBucketState(signal?: AbortSignal): Promise<void>;
+
+  protected abstract clearSourceTables(signal?: AbortSignal): Promise<void>;
+
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
-    while (true) {
-      if (options?.signal?.aborted) {
-        throw new ReplicationAbortedError('Aborted clearing data', options.signal.reason);
-      }
-      try {
-        await this.clearIteration();
+    const signal = options?.signal;
 
-        logger.info(`${this.slot_name} Done clearing data`);
-        return;
-      } catch (e: unknown) {
-        if (lib_mongo.isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-          logger.info(
-            `${this.slot_name} Cleared batch of data in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
-          );
-          await timers.setTimeout(lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5);
-        } else {
-          throw e;
-        }
-      }
+    if (signal?.aborted) {
+      throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
     }
-  }
-
-  private async clearIteration(): Promise<void> {
-    // Individual operations here may time out with the maxTimeMS option.
-    // It is expected to still make progress, and continue on the next try.
 
     await this.db.sync_rules.updateOne(
       {
@@ -625,39 +472,31 @@ export class MongoSyncBucketStorage
       },
       { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
     );
-    await this.db.bucket_data.deleteMany(
-      {
-        _id: idPrefixFilter<BucketDataKey>({ g: this.group_id }, ['b', 'o'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
-    await this.db.bucket_parameters.deleteMany(
-      {
-        'key.g': this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
 
-    await this.db.common_current_data.deleteMany(
-      {
-        _id: idPrefixFilter<SourceKey>({ g: this.group_id }, ['t', 'k'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+    await this.clearBucketData(signal);
+    await this.clearParameterIndexes(signal);
+    await this.clearSourceRecords(signal);
+    await this.clearBucketState(signal);
+    await this.clearSourceTables(signal);
 
-    await this.db.bucket_state.deleteMany(
-      {
-        _id: idPrefixFilter<BucketStateDocument['_id']>({ g: this.group_id }, ['b'])
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+    this.#storageInitialized = false;
+  }
 
-    await this.db.source_tables.deleteMany(
-      {
-        group_id: this.group_id
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+  protected async clearDeleteMany(
+    label: string,
+    operation: () => Promise<mongo.DeleteResult>,
+    signal?: AbortSignal
+  ): Promise<void> {
+    await retryOnMongoMaxTimeMSExpired(operation, {
+      signal,
+      abortMessage: 'Aborted clearing data',
+      retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
+      onRetry: () => {
+        logger.info(
+          `${this.slot_name} Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
+        );
+      }
+    });
   }
 
   async reportError(e: any): Promise<void> {
@@ -681,27 +520,22 @@ export class MongoSyncBucketStorage
       const checkpoint = await this.getCheckpointInternal();
       maxOpId = checkpoint?.checkpoint ?? undefined;
     }
-    await new MongoCompactor(this, this.db, { ...options, maxOpId }).compact();
+    await this.createMongoCompactor({ ...options, maxOpId }).compact();
 
     if (maxOpId != null && options?.compactParameterData) {
-      await new MongoParameterCompactor(this.db, this.group_id, maxOpId, options).compact();
+      await this.createMongoParameterCompactor(maxOpId, options).compact();
     }
   }
 
   async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     logger.info(`Populating persistent checksum cache...`);
     const start = Date.now();
-    // We do a minimal compact here.
-    // We can optimize this in the future.
-    const compactor = new MongoCompactor(this, this.db, {
+    const compactor = this.createMongoCompactor({
       ...options,
-      // Don't track updates for MOVE compacting
       memoryLimitMB: 0
     });
 
     const result = await compactor.populateChecksums({
-      // There are cases with millions of small buckets, in which case it can take very long to
-      // populate the checksums, with minimal benefit. We skip the small buckets here.
       minBucketChanges: options.minBucketChanges ?? 10
     });
     const duration = Date.now() - start;
@@ -709,72 +543,44 @@ export class MongoSyncBucketStorage
     return result;
   }
 
-  /**
-   * Instance-wide watch on the latest available checkpoint (op_id + lsn).
-   */
   private async *watchActiveCheckpoint(signal: AbortSignal): AsyncIterable<ReplicationCheckpoint> {
     if (signal.aborted) {
       return;
     }
 
-    // If the stream is idle, we wait a max of a minute (CHECKPOINT_TIMEOUT_MS) before we get another checkpoint,
-    // to avoid stale checkpoint snapshots. This is what checkpointTimeoutStream() is for.
-    // Essentially, even if there are no actual checkpoint changes, we want a new snapshotTime every minute or so,
-    // to ensure that any new clients connecting will get a valid snapshotTime.
     const stream = mergeAsyncIterables(
       [this.checkpointChangesStream(signal), this.checkpointTimeoutStream(signal)],
       signal
     );
 
-    // We only watch changes to the active sync rules.
-    // If it changes to inactive, we abort and restart with the new sync rules.
     for await (const _ of stream) {
       if (signal.aborted) {
-        // Would likely have been caught by the signal on the timeout or the upstream stream, but we check here anyway
         break;
       }
 
       const op = await this.getCheckpointInternal();
       if (op == null) {
-        // Sync rules have changed - abort and restart.
-        // We do a soft close of the stream here - no error
         break;
       }
 
-      // Previously, we only yielded when the checkpoint or lsn changed.
-      // However, we always want to use the latest snapshotTime, so we skip that filtering here.
-      // That filtering could be added in the per-user streams if needed, but in general the capped collection
-      // should already only contain useful changes in most cases.
       yield op;
     }
   }
 
-  // Nothing is done here until a subscriber starts to iterate
   private readonly sharedIter = new BroadcastIterable((signal) => {
     return this.watchActiveCheckpoint(signal);
   });
 
-  /**
-   * User-specific watch on the latest checkpoint and/or write checkpoint.
-   */
   async *watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<storage.StorageCheckpointUpdate> {
     let lastCheckpoint: ReplicationCheckpoint | null = null;
 
     const iter = this.sharedIter[Symbol.asyncIterator](options.signal);
 
     let writeCheckpoint: bigint | null = null;
-    // true if we queried the initial write checkpoint, even if it doesn't exist
     let queriedInitialWriteCheckpoint = false;
 
     for await (const nextCheckpoint of iter) {
-      // lsn changes are not important by itself.
-      // What is important is:
-      // 1. checkpoint (op_id) changes.
-      // 2. write checkpoint changes for the specific user
-
       if (nextCheckpoint.lsn != null && !queriedInitialWriteCheckpoint) {
-        // Lookup the first write checkpoint for the user when we can.
-        // There will not actually be one in all cases.
         writeCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
           sync_rules_id: this.group_id,
           user_id: options.user_id,
@@ -790,15 +596,11 @@ export class MongoSyncBucketStorage
         lastCheckpoint.checkpoint == nextCheckpoint.checkpoint &&
         lastCheckpoint.lsn == nextCheckpoint.lsn
       ) {
-        // No change - wait for next one
-        // In some cases, many LSNs may be produced in a short time.
-        // Add a delay to throttle the loop a bit.
         await timers.setTimeout(20 + 10 * Math.random());
         continue;
       }
 
       if (lastCheckpoint == null) {
-        // First message for this stream - "INVALIDATE_ALL" means it will lookup all data
         yield {
           base: nextCheckpoint,
           writeCheckpoint,
@@ -812,8 +614,6 @@ export class MongoSyncBucketStorage
 
         let updatedWriteCheckpoint = updates.updatedWriteCheckpoints.get(options.user_id) ?? null;
         if (updates.invalidateWriteCheckpoints) {
-          // Invalidated means there were too many updates to track the individual ones,
-          // so we switch to "polling" (querying directly in each stream).
           updatedWriteCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
             sync_rules_id: this.group_id,
             user_id: options.user_id,
@@ -824,8 +624,6 @@ export class MongoSyncBucketStorage
         }
         if (updatedWriteCheckpoint != null && (writeCheckpoint == null || updatedWriteCheckpoint > writeCheckpoint)) {
           writeCheckpoint = updatedWriteCheckpoint;
-          // If it happened that we haven't queried a write checkpoint at this point,
-          // then we don't need to anymore, since we got an updated one.
           queriedInitialWriteCheckpoint = true;
         }
 
@@ -845,12 +643,6 @@ export class MongoSyncBucketStorage
     }
   }
 
-  /**
-   * This watches the checkpoint_events capped collection for new documents inserted,
-   * and yields whenever one or more documents are inserted.
-   *
-   * The actual checkpoint must be queried on the sync_rules collection after this.
-   */
   private async *checkpointChangesStream(signal: AbortSignal): AsyncGenerator<void> {
     if (signal.aborted) {
       return;
@@ -869,17 +661,13 @@ export class MongoSyncBucketStorage
       cursor.close().catch(() => {});
     });
 
-    // Yield once on start, regardless of whether there are documents in the cursor.
-    // This is to ensure that the first iteration of the generator yields immediately.
     yield;
 
     try {
       while (!signal.aborted) {
         const doc = await cursor.tryNext().catch((e) => {
           if (lib_mongo.isMongoServerError(e) && e.codeName === 'CappedPositionLost') {
-            // Cursor position lost, potentially due to a high rate of notifications
             cursor = query();
-            // Treat as an event found, before querying the new cursor again
             return {};
           } else {
             return Promise.reject(e);
@@ -888,8 +676,6 @@ export class MongoSyncBucketStorage
         if (cursor.closed) {
           return;
         }
-        // Skip buffered documents, if any. We don't care about the contents,
-        // we only want to know when new documents are inserted.
         cursor.readBufferedDocuments();
         if (doc != null) {
           yield;
@@ -911,7 +697,6 @@ export class MongoSyncBucketStorage
         await timers.setTimeout(CHECKPOINT_TIMEOUT_MS, undefined, { signal });
       } catch (e) {
         if (e.name == 'AbortError') {
-          // This is how we typically abort this stream, when all listeners are done
           return;
         }
         throw e;
@@ -923,94 +708,37 @@ export class MongoSyncBucketStorage
     }
   }
 
+  protected abstract getDataBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>>;
+
   private async getDataBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
-    const limit = 1000;
-    const bucketStateUpdates = await this.db.bucket_state
-      .find(
-        {
-          // We have an index on (_id.g, last_op).
-          '_id.g': this.group_id,
-          last_op: { $gt: options.lastCheckpoint.checkpoint }
-        },
-        {
-          projection: {
-            '_id.b': 1
-          },
-          limit: limit + 1,
-          // batchSize is 1 more than limit to auto-close the cursor.
-          // See https://github.com/mongodb/node-mongodb-native/pull/4580
-          batchSize: limit + 2,
-          singleBatch: true
-        }
-      )
-      .toArray();
-
-    const buckets = bucketStateUpdates.map((doc) => doc._id.b);
-    const invalidateDataBuckets = buckets.length > limit;
-
-    return {
-      invalidateDataBuckets: invalidateDataBuckets,
-      updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
-    };
+    return this.getDataBucketChangesImpl(options);
   }
+
+  protected abstract getParameterBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>>;
 
   private async getParameterBucketChanges(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
-    const limit = 1000;
-    const parameterUpdates = await this.db.bucket_parameters
-      .find(
-        {
-          _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint },
-          'key.g': this.group_id
-        },
-        {
-          projection: {
-            lookup: 1
-          },
-          limit: limit + 1,
-          // batchSize is 1 more than limit to auto-close the cursor.
-          // See https://github.com/mongodb/node-mongodb-native/pull/4580
-          batchSize: limit + 2,
-          singleBatch: true
-        }
-      )
-      .toArray();
-    const invalidateParameterUpdates = parameterUpdates.length > limit;
-
-    return {
-      invalidateParameterBuckets: invalidateParameterUpdates,
-      updatedParameterLookups: invalidateParameterUpdates
-        ? new Set<string>()
-        : new Set<string>(parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookup(p.lookup))))
-    };
+    return this.getParameterBucketChangesImpl(options);
   }
 
-  // If we processed all connections together for each checkpoint, we could do a single lookup for all connections.
-  // In practice, specific connections may fall behind. So instead, we just cache the results of each specific lookup.
-  // TODO (later):
-  // We can optimize this by implementing it like ChecksumCache: We can use partial cache results to do
-  // more efficient lookups in some cases.
   private checkpointChangesCache = new LRUCache<
     string,
     InternalCheckpointChanges,
     { options: GetCheckpointChangesOptions }
   >({
-    // Limit to 50 cache entries, or 10MB, whichever comes first.
-    // Some rough calculations:
-    // If we process 10 checkpoints per second, and a connection may be 2 seconds behind, we could have
-    // up to 20 relevant checkpoints. That gives us 20*20 = 400 potentially-relevant cache entries.
-    // That is a worst-case scenario, so we don't actually store that many. In real life, the cache keys
-    // would likely be clustered around a few values, rather than spread over all 400 potential values.
     max: 50,
     maxSize: 12 * 1024 * 1024,
     sizeCalculation: (value: InternalCheckpointChanges) => {
-      // Estimate of memory usage
       const paramSize = [...value.updatedParameterLookups].reduce<number>((a, b) => a + b.length, 0);
       const bucketSize = [...value.updatedDataBuckets].reduce<number>((a, b) => a + b.length, 0);
-      const writeCheckpointSize = value.updatedWriteCheckpoints.size * 30; // estiamte for user_id + bigint
+      const writeCheckpointSize = value.updatedWriteCheckpoints.size * 30;
       return 100 + paramSize + bucketSize + writeCheckpointSize;
     },
     fetchMethod: async (_key, _staleValue, options) => {
@@ -1037,21 +765,20 @@ export class MongoSyncBucketStorage
   }
 }
 
-interface InternalCheckpointChanges extends CheckpointChanges {
-  updatedWriteCheckpoints: Map<string, bigint>;
-  invalidateWriteCheckpoints: boolean;
-}
-
 class MongoReplicationCheckpoint implements ReplicationCheckpoint {
+  #storage: MongoSyncBucketStorage;
+
   constructor(
-    private storage: MongoSyncBucketStorage,
+    storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
     public snapshotTime: mongo.Timestamp
-  ) {}
+  ) {
+    this.#storage = storage;
+  }
 
   async getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-    return this.storage.getParameterSets(this, lookups);
+    return this.#storage.getParameterSets(this, lookups);
   }
 }
 
@@ -1059,7 +786,7 @@ class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
   readonly checkpoint: InternalOpId = 0n;
   readonly lsn: string | null = null;
 
-  async getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(_lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
     return [];
   }
 }

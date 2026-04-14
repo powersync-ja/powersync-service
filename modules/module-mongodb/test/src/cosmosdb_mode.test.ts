@@ -306,7 +306,7 @@ bucket_definitions:
     // matches the storage LSN (same second). This mirrors production behavior
     // where write checkpoints may take up to ~1s to resolve on a quiet system.
     // Use a polling approach with retries to handle this latency.
-     // 50s timeout — remote Cosmos DB clusters can have 10-30s latency spikes.
+    // 50s timeout — remote Cosmos DB clusters can have 10-30s latency spikes.
     const deadline = Date.now() + 50_000;
     let found = false;
     while (Date.now() < deadline) {
