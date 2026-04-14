@@ -573,8 +573,8 @@ bucket_definitions:
       // When a snapshot is interrupted and the slot is subsequently invalidated,
       // a retry calls initSlot() which finds the lost slot. Since snapshot_done
       // is still false, the error should carry phase: 'snapshot' so that
-      // shouldRetryReplication() can block futile retries. Currently initSlot()
-      // always reports phase: 'streaming' — this test should FAIL until fixed.
+      // shouldRetryReplication() can block retries for snapshot failures
+      // requiring operator intervention to recover.
       await using baseContext = await openContext({ doNotClear: true });
 
       const serverVersion = await baseContext.connectionManager.getServerVersion();
@@ -639,8 +639,7 @@ bucket_definitions:
 
         expect(caughtError).toBeInstanceOf(MissingReplicationSlotError);
         expect(caughtError.walStatus).toBe('lost');
-        // This assertion should FAIL: initSlot() currently reports 'streaming'
-        // but the correct phase is 'snapshot' because snapshot_done is false.
+        // initSlot() derives phase from snapshotDone: snapshot not done → phase is 'snapshot'
         expect(caughtError.phase).toBe('snapshot');
       }
     }
