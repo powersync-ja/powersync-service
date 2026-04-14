@@ -358,7 +358,11 @@ export class WalStream {
           `[PSYNC_S1146] Replication slot ${slotName} was invalidated ` +
             `(reason: ${slot.invalidation_reason ?? 'unknown'}). ` +
             `${fixGuidance}`,
-          { walStatus: 'lost', phase: 'streaming', invalidationReason: slot.invalidation_reason ?? undefined }
+          {
+            walStatus: 'lost',
+            phase: snapshotDone ? 'streaming' : 'snapshot',
+            invalidationReason: slot.invalidation_reason ?? undefined
+          }
         );
       }
       // Case 3 / 6
