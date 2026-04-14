@@ -16,6 +16,7 @@ import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js'
 import { InitialSnapshotFilter, SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
 import { SqlSyncRules } from './SqlSyncRules.js';
+import { validateStorageVersion } from './StorageVersion.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
 import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
@@ -108,9 +109,11 @@ export class SyncConfigFromYaml {
     }
 
     let compatibility: CompatibilityContext;
+    let storageVersion: number | undefined;
     if (parsed.has('config')) {
       const declaredOptions = parsed.get('config') as YAMLMap;
       compatibility = this.#parseCompatibilityOptions(declaredOptions);
+      storageVersion = this.#validateStorageVersion(declaredOptions);
     } else {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
     }
@@ -142,6 +145,7 @@ export class SyncConfigFromYaml {
     if (filtersMap instanceof YAMLMap) {
       this.#parseInitialSnapshotFilters(filtersMap, result);
     }
+    result.storageVersion = storageVersion;
 
     const eventDefinitions = this.#parseEventDefinitions(parsed, compatibility);
     result.eventDescriptors.push(...eventDefinitions);
@@ -493,6 +497,31 @@ export class SyncConfigFromYaml {
     }
 
     return rules;
+  }
+
+  #validateStorageVersion(config: YAMLMap): number | undefined {
+    const storageScalar = config.get('storage_version', true);
+    if (storageScalar != null) {
+      if (typeof storageScalar.value == 'number') {
+        const rawVersion = storageScalar.value;
+        const version = validateStorageVersion(storageScalar.value);
+        if (version == null) {
+          this.#errors.push(this.#yamlError(storageScalar, `Storage version ${storageScalar.value} is not supported`));
+        } else if (!version.stable) {
+          const error = this.#yamlError(
+            storageScalar,
+            `Storage version ${version.version} is unstable, and may cause unexpected behavior or stop functioning in any release`
+          );
+          error.type = 'warning';
+          this.#errors.push(error);
+        }
+        return version?.version;
+      } else {
+        this.#errors.push(this.#yamlError(storageScalar, 'Storage version must be numeric'));
+        return undefined;
+      }
+    }
+    return undefined;
   }
 
   #parseEventDefinitions(parsed: Document, compatibility: CompatibilityContext) {

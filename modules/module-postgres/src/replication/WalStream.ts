@@ -34,6 +34,7 @@ import {
 
 import { ReplicationMetric } from '@powersync/service-types';
 import { PostgresTypeResolver } from '../types/resolver.js';
+import { MissingReplicationSlotError } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
@@ -45,6 +46,7 @@ import {
   SimpleSnapshotQuery,
   SnapshotQuery
 } from './SnapshotQuery.js';
+import { computeWalBudgetReport, formatBytes, formatWalBudgetLine } from './wal-budget-utils.js';
 
 export interface WalStreamOptions {
   logger?: Logger;
@@ -61,6 +63,20 @@ export interface WalStreamOptions {
    * Note that queries are streamed, so we don't actually keep that much data in memory.
    */
   snapshotChunkLength?: number;
+
+  /**
+   * Called after each snapshot chunk is flushed, for testing.
+   * This allows tests to perform actions (like generating WAL) synchronously
+   * with the snapshot's chunk processing.
+   */
+  onSnapshotChunkFlushed?: () => Promise<void>;
+
+  /**
+   * Interval for slot health checks during snapshot, in milliseconds.
+   * Set to 0 for every-chunk checking (useful for testing).
+   * Defaults to 120_000 (2 minutes).
+   */
+  slotHealthCheckIntervalMs?: number;
 }
 
 interface InitResult {
@@ -99,14 +115,6 @@ export const sendKeepAlive = async (db: pgwire.PgClient) => {
   await lib_postgres.retriedQuery(db, KEEPALIVE_STATEMENT);
 };
 
-export class MissingReplicationSlotError extends Error {
-  constructor(message: string, cause?: any) {
-    super(message);
-
-    this.cause = cause;
-  }
-}
-
 export class WalStream {
   sync_rules: HydratedSyncRules;
   group_id: number;
@@ -133,10 +141,24 @@ export class WalStream {
   private startedStreaming = false;
 
   private snapshotChunkLength: number;
+  private onSnapshotChunkFlushed?: () => Promise<void>;
 
   private replicationLag = new ReplicationLagTracker();
 
   private initialSnapshotPromise: Promise<void> | null = null;
+
+  private slotHealthCheckIntervalMs: number;
+
+  /** Cached max_slot_wal_keep_size in bytes. null = not yet queried. */
+  private maxSlotWalKeepSize: number | null = null;
+  /** Whether max_slot_wal_keep_size has been queried (distinguishes "not
+   *  queried" from "queried and found unlimited"). */
+  private maxSlotWalKeepSizeQueried = false;
+
+  /** Previous safe_wal_size sample for rate calculation. */
+  private prevWalBudgetSample: { safeWalSize: number; timestamp: number } | null = null;
+  /** Timestamp of last slot health check. */
+  private lastSlotHealthCheckTime = 0;
 
   constructor(options: WalStreamOptions) {
     this.logger = options.logger ?? defaultLogger;
@@ -147,6 +169,8 @@ export class WalStream {
     this.slot_name = options.storage.slot_name;
     this.connections = options.connections;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 10_000;
+    this.onSnapshotChunkFlushed = options.onSnapshotChunkFlushed;
+    this.slotHealthCheckIntervalMs = options.slotHealthCheckIntervalMs ?? 120_000;
 
     this.abort_signal = options.abort_signal;
     this.abort_signal.addEventListener(
@@ -326,8 +350,19 @@ export class WalStream {
       const lost = slot.wal_status == 'lost';
       if (lost) {
         // Case 1 / 4
+        const fixGuidance =
+          slot.invalidation_reason === 'idle_timeout'
+            ? `Increase idle_replication_slot_timeout on the source database.`
+            : `Increase max_slot_wal_keep_size on the source database.`;
         throw new MissingReplicationSlotError(
-          `Replication slot ${slotName} is not valid anymore. invalidation_reason: ${slot.invalidation_reason ?? 'unknown'}`
+          `[PSYNC_S1146] Replication slot ${slotName} was invalidated ` +
+            `(reason: ${slot.invalidation_reason ?? 'unknown'}). ` +
+            `${fixGuidance}`,
+          {
+            walStatus: 'lost',
+            phase: snapshotDone ? 'streaming' : 'snapshot',
+            invalidationReason: slot.invalidation_reason ?? undefined
+          }
         );
       }
       // Case 3 / 6
@@ -339,12 +374,141 @@ export class WalStream {
       if (snapshotDone) {
         // Case 5
         // This will create a new slot, while keeping the current sync rules active
-        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`);
+        throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`, {
+          walStatus: 'missing',
+          phase: 'streaming'
+        });
       }
       // Case 2
       // This will clear data (if any) and re-create the same slot
       return { needsInitialSync: true, needsNewSlot: true };
     }
+  }
+
+  private async queryMaxSlotWalKeepSize(): Promise<number | null> {
+    if (this.maxSlotWalKeepSizeQueried) {
+      return this.maxSlotWalKeepSize;
+    }
+    this.maxSlotWalKeepSizeQueried = true;
+
+    try {
+      const rows = pgwire.pgwireRows(
+        await this.connections.pool.query({
+          statement: `SELECT setting, unit FROM pg_settings WHERE name = 'max_slot_wal_keep_size'`
+        })
+      );
+      if (rows.length === 0) {
+        // PG < 13 or setting doesn't exist
+        return null;
+      }
+      const setting = Number(rows[0].setting);
+      if (setting < 0) {
+        // -1 = unlimited
+        this.maxSlotWalKeepSize = null;
+        return null;
+      }
+      // setting is in MB, convert to bytes
+      const unit = rows[0].unit;
+      const multiplier = unit === 'kB' ? 1024 : unit === '8kB' ? 8192 : 1024 * 1024; // default MB
+      this.maxSlotWalKeepSize = setting * multiplier;
+      return this.maxSlotWalKeepSize;
+    } catch (e) {
+      // Non-fatal — budget reporting is best-effort
+      this.logger.warn(`Could not query max_slot_wal_keep_size`, e);
+      return null;
+    }
+  }
+
+  private async logWalBudget(slot: { safe_wal_size?: any; wal_status?: string }, now: number): Promise<void> {
+    const maxSize = await this.queryMaxSlotWalKeepSize();
+
+    // No limit configured
+    if (maxSize == null) {
+      this.logger.info(`WAL budget: no limit configured (max_slot_wal_keep_size is unlimited).`);
+      return;
+    }
+
+    const safeWalSize = slot.safe_wal_size != null ? Number(slot.safe_wal_size) : null;
+    if (safeWalSize == null) {
+      // safe_wal_size is null on PG < 13, or when no limit is set
+      return;
+    }
+
+    const report = computeWalBudgetReport({
+      safeWalSize,
+      maxSize,
+      walStatus: slot.wal_status ?? 'unknown',
+      prevSample: this.prevWalBudgetSample,
+      now
+    });
+
+    // Update sample for next rate calculation
+    this.prevWalBudgetSample = { safeWalSize, timestamp: now };
+
+    const budgetLine = formatWalBudgetLine(report);
+
+    if (report.isWarning) {
+      this.logger.warn(budgetLine);
+      this.logger.warn(
+        `Replication slot may be invalidated before snapshot completes. ` +
+          `Increase max_slot_wal_keep_size on the source database.`
+      );
+    } else {
+      this.logger.info(budgetLine);
+    }
+  }
+
+  /**
+   * Check if the replication slot is still valid. Called after each chunk
+   * flush during snapshot to detect slot invalidation early.
+   *
+   * The query hits pg_replication_slots (shared memory, not a table scan)
+   * and costs ~1-2ms per round-trip — negligible next to the per-chunk
+   * storage flush.
+   */
+  private async checkSlotHealth(): Promise<void> {
+    // Ensure maxSlotWalKeepSize is populated for diagnostic context in error messages
+    await this.queryMaxSlotWalKeepSize();
+
+    const rows = pgwire.pgwireRows(
+      await this.connections.pool.query({
+        statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
+        params: [{ type: 'varchar', value: this.slot_name }]
+      })
+    );
+
+    if (rows.length === 0) {
+      // Slot row gone from pg_replication_slots — dropped externally.
+      // Possible causes: pg_drop_replication_slot() call (operator, management tool, cleanup cron)
+      throw new MissingReplicationSlotError(
+        `[PSYNC_S1146] Replication slot ${this.slot_name} disappeared during snapshot.`,
+        { walStatus: 'missing', phase: 'snapshot' }
+      );
+    }
+
+    const walStatus = rows[0].wal_status;
+    if (walStatus === 'lost') {
+      // Postgres marked the slot invalid. Possible invalidation_reason values (PG 14+):
+      // - wal_removed: WAL growth exceeded max_slot_wal_keep_size (the primary case)
+      // - wal_level_insufficient: wal_level changed away from 'logical'
+      // - idle_timeout (PG 18+): idle_replication_slot_timeout expired
+      // - rows_removed: catalog rows needed by the slot were vacuumed (safe to retry — fresh slot won't need them)
+      throw new MissingReplicationSlotError(
+        `[PSYNC_S1146] Replication slot ${this.slot_name} was invalidated during snapshot` +
+          `${this.formatWalBudgetContext()}. ` +
+          `Increase max_slot_wal_keep_size on the source database.`,
+        { walStatus: 'lost', phase: 'snapshot', invalidationReason: rows[0].invalidation_reason ?? undefined }
+      );
+    }
+
+    await this.logWalBudget(rows[0], performance.now());
+  }
+
+  private formatWalBudgetContext(): string {
+    if (this.maxSlotWalKeepSize == null) {
+      return '';
+    }
+    return ` (limit: ${formatBytes(this.maxSlotWalKeepSize)})`;
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
@@ -602,6 +766,14 @@ WHERE  oid = $1::regclass`,
 
       // Important: flush before marking progress
       await batch.flush();
+      if (this.onSnapshotChunkFlushed) {
+        await this.onSnapshotChunkFlushed();
+      }
+      const now = performance.now();
+      if (now - this.lastSlotHealthCheckTime >= this.slotHealthCheckIntervalMs) {
+        this.lastSlotHealthCheckTime = now;
+        await this.checkSlotHealth();
+      }
       if (limited == null) {
         let lastKey: Uint8Array | undefined;
         if (q instanceof ChunkedSnapshotQuery) {
@@ -857,7 +1029,7 @@ WHERE  oid = $1::regclass`,
       await this.streamChangesInternal(replicationConnection);
     } catch (e) {
       if (isReplicationSlotInvalidError(e)) {
-        throw new MissingReplicationSlotError(e.message, e);
+        throw new MissingReplicationSlotError(e.message, { walStatus: 'lost', phase: 'streaming', cause: e });
       }
       throw e;
     }

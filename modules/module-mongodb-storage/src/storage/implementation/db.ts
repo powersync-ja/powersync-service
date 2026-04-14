@@ -2,16 +2,13 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
+import { BaseVersionedPowerSyncMongo } from './common/VersionedPowerSyncMongoBase.js';
 import {
-  BucketDataDocument,
-  BucketParameterDocument,
-  BucketStateDocument,
   CheckpointEventDocument,
   ClientConnectionDocument,
-  CurrentDataDocument,
-  CurrentDataDocumentV3,
+  CommonSourceTableDocument,
   CustomWriteCheckpointDocument,
   IdSequenceDocument,
   InstanceDocument,
@@ -20,6 +17,15 @@ import {
   SyncRuleDocument,
   WriteCheckpointDocument
 } from './models.js';
+import {
+  BucketDataDocumentV1,
+  BucketParameterDocument,
+  BucketStateDocumentV1,
+  CurrentDataDocument
+} from './v1/models.js';
+import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
+import { BucketDataDocumentV3 } from './v3/models.js';
+import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -29,9 +35,10 @@ export interface PowerSyncMongoOptions {
 }
 
 export class PowerSyncMongo {
+  [DO_NOT_LOG] = true;
+
   readonly current_data: mongo.Collection<CurrentDataDocument>;
-  readonly v3_current_data: mongo.Collection<CurrentDataDocumentV3>;
-  readonly bucket_data: mongo.Collection<BucketDataDocument>;
+  readonly bucket_data: mongo.Collection<BucketDataDocumentV1>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
   readonly sync_rules: mongo.Collection<SyncRuleDocument>;
@@ -40,7 +47,7 @@ export class PowerSyncMongo {
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
   readonly instance: mongo.Collection<InstanceDocument>;
   readonly locks: mongo.Collection<lib_mongo.locks.Lock>;
-  readonly bucket_state: mongo.Collection<BucketStateDocument>;
+  readonly bucket_state: mongo.Collection<BucketStateDocumentV1>;
   readonly checkpoint_events: mongo.Collection<CheckpointEventDocument>;
   readonly connection_report_events: mongo.Collection<ClientConnectionDocument>;
 
@@ -56,7 +63,6 @@ export class PowerSyncMongo {
     this.db = db;
 
     this.current_data = db.collection('current_data');
-    this.v3_current_data = db.collection('v3_current_data');
     this.bucket_data = db.collection('bucket_data');
     this.bucket_parameters = db.collection('bucket_parameters');
     this.op_id_sequence = db.collection('op_id_sequence');
@@ -71,8 +77,80 @@ export class PowerSyncMongo {
     this.connection_report_events = this.db.collection('connection_report_events');
   }
 
-  versioned(storageConfig: StorageConfig) {
-    return new VersionedPowerSyncMongo(this, storageConfig);
+  versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
+    if (storageConfig.incrementalReprocessing) {
+      return new VersionedPowerSyncMongoV3(this, storageConfig);
+    }
+
+    return new VersionedPowerSyncMongoV1(this, storageConfig);
+  }
+
+  /**
+   * Not safe for user-provided prefix - only for hardcoded values.
+   */
+  async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketDataDocumentV3>[]> {
+    const prefix = groupId == null ? 'bucket_data_' : `bucket_data_${groupId}_`;
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
+  }
+
+  /**
+   * Not safe for user-provided prefix - only for hardcoded values.
+   */
+  private async collectionsByPrefix(prefix: string): Promise<mongo.Collection<never>[]> {
+    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<never>(collection.name));
+  }
+
+  /**
+   * List all parameter index collections across all replication streams.
+   *
+   * Primarily used to clear the db.
+   */
+  async listAllParameterIndexCollectionsV3(): Promise<mongo.Collection<never>[]> {
+    return this.collectionsByPrefix(`parameter_index_`);
+  }
+
+  /**
+   * List all parameter index collections across all replication streams.
+   *
+   * Primarily used to clear the db.
+   */
+  async listAllSourceRecordCollectionsV3(): Promise<mongo.Collection<never>[]> {
+    return this.collectionsByPrefix(`source_records_`);
+  }
+
+  async listAllBucketStateCollectionsV3(): Promise<mongo.Collection<never>[]> {
+    return this.collectionsByPrefix(`bucket_state_`);
+  }
+
+  sourceRecordsCollectionName(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+    return `source_records_${replicationStreamId}_${sourceTableId.toHexString()}`;
+  }
+
+  sourceTableCollectionName(replicationStreamId: number) {
+    return `source_table_${replicationStreamId}`;
+  }
+
+  async listSourceTableCollections(
+    replicationStreamId?: number
+  ): Promise<mongo.Collection<CommonSourceTableDocument>[]> {
+    const filter =
+      replicationStreamId == null
+        ? { name: new RegExp('^source_table_') }
+        : { name: this.sourceTableCollectionName(replicationStreamId) };
+    const prefix = replicationStreamId == null ? 'source_table_' : this.sourceTableCollectionName(replicationStreamId);
+    const collections = await this.db.listCollections(filter, { nameOnly: true }).toArray();
+
+    return collections
+      .filter((collection) => collection.name.startsWith(prefix))
+      .map((collection) => this.db.collection<CommonSourceTableDocument>(collection.name));
   }
 
   /**
@@ -80,11 +158,25 @@ export class PowerSyncMongo {
    */
   async clear() {
     await this.current_data.deleteMany({});
-    await this.v3_current_data.deleteMany({});
+    for (const collection of await this.listAllSourceRecordCollectionsV3()) {
+      await collection.drop();
+    }
     await this.bucket_data.deleteMany({});
+    for (const collection of await this.listBucketDataCollectionsV3()) {
+      await collection.drop();
+    }
     await this.bucket_parameters.deleteMany({});
+    for (const collection of await this.listAllParameterIndexCollectionsV3()) {
+      await collection.drop();
+    }
+    for (const collection of await this.listAllBucketStateCollectionsV3()) {
+      await collection.drop();
+    }
     await this.op_id_sequence.deleteMany({});
     await this.sync_rules.deleteMany({});
+    for (const collection of await this.listSourceTableCollections()) {
+      await collection.drop();
+    }
     await this.source_tables.deleteMany({});
     await this.write_checkpoints.deleteMany({});
     await this.instance.deleteOne({});
@@ -181,125 +273,12 @@ export class PowerSyncMongo {
       { name: 'dirty_count' }
     );
   }
-
-  async initializeStorageVersion(storageConfig: StorageConfig) {
-    if (storageConfig.softDeleteCurrentData) {
-      // Initialize the v3_current_data collection, which is used for the new storage version.
-      // No-op if this already exists
-      await this.v3_current_data.createIndex(
-        {
-          '_id.g': 1,
-          pending_delete: 1
-        },
-        {
-          partialFilterExpression: { pending_delete: { $exists: true } },
-          name: 'pending_delete'
-        }
-      );
-    }
-  }
 }
 
 /**
  * This is similar to PowerSyncMongo, but blocks access to certain collections based on the storage version.
  */
-export class VersionedPowerSyncMongo {
-  readonly client: mongo.MongoClient;
-  readonly db: mongo.Db;
-
-  readonly storageConfig: StorageConfig;
-  #upstream: PowerSyncMongo;
-
-  constructor(upstream: PowerSyncMongo, storageConfig: StorageConfig) {
-    this.#upstream = upstream;
-    this.client = upstream.client;
-    this.db = upstream.db;
-    this.storageConfig = storageConfig;
-  }
-
-  /**
-   * Uses either `current_data` or `v3_current_data` collection based on the storage version.
-   *
-   * Use in places where it does not matter which version is used.
-   */
-  get common_current_data(): mongo.Collection<CurrentDataDocument> {
-    if (this.storageConfig.softDeleteCurrentData) {
-      return this.#upstream.v3_current_data;
-    } else {
-      return this.#upstream.current_data;
-    }
-  }
-
-  get v1_current_data() {
-    if (this.storageConfig.softDeleteCurrentData) {
-      throw new ServiceAssertionError(
-        'current_data collection should not be used when softDeleteCurrentData is enabled'
-      );
-    }
-    return this.#upstream.current_data;
-  }
-
-  get v3_current_data() {
-    if (!this.storageConfig.softDeleteCurrentData) {
-      throw new ServiceAssertionError(
-        'v3_current_data collection should not be used when softDeleteCurrentData is disabled'
-      );
-    }
-    return this.#upstream.v3_current_data;
-  }
-
-  get bucket_data() {
-    return this.#upstream.bucket_data;
-  }
-
-  get bucket_parameters() {
-    return this.#upstream.bucket_parameters;
-  }
-
-  get op_id_sequence() {
-    return this.#upstream.op_id_sequence;
-  }
-
-  get sync_rules() {
-    return this.#upstream.sync_rules;
-  }
-
-  get source_tables() {
-    return this.#upstream.source_tables;
-  }
-
-  get custom_write_checkpoints() {
-    return this.#upstream.custom_write_checkpoints;
-  }
-
-  get write_checkpoints() {
-    return this.#upstream.write_checkpoints;
-  }
-
-  get instance() {
-    return this.#upstream.instance;
-  }
-
-  get locks() {
-    return this.#upstream.locks;
-  }
-
-  get bucket_state() {
-    return this.#upstream.bucket_state;
-  }
-
-  get checkpoint_events() {
-    return this.#upstream.checkpoint_events;
-  }
-
-  get connection_report_events() {
-    return this.#upstream.connection_report_events;
-  }
-
-  notifyCheckpoint() {
-    return this.#upstream.notifyCheckpoint();
-  }
-}
+export type VersionedPowerSyncMongo = BaseVersionedPowerSyncMongo;
 
 export function createPowerSyncMongo(config: MongoStorageConfig, options?: lib_mongo.MongoConnectionOptions) {
   return new PowerSyncMongo(

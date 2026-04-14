@@ -28,6 +28,12 @@ export abstract class SyncConfig {
   bucketParameterLookupSources: ParameterIndexLookupCreator[] = [];
   bucketSources: BucketSource[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+  /**
+   * If not defined, the storage module picks the latest stable version.
+   *
+   * Only supported storage versions can be set here when parsing from yaml.
+   */
+  storageVersion: number | undefined;
   eventDescriptors: SqlEventDescriptor[] = [];
 
   /**

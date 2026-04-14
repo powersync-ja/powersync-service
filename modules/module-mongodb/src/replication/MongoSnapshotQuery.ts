@@ -1,6 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { bson } from '@powersync/service-core';
+import { parseDocumentId } from './bufferToSqlite.js';
 import { getCursorBatchBytes } from './internal-mongodb-utils.js';
 
 /**
@@ -30,7 +31,7 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
   }
 
   async nextChunk(): Promise<
-    { docs: mongo.Document[]; lastKey: Uint8Array; bytes: number } | { docs: []; lastKey: null; bytes: 0 }
+    { docs: Buffer[]; lastKey: Uint8Array; bytes: number } | { docs: []; lastKey: null; bytes: 0 }
   > {
     let cursor = this.lastCursor;
     let newCursor = false;
@@ -68,7 +69,8 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
         // batchSize is 1 more than limit to auto-close the cursor.
         // See https://github.com/mongodb/node-mongodb-native/pull/4580
         batchSize: this.batchSize + 1,
-        sort: { _id: 1 }
+        sort: { _id: 1 },
+        raw: true
       });
       newCursor = true;
     }
@@ -84,14 +86,15 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       }
     }
     const bytes = getCursorBatchBytes(cursor);
-    const docBatch = cursor.readBufferedDocuments();
+    const docBatch = cursor.readBufferedDocuments() as Buffer[];
     this.lastCursor = cursor;
     if (docBatch.length == 0) {
       throw new ReplicationAssertionError(`MongoDB snapshot query returned an empty batch, but hasNext() was true.`);
     }
-    const lastKey = docBatch[docBatch.length - 1]._id;
+    const lastDoc = docBatch[docBatch.length - 1];
+    const { id: lastKey, idBuffer } = parseDocumentId(lastDoc);
     this.lastKey = lastKey;
-    return { docs: docBatch, lastKey: bson.serialize({ _id: lastKey }), bytes };
+    return { docs: docBatch, lastKey: idBuffer, bytes };
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

@@ -2,8 +2,14 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { logger } from '@powersync/lib-services-framework';
 import { bson, CompactOptions, InternalOpId } from '@powersync/service-core';
 import { LRUCache } from 'lru-cache';
-import { VersionedPowerSyncMongo } from './db.js';
-import { BucketParameterDocument } from './models.js';
+import type { VersionedPowerSyncMongo } from './db.js';
+
+type ParameterCompactionReadDocument = {
+  _id: InternalOpId;
+  key: mongo.Document;
+  lookup: unknown;
+  bucket_parameters?: unknown[] | null;
+};
 
 /**
  * Compacts parameter lookup data (the bucket_parameters collection).
@@ -12,16 +18,28 @@ import { BucketParameterDocument } from './models.js';
  *
  * For background, see the `/docs/parameters-lookups.md` file.
  */
-export class MongoParameterCompactor {
+export abstract class MongoParameterCompactor {
   constructor(
-    private db: VersionedPowerSyncMongo,
-    private group_id: number,
-    private checkpoint: InternalOpId,
-    private options: CompactOptions
+    protected readonly db: VersionedPowerSyncMongo,
+    protected readonly group_id: number,
+    protected readonly checkpoint: InternalOpId,
+    protected readonly options: CompactOptions
   ) {}
 
   async compact() {
     logger.info(`Compacting parameters for sync config ${this.group_id} up to checkpoint ${this.checkpoint}`);
+    for (const collection of await this.getCollections()) {
+      await this.compactCollection(collection);
+    }
+  }
+
+  protected abstract getCollections(): Promise<mongo.Collection<mongo.Document>[]>;
+
+  protected abstract collectionFilter(): mongo.Document;
+
+  protected abstract deleteFilter(doc: mongo.Document): mongo.Document;
+
+  protected async compactCollection(collection: mongo.Collection<mongo.Document>) {
     // This is the currently-active checkpoint.
     // We do not remove any data that may be used by this checkpoint.
     // snapshot queries ensure that if any clients are still using older checkpoints, they would
@@ -32,43 +50,38 @@ export class MongoParameterCompactor {
     // In theory, we could let MongoDB do more of the work here, by grouping by (key, lookup)
     // in MongoDB already. However, that risks running into cases where MongoDB needs to process
     // very large amounts of data before returning results, which could lead to timeouts.
-    const cursor = this.db.bucket_parameters.find(
-      {
-        'key.g': this.group_id
-      },
-      {
-        sort: { lookup: 1, _id: 1 },
-        batchSize: 10_000,
-        projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: 1 }
-      }
-    );
+    const cursor = collection.find(this.collectionFilter(), {
+      sort: { lookup: 1, _id: 1 },
+      batchSize: 10_000,
+      projection: { _id: 1, key: 1, lookup: 1, bucket_parameters: 1 }
+    });
 
     // The index doesn't cover sorting by key, so we keep our own cache of the last seen key.
     let lastByKey = new LRUCache<string, InternalOpId>({
       max: this.options.compactParameterCacheLimit ?? 10_000
     });
     let removeIds: InternalOpId[] = [];
-    let removeDeleted: mongo.AnyBulkWriteOperation<BucketParameterDocument>[] = [];
+    let removeDeleted: mongo.AnyBulkWriteOperation<mongo.Document>[] = [];
     let checkedEntries = 0;
     let checkedEntriesAtLastLog = 0;
     let lastProgressLogTime = Date.now();
 
     const flush = async (force: boolean) => {
       if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
-        const results = await this.db.bucket_parameters.deleteMany({ _id: { $in: removeIds } });
+        const results = await collection.deleteMany({ _id: { $in: removeIds } } as any);
         logger.info(`Removed ${results.deletedCount} (${removeIds.length}) superseded parameter entries`);
         removeIds = [];
       }
 
       if (removeDeleted.length > 10 || (force && removeDeleted.length > 0)) {
-        const results = await this.db.bucket_parameters.bulkWrite(removeDeleted);
+        const results = await collection.bulkWrite(removeDeleted);
         logger.info(`Removed ${results.deletedCount} (${removeDeleted.length}) deleted parameter entries`);
         removeDeleted = [];
       }
     };
 
     while (await cursor.hasNext()) {
-      const batch = cursor.readBufferedDocuments();
+      const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
       checkedEntries += batch.length;
       const now = Date.now();
       if (now - lastProgressLogTime >= 60_000) {
@@ -79,7 +92,7 @@ export class MongoParameterCompactor {
         checkedEntriesAtLastLog = checkedEntries;
       }
 
-      for (let doc of batch) {
+      for (const doc of batch) {
         if (doc._id >= checkpoint) {
           continue;
         }
@@ -103,7 +116,7 @@ export class MongoParameterCompactor {
           // in the cache due to cache size limits. So we need to explicitly remove all earlier operations.
           removeDeleted.push({
             deleteMany: {
-              filter: { 'key.g': doc.key.g, lookup: doc.lookup, _id: { $lte: doc._id }, key: doc.key }
+              filter: this.deleteFilter(doc)
             }
           });
         }
@@ -113,6 +126,6 @@ export class MongoParameterCompactor {
     }
 
     await flush(true);
-    logger.info('Parameter compaction completed');
+    logger.info(`Parameter compaction completed for ${collection.collectionName}`);
   }
 }

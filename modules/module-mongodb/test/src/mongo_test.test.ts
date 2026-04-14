@@ -1,21 +1,23 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import {
-  applyRowContext,
   CompatibilityContext,
   CompatibilityEdition,
-  SqliteInputRow,
   SqlSyncRules,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
-import { ChangeStream } from '@module/replication/ChangeStream.js';
-import { constructAfterRecord } from '@module/replication/MongoRelation.js';
+import { parseDocumentId } from '@module/replication/bufferToSqlite.js';
+import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from '@module/replication/RawChangeStream.js';
+import { DirectSourceRowConverter } from '@module/replication/SourceRowConverter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { clearTestDb, connectMongoData, TEST_CONNECTION_OPTIONS } from './util.js';
 
 describe('mongo data types', () => {
+  // These test the full data cycle by writing to mongodb, then checking the change stream and direct collection queries.
+  // More direct tests directly on the BSON values are in buffer_to_sqlite.test.ts.
+
   async function setupTable(db: mongo.Db) {
     await clearTestDb(db);
   }
@@ -46,14 +48,7 @@ describe('mongo data types', () => {
         maxKey: new mongo.MaxKey(),
         symbol: new mongo.BSONSymbol('test'),
         js: new mongo.Code('testcode'),
-        js2: new mongo.Code('testcode', { foo: 'bar' }),
-        pointer: new mongo.DBRef('mycollection', mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb')),
-        pointer2: new mongo.DBRef(
-          'mycollection',
-          mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb'),
-          'mydb',
-          { foo: 'bar' }
-        )
+        js2: new mongo.Code('testcode', { foo: 'bar' })
       },
       {
         _id: 6 as any,
@@ -139,14 +134,14 @@ describe('mongo data types', () => {
         maxKey: [new mongo.MaxKey()],
         symbol: [new mongo.BSONSymbol('test')],
         js: [new mongo.Code('testcode')],
-        pointer: [new mongo.DBRef('mycollection', mongo.ObjectId.createFromHexString('66e834cc91d805df11fa0ecb'))],
         undefined: [undefined]
       }
     ]);
   }
 
-  function checkResults(transformed: SqliteInputRow[]) {
-    const sqliteValue = transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+  function checkResults(documents: Buffer[]) {
+    const converter = new DirectSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    const sqliteValue = documents.map((d) => converter.rawToSqliteRow(d).row);
 
     expect(sqliteValue[0]).toMatchObject({
       _id: 1n,
@@ -180,9 +175,7 @@ describe('mongo data types', () => {
       maxKey: null,
       symbol: 'test',
       js: '{"code":"testcode","scope":null}',
-      js2: '{"code":"testcode","scope":{"foo":"bar"}}',
-      pointer: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}',
-      pointer2: '{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","db":"mydb","fields":{"foo":"bar"}}'
+      js2: '{"code":"testcode","scope":{"foo":"bar"}}'
     });
 
     // This must specifically be null, and not undefined.
@@ -197,8 +190,9 @@ describe('mongo data types', () => {
     });
   }
 
-  function checkResultsNested(transformed: SqliteInputRow[]) {
-    const sqliteValue = transformed.map((e) => applyRowContext(e, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY));
+  function checkResultsNested(documents: Buffer[]) {
+    const converter = new DirectSourceRowConverter(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+    const sqliteValue = documents.map((d) => converter.rawToSqliteRow(d).row);
 
     expect(sqliteValue[0]).toMatchObject({
       _id: 1n,
@@ -245,7 +239,6 @@ describe('mongo data types', () => {
       regexp: '[{"pattern":"test","options":"i"}]',
       symbol: '["test"]',
       js: '[{"code":"testcode","scope":null}]',
-      pointer: '[{"collection":"mycollection","oid":"66e834cc91d805df11fa0ecb","fields":{}}]',
       minKey: '[null]',
       maxKey: '[null]'
     });
@@ -262,12 +255,11 @@ describe('mongo data types', () => {
 
       const rawResults = await db
         .collection('test_data')
-        .find({}, { sort: { _id: 1 } })
+        .find<Buffer>({}, { sort: { _id: 1 }, raw: true })
         .toArray();
       // It is tricky to save "undefined" with mongo, so we check that it succeeded.
-      expect(rawResults[4].undefined).toBeUndefined();
-      const transformed = [...ChangeStream.getQueryData(rawResults)];
-      checkResults(transformed);
+      expect(mongo.BSON.deserialize(rawResults[4]).undefined).toBeUndefined();
+      checkResults(rawResults);
     } finally {
       await client.close();
     }
@@ -284,12 +276,11 @@ describe('mongo data types', () => {
 
       const rawResults = await db
         .collection('test_data_arrays')
-        .find({}, { sort: { _id: 1 } })
+        .find<Buffer>({}, { sort: { _id: 1 }, raw: true })
         .toArray();
-      expect(rawResults[3].undefined).toEqual([undefined]);
-      const transformed = [...ChangeStream.getQueryData(rawResults)];
+      expect(mongo.BSON.deserialize(rawResults[3]).undefined).toEqual([undefined]);
 
-      checkResultsNested(transformed);
+      checkResultsNested(rawResults);
     } finally {
       await client.close();
     }
@@ -303,19 +294,18 @@ describe('mongo data types', () => {
     try {
       await setupTable(db);
 
-      const stream = db.watch([], {
+      const stream = rawChangeStream(db, [{ $changeStream: { fullDocument: 'updateLookup' } }], {
         maxAwaitTimeMS: 50,
-        fullDocument: 'updateLookup'
-      });
-
-      await stream.tryNext();
+        maxTimeMS: 1000,
+        batchSize: 10
+      })[Symbol.asyncIterator]();
+      await stream.next();
 
       await insert(collection);
       await insertUndefined(db, 'test_data');
 
-      const transformed = await getReplicationTx(stream, 6);
-
-      checkResults(transformed);
+      const documents = await getReplicationTx(stream, 6);
+      checkResults(documents);
     } finally {
       await client.close();
     }
@@ -327,19 +317,18 @@ describe('mongo data types', () => {
     try {
       await setupTable(db);
 
-      const stream = db.watch([], {
+      const stream = rawChangeStream(db, [{ $changeStream: { fullDocument: 'updateLookup' } }], {
         maxAwaitTimeMS: 50,
-        fullDocument: 'updateLookup'
-      });
-
-      await stream.tryNext();
+        maxTimeMS: 1000,
+        batchSize: 10
+      })[Symbol.asyncIterator]();
+      await stream.next();
 
       await insertNested(collection);
       await insertUndefined(db, 'test_data_arrays', true);
 
-      const transformed = await getReplicationTx(stream, 6);
-
-      checkResultsNested(transformed);
+      const documents = await getReplicationTx(stream, 6);
+      checkResultsNested(documents);
     } finally {
       await client.close();
     }
@@ -382,9 +371,6 @@ describe('mongo data types', () => {
           { name: 'nested', sqlite_type: 2, internal_type: 'Object' },
           { name: 'null', sqlite_type: 0, internal_type: 'Null' },
           { name: 'objectId', sqlite_type: 2, internal_type: 'ObjectId' },
-          // We can fix these later
-          { name: 'pointer', sqlite_type: 2, internal_type: 'Object' },
-          { name: 'pointer2', sqlite_type: 2, internal_type: 'Object' },
           { name: 'regexp', sqlite_type: 2, internal_type: 'RegExp' },
           // Can fix this later
           { name: 'symbol', sqlite_type: 2, internal_type: 'String' },
@@ -548,27 +534,31 @@ bucket_definitions:
         .collection('test_data')
         .find({}, { sort: { _id: 1 } })
         .toArray();
-      const [row] = [...ChangeStream.getQueryData(rawResults)];
+      const [row] = rawResults;
 
-      const oldFormat = applyRowContext(row, CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY);
+      const oldFormat = new DirectSourceRowConverter(
+        CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY
+      ).documentToSqliteRow(row);
       expect(oldFormat).toMatchObject({
         fraction: '2023-03-06 13:47:01.123Z',
         noFraction: '2023-03-06 13:47:01.000Z'
       });
 
-      const newFormat = applyRowContext(row, new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }));
+      const newFormat = new DirectSourceRowConverter(
+        new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS })
+      ).documentToSqliteRow(row);
       expect(newFormat).toMatchObject({
         fraction: '2023-03-06T13:47:01.123Z',
         noFraction: '2023-03-06T13:47:01.000Z'
       });
 
-      const reducedPrecisionFormat = applyRowContext(
-        row,
+      const reducedPrecisionFormat = new DirectSourceRowConverter(
         new CompatibilityContext({
           edition: CompatibilityEdition.SYNC_STREAMS,
           maxTimeValuePrecision: TimeValuePrecision.seconds
         })
-      );
+      ).documentToSqliteRow(row);
+
       expect(reducedPrecisionFormat).toMatchObject({
         fraction: '2023-03-06T13:47:01Z',
         noFraction: '2023-03-06T13:47:01Z'
@@ -582,18 +572,30 @@ bucket_definitions:
 /**
  * Return all the inserts from the first transaction in the replication stream.
  */
-async function getReplicationTx(replicationStream: mongo.ChangeStream, count: number) {
-  let transformed: SqliteInputRow[] = [];
-  for await (const doc of replicationStream) {
-    // Specifically filter out map_input / map_output collections
-    if (!(doc as any)?.ns?.coll?.startsWith('test_data')) {
-      continue;
+async function getReplicationTx(replicationStream: AsyncIterator<ChangeStreamBatch>, count: number): Promise<Buffer[]> {
+  let documents: Buffer[] = [];
+  while (true) {
+    const result = await replicationStream.next();
+    if (result.done) {
+      break;
     }
-    transformed.push(constructAfterRecord((doc as any).fullDocument));
-    if (transformed.length == count) {
+    const batch = result.value;
+    for (let buffer of batch.events) {
+      const doc = parseChangeDocument(buffer);
+      // Specifically filter out map_input / map_output collections
+      if (!doc?.ns?.coll?.startsWith('test_data')) {
+        continue;
+      }
+      documents.push((doc as any).fullDocument);
+      if (documents.length == count) {
+        break;
+      }
+    }
+    if (documents.length == count) {
       break;
     }
   }
-  transformed.sort((a, b) => Number(a._id) - Number(b._id));
-  return transformed;
+  replicationStream.return?.();
+  documents.sort((a, b) => Number(parseDocumentId(a).id) - Number(parseDocumentId(b).id));
+  return documents;
 }

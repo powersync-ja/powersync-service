@@ -517,7 +517,7 @@ export class BucketParameterState {
 
       let errorMessage = error.message;
       const logData: any = {
-        checkpoint: checkpoint,
+        checkpoint: checkpoint.base.checkpoint,
         user_id: this.syncParams.userId,
         parameter_query_results: update.buckets.length
       };

@@ -1,5 +1,14 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.24
+
+### Patch Changes
+
+- 85508d1: Fix authentication failure when MongoDB password contains URL-encoded characters.
+- Updated dependencies [afc9890]
+- Updated dependencies [756746c]
+  - @powersync/lib-services-framework@0.9.3
+
 ## 0.6.23
 
 ### Patch Changes
