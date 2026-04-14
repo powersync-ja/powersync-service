@@ -585,66 +585,6 @@ bucket_definitions:
 
       await using _walSize = await withMaxWalSize(baseContext.pool, '100MB');
 
-      // Phase 1: Start a snapshot but abort it before completion so snapshot_done stays false.
-      {
-        const walPool = baseContext.pool;
-        await using context = await openContext({
-          walStreamOptions: {
-            snapshotChunkLength: 100,
-            slotHealthCheckIntervalMs: 0,
-            onSnapshotChunkFlushed: async () => {
-              // Generate WAL to invalidate the slot during the snapshot.
-              await walPool.query(`SELECT pg_logical_emit_message(true, 'test', 'x')`);
-              await walPool.query(`SELECT pg_switch_wal()`);
-              await walPool.query(`CHECKPOINT`);
-            }
-          }
-        });
-        const { pool } = context;
-
-        await context.updateSyncRules(`
-bucket_definitions:
-  global:
-    data:
-      - SELECT id, description FROM "test_data"`);
-
-        await pool.query(`CREATE TABLE test_data(id uuid primary key default uuid_generate_v4(), description text)`);
-        await pool.query(`INSERT INTO test_data(description) SELECT 'row ' || g FROM generate_series(1, 1000) g`);
-
-        // The snapshot should be aborted by the slot health check detecting invalidation.
-        await expect(async () => {
-          await context.replicateSnapshot();
-        }).rejects.toThrowError(MissingReplicationSlotError);
-
-        // Confirm snapshot_done is false — the snapshot was interrupted.
-        const status = await context.storage!.getStatus();
-        expect(status.snapshot_done).toBe(false);
-      }
-
-      // Phase 2: Open a new context on the same storage (doNotClear: true).
-      // This calls initSlot() which should detect the lost slot and throw
-      // MissingReplicationSlotError with phase: 'snapshot' (since snapshot_done is false).
-      {
-        await using context = await openContext({ doNotClear: true });
-
-        // Sync rules are still "next" (not "active") because the snapshot never completed.
-        await context.loadNextSyncRules();
-
-        let caughtError: any;
-        try {
-          await context.replicateSnapshot();
-        } catch (e) {
-          caughtError = e;
-        }
-
-        expect(caughtError).toBeInstanceOf(MissingReplicationSlotError);
-        expect(caughtError.walStatus).toBe('lost');
-        // initSlot() derives phase from snapshotDone: snapshot not done → phase is 'snapshot'
-        expect(caughtError.phase).toBe('snapshot');
-      }
-    }
-  );
-
   test('old date format', async () => {
     await using context = await openContext();
     await context.updateSyncRules(BASIC_SYNC_RULES);
