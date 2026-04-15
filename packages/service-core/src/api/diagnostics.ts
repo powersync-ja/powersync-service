@@ -145,32 +145,26 @@ export async function getSyncRulesStatus(
   }
   errors.push(...syncRuleErrors.map((error) => syncConfigYamlErrorToReplicationError(error, now)));
 
-  if (slot_wal_budget) {
-    if (slot_wal_budget.wal_status === 'lost') {
+  if (
+    slot_wal_budget &&
+    slot_wal_budget.wal_status !== 'lost' &&
+    slot_wal_budget.safe_wal_size != null &&
+    slot_wal_budget.max_slot_wal_keep_size != null &&
+    slot_wal_budget.max_slot_wal_keep_size > 0
+  ) {
+    const budgetPct = Math.max(
+      0,
+      Math.round((slot_wal_budget.safe_wal_size / slot_wal_budget.max_slot_wal_keep_size) * 100)
+    );
+    if (budgetPct <= 50) {
       errors.push({
-        level: 'fatal',
+        level: 'warning',
         message:
-          `[PSYNC_S1146] Replication slot WAL status is 'lost'. ` +
-          `The slot has been invalidated. Increase max_slot_wal_keep_size ` +
-          `on the source database and delete the existing slot to recover.`,
+          `WAL budget is low: ${budgetPct}% remaining. ` +
+          `The replication slot may be invalidated if WAL consumption ` +
+          `continues at this rate. Consider increasing max_slot_wal_keep_size.`,
         ts: now
       });
-    } else if (
-      slot_wal_budget.safe_wal_size != null &&
-      slot_wal_budget.max_slot_wal_keep_size != null &&
-      slot_wal_budget.max_slot_wal_keep_size > 0
-    ) {
-      const budgetPct = Math.round((slot_wal_budget.safe_wal_size / slot_wal_budget.max_slot_wal_keep_size) * 100);
-      if (budgetPct <= 50) {
-        errors.push({
-          level: 'warning',
-          message:
-            `WAL budget is low: ${budgetPct}% remaining. ` +
-            `The replication slot may be invalidated if WAL consumption ` +
-            `continues at this rate. Consider increasing max_slot_wal_keep_size.`,
-          ts: now
-        });
-      }
     }
   }
 
