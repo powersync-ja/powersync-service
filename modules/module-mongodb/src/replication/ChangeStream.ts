@@ -300,9 +300,10 @@ export class ChangeStream {
 
     // Create a checkpoint, and open a change stream.
     // For standard MongoDB, we use startAtOperationTime with the checkpoint's operationTime.
-    // For Cosmos DB, rawChangeStreamBatches sends the aggregate immediately (not lazy),
-    // so we open the stream with lsn: null first, then create the checkpoint — the event
-    // will be captured because the stream is already listening.
+    // For Cosmos DB, there is no startAtOperationTime — the stream opens from "now" with
+    // lsn: null. The first checkpoint may be missed if it was written before the stream
+    // opened, but the retry loop below re-creates checkpoints every second until one is
+    // observed, so this is handled.
     let firstCheckpointLsn: string;
     let streamLsn: string | null;
 
