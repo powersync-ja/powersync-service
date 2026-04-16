@@ -116,14 +116,28 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
     expect(walWarnings).toHaveLength(0);
   });
 
-  test('fatal error when slot status is lost', async () => {
+  test('clamps negative safe_wal_size to 0%', async () => {
+    const api = makeRouteAPI({
+      wal_status: 'unreserved',
+      safe_wal_size: -2.4 * GB,
+      max_slot_wal_keep_size: 1 * 1024 * 1024 // 1MB
+    });
+    const result = await getSyncRulesStatus(makeBucketStorage(), api, makeSyncRulesContent(), OPTIONS);
+    const walWarnings = result!.errors.filter((e) => e.message.includes('WAL budget'));
+    expect(walWarnings).toHaveLength(1);
+    expect(walWarnings[0].message).toContain('0%');
+    expect(walWarnings[0].message).not.toMatch(/-\d+%/);
+  });
+
+  test('no WAL budget error when slot status is lost', async () => {
     const api = makeRouteAPI({
       wal_status: 'lost'
     });
     const result = await getSyncRulesStatus(makeBucketStorage(), api, makeSyncRulesContent(), OPTIONS);
-    const slotErrors = result!.errors.filter((e) => e.message.includes('PSYNC_S1146'));
-    expect(slotErrors).toHaveLength(1);
-    expect(slotErrors[0].level).toBe('fatal');
+    const walErrors = result!.errors.filter(
+      (e) => e.message.includes('WAL budget') || e.message.includes('PSYNC_S1146')
+    );
+    expect(walErrors).toHaveLength(0);
   });
 
   test('no WAL error when getSlotWalBudget is not defined', async () => {
