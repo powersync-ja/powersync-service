@@ -64,6 +64,9 @@ bucket_definitions:
     ]);
   });
 
+  // Cosmos DB equivalent of 'replicating basic values' above — without post-images,
+  // replaceOne, or bigint (unsupported features). Covers the core insert/update/delete
+  // flow through the change stream using updateLookup instead of stored post-images.
   test.skipIf(!isCosmosDb)('replicating basic values (Cosmos DB - no postImages)', async () => {
     await using context = await openContext();
     const { db } = context;
