@@ -334,5 +334,13 @@ streams:
         `)
       ).toMatchSnapshot();
     });
+
+    test('table-valued', () => {
+      expect(
+        compileSingleStreamAndSerialize(`SELECT a.*
+          FROM a, b, json_each(a.tags) AS j
+          WHERE a.k = b.k AND j.value = b.v`)
+      ).toMatchSnapshot();
+    });
   });
 });
