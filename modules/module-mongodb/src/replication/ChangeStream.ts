@@ -331,7 +331,7 @@ export class ChangeStream {
       signal: this.abort_signal,
       filters
     });
-    for await (let { events } of iter) {
+    for await (let { events, resumeToken: batchResumeToken } of iter) {
       if (performance.now() - startTime >= LSN_TIMEOUT_SECONDS * 1000) {
         break;
       }
@@ -354,7 +354,9 @@ export class ChangeStream {
           }
           const { comparable: lsn } = new MongoLSN({
             timestamp: this.getEventTimestamp(changeDocument),
-            resume_token: changeDocument._id
+            // Cosmos DB: event._id uses _data format which is rejected by resumeAfter.
+            // Use the batch-level postBatchResumeToken (_token format) instead.
+            resume_token: this.isCosmosDb ? batchResumeToken : changeDocument._id
           });
           return lsn;
         }
@@ -1158,7 +1160,9 @@ export class ChangeStream {
 
               const { comparable: lsn } = new MongoLSN({
                 timestamp: this.getEventTimestamp(changeDocument),
-                resume_token: changeDocument._id
+                // Cosmos DB: event._id uses _data format which is rejected by resumeAfter.
+                // Use the batch-level postBatchResumeToken (_token format) instead.
+                resume_token: this.isCosmosDb ? resumeToken : changeDocument._id
               });
               if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
                 // Checkpoint out of order - should never happen with MongoDB.
@@ -1245,7 +1249,9 @@ export class ChangeStream {
                   // The same could apply if we need to catch up on replication after some downtime.
                   const { comparable: lsn } = new MongoLSN({
                     timestamp: this.getEventTimestamp(changeDocument),
-                    resume_token: changeDocument._id
+                    // Cosmos DB: event._id uses _data format which is rejected by resumeAfter.
+                    // Use the batch-level postBatchResumeToken (_token format) instead.
+                    resume_token: this.isCosmosDb ? resumeToken : changeDocument._id
                   });
                   this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
                   await batch.setResumeLsn(lsn);
