@@ -77,13 +77,16 @@ npx vitest run cosmosdb --reporter=verbose
 
 ## What the Integration Tests Cover
 
-| Test                 | What it validates                                                                               |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| basic replication    | Insert, update, delete through change stream with wallTime timestamps                           |
-| sentinel checkpoint  | Checkpoint created with `mode: 'sentinel'`, resolved by matching document content in the stream |
-| keepalive            | Stream idles past the keepalive interval without crashing on Cosmos DB resume tokens            |
-| write checkpoint     | Full `createReplicationHead` → sentinel → polling flow for client write consistency             |
-| resume after restart | Stop streaming, create new context, resume from stored token                                    |
+Each integration test runs against 3 storage versions (v1, v2, v3) = 15 integration tests. Plus 15 unit tests in helpers = 30 total.
+
+| Test                    | What it validates                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------------- |
+| basic replication       | Insert, update, delete through change stream with wallTime timestamps                           |
+| sentinel checkpoint     | Checkpoint created with `mode: 'sentinel'`, resolved by matching document content in the stream |
+| keepalive               | Stream idles past the keepalive interval without crashing on Cosmos DB resume tokens            |
+| write checkpoint        | Full `createReplicationHead` → sentinel → polling flow for client write consistency             |
+| data events not dropped | Verifies `.lte()` dedup guard is skipped — events in the same wall-clock second are not lost    |
+| resume after restart    | Stop streaming, create new context, resume from stored token                                    |
 
 ## Known Issues
 
