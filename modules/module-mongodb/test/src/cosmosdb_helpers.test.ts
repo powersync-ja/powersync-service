@@ -58,6 +58,11 @@ describe('Cosmos DB helpers', () => {
   });
 
   describe('Cosmos DB detection', () => {
+    // Detection logic: hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null
+    // Older clusters use cosmos_versions, newer ones use documentdb_versions after Microsoft's rename.
+    const isCosmosDb = (hello: any) =>
+      hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
+
     test('hello with cosmos_versions — detected as Cosmos DB', () => {
       const hello = {
         isWritablePrimary: true,
@@ -67,8 +72,18 @@ describe('Cosmos DB helpers', () => {
           cosmos_versions: ['1.104-1', '1.105.0', '12.1-1']
         }
       };
-      // Detection logic: hello.internal?.cosmos_versions != null
-      expect(hello.internal?.cosmos_versions != null).toBe(true);
+      expect(isCosmosDb(hello)).toBe(true);
+    });
+
+    test('hello with documentdb_versions — detected as Cosmos DB', () => {
+      const hello = {
+        isWritablePrimary: true,
+        msg: 'isdbgrid',
+        internal: {
+          documentdb_versions: ['1.111-0', '1.112.0', '12.1-1']
+        }
+      };
+      expect(isCosmosDb(hello)).toBe(true);
     });
 
     test('standard hello response — not Cosmos DB', () => {
@@ -77,8 +92,7 @@ describe('Cosmos DB helpers', () => {
         setName: 'rs0',
         hosts: ['localhost:27017']
       };
-      // Standard MongoDB hello does not have internal.cosmos_versions
-      expect((hello as any).internal?.cosmos_versions != null).toBe(false);
+      expect(isCosmosDb(hello)).toBe(false);
     });
   });
 

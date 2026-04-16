@@ -211,7 +211,7 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
   private async detectCosmosDb(): Promise<boolean> {
     if (this.isCosmosDb === null) {
       const hello = await this.db.command({ hello: 1 });
-      this.isCosmosDb = hello.internal?.cosmos_versions != null;
+      this.isCosmosDb = hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
     }
     return this.isCosmosDb;
   }

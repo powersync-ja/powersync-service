@@ -11,7 +11,7 @@ export async function checkSourceConfiguration(connectionManager: MongoManager):
   const db = connectionManager.db;
 
   const hello = await db.command({ hello: 1 });
-  const isCosmosDb = hello.internal?.cosmos_versions != null;
+  const isCosmosDb = hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
 
   if (hello.msg == 'isdbgrid' && !isCosmosDb) {
     throw new ServiceError(

@@ -257,7 +257,7 @@ export class ChangeStream {
     this.cosmosDbDetected = true;
 
     const hello = await this.defaultDb.command({ hello: 1 });
-    if (hello.internal?.cosmos_versions != null) {
+    if (hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null) {
       this.isCosmosDb = true;
       this.logger.info('CosmosDB detected. CosmosDB support is experimental.');
       this.validatePostImagesForCosmosDb();
