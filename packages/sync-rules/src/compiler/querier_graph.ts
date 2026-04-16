@@ -305,6 +305,15 @@ class PendingQuerierPath {
       } else {
         // Must be a match term.
         const partitionBy = (key: PartitionKey, otherRow: SingleDependencyExpression) => {
+          if (otherRow.resultSet && this.resolveStack.indexOf(otherRow.resultSet) != -1) {
+            // The other result set is already being resolved (so this is a circular reference). We will encounter this
+            // expression again as we go up the stack and the other result set would visit this expression (where the
+            // parameters are essentially swapped, the key here would be the otherRow from that perspective). Since this
+            // parameter lookup would have been resolved at that point, we can simply add the key as an output
+            // expression at that stage.
+            return;
+          }
+
           this.removePendingExpression(expression);
           const values = state.partition.putIfAbsent(key, () => []);
 
