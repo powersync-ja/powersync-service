@@ -1,5 +1,19 @@
 # @powersync/service-module-mongodb-storage
 
+## 0.15.5
+
+### Patch Changes
+
+- cdb8993: Add `config.storage_version` configuration option.
+- Updated dependencies [9add445]
+- Updated dependencies [17503d1]
+- Updated dependencies [cdb8993]
+- Updated dependencies [824e229]
+  - @powersync/service-core@1.20.6
+  - @powersync/service-sync-rules@0.35.1
+  - @powersync/lib-service-mongodb@0.6.25
+  - @powersync/lib-services-framework@0.9.4
+
 ## 0.15.4
 
 ### Patch Changes
