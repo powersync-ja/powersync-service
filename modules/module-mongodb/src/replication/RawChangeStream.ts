@@ -9,15 +9,32 @@ import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
 export interface RawChangeStreamOptions {
   signal?: AbortSignal;
+
   /**
    * How long to wait for new data per batch (max time for long-polling).
+   *
+   * This is used for maxTimeMS for the getMore command.
    */
   maxAwaitTimeMS: number;
+
   /**
    * Timeout for the initial aggregate command.
    */
   maxTimeMS: number;
+
+  /**
+   * batchSize for the getMore commands.
+   *
+   * Also provides the batchSize for the aggregate command, unless initialBatchSize is set.
+   */
   batchSize: number;
+
+  /**
+   * batchSize for the initial aggregate command.
+   *
+   * Defaults to batchSize.
+   */
+  initialBatchSize?: number;
 
   /**
    * Mostly for testing.
@@ -123,7 +140,6 @@ async function* rawChangeStreamInner(
    */
   let nsCollection: string | null = null;
 
-  const maxTimeMS = options.maxAwaitTimeMS;
   const batchSize = options.batchSize;
   const collection = options.collection ?? 1;
   let abortPromise: Promise<any> | null = null;
@@ -149,7 +165,9 @@ async function* rawChangeStreamInner(
           {
             aggregate: collection,
             pipeline,
-            cursor: { batchSize },
+            cursor: {
+              batchSize: options.initialBatchSize ?? options.batchSize
+            },
             maxTimeMS: options.maxTimeMS
           },
           { session, raw: true }
@@ -184,7 +202,7 @@ async function* rawChangeStreamInner(
             getMore: cursorId,
             collection: nsCollection,
             batchSize,
-            maxTimeMS
+            maxTimeMS: options.maxAwaitTimeMS
           },
           { session, raw: true }
         )
@@ -311,7 +329,7 @@ export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocume
 function isResumableChangeStreamError(e: unknown) {
   // See: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md#resumable-error
   if (!isMongoServerError(e)) {
-    // Any error encountered which is not a server error (e.g. a timeout error or network error)
+    // Any error encountered which is not a server error (e.g. a socket timeout error or network error)
     return true;
   } else if (e.codeName == 'CursorNotFound') {
     // A server error with code 43 (CursorNotFound)
@@ -319,8 +337,13 @@ function isResumableChangeStreamError(e: unknown) {
   } else if (e.hasErrorLabel('ResumableChangeStreamError')) {
     // For servers with wire version 9 or higher (server version 4.4 or higher), any server error with the ResumableChangeStreamError error label.
     return true;
+  } else if (e.codeName == 'MaxTimeMSExpired') {
+    // Our own exception for MaxTimeMSExpired.
+    // This can help us retry faster, with a smaller batch size (if initialBatchSize is set to 1), which should hopefully avoid the timeout.
+    return true;
   } else {
-    // We ignore servers with wire version less than 9, since we only support MongoDB 6.0+.
+    // Other errors are not retried.
+    // We ignore the spec for servers with wire version less than 9, since we only support MongoDB 6.0+.
     return false;
   }
 }

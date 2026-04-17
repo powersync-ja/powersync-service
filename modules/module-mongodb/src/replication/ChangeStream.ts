@@ -808,6 +808,12 @@ export class ChangeStream {
     }
 
     return rawChangeStream(watchDb, pipeline, {
+      // We use a lowest possible batch size here to help recover when hitting:
+      //   [PSYNC_S1345] Timeout while reading MongoDB ChangeStream
+      // When we run into that, the stream is restarted automatically - either by the rawChangeStream's
+      // internal retry mechanism, or with us restarting the entire job. That sends a new aggregate command,
+      // with the small batch size, which should be able to complete faster.
+      initialBatchSize: 1,
       batchSize: options.batchSize ?? this.snapshotChunkLength,
       maxAwaitTimeMS: options.maxAwaitTimeMS ?? this.maxAwaitTimeMS,
       maxTimeMS: this.changeStreamTimeout,
@@ -868,6 +874,7 @@ export class ChangeStream {
 
         let lastEmptyResume = performance.now();
         let lastTxnKey: string | null = null;
+        let firstBatch = true;
 
         for await (let eventBatch of batchStream) {
           const { events, resumeToken } = eventBatch;
@@ -1128,6 +1135,14 @@ export class ChangeStream {
                 collectionInfo: collection
               });
             }
+          }
+
+          if (firstBatch) {
+            // The first request may be slow. To make sure we don't get repeated timeouts, always
+            // mark progress in the first batch.
+            firstBatch = false;
+            const { comparable: lsn } = MongoLSN.fromResumeToken(resumeFromLsn);
+            await batch.setResumeLsn(lsn);
           }
           this.logger.info(`Processed batch of ${events.length} changes in ${Date.now() - batchStart}ms`);
         }
