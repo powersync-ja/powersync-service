@@ -8,6 +8,17 @@ import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
  */
 export type SourceTableId = string | bson.ObjectId;
 
+/**
+ * Filter definition for initial snapshot replication.
+ * Object with database-specific filters:
+ *   - sql: MySQL, PostgreSQL, SQL Server syntax
+ *   - mongo: MongoDB query syntax (BSON/EJSON format)
+ */
+export type InitialSnapshotFilter = {
+  sql?: string;
+  mongo?: any;
+};
+
 export interface SourceTableOptions {
   id: SourceTableId;
   connectionTag: string;
@@ -16,6 +27,7 @@ export interface SourceTableOptions {
   name: string;
   replicaIdColumns: ColumnDescriptor[];
   snapshotComplete: boolean;
+  initialSnapshotFilter?: InitialSnapshotFilter;
 }
 
 export interface TableSnapshotStatus {
@@ -90,6 +102,10 @@ export class SourceTable implements SourceEntityDescriptor {
     return this.options.replicaIdColumns;
   }
 
+  get initialSnapshotFilter() {
+    return this.options.initialSnapshotFilter;
+  }
+
   /**
    *  Sanitized name of the entity in the format of "{schema}.{entity name}"
    *  Suitable for safe use in Postgres queries.
@@ -113,7 +129,8 @@ export class SourceTable implements SourceEntityDescriptor {
       schema: this.schema,
       name: this.name,
       replicaIdColumns: this.replicaIdColumns,
-      snapshotComplete: this.snapshotComplete
+      snapshotComplete: this.snapshotComplete,
+      initialSnapshotFilter: this.initialSnapshotFilter
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
