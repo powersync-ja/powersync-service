@@ -1,5 +1,17 @@
 # @powersync/service-module-mssql
 
+## 0.6.4
+
+### Patch Changes
+
+- Updated dependencies [9add445]
+- Updated dependencies [17503d1]
+- Updated dependencies [cdb8993]
+- Updated dependencies [824e229]
+  - @powersync/service-core@1.20.6
+  - @powersync/service-sync-rules@0.35.1
+  - @powersync/lib-services-framework@0.9.4
+
 ## 0.6.3
 
 ### Patch Changes

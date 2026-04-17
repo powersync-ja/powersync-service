@@ -1,5 +1,18 @@
 # @powersync/service-core
 
+## 1.20.6
+
+### Patch Changes
+
+- 9add445: Fix initSlot phase detection for snapshot failures requiring operator intervention and add WAL budget warnings to diagnostics API.
+- cdb8993: Add `config.storage_version` configuration option.
+- Updated dependencies [17503d1]
+- Updated dependencies [cdb8993]
+- Updated dependencies [824e229]
+  - @powersync/service-sync-rules@0.35.1
+  - @powersync/lib-services-framework@0.9.4
+  - @powersync/service-rsocket-router@0.2.20
+
 ## 1.20.5
 
 ### Patch Changes

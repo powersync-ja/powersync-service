@@ -1,5 +1,12 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.25
+
+### Patch Changes
+
+- cdb8993: Add `config.storage_version` configuration option.
+  - @powersync/lib-services-framework@0.9.4
+
 ## 0.6.24
 
 ### Patch Changes
