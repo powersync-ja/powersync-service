@@ -11,12 +11,14 @@ export async function checkSourceConfiguration(connectionManager: MongoManager):
   const db = connectionManager.db;
 
   const hello = await db.command({ hello: 1 });
-  if (hello.msg == 'isdbgrid') {
+  const isCosmosDb = hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null;
+
+  if (hello.msg == 'isdbgrid' && !isCosmosDb) {
     throw new ServiceError(
       ErrorCode.PSYNC_S1341,
       'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
     );
-  } else if (hello.setName == null) {
+  } else if (hello.setName == null && !isCosmosDb) {
     throw new ServiceError(ErrorCode.PSYNC_S1342, 'Standalone MongoDB instances are not supported - use a replicaset.');
   }
 

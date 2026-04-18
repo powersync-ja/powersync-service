@@ -53,6 +53,11 @@ export interface ChangeStreamOptions {
    */
   snapshotChunkLength?: number;
 
+  /**
+   * Override keepalive interval for testing (defaults to 60_000ms).
+   */
+  keepaliveIntervalMs?: number;
+
   logger?: Logger;
 }
 
@@ -106,6 +111,11 @@ export class ChangeStream {
 
   private readonly sourceRowConverter: SourceRowConverter;
 
+  private isCosmosDb = false;
+  private cosmosDbDetected = false;
+
+  private keepaliveIntervalMs: number;
+
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -113,6 +123,7 @@ export class ChangeStream {
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
+    this.keepaliveIntervalMs = options.keepaliveIntervalMs ?? 60_000;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -146,6 +157,20 @@ export class ChangeStream {
 
   private get configurePostImages() {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
+  }
+
+  /**
+   * Validate that post-images are not enabled when running against Cosmos DB.
+   * Cosmos DB does not support changeStreamPreAndPostImages, so post-images
+   * modes other than 'off' cannot work.
+   */
+  private validatePostImagesForCosmosDb() {
+    if (this.isCosmosDb && this.usePostImages) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1301,
+        `Post-images are not supported with Cosmos DB. Set post_images to 'off' in your connection configuration.`
+      );
+    }
   }
 
   /**
@@ -221,24 +246,42 @@ export class ChangeStream {
   }
 
   /**
-   * This gets a LSN before starting a snapshot, which we can resume streaming from after the snapshot.
-   *
-   * This LSN can survive initial replication restarts.
+   * Detect whether we are connected to Cosmos DB.
+   * Must be called before any change stream operation.
+   * Safe to call multiple times — only runs the hello command once.
    */
-  private async getSnapshotLsn(): Promise<string> {
+  private async detectCosmosDb(): Promise<void> {
+    if (this.cosmosDbDetected) {
+      return;
+    }
+    this.cosmosDbDetected = true;
+
     const hello = await this.defaultDb.command({ hello: 1 });
-    // Basic sanity check
-    if (hello.msg == 'isdbgrid') {
+    if (hello.internal?.cosmos_versions != null || hello.internal?.documentdb_versions != null) {
+      this.isCosmosDb = true;
+      this.logger.info('CosmosDB detected. CosmosDB support is experimental.');
+      this.validatePostImagesForCosmosDb();
+    }
+    if (hello.msg == 'isdbgrid' && !this.isCosmosDb) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1341,
         'Sharded MongoDB Clusters are not supported yet (including MongoDB Serverless instances).'
       );
-    } else if (hello.setName == null) {
+    } else if (hello.setName == null && !this.isCosmosDb) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1342,
         'Standalone MongoDB instances are not supported - use a replicaset.'
       );
     }
+  }
+
+  /**
+   * This gets a LSN before starting a snapshot, which we can resume streaming from after the snapshot.
+   *
+   * This LSN can survive initial replication restarts.
+   */
+  private async getSnapshotLsn(): Promise<string> {
+    await this.detectCosmosDb();
 
     // Open a change stream just to get a resume token for later use.
     // We could use clusterTime from the hello command, but that won't tell us if the
@@ -255,27 +298,47 @@ export class ChangeStream {
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
 
-    // Create a checkpoint, and open a change stream using startAtOperationTime with the checkpoint's operationTime.
-    const firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+    // Create a checkpoint, and open a change stream.
+    // For standard MongoDB, we use startAtOperationTime with the checkpoint's operationTime.
+    // For Cosmos DB, there is no startAtOperationTime — the stream opens from "now" with
+    // lsn: null. The first checkpoint may be missed if it was written before the stream
+    // opened, but the retry loop below re-creates checkpoints every second until one is
+    // observed, so this is handled.
+    let firstCheckpointLsn: string;
+    let streamLsn: string | null;
+
+    const filters = this.getSourceNamespaceFilters();
+
+    if (this.isCosmosDb) {
+      // Cosmos DB: no startAtOperationTime. Open stream first, then create checkpoint.
+      streamLsn = null;
+      firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
+        mode: 'sentinel'
+      });
+    } else {
+      firstCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+      streamLsn = firstCheckpointLsn;
+    }
 
     const startTime = performance.now();
     let lastCheckpointCreated = performance.now();
     let eventsSeen = 0;
     let batchesSeen = 0;
 
-    const filters = this.getSourceNamespaceFilters();
     const iter = this.rawChangeStreamBatches({
-      lsn: firstCheckpointLsn,
+      lsn: streamLsn,
       maxAwaitTimeMS: 0,
       signal: this.abort_signal,
       filters
     });
-    for await (let { events } of iter) {
+    for await (let { events, resumeToken: batchResumeToken } of iter) {
       if (performance.now() - startTime >= LSN_TIMEOUT_SECONDS * 1000) {
         break;
       }
       if (performance.now() - lastCheckpointCreated >= LSN_CREATE_INTERVAL_SECONDS * 1000) {
-        await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+        await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
+          mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+        });
         lastCheckpointCreated = performance.now();
       }
       batchesSeen += 1;
@@ -290,8 +353,10 @@ export class ChangeStream {
             continue;
           }
           const { comparable: lsn } = new MongoLSN({
-            timestamp: changeDocument.clusterTime!,
-            resume_token: changeDocument._id
+            timestamp: this.getEventTimestamp(changeDocument),
+            // Cosmos DB: event._id uses _data format which is rejected by resumeAfter.
+            // Use the batch-level postBatchResumeToken (_token format) instead.
+            resume_token: this.isCosmosDb ? batchResumeToken : changeDocument._id
           });
           return lsn;
         }
@@ -402,9 +467,14 @@ export class ChangeStream {
     const collection = await this.getCollectionInfo(this.defaultDb.databaseName, CHECKPOINTS_COLLECTION);
     if (collection == null) {
       await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
-        changeStreamPreAndPostImages: { enabled: true }
+        // Cosmos DB does not support changeStreamPreAndPostImages.
+        ...(this.usePostImages && !this.isCosmosDb ? { changeStreamPreAndPostImages: { enabled: true } } : {})
       });
-    } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
+    } else if (
+      !this.isCosmosDb &&
+      this.usePostImages &&
+      collection.options?.changeStreamPreAndPostImages?.enabled != true
+    ) {
       // Drop + create requires less permissions than collMod,
       // and we don't care about the data in this collection.
       await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);
@@ -579,8 +649,8 @@ export class ChangeStream {
   }
 
   private async checkPostImages(db: string, collectionInfo: mongo.CollectionInfo) {
-    if (!this.usePostImages) {
-      // Nothing to check
+    if (!this.usePostImages || this.isCosmosDb) {
+      // Nothing to check — post-images are off or unsupported (Cosmos DB)
       return;
     }
 
@@ -716,6 +786,7 @@ export class ChangeStream {
   }
 
   async initReplication() {
+    await this.detectCosmosDb();
     const result = await this.initSlot();
     await this.setupCheckpointsCollection();
     if (result.needsInitialSync) {
@@ -750,6 +821,18 @@ export class ChangeStream {
     }
   }
 
+  private getEventTimestamp(changeDocument: ProjectedChangeStreamDocument): mongo.Timestamp {
+    if (!this.isCosmosDb && changeDocument.clusterTime) {
+      return changeDocument.clusterTime;
+    }
+    // Cosmos DB: use wallTime at second precision (clusterTime is absent).
+    const wallTime = (changeDocument as any).wallTime as Date | undefined;
+    if (wallTime) {
+      return mongo.Timestamp.fromBits(0, Math.floor(wallTime.getTime() / 1000));
+    }
+    throw new Error('Change event has neither clusterTime nor wallTime');
+  }
+
   private rawChangeStreamBatches(options: {
     lsn: string | null;
     maxAwaitTimeMS?: number;
@@ -765,7 +848,10 @@ export class ChangeStream {
 
     let fullDocument: 'required' | 'updateLookup';
 
-    if (this.usePostImages) {
+    if (this.isCosmosDb) {
+      // Cosmos DB doesn't support changeStreamPreAndPostImages, so 'required' won't work.
+      fullDocument = 'updateLookup';
+    } else if (this.usePostImages) {
       // 'read_only' or 'auto_configure'
       // Configuration happens during snapshot, or when we see new
       // collections.
@@ -774,25 +860,32 @@ export class ChangeStream {
       fullDocument = 'updateLookup';
     }
     const streamOptions: mongo.ChangeStreamOptions & mongo.Document = {
-      showExpandedEvents: true,
       fullDocument: fullDocument
     };
+
+    if (!this.isCosmosDb) {
+      streamOptions.showExpandedEvents = true;
+    }
+
     const pipeline: mongo.Document[] = [
       {
         $changeStream: streamOptions
       },
       {
         $match: filters.$match
-      },
-      { $changeStreamSplitLargeEvent: {} }
+      }
     ];
+
+    if (!this.isCosmosDb) {
+      pipeline.push({ $changeStreamSplitLargeEvent: {} });
+    }
 
     /**
      * Only one of these options can be supplied at a time.
      */
     if (resumeAfter) {
       streamOptions.resumeAfter = resumeAfter;
-    } else {
+    } else if (startAfter != null) {
       // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
       // case if we have an old one.
       // This is also relevant for getSnapshotLSN().
@@ -800,7 +893,10 @@ export class ChangeStream {
     }
 
     let watchDb: mongo.Db;
-    if (filters.multipleDatabases) {
+    if (filters.multipleDatabases || this.isCosmosDb) {
+      // Requires readAnyDatabase@admin on Atlas.
+      // Cosmos DB does not support database-level change streams, so we always
+      // use cluster-level aggregate. The $match filter on namespaces handles collection filtering.
       watchDb = this.client.db('admin');
       streamOptions.allChangesForCluster = true;
     } else {
@@ -818,6 +914,7 @@ export class ChangeStream {
   }
 
   async streamChangesInternal() {
+    await this.detectCosmosDb();
     const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
@@ -858,7 +955,8 @@ export class ChangeStream {
         let waitForCheckpointLsn: string | null = await createCheckpoint(
           this.client,
           this.defaultDb,
-          this.checkpointStreamId
+          this.checkpointStreamId,
+          { mode: this.isCosmosDb ? 'sentinel' : 'lsn' }
         );
 
         let splitDocument: ProjectedChangeStreamDocument | null = null;
@@ -882,24 +980,37 @@ export class ChangeStream {
             // We do this by persisting a keepalive checkpoint.
             // If we don't update it on empty events, we do keep consistency, but resuming the stream
             // with old tokens may cause connection timeouts.
-            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > 60_000) {
-              const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(resumeToken);
-              await batch.keepalive(lsn);
-              this.touch();
-              lastEmptyResume = performance.now();
-              // Log the token update. This helps as a general "replication is still active" message in the logs.
-              // This token would typically be around 10s behind.
-              this.logger.info(
-                `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
-              );
+            // We throttle this further by only persisting a keepalive once a minute.
+            // We add an additional check for waitForCheckpointLsn == null, to make sure we're not
+            // doing a keepalive in the middle of a transaction.
+            if (waitForCheckpointLsn == null && performance.now() - lastEmptyResume > this.keepaliveIntervalMs) {
+              if (this.isCosmosDb) {
+                // Cosmos DB resume tokens cannot be parsed for timestamps.
+                // Persist the token directly with a wallTime-derived timestamp.
+                const lsn = new MongoLSN({
+                  timestamp: mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000)),
+                  resume_token: resumeToken
+                }).comparable;
+                await batch.keepalive(lsn);
+                this.touch();
+                lastEmptyResume = performance.now();
+                this.logger.info(`Idle change stream (CosmosDB). Persisted resumeToken.`);
+              } else {
+                // Standard MongoDB: parse timestamp from resume token
+                const { comparable: lsn, timestamp } = MongoLSN.fromResumeToken(resumeToken);
+                await batch.keepalive(lsn);
+                this.touch();
+                lastEmptyResume = performance.now();
+                // Log the token update. This helps as a general "replication is still active" message in the logs.
+                // This token would typically be around 10s behind.
+                this.logger.info(
+                  `Idle change stream. Persisted resumeToken for ${timestampToDate(timestamp).toISOString()}`
+                );
+              }
               this.replicationLag.markStarted();
             }
 
-            // If we have no changes, we can just persist the keepalive.
-            // This is throttled to once per minute.
-            if (performance.now() - lastEmptyResume < 60_000) {
-              continue;
-            }
+            continue;
           }
 
           this.touch();
@@ -912,8 +1023,23 @@ export class ChangeStream {
               break;
             }
 
-            if (startAfter != null && originalChangeDocument.clusterTime?.lte(startAfter)) {
-              continue;
+            // Skip events at or before the resume point to prevent duplicate processing.
+            // This guard is only needed for the legacy startAtOperationTime path where
+            // the server may redeliver events at the boundary. When resumeAfter is used
+            // (which includes Cosmos DB), the server guarantees no duplicates.
+            // On Cosmos DB, this check is harmful: wallTime has second precision
+            // (increment 0), so events within the same second as the last checkpoint
+            // would be incorrectly dropped — causing silent data loss after restart.
+            try {
+              if (
+                !this.isCosmosDb &&
+                startAfter != null &&
+                this.getEventTimestamp(originalChangeDocument).lte(startAfter)
+              ) {
+                continue;
+              }
+            } catch {
+              // Neither clusterTime nor wallTime present — don't skip the event
             }
 
             let changeDocument = originalChangeDocument;
@@ -1017,16 +1143,26 @@ export class ChangeStream {
                 const hasBufferedChanges = eventIndex < events.length - 1;
                 if (waitForCheckpointLsn != null || hasBufferedChanges) {
                   if (waitForCheckpointLsn == null) {
-                    waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+                    waitForCheckpointLsn = await createCheckpoint(
+                      this.client,
+                      this.defaultDb,
+                      this.checkpointStreamId,
+                      {
+                        mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+                      }
+                    );
                   }
                   continue;
                 }
               } else if (!this.checkpointStreamId.equals(checkpointId)) {
                 continue;
               }
+
               const { comparable: lsn } = new MongoLSN({
-                timestamp: changeDocument.clusterTime!,
-                resume_token: changeDocument._id
+                timestamp: this.getEventTimestamp(changeDocument),
+                // Cosmos DB: event._id uses _data format which is rejected by resumeAfter.
+                // Use the batch-level postBatchResumeToken (_token format) instead.
+                resume_token: this.isCosmosDb ? resumeToken : changeDocument._id
               });
               if (batch.lastCheckpointLsn != null && lsn < batch.lastCheckpointLsn) {
                 // Checkpoint out of order - should never happen with MongoDB.
@@ -1035,12 +1171,30 @@ export class ChangeStream {
                 // Originally a workaround for https://jira.mongodb.org/browse/NODE-7042.
                 // This has been fixed in the driver in the meantime, but we still keep this as a safety-check.
                 throw new ReplicationAssertionError(
-                  `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(changeDocument.clusterTime!).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
+                  `Change resumeToken ${(changeDocument._id as any)._data} (${timestampToDate(this.getEventTimestamp(changeDocument)).toISOString()}) is less than last checkpoint LSN ${batch.lastCheckpointLsn}. Restarting replication.`
                 );
               }
 
-              if (waitForCheckpointLsn != null && lsn >= waitForCheckpointLsn) {
-                waitForCheckpointLsn = null;
+              if (waitForCheckpointLsn != null) {
+                if (waitForCheckpointLsn.startsWith('sentinel:')) {
+                  // Cosmos DB sentinel matching: resolve when we see the matching event
+                  if (!changeDocument.fullDocument) {
+                    this.logger.warn('Checkpoint event missing fullDocument — cannot match sentinel');
+                    continue;
+                  }
+                  const [, sentinelId, sentinelI] = waitForCheckpointLsn.split(':');
+                  const docId = String(changeDocument.documentKey._id);
+                  // fullDocument is a raw BSON Buffer from parseChangeDocument — deserialize to access .i
+                  const fullDoc = mongo.BSON.deserialize(changeDocument.fullDocument as Buffer, { useBigInt64: true });
+                  const docI = fullDoc?.i;
+
+                  if (docId === sentinelId && String(docI) === sentinelI) {
+                    waitForCheckpointLsn = null;
+                  }
+                } else if (lsn >= waitForCheckpointLsn) {
+                  // Standard MongoDB: LSN comparison (existing path)
+                  waitForCheckpointLsn = null;
+                }
               }
               const { checkpointBlocked } = await batch.commit(lsn, {
                 oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
@@ -1057,7 +1211,9 @@ export class ChangeStream {
               changeDocument.operationType == 'delete'
             ) {
               if (waitForCheckpointLsn == null) {
-                waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
+                waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId, {
+                  mode: this.isCosmosDb ? 'sentinel' : 'lsn'
+                });
               }
 
               const rel = getMongoRelation(changeDocument.ns);
@@ -1070,7 +1226,8 @@ export class ChangeStream {
               });
               if (table.syncAny) {
                 this.replicationLag.trackUncommittedChange(
-                  changeDocument.clusterTime == null ? null : timestampToDate(changeDocument.clusterTime)
+                  (changeDocument as any).wallTime ??
+                    (changeDocument.clusterTime ? timestampToDate(changeDocument.clusterTime) : null)
                 );
 
                 const transactionKeyValue = transactionKey(changeDocument);
@@ -1091,8 +1248,10 @@ export class ChangeStream {
                   // we don't restart from scratch if we restart replication.
                   // The same could apply if we need to catch up on replication after some downtime.
                   const { comparable: lsn } = new MongoLSN({
-                    timestamp: changeDocument.clusterTime!,
-                    resume_token: changeDocument._id
+                    timestamp: this.getEventTimestamp(changeDocument),
+                    // Cosmos DB: event._id uses _data format which is rejected by resumeAfter.
+                    // Use the batch-level postBatchResumeToken (_token format) instead.
+                    resume_token: this.isCosmosDb ? resumeToken : changeDocument._id
                   });
                   this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
                   await batch.setResumeLsn(lsn);

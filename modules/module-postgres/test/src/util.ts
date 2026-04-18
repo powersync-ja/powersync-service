@@ -130,6 +130,10 @@ export async function getClientCheckpoint(
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.
 
+  if (lsn == null) {
+    throw new Error('Replication head not available');
+  }
+
   const timeout = options?.timeout ?? 50_000;
 
   logger.info(`Waiting for LSN checkpoint: ${lsn}`);
