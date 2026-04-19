@@ -1,3 +1,4 @@
+import { NodeLocations } from '../compiler/expression.js';
 import {
   BetweenExpression,
   BinaryExpression,
@@ -160,10 +161,22 @@ export abstract class RecursiveExpressionVisitor<Data, R, Arg = undefined> imple
  * A visitor applying a mapping function to external data references in expressions.
  */
 export class MapSourceVisitor<DataIn, DataOut> implements ExpressionVisitor<DataIn, SqlExpression<DataOut>> {
-  constructor(private readonly map: (a: DataIn) => DataOut) {}
+  constructor(
+    private readonly map: (a: DataIn) => DataOut,
+    private readonly locations?: NodeLocations
+  ) {}
+
+  #trackLocations(source: SqlExpression<DataIn>, mapped: SqlExpression<DataOut>): SqlExpression<DataOut> {
+    const location = this.locations?.sourceForNode?.get(source);
+    if (location) {
+      this.locations!.sourceForNode.set(mapped, location);
+    }
+
+    return mapped;
+  }
 
   visitExternalData(expr: ExternalData<DataIn>): SqlExpression<DataOut> {
-    return { type: 'data', source: this.map(expr.source) };
+    return this.#trackLocations(expr, { type: 'data', source: this.map(expr.source) });
   }
 
   visitUnaryExpression(expr: UnaryExpression<DataIn>, arg: undefined): SqlExpression<DataOut> {
@@ -172,7 +185,7 @@ export class MapSourceVisitor<DataIn, DataOut> implements ExpressionVisitor<Data
       return expr as SqlExpression<DataOut>; // unchanged subtree
     }
 
-    return { type: 'unary', operator: expr.operator, operand };
+    return this.#trackLocations(expr, { type: 'unary', operator: expr.operator, operand });
   }
 
   visitBinaryExpression(expr: BinaryExpression<DataIn>, arg: undefined): SqlExpression<DataOut> {
@@ -182,7 +195,7 @@ export class MapSourceVisitor<DataIn, DataOut> implements ExpressionVisitor<Data
       return expr as SqlExpression<DataOut>; // unchanged subtree
     }
 
-    return { type: 'binary', operator: expr.operator, left, right };
+    return this.#trackLocations(expr, { type: 'binary', operator: expr.operator, left, right });
   }
 
   visitBetweenExpression(expr: BetweenExpression<DataIn>, arg: undefined): SqlExpression<DataOut> {
@@ -193,19 +206,19 @@ export class MapSourceVisitor<DataIn, DataOut> implements ExpressionVisitor<Data
       return expr as SqlExpression<DataOut>; // unchanged subtree
     }
 
-    return { type: 'between', value, low, high };
+    return this.#trackLocations(expr, { type: 'between', value, low, high });
   }
 
   visitScalarInExpression(expr: ScalarInExpression<DataIn>, arg: undefined): SqlExpression<DataOut> {
-    return {
+    return this.#trackLocations(expr, {
       type: 'scalar_in',
       target: visitExpr(this, expr.target, arg),
       in: expr.in.map((e) => visitExpr(this, e, arg))
-    };
+    });
   }
 
   visitCaseWhenExpression(expr: CaseWhenExpression<DataIn>, arg: undefined): SqlExpression<DataOut> {
-    return {
+    return this.#trackLocations(expr, {
       type: 'case_when',
       operand: expr.operand && visitExpr(this, expr.operand, arg),
       whens: expr.whens.map(({ when, then }) => ({
@@ -213,7 +226,7 @@ export class MapSourceVisitor<DataIn, DataOut> implements ExpressionVisitor<Data
         then: visitExpr(this, then, arg)
       })),
       else: expr.else && visitExpr(this, expr.else, arg)
-    };
+    });
   }
 
   visitCastExpression(expr: CastExpression<DataIn>, arg: undefined): SqlExpression<DataOut> {
@@ -222,18 +235,18 @@ export class MapSourceVisitor<DataIn, DataOut> implements ExpressionVisitor<Data
       return expr as SqlExpression<DataOut>; // unchanged subtree
     }
 
-    return { type: 'cast', operand, cast_as: expr.cast_as };
+    return this.#trackLocations(expr, { type: 'cast', operand, cast_as: expr.cast_as });
   }
 
   visitScalarFunctionCallExpression(
     expr: ScalarFunctionCallExpression<DataIn>,
     arg: undefined
   ): SqlExpression<DataOut> {
-    return {
+    return this.#trackLocations(expr, {
       type: 'function',
       function: expr.function,
       parameters: expr.parameters.map((p) => visitExpr(this, p, arg))
-    };
+    });
   }
 
   visitLiteralExpression(expr: LiteralExpression, arg: undefined): SqlExpression<DataOut> {
