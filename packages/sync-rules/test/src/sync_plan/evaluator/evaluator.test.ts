@@ -595,6 +595,81 @@ streams:
         }
       }
     });
+
+    syncTest('multiple references', async ({ sync }) => {
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT a.* FROM a, b, c, d WHERE a.c1 = b.c1 AND b.c2 = c.c2 AND c.c3 = d.c3 AND d.c4 = a.c4
+`);
+
+      const data = { id: 'foo', c1: 'c1', c2: 'c2', c3: 'c3', c4: 'c4' };
+
+      expect(
+        desc
+          .evaluateRow({
+            sourceTable: new TestSourceTable('a'),
+            record: data
+          })
+          .map((r) => r.bucket)
+        // Note that bucket parameters have an arbitrary order, but they must match querier outputs.
+      ).toStrictEqual(['stream|0["c4","c1"]']);
+
+      // Outputs of d are used directly (d.c4 = a.c4) and as an input to c (c.c3 = d.c3)
+      expect(desc.evaluateParameterRow(new TestSourceTable('d'), data)[0]).toStrictEqual({
+        bucketParameters: [{ '0': 'c3', '1': 'c4' }],
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: null as any }, [])
+      });
+      // Table c: Index from c3 to c2 for lookup in b
+      expect(desc.evaluateParameterRow(new TestSourceTable('c'), data)[0]).toStrictEqual({
+        bucketParameters: [{ '0': 'c2' }],
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '1', source: null as any }, ['c3'])
+      });
+      // Table b: Index from c2 to c1 for bucket parameter
+      expect(desc.evaluateParameterRow(new TestSourceTable('b'), data)[0]).toStrictEqual({
+        bucketParameters: [{ '0': 'c1' }],
+        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '2', source: null as any }, ['c2'])
+      });
+
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({}, {}),
+        hasDefaultStreams: true,
+        streams: {}
+      });
+      expect(errors).toStrictEqual([]);
+      expect(querier.staticBuckets).toStrictEqual([]);
+
+      expect(
+        await querier.queryDynamicBucketDescriptions({
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+            for (const lookup of lookups) {
+              expect(lookup.values[0]).toStrictEqual('lookup');
+              switch (lookup.values[1]) {
+                case '0':
+                  return [{ '0': 'c3', '1': 'c4' }];
+                case '1':
+                  return [{ '0': 'c2' }];
+                case '2':
+                  return [{ '0': 'c1' }];
+              }
+            }
+
+            return [];
+          }
+        })
+      ).toStrictEqual([
+        {
+          bucket: 'stream|0["c4","c1"]',
+          definition: 'stream',
+          inclusion_reasons: ['default'],
+          priority: 3
+        }
+      ]);
+    });
   });
 });
 
