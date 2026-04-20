@@ -874,7 +874,6 @@ export class ChangeStream {
 
         let lastEmptyResume = performance.now();
         let lastTxnKey: string | null = null;
-        let firstBatch = true;
 
         for await (let eventBatch of batchStream) {
           const { events, resumeToken } = eventBatch;
@@ -1137,10 +1136,11 @@ export class ChangeStream {
             }
           }
 
-          if (firstBatch && splitDocument == null) {
-            // The first request may be slow. To make sure we don't get repeated timeouts, always
-            // mark progress in the first batch.
-            firstBatch = false;
+          if (splitDocument == null) {
+            // We flush and mark progress on every batch of data we receive.
+            // Batches are generally large (64MB or 6000 events, whichever comes first),
+            // so this is a good natural point to flush and mark progress.
+            // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
             const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
             await batch.flush();
             // TODO: We should consider making this standard behavior of flush().

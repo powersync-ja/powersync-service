@@ -74,6 +74,15 @@ export async function connectMongoData(options: mongo.MongoClientOptions = {}) {
   return { client, db: client.db(dbname) };
 }
 
+/**
+ * This allows us to inject custom failures into commands on the mongodb server.
+ *
+ * For this to work, mongodb must be started with `--setParameter enableTestCommands=1`.
+ *
+ * We require this in CI, but in local development we skip the test if it's not configured.
+ *
+ * https://github.com/mongodb/mongo/wiki/The-failCommand-fail-point
+ */
 export async function requireFailCommand(client: mongo.MongoClient, ctx: TestContext) {
   try {
     await client.db('admin').command({ configureFailPoint: 'failCommand', mode: 'off' });
