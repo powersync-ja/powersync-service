@@ -1137,11 +1137,13 @@ export class ChangeStream {
             }
           }
 
-          if (firstBatch) {
+          if (firstBatch && splitDocument == null) {
             // The first request may be slow. To make sure we don't get repeated timeouts, always
             // mark progress in the first batch.
             firstBatch = false;
             const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
+            await batch.flush();
+            // TODO: We should consider making this standard behavior of flush().
             await batch.setResumeLsn(lsn);
           }
           this.logger.info(`Processed batch of ${events.length} changes in ${Date.now() - batchStart}ms`);
