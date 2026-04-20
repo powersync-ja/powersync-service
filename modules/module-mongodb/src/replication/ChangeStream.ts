@@ -808,12 +808,6 @@ export class ChangeStream {
     }
 
     return rawChangeStream(watchDb, pipeline, {
-      // We use a lowest possible batch size here to help recover when hitting:
-      //   [PSYNC_S1345] Timeout while reading MongoDB ChangeStream
-      // When we run into that, the stream is restarted automatically - either by the rawChangeStream's
-      // internal retry mechanism, or with us restarting the entire job. That sends a new aggregate command,
-      // with the small batch size, which should be able to complete faster.
-      initialBatchSize: 1,
       batchSize: options.batchSize ?? this.snapshotChunkLength,
       maxAwaitTimeMS: options.maxAwaitTimeMS ?? this.maxAwaitTimeMS,
       maxTimeMS: this.changeStreamTimeout,

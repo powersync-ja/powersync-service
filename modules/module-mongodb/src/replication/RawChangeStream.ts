@@ -25,16 +25,11 @@ export interface RawChangeStreamOptions {
   /**
    * batchSize for the getMore commands.
    *
-   * Also provides the batchSize for the aggregate command, unless initialBatchSize is set.
+   * The aggregate command always uses a batchSize of 1.
+   *
+   * After a timeout error, the batchSize will be reduced and ramped up again.
    */
   batchSize: number;
-
-  /**
-   * batchSize for the initial aggregate command.
-   *
-   * Defaults to batchSize.
-   */
-  initialBatchSize?: number;
 
   /**
    * Mostly for testing.
@@ -80,6 +75,8 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
   }
   let lastResumeToken: unknown | null = null;
 
+  const batchSizer = new AdaptiveBatchSize(options.batchSize);
+
   // > If the server supports sessions, the resume attempt MUST use the same session as the previous attempt's command.
   const session = db.client.startSession();
   await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
@@ -96,9 +93,15 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
         changeStreamStage.resumeAfter = lastResumeToken;
         innerPipeline = [{ $changeStream: changeStreamStage }, ...rest];
       }
-      const inner = rawChangeStreamInner(session, db, innerPipeline, {
-        ...options
-      });
+      const inner = rawChangeStreamInner(
+        session,
+        db,
+        innerPipeline,
+        {
+          ...options
+        },
+        batchSizer
+      );
       for await (let batch of inner) {
         yield batch;
         lastResumeToken = batch.resumeToken;
@@ -128,7 +131,8 @@ async function* rawChangeStreamInner(
   session: mongo.ClientSession,
   db: mongo.Db,
   pipeline: mongo.Document[],
-  options: RawChangeStreamOptions
+  options: RawChangeStreamOptions,
+  batchSizer: AdaptiveBatchSize
 ): AsyncGenerator<ChangeStreamBatch> {
   // See specs:
   // https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
@@ -166,7 +170,9 @@ async function* rawChangeStreamInner(
             aggregate: collection,
             pipeline,
             cursor: {
-              batchSize: options.initialBatchSize ?? options.batchSize
+              // Always use batchSize of 1 for the initial aggregate command,
+              // to maximize the chance of success in case of timeouts.
+              batchSize: 1
             },
             maxTimeMS: options.maxTimeMS
           },
@@ -201,7 +207,7 @@ async function* rawChangeStreamInner(
           {
             getMore: cursorId,
             collection: nsCollection,
-            batchSize,
+            batchSize: batchSizer.next(),
             maxTimeMS: options.maxAwaitTimeMS
           },
           { session, raw: true }
@@ -214,6 +220,9 @@ async function* rawChangeStreamInner(
           }
 
           if (isResumableChangeStreamError(e)) {
+            if (isTimeoutError(e)) {
+              batchSizer.reduceAfterError();
+            }
             throw new ResumableChangeStreamError(e.message, { cause: e });
           }
           throw mapChangeStreamError(e);
@@ -250,6 +259,45 @@ async function* rawChangeStreamInner(
 }
 
 class ResumableChangeStreamError extends Error {}
+
+/**
+ * Manage batch sizes after timeout errors.
+ *
+ * This starts with the initial batch size.
+ *
+ * After a timeout error, we reduce the batch size to 2, then double for each batch
+ * until we hit reach the original size again.
+ *
+ * We use this to protect against timeout errors:
+ *   [PSYNC_S1345] Timeout while reading MongoDB ChangeStream
+ *
+ * When we run into that, the stream is restarted automatically. starting with an aggregate command
+ * with batchSize: 1.
+ *
+ * We then ramp up the batchSize for getMore commands.
+ */
+class AdaptiveBatchSize {
+  private nextBatchSize: number;
+
+  constructor(private maxBatchSize: number) {
+    this.nextBatchSize = maxBatchSize;
+  }
+
+  next() {
+    const current = this.nextBatchSize;
+    this.nextBatchSize = Math.min(this.maxBatchSize, this.nextBatchSize * 2);
+    return current;
+  }
+
+  /**
+   * After a timeout error, the next batchSize will be 2.
+   *
+   * This is _after_ the aggregate command with a batchSize of 1.
+   */
+  reduceAfterError() {
+    this.nextBatchSize = 2;
+  }
+}
 
 type RawBsonValue =
   | string
@@ -326,6 +374,10 @@ export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocume
   return doc as any;
 }
 
+function isTimeoutError(e: unknown) {
+  return isMongoNetworkTimeoutError(e) || (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired');
+}
+
 function isResumableChangeStreamError(e: unknown) {
   // See: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md#resumable-error
   if (!isMongoServerError(e)) {
@@ -349,13 +401,12 @@ function isResumableChangeStreamError(e: unknown) {
 }
 
 export function mapChangeStreamError(e: unknown) {
-  if (isMongoNetworkTimeoutError(e)) {
-    // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
-    // We wrap the error to make it more useful.
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-  } else if (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-    // maxTimeMS was reached. Example message:
-    // MongoServerError: Executor error during aggregate command on namespace: powersync_test_data.$cmd.aggregate :: caused by :: operation exceeded time limit
+  if (isTimeoutError(e)) {
+    // For isMongoNetworkTimeoutError():
+    //   This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
+    //   We wrap the error to make it more useful.
+    // Example for MaxTimeMSExpired:
+    //   MongoServerError: Executor error during aggregate command on namespace: powersync_test_data.$cmd.aggregate :: caused by :: operation exceeded time limit
     throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
   } else if (
     isMongoServerError(e) &&

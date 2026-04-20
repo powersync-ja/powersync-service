@@ -68,7 +68,6 @@ describe('internal mongodb utils', () => {
       ],
       {
         batchSize: 10,
-        initialBatchSize: 1,
         maxAwaitTimeMS: 50,
         maxTimeMS: 1_000
       }
@@ -115,10 +114,11 @@ describe('internal mongodb utils', () => {
         }
       ],
       {
-        batchSize: 10,
-        initialBatchSize: 1,
+        batchSize: 3,
         maxAwaitTimeMS: 50,
         maxTimeMS: 1_000
+        // To get more details when debugging, enable the logger:
+        // logger: logger
       }
     );
 
@@ -132,14 +132,42 @@ describe('internal mongodb utils', () => {
       }
     });
 
-    const batchPromise = readUntilNonEmptyBatch(stream, 10);
-    await collection.insertOne({ test: 1 });
-    const batch = await batchPromise;
+    for (let i = 1; i <= 8; i++) {
+      await collection.insertOne({ test: i });
+    }
 
-    expect(batch.events).toHaveLength(1);
-    expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-      { test: 1 }
-    ]);
+    // Test the exponentially-increasing batch size after the retry
+    {
+      // This will fail the getMore, then retry with aggregate with batchSize 1
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 1 }
+      ]);
+    }
+    {
+      // This will be a getMore with batchSize 2
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 2 },
+        { test: 3 }
+      ]);
+    }
+    {
+      // At this point, this batch size is at the original size of 3 again.
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 4 },
+        { test: 5 },
+        { test: 6 }
+      ]);
+    }
+    {
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 7 },
+        { test: 8 }
+      ]);
+    }
 
     const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
     expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);

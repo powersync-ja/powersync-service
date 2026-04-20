@@ -9,7 +9,7 @@ import { test_utils } from '@powersync/service-core-tests';
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
 import { PostImagesOption } from '@module/types/types.js';
 import { ChangeStreamTestContext } from './change_stream_utils.js';
-import { describeWithStorage, requireFailCommand, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
+import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 
 const BASIC_SYNC_RULES = `
 bucket_definitions:
