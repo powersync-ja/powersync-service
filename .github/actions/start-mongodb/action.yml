@@ -1,5 +1,5 @@
 name: Start MongoDB
-description: Pre-pull and start MongoDB with a replica set for tests
+description: Start MongoDB with a replica set for tests
 
 inputs:
   mongodb-version:
@@ -10,14 +10,53 @@ inputs:
 runs:
   using: composite
   steps:
-    # The mongodb-github-action below doesn't use the Docker credentials for the pull.
-    # We pre-pull, so that the image is cached.
-    - name: Pre-pull Mongo image
-      shell: bash
-      run: docker pull mongo:${{ inputs.mongodb-version }}
-
+    # Previously we used supercharge/mongodb-github-action@1.12.1.
+    # However, we specifically want `--setParameter enableTestCommands=1`, which that doesn't support.
+    # This now just starts MongoDB directly using Docker, and waits until it is ready.
     - name: Start MongoDB
-      uses: supercharge/mongodb-github-action@1.12.1
-      with:
-        mongodb-version: ${{ inputs.mongodb-version }}
-        mongodb-replica-set: test-rs
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        container_name="mongodb"
+        image="mongo:${{ inputs.mongodb-version }}"
+
+        docker rm -f "$container_name" >/dev/null 2>&1 || true
+
+        docker run \
+          --name "$container_name" \
+          --publish 27017:27017 \
+          --detach \
+          "$image" \
+          mongod \
+          --port 27017 \
+          --replSet test-rs \
+          --bind_ip_all \
+          --setParameter enableTestCommands=1
+
+        for i in $(seq 1 30); do
+          if docker exec "$container_name" mongosh --quiet --port 27017 --eval "db.adminCommand({ ping: 1 })" >/dev/null; then
+            break
+          fi
+          sleep 1
+          if [ "$i" -eq 30 ]; then
+            echo "MongoDB did not become ready in time"
+            docker logs "$container_name"
+            exit 1
+          fi
+        done
+
+        docker exec "$container_name" mongosh --quiet --port 27017 --eval \
+          'rs.initiate({_id:"test-rs", members:[{_id:0, host:"localhost:27017"}]})'
+
+        for i in $(seq 1 30); do
+          if docker exec "$container_name" mongosh --quiet --port 27017 --eval 'quit(db.hello().isWritablePrimary ? 0 : 1)' >/dev/null; then
+            break
+          fi
+          sleep 1
+          if [ "$i" -eq 30 ]; then
+            echo "MongoDB replica set did not become primary in time"
+            docker logs "$container_name"
+            exit 1
+          fi
+        done
