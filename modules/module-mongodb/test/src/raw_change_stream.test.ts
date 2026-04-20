@@ -44,6 +44,125 @@ describe('internal mongodb utils', () => {
     expect(totalBytes).toBeLessThan(1200);
   });
 
+  test('uses separate aggregate and getMore command options', async () => {
+    const { db, client } = await connectMongoData({ monitorCommands: true });
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const started: any[] = [];
+    client.on('commandStarted', (event) => {
+      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+        started.push(event);
+      }
+    });
+
+    const stream = rawChangeStream(
+      db,
+      [
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup'
+          }
+        }
+      ],
+      {
+        batchSize: 10,
+        initialBatchSize: 1,
+        maxAwaitTimeMS: 50,
+        maxTimeMS: 1_000
+      }
+    );
+
+    await stream.next();
+    await collection.insertOne({ test: 1 });
+    const nextBatch = await readUntilNonEmptyBatch(stream);
+    await stream.return?.();
+
+    expect(nextBatch.events).toHaveLength(1);
+
+    const aggregate = started.find((event) => event.commandName == 'aggregate');
+    const getMore = started.find((event) => event.commandName == 'getMore');
+
+    expect(aggregate?.command.cursor?.batchSize).toEqual(1);
+    expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+    expect(getMore?.command.batchSize).toEqual(10);
+    expect(getMore?.command.maxTimeMS).toEqual(50);
+  });
+
+  test('should resume on MaxTimeMSExpired from getMore', async () => {
+    const { db, client } = await connectMongoData({ monitorCommands: true });
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const started: any[] = [];
+    client.on('commandStarted', (event) => {
+      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+        started.push(event);
+      }
+    });
+
+    const stream = rawChangeStream(
+      db,
+      [
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup'
+          }
+        }
+      ],
+      {
+        batchSize: 10,
+        initialBatchSize: 1,
+        maxAwaitTimeMS: 50,
+        maxTimeMS: 1_000
+      }
+    );
+
+    try {
+      await stream.next();
+
+      await client.db('admin').command({
+        configureFailPoint: 'failCommand',
+        mode: { times: 1 },
+        data: {
+          failCommands: ['getMore'],
+          errorCode: 50 // MaxTimeMSExpired
+        }
+      });
+
+      const batchPromise = readUntilNonEmptyBatch(stream, 10);
+      await collection.insertOne({ test: 1 });
+      const batch = await batchPromise;
+
+      expect(batch.events).toHaveLength(1);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 1 }
+      ]);
+
+      const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
+      expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
+      expect(aggregateCommands[0].command.pipeline).toEqual([
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup'
+          }
+        }
+      ]);
+      expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
+    } finally {
+      await stream.return?.().catch(() => {});
+      await client
+        .db('admin')
+        .command({
+          configureFailPoint: 'failCommand',
+          mode: 'off'
+        })
+        .catch(() => {});
+    }
+  });
+
   async function testChangeStreamBsonBytes(type: 'db' | 'collection' | 'cluster') {
     const { db, client } = await connectMongoData();
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
@@ -392,3 +511,17 @@ type CurrentOpIdleCursor = {
     };
   };
 };
+
+async function readUntilNonEmptyBatch(stream: AsyncIterableIterator<ChangeStreamBatch>, maxEmptyBatches: number = 5) {
+  for (let i = 0; i < maxEmptyBatches; i++) {
+    const next = await stream.next();
+    if (next.done) {
+      throw new Error('Change stream ended unexpectedly');
+    }
+    if (next.value.events.length > 0) {
+      return next.value;
+    }
+  }
+
+  throw new Error(`Did not receive a non-empty batch after ${maxEmptyBatches} empty batches`);
+}

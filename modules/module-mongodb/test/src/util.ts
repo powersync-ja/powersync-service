@@ -62,12 +62,13 @@ export async function clearTestDb(db: mongo.Db) {
   await db.dropDatabase();
 }
 
-export async function connectMongoData() {
+export async function connectMongoData(options: mongo.MongoClientOptions = {}) {
   const client = new mongo.MongoClient(env.MONGO_TEST_DATA_URL, {
     connectTimeoutMS: env.CI ? 15_000 : 5_000,
     socketTimeoutMS: env.CI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500,
-    ...BSON_DESERIALIZE_DATA_OPTIONS
+    ...BSON_DESERIALIZE_DATA_OPTIONS,
+    ...options
   });
   const dbname = new URL(env.MONGO_TEST_DATA_URL).pathname.substring(1);
   return { client, db: client.db(dbname) };
