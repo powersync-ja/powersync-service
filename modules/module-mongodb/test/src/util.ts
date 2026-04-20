@@ -9,7 +9,7 @@ import {
   TestStorageConfig,
   TestStorageFactory
 } from '@powersync/service-core';
-import { describe, TestOptions } from 'vitest';
+import { describe, TestContext, TestOptions } from 'vitest';
 import { env } from './env.js';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;
@@ -72,4 +72,47 @@ export async function connectMongoData(options: mongo.MongoClientOptions = {}) {
   });
   const dbname = new URL(env.MONGO_TEST_DATA_URL).pathname.substring(1);
   return { client, db: client.db(dbname) };
+}
+
+export async function requireFailCommand(client: mongo.MongoClient, ctx: TestContext) {
+  try {
+    await client.db('admin').command({ configureFailPoint: 'failCommand', mode: 'off' });
+  } catch (e: any) {
+    const codeName = e?.codeName;
+    const message = e?.message ?? String(e);
+
+    if (
+      codeName == 'CommandNotFound' ||
+      codeName == 'Unauthorized' ||
+      message.includes('no such command') ||
+      message.includes('enableTestCommands')
+    ) {
+      if (process.env.CI) {
+        // In CI we want to fail if failCommand is not supported, as that likely means something is wrong with the test environment setup.
+        throw e;
+      }
+      // In local development, we skip the test if failCommand is not supported, as developers may be running against a variety of MongoDB versions and configurations.
+      ctx.skip(`failCommand not supported: ${codeName ?? message}`);
+    }
+
+    throw e;
+  }
+
+  return {
+    async configure(data: Omit<mongo.Document, 'configureFailPoint'>) {
+      await client.db('admin').command({
+        configureFailPoint: 'failCommand',
+        ...data
+      });
+    },
+    async [Symbol.asyncDispose]() {
+      await client
+        .db('admin')
+        .command({
+          configureFailPoint: 'failCommand',
+          mode: 'off'
+        })
+        .catch(() => {});
+    }
+  };
 }

@@ -4,7 +4,7 @@ import { ChangeStreamBatch, namespaceCollection, rawChangeStream } from '@module
 import { getCursorBatchBytes } from '@module/replication/replication-index.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { bson } from '@powersync/service-core';
-import { clearTestDb, connectMongoData } from './util.js';
+import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 
 describe('internal mongodb utils', () => {
   // The implementation relies on internal APIs, so we verify this works as expected for various types of change streams.
@@ -90,9 +90,11 @@ describe('internal mongodb utils', () => {
     expect(getMore?.command.maxTimeMS).toEqual(50);
   });
 
-  test('should resume on MaxTimeMSExpired from getMore', async () => {
+  test('should resume on MaxTimeMSExpired from getMore', async (ctx) => {
     const { db, client } = await connectMongoData({ monitorCommands: true });
     await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await using failCommand = await requireFailCommand(client, ctx);
+
     await clearTestDb(db);
     const collection = db.collection('test_data');
 
@@ -120,47 +122,37 @@ describe('internal mongodb utils', () => {
       }
     );
 
-    try {
-      await stream.next();
+    await stream.next();
 
-      await client.db('admin').command({
-        configureFailPoint: 'failCommand',
-        mode: { times: 1 },
-        data: {
-          failCommands: ['getMore'],
-          errorCode: 50 // MaxTimeMSExpired
+    await failCommand.configure({
+      mode: { times: 1 },
+      data: {
+        failCommands: ['getMore'],
+        errorCode: 50 // MaxTimeMSExpired
+      }
+    });
+
+    const batchPromise = readUntilNonEmptyBatch(stream, 10);
+    await collection.insertOne({ test: 1 });
+    const batch = await batchPromise;
+
+    expect(batch.events).toHaveLength(1);
+    expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+      { test: 1 }
+    ]);
+
+    const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
+    expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
+    expect(aggregateCommands[0].command.pipeline).toEqual([
+      {
+        $changeStream: {
+          fullDocument: 'updateLookup'
         }
-      });
+      }
+    ]);
+    expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
 
-      const batchPromise = readUntilNonEmptyBatch(stream, 10);
-      await collection.insertOne({ test: 1 });
-      const batch = await batchPromise;
-
-      expect(batch.events).toHaveLength(1);
-      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
-        { test: 1 }
-      ]);
-
-      const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
-      expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
-      expect(aggregateCommands[0].command.pipeline).toEqual([
-        {
-          $changeStream: {
-            fullDocument: 'updateLookup'
-          }
-        }
-      ]);
-      expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
-    } finally {
-      await stream.return?.().catch(() => {});
-      await client
-        .db('admin')
-        .command({
-          configureFailPoint: 'failCommand',
-          mode: 'off'
-        })
-        .catch(() => {});
-    }
+    await stream?.return().catch(() => {});
   });
 
   async function testChangeStreamBsonBytes(type: 'db' | 'collection' | 'cluster') {
