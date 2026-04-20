@@ -1141,7 +1141,7 @@ export class ChangeStream {
             // The first request may be slow. To make sure we don't get repeated timeouts, always
             // mark progress in the first batch.
             firstBatch = false;
-            const { comparable: lsn } = MongoLSN.fromResumeToken(resumeFromLsn);
+            const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
             await batch.setResumeLsn(lsn);
           }
           this.logger.info(`Processed batch of ${events.length} changes in ${Date.now() - batchStart}ms`);
