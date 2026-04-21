@@ -261,12 +261,19 @@ async function* rawChangeStreamInner(
 class ResumableChangeStreamError extends Error {}
 
 /**
+ * After a timeout error, we reduce the batch size to this number, then multiply by this for each batch.
+ *
+ * Must be an integer >= 2 with the current implementation.
+ */
+const BATCH_SIZE_MULTIPLIER = 2;
+
+/**
  * Manage batch sizes after timeout errors.
  *
  * This starts with the initial batch size.
  *
- * After a timeout error, we reduce the batch size to 2, then double for each batch
- * until we hit reach the original size again.
+ * After a timeout error, we reduce the batch size for aggregate command to 1,
+ * then multiply by BATCH_SIZE_MULTIPLIER for each subsequent batch, until we reach the initial batch size again.
  *
  * We use this to protect against timeout errors:
  *   [PSYNC_S1345] Timeout while reading MongoDB ChangeStream
@@ -283,19 +290,22 @@ class AdaptiveBatchSize {
     this.nextBatchSize = maxBatchSize;
   }
 
+  /**
+   * Get the next batchSize for a getMore command.
+   */
   next() {
     const current = this.nextBatchSize;
-    this.nextBatchSize = Math.min(this.maxBatchSize, this.nextBatchSize * 2);
+    this.nextBatchSize = Math.min(this.maxBatchSize, this.nextBatchSize * BATCH_SIZE_MULTIPLIER);
     return current;
   }
 
   /**
-   * After a timeout error, the next batchSize will be 2.
+   * After a timeout error, the next aggregate command will start with a batchSize of 1.
    *
-   * This is _after_ the aggregate command with a batchSize of 1.
+   * The next getMore will then have a batchSize of BATCH_SIZE_MULTIPLIER.
    */
   reduceAfterError() {
-    this.nextBatchSize = 2;
+    this.nextBatchSize = BATCH_SIZE_MULTIPLIER;
   }
 }
 
