@@ -4,7 +4,7 @@ import { ChangeStreamBatch, namespaceCollection, rawChangeStream } from '@module
 import { getCursorBatchBytes } from '@module/replication/replication-index.js';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { bson } from '@powersync/service-core';
-import { clearTestDb, connectMongoData } from './util.js';
+import { clearTestDb, connectMongoData, requireFailCommand } from './util.js';
 
 describe('internal mongodb utils', () => {
   // The implementation relies on internal APIs, so we verify this works as expected for various types of change streams.
@@ -42,6 +42,145 @@ describe('internal mongodb utils', () => {
     // Current tests show 839, but this may change depending on the MongoDB version and other conditions.
     expect(totalBytes).toBeGreaterThan(400);
     expect(totalBytes).toBeLessThan(1200);
+  });
+
+  test('uses separate aggregate and getMore command options', async () => {
+    const { db, client } = await connectMongoData({ monitorCommands: true });
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const started: any[] = [];
+    client.on('commandStarted', (event) => {
+      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+        started.push(event);
+      }
+    });
+
+    const stream = rawChangeStream(
+      db,
+      [
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup'
+          }
+        }
+      ],
+      {
+        batchSize: 10,
+        maxAwaitTimeMS: 50,
+        maxTimeMS: 1_000
+      }
+    );
+
+    await stream.next();
+    await collection.insertOne({ test: 1 });
+    const nextBatch = await readUntilNonEmptyBatch(stream);
+    await stream.return?.();
+
+    expect(nextBatch.events).toHaveLength(1);
+
+    const aggregate = started.find((event) => event.commandName == 'aggregate');
+    const getMore = started.find((event) => event.commandName == 'getMore');
+
+    expect(aggregate?.command.cursor?.batchSize).toEqual(1);
+    expect(aggregate?.command.maxTimeMS).toEqual(1_000);
+    expect(getMore?.command.batchSize).toEqual(10);
+    expect(getMore?.command.maxTimeMS).toEqual(50);
+  });
+
+  test('should resume on MaxTimeMSExpired from getMore', async (ctx) => {
+    const { db, client } = await connectMongoData({ monitorCommands: true });
+    await using _ = { [Symbol.asyncDispose]: async () => await client.close() };
+    await using failCommand = await requireFailCommand(client, ctx);
+
+    await clearTestDb(db);
+    const collection = db.collection('test_data');
+
+    const started: any[] = [];
+    client.on('commandStarted', (event) => {
+      if (event.commandName == 'aggregate' || event.commandName == 'getMore') {
+        started.push(event);
+      }
+    });
+
+    const stream = rawChangeStream(
+      db,
+      [
+        {
+          $changeStream: {
+            fullDocument: 'updateLookup'
+          }
+        }
+      ],
+      {
+        batchSize: 3,
+        maxAwaitTimeMS: 50,
+        maxTimeMS: 1_000
+        // To get more details when debugging, enable the logger:
+        // logger: logger
+      }
+    );
+
+    await stream.next();
+
+    await failCommand.configure({
+      mode: { times: 1 },
+      data: {
+        failCommands: ['getMore'],
+        errorCode: 50 // MaxTimeMSExpired
+      }
+    });
+
+    for (let i = 1; i <= 8; i++) {
+      await collection.insertOne({ test: i });
+    }
+
+    // Test the exponentially-increasing batch size after the retry
+    {
+      // This will fail the getMore, then retry with aggregate with batchSize 1
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 1 }
+      ]);
+    }
+    {
+      // This will be a getMore with batchSize 2
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 2 },
+        { test: 3 }
+      ]);
+    }
+    {
+      // At this point, this batch size is at the original size of 3 again.
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 4 },
+        { test: 5 },
+        { test: 6 }
+      ]);
+    }
+    {
+      const batch = await readUntilNonEmptyBatch(stream, 10);
+      expect(batch.events.map((e) => bson.deserialize(e, { useBigInt64: true }).fullDocument)).toMatchObject([
+        { test: 7 },
+        { test: 8 }
+      ]);
+    }
+
+    const aggregateCommands = started.filter((event) => event.commandName == 'aggregate');
+    expect(aggregateCommands.length).toBeGreaterThanOrEqual(2);
+    expect(aggregateCommands[0].command.pipeline).toEqual([
+      {
+        $changeStream: {
+          fullDocument: 'updateLookup'
+        }
+      }
+    ]);
+    expect(aggregateCommands[1].command.pipeline[0]?.$changeStream?.resumeAfter).toBeDefined();
+
+    await stream?.return().catch(() => {});
   });
 
   async function testChangeStreamBsonBytes(type: 'db' | 'collection' | 'cluster') {
@@ -392,3 +531,17 @@ type CurrentOpIdleCursor = {
     };
   };
 };
+
+async function readUntilNonEmptyBatch(stream: AsyncIterableIterator<ChangeStreamBatch>, maxEmptyBatches: number = 5) {
+  for (let i = 0; i < maxEmptyBatches; i++) {
+    const next = await stream.next();
+    if (next.done) {
+      throw new Error('Change stream ended unexpectedly');
+    }
+    if (next.value.events.length > 0) {
+      return next.value;
+    }
+  }
+
+  throw new Error(`Did not receive a non-empty batch after ${maxEmptyBatches} empty batches`);
+}

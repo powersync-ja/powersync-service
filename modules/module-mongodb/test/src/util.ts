@@ -9,7 +9,7 @@ import {
   TestStorageConfig,
   TestStorageFactory
 } from '@powersync/service-core';
-import { describe, TestOptions } from 'vitest';
+import { describe, TestContext, TestOptions } from 'vitest';
 import { env } from './env.js';
 
 export const TEST_URI = env.MONGO_TEST_DATA_URL;
@@ -62,13 +62,66 @@ export async function clearTestDb(db: mongo.Db) {
   await db.dropDatabase();
 }
 
-export async function connectMongoData() {
+export async function connectMongoData(options: mongo.MongoClientOptions = {}) {
   const client = new mongo.MongoClient(env.MONGO_TEST_DATA_URL, {
     connectTimeoutMS: env.CI ? 15_000 : 5_000,
     socketTimeoutMS: env.CI ? 15_000 : 5_000,
     serverSelectionTimeoutMS: env.CI ? 15_000 : 2_500,
-    ...BSON_DESERIALIZE_DATA_OPTIONS
+    ...BSON_DESERIALIZE_DATA_OPTIONS,
+    ...options
   });
   const dbname = new URL(env.MONGO_TEST_DATA_URL).pathname.substring(1);
   return { client, db: client.db(dbname) };
+}
+
+/**
+ * This allows us to inject custom failures into commands on the mongodb server.
+ *
+ * For this to work, mongodb must be started with `--setParameter enableTestCommands=1`.
+ *
+ * We require this in CI, but in local development we skip the test if it's not configured.
+ *
+ * https://github.com/mongodb/mongo/wiki/The-failCommand-fail-point
+ */
+export async function requireFailCommand(client: mongo.MongoClient, ctx: TestContext) {
+  try {
+    await client.db('admin').command({ configureFailPoint: 'failCommand', mode: 'off' });
+  } catch (e: any) {
+    const codeName = e?.codeName;
+    const message = e?.message ?? String(e);
+
+    if (
+      codeName == 'CommandNotFound' ||
+      codeName == 'Unauthorized' ||
+      message.includes('no such command') ||
+      message.includes('enableTestCommands')
+    ) {
+      if (process.env.CI) {
+        // In CI we want to fail if failCommand is not supported, as that likely means something is wrong with the test environment setup.
+        throw e;
+      }
+      // In local development, we skip the test if failCommand is not supported, as developers may be running against a variety of MongoDB versions and configurations.
+      ctx.skip(`failCommand not supported: ${codeName ?? message}`);
+    }
+
+    throw e;
+  }
+
+  return {
+    async configure(data: Omit<mongo.Document, 'configureFailPoint'>) {
+      await client.db('admin').command({
+        configureFailPoint: 'failCommand',
+        ...data
+      });
+    },
+    async [Symbol.asyncDispose]() {
+      await client
+        .db('admin')
+        .command({
+          configureFailPoint: 'failCommand',
+          mode: 'off'
+        })
+        .catch(() => {});
+    }
+  };
 }

@@ -9,14 +9,26 @@ import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
 export interface RawChangeStreamOptions {
   signal?: AbortSignal;
+
   /**
    * How long to wait for new data per batch (max time for long-polling).
+   *
+   * This is used for maxTimeMS for the getMore command.
    */
   maxAwaitTimeMS: number;
+
   /**
    * Timeout for the initial aggregate command.
    */
   maxTimeMS: number;
+
+  /**
+   * batchSize for the getMore commands.
+   *
+   * The aggregate command always uses a batchSize of 1.
+   *
+   * After a timeout error, the batchSize will be reduced and ramped up again.
+   */
   batchSize: number;
 
   /**
@@ -63,6 +75,8 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
   }
   let lastResumeToken: unknown | null = null;
 
+  const batchSizer = new AdaptiveBatchSize(options.batchSize);
+
   // > If the server supports sessions, the resume attempt MUST use the same session as the previous attempt's command.
   const session = db.client.startSession();
   await using _ = { [Symbol.asyncDispose]: () => session.endSession() };
@@ -79,9 +93,15 @@ export async function* rawChangeStream(db: mongo.Db, pipeline: mongo.Document[],
         changeStreamStage.resumeAfter = lastResumeToken;
         innerPipeline = [{ $changeStream: changeStreamStage }, ...rest];
       }
-      const inner = rawChangeStreamInner(session, db, innerPipeline, {
-        ...options
-      });
+      const inner = rawChangeStreamInner(
+        session,
+        db,
+        innerPipeline,
+        {
+          ...options
+        },
+        batchSizer
+      );
       for await (let batch of inner) {
         yield batch;
         lastResumeToken = batch.resumeToken;
@@ -111,7 +131,8 @@ async function* rawChangeStreamInner(
   session: mongo.ClientSession,
   db: mongo.Db,
   pipeline: mongo.Document[],
-  options: RawChangeStreamOptions
+  options: RawChangeStreamOptions,
+  batchSizer: AdaptiveBatchSize
 ): AsyncGenerator<ChangeStreamBatch> {
   // See specs:
   // https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
@@ -123,7 +144,6 @@ async function* rawChangeStreamInner(
    */
   let nsCollection: string | null = null;
 
-  const maxTimeMS = options.maxAwaitTimeMS;
   const batchSize = options.batchSize;
   const collection = options.collection ?? 1;
   let abortPromise: Promise<any> | null = null;
@@ -149,7 +169,11 @@ async function* rawChangeStreamInner(
           {
             aggregate: collection,
             pipeline,
-            cursor: { batchSize },
+            cursor: {
+              // Always use batchSize of 1 for the initial aggregate command,
+              // to maximize the chance of success in case of timeouts.
+              batchSize: 1
+            },
             maxTimeMS: options.maxTimeMS
           },
           { session, raw: true }
@@ -183,8 +207,8 @@ async function* rawChangeStreamInner(
           {
             getMore: cursorId,
             collection: nsCollection,
-            batchSize,
-            maxTimeMS
+            batchSize: batchSizer.next(),
+            maxTimeMS: options.maxAwaitTimeMS
           },
           { session, raw: true }
         )
@@ -196,6 +220,9 @@ async function* rawChangeStreamInner(
           }
 
           if (isResumableChangeStreamError(e)) {
+            if (isTimeoutError(e)) {
+              batchSizer.reduceAfterError();
+            }
             throw new ResumableChangeStreamError(e.message, { cause: e });
           }
           throw mapChangeStreamError(e);
@@ -232,6 +259,55 @@ async function* rawChangeStreamInner(
 }
 
 class ResumableChangeStreamError extends Error {}
+
+/**
+ * After a timeout error, we reduce the batch size to this number, then multiply by this for each batch.
+ *
+ * Must be an integer >= 2 with the current implementation.
+ */
+const BATCH_SIZE_MULTIPLIER = 2;
+
+/**
+ * Manage batch sizes after timeout errors.
+ *
+ * This starts with the initial batch size.
+ *
+ * After a timeout error, we reduce the batch size for aggregate command to 1,
+ * then multiply by BATCH_SIZE_MULTIPLIER for each subsequent batch, until we reach the initial batch size again.
+ *
+ * We use this to protect against timeout errors:
+ *   [PSYNC_S1345] Timeout while reading MongoDB ChangeStream
+ *
+ * When we run into that, the stream is restarted automatically. starting with an aggregate command
+ * with batchSize: 1.
+ *
+ * We then ramp up the batchSize for getMore commands.
+ */
+class AdaptiveBatchSize {
+  private nextBatchSize: number;
+
+  constructor(private maxBatchSize: number) {
+    this.nextBatchSize = maxBatchSize;
+  }
+
+  /**
+   * Get the next batchSize for a getMore command.
+   */
+  next() {
+    const current = this.nextBatchSize;
+    this.nextBatchSize = Math.min(this.maxBatchSize, this.nextBatchSize * BATCH_SIZE_MULTIPLIER);
+    return current;
+  }
+
+  /**
+   * After a timeout error, the next aggregate command will start with a batchSize of 1.
+   *
+   * The next getMore will then have a batchSize of BATCH_SIZE_MULTIPLIER.
+   */
+  reduceAfterError() {
+    this.nextBatchSize = BATCH_SIZE_MULTIPLIER;
+  }
+}
 
 type RawBsonValue =
   | string
@@ -308,10 +384,14 @@ export function parseChangeDocument(buffer: Buffer): ProjectedChangeStreamDocume
   return doc as any;
 }
 
+function isTimeoutError(e: unknown) {
+  return isMongoNetworkTimeoutError(e) || (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired');
+}
+
 function isResumableChangeStreamError(e: unknown) {
   // See: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md#resumable-error
   if (!isMongoServerError(e)) {
-    // Any error encountered which is not a server error (e.g. a timeout error or network error)
+    // Any error encountered which is not a server error (e.g. a socket timeout error or network error)
     return true;
   } else if (e.codeName == 'CursorNotFound') {
     // A server error with code 43 (CursorNotFound)
@@ -319,20 +399,24 @@ function isResumableChangeStreamError(e: unknown) {
   } else if (e.hasErrorLabel('ResumableChangeStreamError')) {
     // For servers with wire version 9 or higher (server version 4.4 or higher), any server error with the ResumableChangeStreamError error label.
     return true;
+  } else if (e.codeName == 'MaxTimeMSExpired') {
+    // Our own exception for MaxTimeMSExpired.
+    // This can help us retry faster, with a smaller batch size (if initialBatchSize is set to 1), which should hopefully avoid the timeout.
+    return true;
   } else {
-    // We ignore servers with wire version less than 9, since we only support MongoDB 6.0+.
+    // Other errors are not retried.
+    // We ignore the spec for servers with wire version less than 9, since we only support MongoDB 6.0+.
     return false;
   }
 }
 
 export function mapChangeStreamError(e: unknown) {
-  if (isMongoNetworkTimeoutError(e)) {
-    // This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
-    // We wrap the error to make it more useful.
-    throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
-  } else if (isMongoServerError(e) && e.codeName == 'MaxTimeMSExpired') {
-    // maxTimeMS was reached. Example message:
-    // MongoServerError: Executor error during aggregate command on namespace: powersync_test_data.$cmd.aggregate :: caused by :: operation exceeded time limit
+  if (isTimeoutError(e)) {
+    // For isMongoNetworkTimeoutError():
+    //   This typically has an unhelpful message like "connection 2 to 159.41.94.47:27017 timed out".
+    //   We wrap the error to make it more useful.
+    // Example for MaxTimeMSExpired:
+    //   MongoServerError: Executor error during aggregate command on namespace: powersync_test_data.$cmd.aggregate :: caused by :: operation exceeded time limit
     throw new DatabaseConnectionError(ErrorCode.PSYNC_S1345, `Timeout while reading MongoDB ChangeStream`, e);
   } else if (
     isMongoServerError(e) &&
