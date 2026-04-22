@@ -1,4 +1,4 @@
-FROM node:24.14.0-trixie AS builder
+FROM node:24.15.0-trixie AS builder
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -58,7 +58,7 @@ RUN pnpm build:production && \
 
 # === PROD ===
 
-FROM node:24.14.0-trixie-slim
+FROM node:24.15.0-trixie-slim
 WORKDIR /app
 
 COPY --from=builder /app/ ./
