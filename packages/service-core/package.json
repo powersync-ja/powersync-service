@@ -47,9 +47,9 @@
   },
   "devDependencies": {
     "@types/async": "^3.2.24",
-    "@types/negotiator": "^0.6.4",
     "@types/lodash": "^4.17.5",
-    "fastify": "^5.8.2",
+    "@types/negotiator": "^0.6.4",
+    "fastify": "^5.8.5",
     "fastify-plugin": "^5.0.1"
   }
 }
