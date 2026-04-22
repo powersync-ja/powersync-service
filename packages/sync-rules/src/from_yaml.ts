@@ -108,20 +108,27 @@ export class SyncConfigFromYaml {
 
     // Validate that there are no additional properties.
     // Since these errors don't contain line numbers, do this last.
-    const valid = validateSyncRulesSchema(parsed.toJSON());
-    if (!valid) {
-      this.#errors.push(
-        ...validateSyncRulesSchema.errors!.map((e: any) => {
-          return new YamlError(e);
-        })
-      );
+    if (!this.#hasFatalError) {
+      const valid = validateSyncRulesSchema(parsed.toJSON());
+      if (!valid) {
+        this.#errors.push(
+          ...validateSyncRulesSchema.errors!.map((e: any) => {
+            return new YamlError(e);
+          })
+        );
+      }
     }
+
     this.#throwOnErrorIfRequested();
     return result;
   }
 
+  get #hasFatalError(): boolean {
+    return this.#errors.find((e) => e.type != 'warning') != null;
+  }
+
   #throwOnErrorIfRequested() {
-    if (this.options.throwOnError && this.#errors.find((e) => e.type != 'warning') != null) {
+    if (this.options.throwOnError && this.#hasFatalError) {
       throw new SyncRulesErrors(this.#errors);
     }
   }
@@ -192,7 +199,7 @@ export class SyncConfigFromYaml {
       const map = new Map();
       if (from != null) {
         for (const entry of from.items ?? []) {
-          const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Scalar };
+          const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Node };
           const cteName = cteNameScalar.value;
 
           if (this.options.schema) {
@@ -208,10 +215,12 @@ export class SyncConfigFromYaml {
             }
           }
 
-          const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
-          const parsed = compiler.commonTableExpression(sql, errorListener);
-          if (parsed) {
-            map.set(cteName, parsed);
+          if (this.#expectScalar(cteQuery)) {
+            const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
+            const parsed = compiler.commonTableExpression(sql, errorListener);
+            if (parsed) {
+              map.set(cteName, parsed);
+            }
           }
         }
       }
@@ -248,12 +257,14 @@ export class SyncConfigFromYaml {
         streamCompiler.registerCommonTableExpression(name, query)
       );
 
-      const addQuery = (query: Scalar<string>) => {
-        const [sql, errorListener] = this.#scalarErrorListener(query);
-        streamCompiler.addQuery(sql, errorListener);
+      const addQuery = (query: Node) => {
+        if (this.#expectScalar(query)) {
+          const [sql, errorListener] = this.#scalarErrorListener(query);
+          streamCompiler.addQuery(sql, errorListener);
+        }
       };
 
-      const queries = value.get('queries') as YAMLSeq | null;
+      const queries = value.get('queries') as YAMLSeq<Node> | null;
       const query = value.get('query', true) as Scalar<string> | null;
 
       if ((queries == null) == (query == null)) {
@@ -264,9 +275,7 @@ export class SyncConfigFromYaml {
       }
       if (queries) {
         for (const queryEntry of queries.items) {
-          if (queryEntry instanceof Scalar) {
-            addQuery(queryEntry as Scalar<string>);
-          }
+          addQuery(queryEntry);
         }
       }
 
@@ -518,7 +527,20 @@ export class SyncConfigFromYaml {
     return new YamlError(new Error(message), { start, end });
   }
 
-  #withScalar(scalar: Scalar, cb: (value: string) => QueryParseResult) {
+  #expectScalar(node: Node): node is Scalar {
+    if (!(node instanceof Scalar)) {
+      this.#errors.push(this.#yamlError(node, 'Expected a scalar value here.'));
+      return false;
+    }
+
+    return true;
+  }
+
+  #withScalar(scalar: Scalar, cb: (value: string) => QueryParseResult): void {
+    if (!this.#expectScalar(scalar)) {
+      return;
+    }
+
     const value = scalar.toString();
 
     const wrapped = (value: string): QueryParseResult => {
@@ -536,7 +558,7 @@ export class SyncConfigFromYaml {
     for (let err of result.errors) {
       this.#addErrorFromScalar(scalar, value, err);
     }
-    return result;
+    return;
   }
 
   /**
