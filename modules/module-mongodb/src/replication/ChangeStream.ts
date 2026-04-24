@@ -1135,8 +1135,7 @@ export class ChangeStream {
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
             const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
             await batch.flush({
-              oldestUncommittedChange: this.replicationLag.oldestUncommittedChange,
-              resumeLsn: lsn
+              oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
             });
           }
 
