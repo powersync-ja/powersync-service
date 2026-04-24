@@ -870,6 +870,7 @@ export class ChangeStream {
 
         for await (let eventBatch of batchStream) {
           const { events, resumeToken } = eventBatch;
+          const batchStart = performance.now();
           bytesReplicatedMetric.add(eventBatch.byteSize);
           chunksReplicatedMetric.add(1);
           if (this.abort_signal.aborted) {
@@ -903,7 +904,6 @@ export class ChangeStream {
 
           this.touch();
 
-          const batchStart = Date.now();
           for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
             const rawChangeDocument = events[eventIndex];
             const originalChangeDocument = parseChangeDocument(rawChangeDocument);
@@ -1124,7 +1124,13 @@ export class ChangeStream {
             // TODO: We should consider making this standard behavior of flush().
             await batch.setResumeLsn(lsn);
           }
-          this.logger.info(`Processed batch of ${events.length} changes in ${Date.now() - batchStart}ms`);
+
+          const batchDuration = performance.now() - batchStart;
+
+          this.logger.info(`Processed batch of ${events.length} changes in ${batchDuration}ms`, {
+            duration: batchDuration,
+            wait_for_change_stream: eventBatch.commandDuration
+          });
         }
       }
     );

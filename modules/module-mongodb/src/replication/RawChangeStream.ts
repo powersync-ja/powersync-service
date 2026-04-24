@@ -46,6 +46,17 @@ export interface ChangeStreamBatch {
    * Size in bytes of this event.
    */
   byteSize: number;
+
+  /**
+   * Time in milliseconds that we waited for a response from MongoDB.
+   *
+   * This includes:
+   * 1. Time to send the command.
+   * 2. Time MongoDB waits for new data to be available.
+   * 3. Time MongoDB scans through the oplog.
+   * 4. Time to send the data back over the network, and parse the outer metadata.
+   */
+  commandDuration: number;
 }
 
 const deserialize = mongo.BSON.deserialize;
@@ -144,7 +155,6 @@ async function* rawChangeStreamInner(
    */
   let nsCollection: string | null = null;
 
-  const batchSize = options.batchSize;
   const collection = options.collection ?? 1;
   let abortPromise: Promise<any> | null = null;
 
@@ -163,6 +173,7 @@ async function* rawChangeStreamInner(
 
   try {
     {
+      const start = performance.now();
       // Step 1: Send the aggregate command to start the change stream
       const aggregateResult = await db
         .command(
@@ -182,6 +193,8 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
+      const aggregateDuration = performance.now() - start;
+
       const cursor = deserialize(aggregateResult.cursor, DESERIALIZE_CHANGE_STREAM);
 
       cursorId = BigInt(cursor.id);
@@ -195,13 +208,19 @@ async function* rawChangeStreamInner(
         throw new ReplicationAssertionError(`postBatchResumeToken from aggregate response`);
       }
 
-      yield { events: batch, resumeToken: cursor.postBatchResumeToken, byteSize: aggregateResult.cursor.byteLength };
+      yield {
+        events: batch,
+        resumeToken: cursor.postBatchResumeToken,
+        byteSize: aggregateResult.cursor.byteLength,
+        commandDuration: aggregateDuration
+      };
     }
 
     // Step 2: Poll using getMore until the cursor is closed
     while (cursorId && cursorId !== 0n) {
       options.signal?.throwIfAborted();
 
+      const start = performance.now();
       const getMoreResult: mongo.Document = await db
         .command(
           {
@@ -228,6 +247,8 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
+      const getMoreDuration = performance.now() - start;
+
       const cursor = deserialize(getMoreResult.cursor, DESERIALIZE_CHANGE_STREAM);
       cursorId = BigInt(cursor.id);
       const nextBatch = cursor.nextBatch;
@@ -237,7 +258,12 @@ async function* rawChangeStreamInner(
         // postBatchResumeToken is returned in MongoDB 4.0.7 and later, and we support 6.0+
         throw new ReplicationAssertionError(`postBatchResumeToken from aggregate response`);
       }
-      yield { events: nextBatch, resumeToken: cursor.postBatchResumeToken, byteSize: getMoreResult.cursor.byteLength };
+      yield {
+        events: nextBatch,
+        resumeToken: cursor.postBatchResumeToken,
+        byteSize: getMoreResult.cursor.byteLength,
+        commandDuration: getMoreDuration
+      };
     }
 
     options.signal?.throwIfAborted();
