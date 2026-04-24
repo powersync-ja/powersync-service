@@ -1,5 +1,5 @@
 export interface PerformanceInstrumentation {
-  getBreakDown(): Record<string, number>;
+  getBreakDown(digits?: number): Record<string, number>;
 }
 
 export class PerformanceTimer<K extends string> {
@@ -21,10 +21,14 @@ export class PerformanceTimer<K extends string> {
     const start = { ...this.stats };
 
     return {
-      getBreakDown: () => {
+      getBreakDown: (fractionDigits?: number) => {
         return Object.fromEntries(
           Object.entries(this.stats).map(([k, v]) => {
-            return [k, (v as number) - start[k as K]];
+            let duration = (v as number) - start[k as K];
+            if (fractionDigits != null) {
+              duration = parseFloat(duration.toFixed(fractionDigits));
+            }
+            return [k, duration];
           })
         );
       }

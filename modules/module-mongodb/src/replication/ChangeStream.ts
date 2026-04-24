@@ -1127,12 +1127,12 @@ export class ChangeStream {
             await batch.setResumeLsn(lsn);
           }
 
-          const batchDuration = performance.now() - batchStart;
-          const stats = mark.getBreakDown();
+          const batchDuration = Math.ceil(performance.now() - batchStart + eventBatch.commandDuration);
+          const stats = mark.getBreakDown(0);
 
           this.logger.info(`Processed batch of ${events.length} changes in ${batchDuration}ms`, {
             duration: batchDuration,
-            wait_for_change_stream: eventBatch.commandDuration,
+            wait_for_change_stream: Math.round(eventBatch.commandDuration),
             ...stats
           });
         }
