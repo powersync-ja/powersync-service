@@ -18,6 +18,7 @@ import {
   deserializeBson,
   InternalOpId,
   isCompleteRow,
+  PerformanceTimer,
   SaveOperationTag,
   storage,
   SyncRuleState,
@@ -85,6 +86,8 @@ export abstract class MongoBucketBatch
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private clearedError = false;
 
+  private timer = new PerformanceTimer(['flush_duration', 'evaluating_duration', 'lock_delay', 'retry_delay']);
+
   /**
    * Last LSN received associated with a checkpoint.
    *
@@ -146,6 +149,10 @@ export abstract class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
+  markTimer() {
+    return this.timer.mark();
+  }
+
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
 
   protected abstract get sourceRecordStore(): SourceRecordStore;
@@ -170,19 +177,33 @@ export abstract class MongoBucketBatch
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
 
-    await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
-      if (batch != null) {
-        resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
-      }
+    let evaluatingDuration: number = 0;
 
-      if (this.write_checkpoint_batch.length > 0) {
-        this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
-        await batchCreateCustomWriteCheckpoints(this.db, session, this.write_checkpoint_batch, opSeq.next());
-        this.write_checkpoint_batch = [];
-      }
+    const stats = await this.withReplicationTransaction(
+      `Flushing ${batch?.length ?? 0} ops`,
+      async (session, opSeq) => {
+        if (batch != null) {
+          const start = performance.now();
+          const { batch: b, innerFlushDuration } = await this.replicateBatch(session, batch, opSeq, options);
+          resumeBatch = b;
+          const batchDuration = performance.now() - start;
+          evaluatingDuration += batchDuration - innerFlushDuration;
+        }
 
-      last_op = opSeq.last();
-    });
+        if (this.write_checkpoint_batch.length > 0) {
+          this.logger.info(`Writing ${this.write_checkpoint_batch.length} custom write checkpoints`);
+          await batchCreateCustomWriteCheckpoints(this.db, session, this.write_checkpoint_batch, opSeq.next());
+          this.write_checkpoint_batch = [];
+        }
+
+        last_op = opSeq.last();
+      }
+    );
+
+    this.timer.add('evaluating_duration', evaluatingDuration);
+    this.timer.add('lock_delay', stats.lockDelay);
+    this.timer.add('retry_delay', stats.retryDelay);
+    this.timer.add('flush_duration', stats.totalDuration - evaluatingDuration - stats.lockDelay - stats.retryDelay);
 
     // null if done, set if we need another flush
     this.batch = resumeBatch;
@@ -201,8 +222,9 @@ export abstract class MongoBucketBatch
     batch: OperationBatch,
     op_seq: MongoIdSequence,
     options?: storage.BucketBatchCommitOptions
-  ): Promise<OperationBatch | null> {
+  ): Promise<{ batch: OperationBatch | null; innerFlushDuration: number }> {
     let sizes: Map<string, number> | undefined = undefined;
+    let innerFlushDuration: number = 0;
     if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
@@ -268,7 +290,8 @@ export abstract class MongoBucketBatch
         if (persistedBatch!.shouldFlushTransaction()) {
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
-          const { flushedAny } = await persistedBatch!.flush(this.session, options);
+          const { flushedAny, duration } = await persistedBatch!.flush(this.session, options);
+          innerFlushDuration += duration;
           didFlush ||= flushedAny;
           persistedBatch = null;
           // Computing our current progress is a little tricky here, since
@@ -280,16 +303,20 @@ export abstract class MongoBucketBatch
 
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
-        const { flushedAny } = await persistedBatch.flush(this.session, options);
+        const { flushedAny, duration } = await persistedBatch.flush(this.session, options);
         didFlush ||= flushedAny;
+        innerFlushDuration += duration;
       }
     }
 
     if (didFlush) {
+      const start = performance.now();
       await this.clearError();
+      const duration = performance.now() - start;
+      innerFlushDuration += duration;
     }
 
-    return resumeBatch?.hasData() ? resumeBatch : null;
+    return { batch: resumeBatch?.hasData() ? resumeBatch : null, innerFlushDuration };
   }
 
   private saveOperation(
@@ -540,7 +567,11 @@ export abstract class MongoBucketBatch
   }
 
   private async withTransaction(cb: () => Promise<void>) {
+    const start = performance.now();
+    let lockDelay: number = 0;
+    let retryDelay: number = 0;
     await replicationMutex.exclusiveLock(async () => {
+      lockDelay = performance.now() - start;
       await this.session.withTransaction(
         async () => {
           try {
@@ -551,19 +582,27 @@ export abstract class MongoBucketBatch
             } else {
               this.logger.warn('Transaction error', e as Error);
             }
-            await timers.setTimeout(Math.random() * 50);
+            const delay = Math.random() * 50;
+            retryDelay += delay;
+            await timers.setTimeout(delay);
             throw e;
           }
         },
         { maxCommitTimeMS: 10000 }
       );
     });
+    const totalDuration = performance.now() - start;
+    return {
+      totalDuration,
+      lockDelay,
+      retryDelay
+    };
   }
 
   private async withReplicationTransaction(
     description: string,
     callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>
-  ): Promise<void> {
+  ) {
     let flushTry = 0;
 
     const start = Date.now();
@@ -571,7 +610,7 @@ export abstract class MongoBucketBatch
 
     const session = this.session;
 
-    await this.withTransaction(async () => {
+    return await this.withTransaction(async () => {
       flushTry += 1;
       if (flushTry % 10 == 0) {
         this.logger.info(`${description} - try ${flushTry}`);
@@ -978,35 +1017,46 @@ export abstract class MongoBucketBatch
 
     let lastBatchCount = BATCH_LIMIT;
     while (lastBatchCount == BATCH_LIMIT) {
-      await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
-        const sourceTableId = mongoTableId(sourceTable.id);
-        const batch = await this.sourceRecordStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
-        const persistedBatch = this.createPersistedBatch(0);
+      let evaluatingDuration = 0;
+      const stats = await this.withReplicationTransaction(
+        `Truncate ${sourceTable.qualifiedName}`,
+        async (session, opSeq) => {
+          const start = performance.now();
+          const sourceTableId = mongoTableId(sourceTable.id);
+          const batch = await this.sourceRecordStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
+          const persistedBatch = this.createPersistedBatch(0);
 
-        for (let value of batch) {
-          persistedBatch.saveBucketData({
-            op_seq: opSeq,
-            before_buckets: value.buckets,
-            evaluated: [],
-            table: sourceTable,
-            sourceKey: value.replicaId
-          });
-          persistedBatch.saveParameterData({
-            op_seq: opSeq,
-            existing_lookups: value.lookups,
-            evaluated: [],
-            sourceTable: sourceTable,
-            sourceKey: value.replicaId
-          });
+          for (let value of batch) {
+            persistedBatch.saveBucketData({
+              op_seq: opSeq,
+              before_buckets: value.buckets,
+              evaluated: [],
+              table: sourceTable,
+              sourceKey: value.replicaId
+            });
+            persistedBatch.saveParameterData({
+              op_seq: opSeq,
+              existing_lookups: value.lookups,
+              evaluated: [],
+              sourceTable: sourceTable,
+              sourceKey: value.replicaId
+            });
 
-          // Since this is not from streaming replication, we can do a hard delete
-          persistedBatch.hardDeleteCurrentData(sourceTableId, value.replicaId);
+            // Since this is not from streaming replication, we can do a hard delete
+            persistedBatch.hardDeleteCurrentData(sourceTableId, value.replicaId);
+          }
+          evaluatingDuration += performance.now() - start;
+          await persistedBatch.flush(session);
+          lastBatchCount = batch.length;
+
+          last_op = opSeq.last();
         }
-        await persistedBatch.flush(session);
-        lastBatchCount = batch.length;
+      );
 
-        last_op = opSeq.last();
-      });
+      this.timer.add('evaluating_duration', evaluatingDuration);
+      this.timer.add('lock_delay', stats.lockDelay);
+      this.timer.add('retry_delay', stats.retryDelay);
+      this.timer.add('flush_duration', stats.totalDuration - evaluatingDuration - stats.lockDelay - stats.retryDelay);
     }
 
     return last_op!;

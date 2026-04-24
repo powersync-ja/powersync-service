@@ -871,6 +871,8 @@ export class ChangeStream {
         for await (let eventBatch of batchStream) {
           const { events, resumeToken } = eventBatch;
           const batchStart = performance.now();
+          const mark = batch.markTimer();
+
           bytesReplicatedMetric.add(eventBatch.byteSize);
           chunksReplicatedMetric.add(1);
           if (this.abort_signal.aborted) {
@@ -1126,10 +1128,12 @@ export class ChangeStream {
           }
 
           const batchDuration = performance.now() - batchStart;
+          const stats = mark.getBreakDown();
 
           this.logger.info(`Processed batch of ${events.length} changes in ${batchDuration}ms`, {
             duration: batchDuration,
-            wait_for_change_stream: eventBatch.commandDuration
+            wait_for_change_stream: eventBatch.commandDuration,
+            ...stats
           });
         }
       }
