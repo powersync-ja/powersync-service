@@ -11,6 +11,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   MetricsEngine,
+  PerformanceTimer,
   RelationCache,
   ReplicationLagTracker,
   SaveOperationTag,
@@ -105,6 +106,8 @@ export class ChangeStream {
   private changeStreamTimeout: number;
 
   private readonly sourceRowConverter: SourceRowConverter;
+
+  private internalTimer = new PerformanceTimer(['parse_duration']);
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;
@@ -510,7 +513,7 @@ export class ChangeStream {
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (let buffer of docBatch) {
-        const { row: record, replicaId: replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
+        const { row: record, replicaId: replicaId } = this.rawToSqliteRow(buffer);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -660,7 +663,7 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const { row: baseRecord, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument);
+      const { row: baseRecord, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
@@ -682,7 +685,7 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const { row: after, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument!);
+      const { row: after, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
@@ -817,6 +820,14 @@ export class ChangeStream {
     });
   }
 
+  private rawToSqliteRow(row: Buffer) {
+    const start = performance.now();
+    const result = this.sourceRowConverter.rawToSqliteRow(row);
+    const duration = performance.now() - start;
+    this.internalTimer.add('parse_duration', duration);
+    return result;
+  }
+
   async streamChangesInternal() {
     const transactionsReplicatedMetric = this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED);
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
@@ -872,6 +883,7 @@ export class ChangeStream {
           const { events, resumeToken } = eventBatch;
           const batchStart = performance.now();
           const mark = batch.markTimer();
+          const internalMark = this.internalTimer.mark();
 
           bytesReplicatedMetric.add(eventBatch.byteSize);
           chunksReplicatedMetric.add(1);
@@ -1122,19 +1134,27 @@ export class ChangeStream {
             // so this is a good natural point to flush and mark progress.
             // We avoid this when splitDocument is set, since we cannot resume in the middle of a split event.
             const { comparable: lsn } = MongoLSN.fromResumeToken(resumeToken);
-            await batch.flush({ oldestUncommittedChange: this.replicationLag.oldestUncommittedChange });
-            // TODO: We should consider making this standard behavior of flush().
-            await batch.setResumeLsn(lsn);
+            await batch.flush({
+              oldestUncommittedChange: this.replicationLag.oldestUncommittedChange,
+              resumeLsn: lsn
+            });
           }
 
           const batchDuration = Math.ceil(performance.now() - batchStart + eventBatch.commandDuration);
           const stats = mark.getBreakDown(0);
+          const internalstats = internalMark.getBreakDown(0);
 
-          this.logger.info(`Processed batch of ${events.length} changes in ${batchDuration}ms`, {
-            duration: batchDuration,
-            wait_for_change_stream: Math.round(eventBatch.commandDuration),
-            ...stats
-          });
+          this.logger.info(
+            `Processed batch of ${events.length} changes / ${eventBatch.byteSize} bytes in ${batchDuration}ms`,
+            {
+              count: events.length,
+              bytes: eventBatch.byteSize,
+              duration: batchDuration,
+              wait_for_change_stream: Math.round(eventBatch.commandDuration),
+              ...stats,
+              ...internalstats
+            }
+          );
         }
       }
     );
