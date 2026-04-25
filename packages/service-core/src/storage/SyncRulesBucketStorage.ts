@@ -8,6 +8,7 @@ import {
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
+import { PerformanceTrace } from './PerformanceInstrumentation.js';
 import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
@@ -195,6 +196,8 @@ export interface CreateWriterOptions extends ParseSyncRulesOptions {
    * This is expected to happen in some initial replication edge cases, only if storeCurrentData = true.
    */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
+
+  tracer?: PerformanceTrace<any>;
 
   logger?: Logger;
 }
