@@ -17,6 +17,7 @@ type CdpMethod = keyof ProtocolMapping.Commands;
 type CdpEvent = keyof ProtocolMapping.Events;
 type NodeTracingMethod = 'NodeTracing.start' | 'NodeTracing.stop' | 'NodeTracing.getCategories';
 type TraceDomain = 'Tracing' | 'NodeTracing';
+type TraceTransferMode = 'ReportEvents' | 'ReturnAsStream';
 interface ProtocolDescriptor {
   version: { major: string; minor: string };
   domains: Array<{ domain: string } & Record<string, unknown>>;
@@ -32,13 +33,16 @@ interface MessageContext {
   tracingActive: boolean;
   traceDomain: TraceDomain;
   profilerActive: boolean;
-  setTracingActive(active: boolean): void;
+  startTracing(params: Protocol.Tracing.StartRequest): Promise<void>;
+  stopTracing(): Promise<void>;
   setTraceDomain(domain: TraceDomain): void;
   setProfilerActive(active: boolean): void;
   resetProfilerEvents(startTime: number): void;
   stopProfiler(): Protocol.Profiler.StopResponse;
   sendTraceEvents(events: TraceEvent[]): void;
   sendTracingComplete(): void;
+  readStream(params: Protocol.IO.ReadRequest): Protocol.IO.ReadResponse;
+  closeStream(params: Protocol.IO.CloseRequest): void;
 }
 
 export interface BasicCdpTraceServerOptions {
@@ -60,7 +64,11 @@ const DEFAULT_TRACE_CONFIG: Protocol.Tracing.TraceConfig = {
   includedCategories: ['node', 'node.async_hooks', 'node.perf', 'node.perf.usertiming', 'v8']
 };
 
-const SUPPORTED_DOMAINS = new Set(['Console', 'Debugger', 'HeapProfiler', 'Profiler', 'Runtime', 'Schema', 'Tracing']);
+const CPU_PROFILE_TRACE_CATEGORY = 'disabled-by-default-v8.cpu_profiler';
+const CPU_PROFILE_TRACE_SOURCE = 'Internal';
+const CPU_PROFILE_THREAD_ID = 1001;
+const DEFAULT_STREAM_CHUNK_SIZE = 1024 * 1024;
+const SUPPORTED_DOMAINS = new Set(['Console', 'Debugger', 'HeapProfiler', 'IO', 'Profiler', 'Runtime', 'Schema', 'Tracing']);
 const CDP_PROTOCOL_VERSION = `${browserProtocol.version.major}.${browserProtocol.version.minor}`;
 const PROTOCOL_DESCRIPTOR: ProtocolDescriptor = {
   version: browserProtocol.version,
@@ -124,6 +132,13 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
     let profilerActive = false;
     let profilerStartTime = nowMicros();
     let profilerEvents: TraceEvent[] = [];
+    let tracingCpuProfilerActive = false;
+    let tracingCpuProfileStartTime = 0;
+    let nextCpuProfileId = 1;
+    let traceTransferMode: TraceTransferMode = 'ReportEvents';
+    let bufferedTraceEvents: TraceEvent[] = [];
+    let nextStreamId = 1;
+    const streams = new Map<string, { data: string; offset: number }>();
 
     const sendEvent = (method: CdpEvent | `${TraceDomain}.dataCollected` | `${TraceDomain}.tracingComplete`, params: JsonObject = {}) => {
       if (ws.readyState == WebSocket.WebSocket.OPEN) {
@@ -137,6 +152,9 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
         console.warn(`Dropped ${events.length - validEvents.length} invalid PowerSync trace event(s)`);
       }
       if (tracingActive && validEvents.length > 0) {
+        if (traceTransferMode == 'ReturnAsStream') {
+          bufferedTraceEvents.push(...validEvents);
+        }
         sendEvent(`${traceDomain}.dataCollected`, { value: validEvents });
       }
       if (profilerActive && validEvents.length > 0) {
@@ -153,7 +171,21 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
       }
     };
     const onTracingComplete = () => {
-      sendEvent(`${traceDomain}.tracingComplete`, { dataLossOccurred: false } satisfies Protocol.Tracing.TracingCompleteEvent);
+      if (traceTransferMode == 'ReturnAsStream') {
+        const stream = `trace-${nextStreamId++}`;
+        streams.set(stream, {
+          data: JSON.stringify({ traceEvents: bufferedTraceEvents, metadata: {} }),
+          offset: 0
+        });
+        bufferedTraceEvents = [];
+        sendEvent(`${traceDomain}.tracingComplete`, {
+          dataLossOccurred: false,
+          stream,
+          traceFormat: 'json'
+        } satisfies Protocol.Tracing.TracingCompleteEvent);
+      } else {
+        sendEvent(`${traceDomain}.tracingComplete`, { dataLossOccurred: false } satisfies Protocol.Tracing.TracingCompleteEvent);
+      }
     };
 
     traceEvents.on('events', onInternalTraceEvents);
@@ -173,8 +205,29 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
           get profilerActive() {
             return profilerActive;
           },
-          setTracingActive(active) {
-            tracingActive = active;
+          async startTracing(params) {
+            if (tracingActive) {
+              return;
+            }
+            traceTransferMode = params.transferMode ?? 'ReportEvents';
+            bufferedTraceEvents = [];
+            tracingCpuProfileStartTime = nowMicros();
+            await startNodeCpuProfiler(inspectorSession);
+            tracingCpuProfilerActive = true;
+            tracingActive = true;
+          },
+          async stopTracing() {
+            if (tracingCpuProfilerActive) {
+              tracingCpuProfilerActive = false;
+              const profile = await stopNodeCpuProfiler(inspectorSession);
+              const cpuTraceEvents = cpuProfileToTraceEvents(profile, {
+                id: nextCpuProfileId++,
+                startTime: tracingCpuProfileStartTime,
+                endTime: nowMicros()
+              });
+              onInternalTraceEvents(cpuTraceEvents);
+            }
+            tracingActive = false;
           },
           setTraceDomain(domain) {
             traceDomain = domain;
@@ -195,6 +248,27 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
           },
           sendTracingComplete() {
             onTracingComplete();
+          },
+          readStream(params) {
+            const stream = streams.get(params.handle);
+            if (stream == null) {
+              throw invalidStreamHandle(params.handle);
+            }
+
+            if (params.offset != null) {
+              stream.offset = params.offset;
+            }
+            const size = params.size ?? DEFAULT_STREAM_CHUNK_SIZE;
+            const data = stream.data.slice(stream.offset, stream.offset + size);
+            stream.offset += data.length;
+            return {
+              base64Encoded: false,
+              data,
+              eof: stream.offset >= stream.data.length
+            };
+          },
+          closeStream(params) {
+            streams.delete(params.handle);
           }
         },
         raw
@@ -214,6 +288,12 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
     ws.on('close', () => {
       traceEvents.off('events', onInternalTraceEvents);
       inspectorSession.off('inspectorNotification', onInspectorNotification);
+      if (tracingCpuProfilerActive) {
+        tracingCpuProfilerActive = false;
+        stopNodeCpuProfiler(inspectorSession).catch((error) => {
+          console.warn('Failed to stop Node.js CPU profiler after CDP connection closed', error);
+        });
+      }
     });
   });
 
@@ -276,18 +356,20 @@ async function handleMethod(
     case 'Tracing.start':
     case 'NodeTracing.start':
       context.setTraceDomain(method.startsWith('NodeTracing.') ? 'NodeTracing' : 'Tracing');
-      context.setTracingActive(true);
+      await context.startTracing(params);
       context.sendTraceEvents(getMetadataTraceEvents());
       return {};
     case 'Tracing.end':
     case 'NodeTracing.stop':
-      context.setTracingActive(false);
+      await context.stopTracing();
       context.sendTracingComplete();
       return {};
     case 'Tracing.getCategories':
     case 'NodeTracing.getCategories':
       return {
-        categories: [...new Set(['powersync', '__metadata', ...(traceConfig?.includedCategories ?? [])])]
+        categories: [
+          ...new Set(['powersync', '__metadata', CPU_PROFILE_TRACE_CATEGORY, ...(traceConfig?.includedCategories ?? [])])
+        ]
       } satisfies Protocol.Tracing.GetCategoriesResponse;
     case 'Profiler.enable':
     case 'Profiler.disable':
@@ -303,6 +385,11 @@ async function handleMethod(
       return {
         domains: PROTOCOL_DESCRIPTOR.domains.map((domain) => ({ name: domain.domain, version: CDP_PROTOCOL_VERSION }))
       } satisfies Protocol.Schema.GetDomainsResponse;
+    case 'IO.read':
+      return context.readStream(params as unknown as Protocol.IO.ReadRequest);
+    case 'IO.close':
+      context.closeStream(params as unknown as Protocol.IO.CloseRequest);
+      return {};
     default:
       if (!isSupportedCdpMethod(method)) {
         throw methodNotFound(method);
@@ -326,6 +413,10 @@ function isNodeTracingMethod(method: string): method is NodeTracingMethod {
 
 function methodNotFound(method: string) {
   return Object.assign(new Error(`Method not found: ${method}`), { code: -32601 });
+}
+
+function invalidStreamHandle(handle: string) {
+  return Object.assign(new Error(`Invalid stream handle: ${handle}`), { code: -32000 });
 }
 
 function isChromeTraceEvent(event: TraceEvent) {
@@ -426,6 +517,183 @@ function addProfileNode(event: TraceEvent, parentId: number, nodes: Protocol.Pro
     hitCount: 1
   });
   return id;
+}
+
+async function startNodeCpuProfiler(session: Session) {
+  await session.post('Profiler.enable');
+  await session.post('Profiler.start');
+}
+
+async function stopNodeCpuProfiler(session: Session) {
+  const result = await session.post('Profiler.stop');
+  return result.profile as Protocol.Profiler.Profile;
+}
+
+function cpuProfileToTraceEvents(
+  profile: Protocol.Profiler.Profile,
+  options: { id: number; startTime: number; endTime: number }
+): TraceEvent[] {
+  const id = `0x${options.id.toString(16)}`;
+  const endTime = Math.max(options.endTime, options.startTime);
+  const duration = Math.max(1, endTime - options.startTime);
+  const sourceDuration = Math.max(1, profile.endTime - profile.startTime);
+  const timeDeltas = scaleProfileTimeDeltas(profile.timeDeltas ?? [], duration, sourceDuration);
+  const samples = profile.samples?.slice(0, timeDeltas.length);
+  const cpuProfile: Partial<Protocol.Profiler.Profile> = {
+    nodes: profile.nodes
+  };
+  const lines = Array(samples?.length ?? 0).fill(0);
+
+  if (samples != null && samples.length > 0) {
+    cpuProfile.samples = samples;
+  }
+
+  const visibleSampleEvents = cpuProfileToVisibleTraceEvents(profile, {
+    startTime: options.startTime,
+    timeDeltas,
+    samples: samples ?? []
+  });
+
+  return [
+    {
+      ph: 'M',
+      cat: '__metadata',
+      name: 'thread_name',
+      pid: process.pid,
+      tid: CPU_PROFILE_THREAD_ID,
+      args: { name: 'Node.js CPU Profile' }
+    },
+    {
+      ph: 'P',
+      cat: CPU_PROFILE_TRACE_CATEGORY,
+      name: 'Profile',
+      id,
+      pid: process.pid,
+      tid: CPU_PROFILE_THREAD_ID,
+      ts: options.startTime,
+      args: {
+        data: {
+          startTime: options.startTime,
+          source: CPU_PROFILE_TRACE_SOURCE
+        }
+      }
+    },
+    {
+      ph: 'P',
+      cat: CPU_PROFILE_TRACE_CATEGORY,
+      name: 'ProfileChunk',
+      id,
+      pid: process.pid,
+      tid: CPU_PROFILE_THREAD_ID,
+      ts: endTime,
+      args: {
+        data: {
+          cpuProfile,
+          timeDeltas,
+          lines,
+          source: CPU_PROFILE_TRACE_SOURCE
+        }
+      }
+    },
+    ...visibleSampleEvents
+  ];
+}
+
+function scaleProfileTimeDeltas(timeDeltas: number[], targetDuration: number, sourceDuration: number) {
+  if (timeDeltas.length == 0) {
+    return [targetDuration];
+  }
+
+  const scale = targetDuration / sourceDuration;
+  return timeDeltas.map((delta) => Math.max(1, Math.round(delta * scale)));
+}
+
+function cpuProfileToVisibleTraceEvents(
+  profile: Protocol.Profiler.Profile,
+  options: { startTime: number; timeDeltas: number[]; samples: number[] }
+): TraceEvent[] {
+  const nodesById = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parentById = new Map<number, number>();
+
+  for (const node of profile.nodes) {
+    for (const child of node.children ?? []) {
+      parentById.set(child, node.id);
+    }
+  }
+
+  const events: TraceEvent[] = [];
+  let timestamp = options.startTime;
+
+  for (let i = 0; i < options.samples.length; i++) {
+    const sample = options.samples[i];
+    const delta = options.timeDeltas[i] ?? 1;
+    timestamp += delta;
+
+    const node = nodesById.get(sample);
+    if (node == null) {
+      continue;
+    }
+
+    const stackTrace = profileStackTrace(sample, nodesById, parentById);
+    const functionName = node.callFrame.functionName || '(anonymous)';
+
+    events.push(
+      {
+        ph: 'I',
+        s: 't',
+        cat: 'devtools.timeline',
+        name: 'JSSample',
+        pid: process.pid,
+        tid: CPU_PROFILE_THREAD_ID,
+        ts: timestamp,
+        args: {
+          data: {
+            stackTrace
+          }
+        }
+      },
+      {
+        ph: 'X',
+        cat: 'devtools.timeline,v8,cpu_profiler',
+        name: functionName,
+        pid: process.pid,
+        tid: CPU_PROFILE_THREAD_ID,
+        ts: timestamp,
+        dur: Math.max(1, delta),
+        args: {
+          data: {
+            callFrame: node.callFrame,
+            stackTrace
+          }
+        }
+      }
+    );
+  }
+
+  return events;
+}
+
+function profileStackTrace(
+  nodeId: number,
+  nodesById: Map<number, Protocol.Profiler.ProfileNode>,
+  parentById: Map<number, number>
+) {
+  const stack: Protocol.Runtime.CallFrame[] = [];
+  let current: number | undefined = nodeId;
+
+  while (current != null) {
+    const node = nodesById.get(current);
+    if (node == null) {
+      break;
+    }
+
+    if (node.callFrame.functionName != '(root)') {
+      stack.push(node.callFrame);
+    }
+    current = parentById.get(current);
+  }
+
+  return stack;
 }
 
 function nowMicros() {
