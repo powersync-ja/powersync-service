@@ -11,7 +11,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   MetricsEngine,
-  PerformanceTrace,
+  PerformanceTracer,
   RelationCache,
   ReplicationLagTracker,
   SaveOperationTag,
@@ -329,6 +329,7 @@ export class ChangeStream {
   async initialReplication(snapshotLsn: string | null) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
+    const tracer = new PerformanceTracer('MongoDB initial replication');
 
     const flushResult = await this.storage.startBatch(
       {
@@ -336,7 +337,8 @@ export class ChangeStream {
         zeroLSN: MongoLSN.ZERO.comparable,
         defaultSchema: this.defaultDb.databaseName,
         storeCurrentData: false,
-        skipExistingRows: true
+        skipExistingRows: true,
+        tracer
       },
       async (batch) => {
         if (snapshotLsn == null) {
@@ -757,7 +759,7 @@ export class ChangeStream {
     batchSize?: number;
     filters: { $match: any; multipleDatabases: boolean };
     signal?: AbortSignal;
-    tracer?: PerformanceTrace<'changestream'>;
+    tracer?: PerformanceTracer<'changestream'>;
   }): AsyncIterableIterator<ChangeStreamBatch> {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
@@ -829,7 +831,7 @@ export class ChangeStream {
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
-    const tracer = new PerformanceTrace(['processing', 'batch', 'changestream', 'storage', 'evaluate']);
+    const tracer = new PerformanceTracer('MongoDB streaming replication');
     await this.storage.startBatch(
       {
         logger: this.logger,

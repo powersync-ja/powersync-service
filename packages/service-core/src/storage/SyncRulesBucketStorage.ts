@@ -8,7 +8,7 @@ import {
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { PerformanceTrace } from './PerformanceInstrumentation.js';
+import { PerformanceTracer } from './PerformanceTracer.js';
 import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
@@ -197,7 +197,7 @@ export interface CreateWriterOptions extends ParseSyncRulesOptions {
    */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 
-  tracer?: PerformanceTrace<'storage' | 'evaluate'>;
+  tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 
   logger?: Logger;
 }

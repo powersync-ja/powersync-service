@@ -5,7 +5,7 @@ import {
   Logger,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import { PerformanceTrace } from '@powersync/service-core';
+import { PerformanceTracer } from '@powersync/service-core';
 import { ChangeStreamInvalidatedError } from './ChangeStream.js';
 
 export interface RawChangeStreamOptions {
@@ -39,7 +39,7 @@ export interface RawChangeStreamOptions {
 
   logger?: Logger;
 
-  tracer?: PerformanceTrace<'changestream'>;
+  tracer?: PerformanceTracer<'changestream'>;
 }
 
 export interface ChangeStreamBatch {
