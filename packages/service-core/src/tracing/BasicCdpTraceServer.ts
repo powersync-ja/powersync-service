@@ -1,30 +1,42 @@
 import { randomUUID } from 'node:crypto';
 import * as http from 'node:http';
-import * as inspector from 'node:inspector';
 import { Session } from 'node:inspector/promises';
 import type { AddressInfo } from 'node:net';
 import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import type { Protocol } from 'devtools-protocol';
+import type { ProtocolMapping } from 'devtools-protocol/types/protocol-mapping.js';
+import browserProtocol from 'devtools-protocol/json/browser_protocol.json' with { type: 'json' };
+import jsProtocol from 'devtools-protocol/json/js_protocol.json' with { type: 'json' };
 import * as WebSocket from 'ws';
+import pkg from '../../package.json' with { type: 'json' };
 import { getMetadataTraceEvents, traceEvents, type TraceEvent } from './TraceWriter.js';
 
-type JsonObject = Record<string, any>;
+type JsonObject = Record<string, unknown>;
+type CdpMethod = keyof ProtocolMapping.Commands;
+type CdpEvent = keyof ProtocolMapping.Events;
+type NodeTracingMethod = 'NodeTracing.start' | 'NodeTracing.stop' | 'NodeTracing.getCategories';
+type TraceDomain = 'Tracing' | 'NodeTracing';
+interface ProtocolDescriptor {
+  version: { major: string; minor: string };
+  domains: Array<{ domain: string } & Record<string, unknown>>;
+}
 
 interface CdpRequest {
   id?: number;
-  method?: string;
+  method?: CdpMethod | NodeTracingMethod | string;
   params?: JsonObject;
 }
 
 interface MessageContext {
   tracingActive: boolean;
-  traceDomain: 'Tracing' | 'NodeTracing';
+  traceDomain: TraceDomain;
   profilerActive: boolean;
   setTracingActive(active: boolean): void;
-  setTraceDomain(domain: 'Tracing' | 'NodeTracing'): void;
+  setTraceDomain(domain: TraceDomain): void;
   setProfilerActive(active: boolean): void;
   resetProfilerEvents(startTime: number): void;
-  stopProfiler(): JsonObject;
+  stopProfiler(): Protocol.Profiler.StopResponse;
   sendTraceEvents(events: TraceEvent[]): void;
   sendTracingComplete(): void;
 }
@@ -33,10 +45,7 @@ export interface BasicCdpTraceServerOptions {
   host?: string;
   port?: number;
   path?: string;
-  traceConfig?: {
-    recordMode?: string;
-    includedCategories: string[];
-  };
+  traceConfig?: Protocol.Tracing.TraceConfig;
 }
 
 export interface BasicCdpTraceServer {
@@ -46,9 +55,15 @@ export interface BasicCdpTraceServer {
   close(): Promise<void>;
 }
 
-const DEFAULT_TRACE_CONFIG = {
+const DEFAULT_TRACE_CONFIG: Protocol.Tracing.TraceConfig = {
   recordMode: 'recordContinuously',
   includedCategories: ['node', 'node.async_hooks', 'node.perf', 'node.perf.usertiming', 'v8']
+};
+
+const CDP_PROTOCOL_VERSION = `${browserProtocol.version.major}.${browserProtocol.version.minor}`;
+const PROTOCOL_DESCRIPTOR: ProtocolDescriptor = {
+  version: browserProtocol.version,
+  domains: [...browserProtocol.domains, ...jsProtocol.domains] as ProtocolDescriptor['domains']
 };
 
 export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptions = {}): Promise<BasicCdpTraceServer> {
@@ -56,7 +71,6 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
   const targetId = randomUUID();
   const wsPath = options.path ?? `/${targetId}`;
   const traceConfig = options.traceConfig ?? DEFAULT_TRACE_CONFIG;
-  let protocolDescriptor: unknown | undefined;
 
   let baseUrl = '';
   let webSocketDebuggerUrl = '';
@@ -73,8 +87,8 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
 
     if (url.pathname == '/json/version') {
       return sendJson(response, {
-        Browser: `node.js/${process.version}`,
-        'Protocol-Version': '1.1'
+        Browser: `PowerSync/${pkg.version}`,
+        'Protocol-Version': CDP_PROTOCOL_VERSION
       });
     }
 
@@ -83,16 +97,7 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
     }
 
     if (url.pathname == '/json/protocol') {
-      getProtocolDescriptor(protocolDescriptor)
-        .then((descriptor) => {
-          protocolDescriptor = descriptor;
-          sendJson(response, descriptor);
-        })
-        .catch((error) => {
-          response.writeHead(500, { 'Content-Type': 'text/plain; charset=UTF-8' });
-          response.end(error?.message ?? String(error));
-        });
-      return;
+      return sendJson(response, PROTOCOL_DESCRIPTOR);
     }
 
     response.writeHead(404).end();
@@ -112,12 +117,12 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
 
   wss.on('connection', (ws) => {
     let tracingActive = false;
-    let traceDomain: 'Tracing' | 'NodeTracing' = 'Tracing';
+    let traceDomain: TraceDomain = 'Tracing';
     let profilerActive = false;
     let profilerStartTime = nowMicros();
     let profilerEvents: TraceEvent[] = [];
 
-    const sendEvent = (method: string, params: JsonObject = {}) => {
+    const sendEvent = (method: CdpEvent | `${TraceDomain}.dataCollected` | `${TraceDomain}.tracingComplete`, params: JsonObject = {}) => {
       if (ws.readyState == WebSocket.WebSocket.OPEN) {
         ws.send(JSON.stringify({ method, params }));
       }
@@ -145,7 +150,7 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
       }
     };
     const onTracingComplete = () => {
-      sendEvent(`${traceDomain}.tracingComplete`, { dataLossOccurred: false });
+      sendEvent(`${traceDomain}.tracingComplete`, { dataLossOccurred: false } satisfies Protocol.Tracing.TracingCompleteEvent);
     };
 
     traceEvents.on('events', onInternalTraceEvents);
@@ -271,7 +276,9 @@ async function handleMethod(
       return {};
     case 'Tracing.getCategories':
     case 'NodeTracing.getCategories':
-      return { categories: ['powersync', '__metadata'] };
+      return {
+        categories: [...new Set(['powersync', '__metadata', ...(traceConfig?.includedCategories ?? [])])]
+      } satisfies Protocol.Tracing.GetCategoriesResponse;
     case 'Profiler.enable':
     case 'Profiler.disable':
     case 'Profiler.setSamplingInterval':
@@ -284,11 +291,8 @@ async function handleMethod(
       return context.stopProfiler();
     case 'Schema.getDomains':
       return {
-        domains: [
-          { name: 'Tracing', version: '1.1' },
-          { name: 'Schema', version: '1.1' }
-        ]
-      };
+        domains: PROTOCOL_DESCRIPTOR.domains.map((domain) => ({ name: domain.domain, version: CDP_PROTOCOL_VERSION }))
+      } satisfies Protocol.Schema.GetDomainsResponse;
     default:
       return session.post(method as any, params);
   }
@@ -321,12 +325,12 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value == 'number' && Number.isFinite(value);
 }
 
-function traceEventsToCpuProfile(events: TraceEvent[], startTime: number, endTime: number) {
+function traceEventsToCpuProfile(events: TraceEvent[], startTime: number, endTime: number): Protocol.Profiler.Profile {
   const sortedEvents = events
     .filter((event) => event.ph == 'X' && isFiniteNumber(event.ts) && isFiniteNumber(event.dur))
     .sort((a, b) => a.ts - b.ts || b.dur - a.dur);
 
-  const nodes: JsonObject[] = [
+  const nodes: Protocol.Profiler.ProfileNode[] = [
     {
       id: 1,
       callFrame: {
@@ -375,7 +379,7 @@ function traceEventsToCpuProfile(events: TraceEvent[], startTime: number, endTim
   };
 }
 
-function addProfileNode(event: TraceEvent, parentId: number, nodes: JsonObject[]) {
+function addProfileNode(event: TraceEvent, parentId: number, nodes: Protocol.Profiler.ProfileNode[]) {
   const id = nodes.length + 1;
   const parent = nodes[parentId - 1];
   parent.children ??= [];
@@ -404,14 +408,13 @@ function targetDescriptor(targetId: string, baseUrl: string, webSocketDebuggerUr
 
   return {
     id: targetId,
-    type: 'node',
+    type: 'page',
     title: entrypoint ? basename(entrypoint) : 'PowerSync trace target',
-    description: 'node.js instance',
+    description: 'PowerSync trace target',
     url: entrypoint ? pathToFileURL(entrypoint).href : baseUrl,
     webSocketDebuggerUrl,
-    faviconUrl: 'https://nodejs.org/static/images/favicons/favicon.ico',
-    devtoolsFrontendUrl: `devtools://devtools/bundled/js_app.html?experiments=true&v8only=true&ws=${frontendWebSocketUrl}`,
-    devtoolsFrontendUrlCompat: `devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=${frontendWebSocketUrl}`
+    devtoolsFrontendUrl: `devtools://devtools/bundled/inspector.html?experiments=true&ws=${frontendWebSocketUrl}`,
+    devtoolsFrontendUrlCompat: `devtools://devtools/bundled/inspector.html?experiments=true&ws=${frontendWebSocketUrl}`
   };
 }
 
@@ -423,40 +426,6 @@ function httpBaseUrl(request: http.IncomingMessage, fallback: string) {
 function webSocketUrl(request: http.IncomingMessage, path: string, fallback: string) {
   const host = request.headers.host;
   return host ? `ws://${host}${path}` : fallback;
-}
-
-async function getProtocolDescriptor(cached: unknown | undefined) {
-  if (cached) {
-    return cached;
-  }
-
-  const ownInspectorUrl = inspector.url();
-  if (ownInspectorUrl) {
-    const url = new URL(ownInspectorUrl);
-    url.protocol = 'http:';
-    url.pathname = '/json/protocol';
-    url.search = '';
-
-    const response = await fetch(url);
-    if (response.ok) {
-      return response.json();
-    }
-  }
-
-  return {
-    version: { major: '1', minor: '0' },
-    domains: [
-      { domain: 'Runtime', commands: [{ name: 'enable' }, { name: 'disable' }, { name: 'evaluate' }] },
-      { domain: 'Debugger', commands: [{ name: 'enable' }, { name: 'disable' }] },
-      { domain: 'Profiler', commands: [{ name: 'enable' }, { name: 'disable' }] },
-      {
-        domain: 'Tracing',
-        commands: [{ name: 'start' }, { name: 'end' }, { name: 'getCategories' }],
-        events: [{ name: 'dataCollected' }, { name: 'tracingComplete' }]
-      },
-      { domain: 'Schema', commands: [{ name: 'getDomains' }] }
-    ]
-  };
 }
 
 function sendJson(response: http.ServerResponse, value: unknown) {

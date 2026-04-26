@@ -632,6 +632,9 @@ importers:
       cors:
         specifier: ^2.8.5
         version: 2.8.5
+      devtools-protocol:
+        specifier: ^0.0.1619965
+        version: 0.0.1619965
       ipaddr.js:
         specifier: ^2.1.0
         version: 2.2.0
@@ -2309,6 +2312,9 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
+
+  devtools-protocol@0.0.1619965:
+    resolution: {integrity: sha512-K/7kqEPRZE0oec3HO8n/R2++UjTa4mSXqromH+zkwePpkzkO85aoLnuuFgX5j60NMaRLCoSZSWWk7NBRz7ePZQ==}
 
   diff@4.0.4:
     resolution: {integrity: sha512-X07nttJQkwkfKfvTPG/KSnE2OMdcUCao6+eXF3wmnIQRn2aPAHH3VxDbDOdegkd6JbPsXqShpvEOHfAT+nCNwQ==}
@@ -5727,6 +5733,8 @@ snapshots:
   detect-indent@7.0.1: {}
 
   detect-libc@2.1.2: {}
+
+  devtools-protocol@0.0.1619965: {}
 
   diff@4.0.4: {}
 
