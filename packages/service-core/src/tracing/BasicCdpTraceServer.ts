@@ -60,10 +60,13 @@ const DEFAULT_TRACE_CONFIG: Protocol.Tracing.TraceConfig = {
   includedCategories: ['node', 'node.async_hooks', 'node.perf', 'node.perf.usertiming', 'v8']
 };
 
+const SUPPORTED_DOMAINS = new Set(['Console', 'Debugger', 'HeapProfiler', 'Profiler', 'Runtime', 'Schema', 'Tracing']);
 const CDP_PROTOCOL_VERSION = `${browserProtocol.version.major}.${browserProtocol.version.minor}`;
 const PROTOCOL_DESCRIPTOR: ProtocolDescriptor = {
   version: browserProtocol.version,
-  domains: [...browserProtocol.domains, ...jsProtocol.domains] as ProtocolDescriptor['domains']
+  domains: ([...browserProtocol.domains, ...jsProtocol.domains] as ProtocolDescriptor['domains']).filter((domain) =>
+    SUPPORTED_DOMAINS.has(domain.domain)
+  )
 };
 
 export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptions = {}): Promise<BasicCdpTraceServer> {
@@ -247,12 +250,19 @@ async function handleMessage(
     return protocolError(request.id, new Error('Expected a CDP request with numeric id and string method'));
   }
 
+  logReceivedCommand(request);
+
   try {
     const result = await handleMethod(session, traceConfig, context, request.method, request.params ?? {});
     return { id: request.id, result };
   } catch (error) {
     return protocolError(request.id, error);
   }
+}
+
+function logReceivedCommand(request: CdpRequest) {
+  const params = request.params == null ? '' : ` ${JSON.stringify(request.params)}`;
+  console.log(`[CDP] <- ${request.id} ${request.method}${params}`);
 }
 
 async function handleMethod(
@@ -294,8 +304,28 @@ async function handleMethod(
         domains: PROTOCOL_DESCRIPTOR.domains.map((domain) => ({ name: domain.domain, version: CDP_PROTOCOL_VERSION }))
       } satisfies Protocol.Schema.GetDomainsResponse;
     default:
+      if (!isSupportedCdpMethod(method)) {
+        throw methodNotFound(method);
+      }
       return session.post(method as any, params);
   }
+}
+
+function isSupportedCdpMethod(method: string) {
+  if (isNodeTracingMethod(method)) {
+    return true;
+  }
+
+  const domain = method.split('.', 1)[0];
+  return SUPPORTED_DOMAINS.has(domain);
+}
+
+function isNodeTracingMethod(method: string): method is NodeTracingMethod {
+  return method == 'NodeTracing.start' || method == 'NodeTracing.stop' || method == 'NodeTracing.getCategories';
+}
+
+function methodNotFound(method: string) {
+  return Object.assign(new Error(`Method not found: ${method}`), { code: -32601 });
 }
 
 function isChromeTraceEvent(event: TraceEvent) {
@@ -442,7 +472,7 @@ function protocolError(id: number | undefined, error: any) {
   return {
     id,
     error: {
-      code: -32000,
+      code: error?.code ?? -32000,
       message: error?.message ?? String(error)
     }
   };
