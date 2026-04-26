@@ -45,6 +45,11 @@ interface MessageContext {
   closeStream(params: Protocol.IO.CloseRequest): void;
 }
 
+interface NodeCpuProfileResult {
+  profile: Protocol.Profiler.Profile;
+  traceClockEndTime: number;
+}
+
 export interface BasicCdpTraceServerOptions {
   host?: string;
   port?: number;
@@ -133,7 +138,6 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
     let profilerStartTime = nowMicros();
     let profilerEvents: TraceEvent[] = [];
     let tracingCpuProfilerActive = false;
-    let tracingCpuProfileStartTime = 0;
     let nextCpuProfileId = 1;
     let traceTransferMode: TraceTransferMode = 'ReportEvents';
     let bufferedTraceEvents: TraceEvent[] = [];
@@ -211,7 +215,6 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
             }
             traceTransferMode = params.transferMode ?? 'ReportEvents';
             bufferedTraceEvents = [];
-            tracingCpuProfileStartTime = nowMicros();
             await startNodeCpuProfiler(inspectorSession);
             tracingCpuProfilerActive = true;
             tracingActive = true;
@@ -219,11 +222,10 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
           async stopTracing() {
             if (tracingCpuProfilerActive) {
               tracingCpuProfilerActive = false;
-              const profile = await stopNodeCpuProfiler(inspectorSession);
-              const cpuTraceEvents = cpuProfileToTraceEvents(profile, {
+              const cpuProfileResult = await stopNodeCpuProfiler(inspectorSession);
+              const cpuTraceEvents = cpuProfileToTraceEvents(cpuProfileResult.profile, {
                 id: nextCpuProfileId++,
-                startTime: tracingCpuProfileStartTime,
-                endTime: nowMicros()
+                traceClockEndTime: cpuProfileResult.traceClockEndTime
               });
               onInternalTraceEvents(cpuTraceEvents);
             }
@@ -524,23 +526,31 @@ async function startNodeCpuProfiler(session: Session) {
   await session.post('Profiler.start');
 }
 
-async function stopNodeCpuProfiler(session: Session) {
+async function stopNodeCpuProfiler(session: Session): Promise<NodeCpuProfileResult> {
+  const beforeStop = nowMicros();
   const result = await session.post('Profiler.stop');
-  return result.profile as Protocol.Profiler.Profile;
+  const afterStop = nowMicros();
+
+  return {
+    profile: result.profile as Protocol.Profiler.Profile,
+    traceClockEndTime: Math.round((beforeStop + afterStop) / 2)
+  };
 }
 
 function cpuProfileToTraceEvents(
   profile: Protocol.Profiler.Profile,
-  options: { id: number; startTime: number; endTime: number }
+  options: { id: number; traceClockEndTime: number }
 ): TraceEvent[] {
   const id = `0x${options.id.toString(16)}`;
-  const endTime = Math.max(options.endTime, options.startTime);
-  const duration = Math.max(1, endTime - options.startTime);
-  const sourceDuration = Math.max(1, profile.endTime - profile.startTime);
-  const timeDeltas = scaleProfileTimeDeltas(profile.timeDeltas ?? [], duration, sourceDuration);
-  const samples = profile.samples?.slice(0, timeDeltas.length);
+  const clockOffset = options.traceClockEndTime - profile.endTime;
+  const translatedProfileStartTime = profile.startTime + clockOffset;
+  const startTime = translatedProfileStartTime;
+  const endTime = Math.max(options.traceClockEndTime, profile.endTime + clockOffset);
+  const timeDeltas = profile.timeDeltas ?? [];
+  const filteredProfile = filterIdleProfileSamples(profile, timeDeltas);
+  const samples = filteredProfile.samples;
   const cpuProfile: Partial<Protocol.Profiler.Profile> = {
-    nodes: profile.nodes
+    nodes: filteredProfile.nodes
   };
   const lines = Array(samples?.length ?? 0).fill(0);
 
@@ -549,9 +559,10 @@ function cpuProfileToTraceEvents(
   }
 
   const visibleSampleEvents = cpuProfileToVisibleTraceEvents(profile, {
-    startTime: options.startTime,
+    startTime,
     timeDeltas,
-    samples: samples ?? []
+    samples: profile.samples?.slice(0, timeDeltas.length) ?? [],
+    skipIdle: true
   });
 
   return [
@@ -570,10 +581,10 @@ function cpuProfileToTraceEvents(
       id,
       pid: process.pid,
       tid: CPU_PROFILE_THREAD_ID,
-      ts: options.startTime,
+      ts: startTime,
       args: {
         data: {
-          startTime: options.startTime,
+          startTime,
           source: CPU_PROFILE_TRACE_SOURCE
         }
       }
@@ -589,7 +600,7 @@ function cpuProfileToTraceEvents(
       args: {
         data: {
           cpuProfile,
-          timeDeltas,
+          timeDeltas: filteredProfile.timeDeltas ?? [],
           lines,
           source: CPU_PROFILE_TRACE_SOURCE
         }
@@ -599,18 +610,46 @@ function cpuProfileToTraceEvents(
   ];
 }
 
-function scaleProfileTimeDeltas(timeDeltas: number[], targetDuration: number, sourceDuration: number) {
-  if (timeDeltas.length == 0) {
-    return [targetDuration];
+function filterIdleProfileSamples(profile: Protocol.Profiler.Profile, timeDeltas: number[]): Protocol.Profiler.Profile {
+  const idleNodeIds = new Set(profile.nodes.filter((node) => isIdleProfileNode(node)).map((node) => node.id));
+  const samples = profile.samples ?? [];
+  const normalizedSamples = samples.slice(0, timeDeltas.length);
+  const normalizedTimeDeltas = timeDeltas.slice(0, normalizedSamples.length);
+
+  if (idleNodeIds.size == 0 || samples.length == 0) {
+    return {
+      ...profile,
+      samples: normalizedSamples,
+      timeDeltas: normalizedTimeDeltas
+    };
   }
 
-  const scale = targetDuration / sourceDuration;
-  return timeDeltas.map((delta) => Math.max(1, Math.round(delta * scale)));
+  const replacementNodeId = findIdleReplacementNodeId(profile.nodes, idleNodeIds);
+
+  return {
+    ...profile,
+    nodes: profile.nodes.filter((node) => !idleNodeIds.has(node.id)),
+    samples: normalizedSamples.map((sample) => (idleNodeIds.has(sample) ? replacementNodeId : sample)),
+    timeDeltas: normalizedTimeDeltas
+  };
+}
+
+function isIdleProfileNode(node: Protocol.Profiler.ProfileNode) {
+  return node.callFrame.functionName == '(idle)';
+}
+
+function findIdleReplacementNodeId(nodes: Protocol.Profiler.ProfileNode[], idleNodeIds: Set<number>) {
+  return (
+    nodes.find((node) => !idleNodeIds.has(node.id) && node.callFrame.functionName == '(program)')?.id ??
+    nodes.find((node) => !idleNodeIds.has(node.id) && node.callFrame.functionName == '(root)')?.id ??
+    nodes.find((node) => !idleNodeIds.has(node.id))?.id ??
+    1
+  );
 }
 
 function cpuProfileToVisibleTraceEvents(
   profile: Protocol.Profiler.Profile,
-  options: { startTime: number; timeDeltas: number[]; samples: number[] }
+  options: { startTime: number; timeDeltas: number[]; samples: number[]; skipIdle?: boolean }
 ): TraceEvent[] {
   const nodesById = new Map(profile.nodes.map((node) => [node.id, node]));
   const parentById = new Map<number, number>();
@@ -627,10 +666,14 @@ function cpuProfileToVisibleTraceEvents(
   for (let i = 0; i < options.samples.length; i++) {
     const sample = options.samples[i];
     const delta = options.timeDeltas[i] ?? 1;
+    const sampleStart = timestamp;
     timestamp += delta;
 
     const node = nodesById.get(sample);
     if (node == null) {
+      continue;
+    }
+    if (options.skipIdle && isIdleProfileNode(node)) {
       continue;
     }
 
@@ -645,7 +688,7 @@ function cpuProfileToVisibleTraceEvents(
         name: 'JSSample',
         pid: process.pid,
         tid: CPU_PROFILE_THREAD_ID,
-        ts: timestamp,
+        ts: sampleStart,
         args: {
           data: {
             stackTrace
@@ -658,7 +701,7 @@ function cpuProfileToVisibleTraceEvents(
         name: functionName,
         pid: process.pid,
         tid: CPU_PROFILE_THREAD_ID,
-        ts: timestamp,
+        ts: sampleStart,
         dur: Math.max(1, delta),
         args: {
           data: {
