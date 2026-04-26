@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as WebSocket from 'ws';
+import { getMetadataTraceEvents, traceEvents, type TraceEvent } from './TraceWriter.js';
 
 type JsonObject = Record<string, any>;
 
@@ -13,6 +14,19 @@ interface CdpRequest {
   id?: number;
   method?: string;
   params?: JsonObject;
+}
+
+interface MessageContext {
+  tracingActive: boolean;
+  traceDomain: 'Tracing' | 'NodeTracing';
+  profilerActive: boolean;
+  setTracingActive(active: boolean): void;
+  setTraceDomain(domain: 'Tracing' | 'NodeTracing'): void;
+  setProfilerActive(active: boolean): void;
+  resetProfilerEvents(startTime: number): void;
+  stopProfiler(): JsonObject;
+  sendTraceEvents(events: TraceEvent[]): void;
+  sendTracingComplete(): void;
 }
 
 export interface BasicCdpTraceServerOptions {
@@ -97,31 +111,86 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
   });
 
   wss.on('connection', (ws) => {
+    let tracingActive = false;
+    let traceDomain: 'Tracing' | 'NodeTracing' = 'Tracing';
+    let profilerActive = false;
+    let profilerStartTime = nowMicros();
+    let profilerEvents: TraceEvent[] = [];
+
     const sendEvent = (method: string, params: JsonObject = {}) => {
       if (ws.readyState == WebSocket.WebSocket.OPEN) {
-        console.log(JSON.stringify({ method, params }));
         ws.send(JSON.stringify({ method, params }));
       }
     };
 
+    const onInternalTraceEvents = (events: TraceEvent[]) => {
+      const validEvents = events.filter(isChromeTraceEvent);
+      if (events.length != validEvents.length) {
+        console.warn(`Dropped ${events.length - validEvents.length} invalid PowerSync trace event(s)`);
+      }
+      if (tracingActive && validEvents.length > 0) {
+        sendEvent(`${traceDomain}.dataCollected`, { value: validEvents });
+      }
+      if (profilerActive && validEvents.length > 0) {
+        profilerEvents.push(...validEvents.filter((event) => event.ph == 'X'));
+      }
+    };
     const onInspectorNotification = (message: any) => {
+      if (typeof message?.method == 'string' && message.method.startsWith('NodeTracing.')) {
+        return;
+      }
+
       if (ws.readyState == WebSocket.WebSocket.OPEN) {
         ws.send(JSON.stringify(message));
       }
     };
-    const onDataCollected = (message: any) => {
-      sendEvent('Tracing.dataCollected', message.params);
-    };
     const onTracingComplete = () => {
-      sendEvent('Tracing.tracingComplete', { dataLossOccurred: false });
+      sendEvent(`${traceDomain}.tracingComplete`, { dataLossOccurred: false });
     };
 
+    traceEvents.on('events', onInternalTraceEvents);
     inspectorSession.on('inspectorNotification', onInspectorNotification);
-    inspectorSession.on('NodeTracing.dataCollected', onDataCollected);
-    inspectorSession.on('NodeTracing.tracingComplete', onTracingComplete);
 
     ws.on('message', (raw) => {
-      handleMessage(inspectorSession, traceConfig, raw)
+      handleMessage(
+        inspectorSession,
+        traceConfig,
+        {
+          get tracingActive() {
+            return tracingActive;
+          },
+          get traceDomain() {
+            return traceDomain;
+          },
+          get profilerActive() {
+            return profilerActive;
+          },
+          setTracingActive(active) {
+            tracingActive = active;
+          },
+          setTraceDomain(domain) {
+            traceDomain = domain;
+          },
+          setProfilerActive(active) {
+            profilerActive = active;
+          },
+          resetProfilerEvents(startTime) {
+            profilerStartTime = startTime;
+            profilerEvents = [];
+          },
+          stopProfiler() {
+            profilerActive = false;
+            return { profile: traceEventsToCpuProfile(profilerEvents, profilerStartTime, nowMicros()) };
+          },
+          sendTraceEvents(events) {
+            onInternalTraceEvents(events);
+          },
+          sendTracingComplete() {
+            onTracingComplete();
+          }
+        },
+        raw
+      )
         .then((response) => {
           if (response && ws.readyState == WebSocket.WebSocket.OPEN) {
             ws.send(JSON.stringify(response));
@@ -135,9 +204,8 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
     });
 
     ws.on('close', () => {
+      traceEvents.off('events', onInternalTraceEvents);
       inspectorSession.off('inspectorNotification', onInspectorNotification);
-      inspectorSession.off('NodeTracing.dataCollected', onDataCollected);
-      inspectorSession.off('NodeTracing.tracingComplete', onTracingComplete);
     });
   });
 
@@ -165,6 +233,7 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
 async function handleMessage(
   session: Session,
   traceConfig: BasicCdpTraceServerOptions['traceConfig'],
+  context: MessageContext,
   raw: WebSocket.RawData
 ) {
   const request = JSON.parse(raw.toString()) as CdpRequest;
@@ -174,7 +243,7 @@ async function handleMessage(
   }
 
   try {
-    const result = await handleMethod(session, traceConfig, request.method, request.params ?? {});
+    const result = await handleMethod(session, traceConfig, context, request.method, request.params ?? {});
     return { id: request.id, result };
   } catch (error) {
     return protocolError(request.id, error);
@@ -184,18 +253,35 @@ async function handleMessage(
 async function handleMethod(
   session: Session,
   traceConfig: BasicCdpTraceServerOptions['traceConfig'],
+  context: MessageContext,
   method: string,
   params: JsonObject
 ) {
   switch (method) {
     case 'Tracing.start':
-      await session.post('NodeTracing.start', { traceConfig: params.traceConfig ?? traceConfig });
+    case 'NodeTracing.start':
+      context.setTraceDomain(method.startsWith('NodeTracing.') ? 'NodeTracing' : 'Tracing');
+      context.setTracingActive(true);
+      context.sendTraceEvents(getMetadataTraceEvents());
       return {};
     case 'Tracing.end':
-      await session.post('NodeTracing.stop');
+    case 'NodeTracing.stop':
+      context.setTracingActive(false);
+      context.sendTracingComplete();
       return {};
     case 'Tracing.getCategories':
-      return session.post('NodeTracing.getCategories');
+    case 'NodeTracing.getCategories':
+      return { categories: ['powersync', '__metadata'] };
+    case 'Profiler.enable':
+    case 'Profiler.disable':
+    case 'Profiler.setSamplingInterval':
+      return {};
+    case 'Profiler.start':
+      context.resetProfilerEvents(nowMicros());
+      context.setProfilerActive(true);
+      return {};
+    case 'Profiler.stop':
+      return context.stopProfiler();
     case 'Schema.getDomains':
       return {
         domains: [
@@ -206,6 +292,110 @@ async function handleMethod(
     default:
       return session.post(method as any, params);
   }
+}
+
+function isChromeTraceEvent(event: TraceEvent) {
+  if (typeof event.name != 'string' || typeof event.ph != 'string') {
+    return false;
+  }
+
+  if (!isInteger(event.pid) || !isInteger(event.tid)) {
+    return false;
+  }
+
+  switch (event.ph) {
+    case 'M':
+      return typeof event.args == 'object' && event.args != null;
+    case 'X':
+      return typeof event.cat == 'string' && isFiniteNumber(event.ts) && isFiniteNumber(event.dur);
+    default:
+      return isFiniteNumber(event.ts);
+  }
+}
+
+function isInteger(value: unknown): value is number {
+  return Number.isInteger(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value == 'number' && Number.isFinite(value);
+}
+
+function traceEventsToCpuProfile(events: TraceEvent[], startTime: number, endTime: number) {
+  const sortedEvents = events
+    .filter((event) => event.ph == 'X' && isFiniteNumber(event.ts) && isFiniteNumber(event.dur))
+    .sort((a, b) => a.ts - b.ts || b.dur - a.dur);
+
+  const nodes: JsonObject[] = [
+    {
+      id: 1,
+      callFrame: {
+        functionName: 'PowerSync',
+        scriptId: '0',
+        url: 'powersync://profile',
+        lineNumber: 0,
+        columnNumber: 0
+      },
+      children: []
+    }
+  ];
+  const samples: number[] = [];
+  const timeDeltas: number[] = [];
+  const stacksByThread = new Map<number, Array<{ event: TraceEvent; nodeId: number; endTime: number }>>();
+  let previousTimestamp = startTime;
+
+  for (const event of sortedEvents) {
+    const stack = stacksByThread.get(event.tid) ?? [];
+    stacksByThread.set(event.tid, stack);
+
+    while (stack.length > 0 && stack[stack.length - 1].endTime <= event.ts) {
+      stack.pop();
+    }
+
+    const parentId = stack[stack.length - 1]?.nodeId ?? 1;
+    const nodeId = addProfileNode(event, parentId, nodes);
+    stack.push({ event, nodeId, endTime: event.ts + event.dur });
+
+    samples.push(nodeId);
+    timeDeltas.push(Math.max(1, Math.round(event.ts - previousTimestamp || event.dur || 1)));
+    previousTimestamp = event.ts;
+  }
+
+  if (samples.length == 0) {
+    samples.push(1);
+    timeDeltas.push(Math.max(1, endTime - startTime));
+  }
+
+  return {
+    nodes,
+    startTime,
+    endTime: Math.max(endTime, previousTimestamp),
+    samples,
+    timeDeltas
+  };
+}
+
+function addProfileNode(event: TraceEvent, parentId: number, nodes: JsonObject[]) {
+  const id = nodes.length + 1;
+  const parent = nodes[parentId - 1];
+  parent.children ??= [];
+  parent.children.push(id);
+  nodes.push({
+    id,
+    callFrame: {
+      functionName: event.name,
+      scriptId: '0',
+      url: `powersync://${event.tid}/${event.cat}`,
+      lineNumber: 0,
+      columnNumber: 0
+    },
+    hitCount: 1
+  });
+  return id;
+}
+
+function nowMicros() {
+  return Number(process.hrtime.bigint() / 1000n);
 }
 
 function targetDescriptor(targetId: string, baseUrl: string, webSocketDebuggerUrl: string) {

@@ -1,4 +1,4 @@
-import { traceWriter } from './TraceWriter.js';
+import { emitTraceEvents } from './TraceWriter.js';
 
 export interface Span extends Disposable {
   name: string;
@@ -35,7 +35,7 @@ export class PerformanceTracer<K extends string> {
   constructor(traceName: string) {
     this.threadId = nextThreadId;
     nextThreadId += 1;
-    traceWriter?.write({
+    emitTraceEvents({
       ph: 'M',
       cat: '__metadata',
       name: 'thread_name',
@@ -77,7 +77,7 @@ export class PerformanceTracer<K extends string> {
         this.endAt = endAt;
         const endTime = this.nestedSince ?? endAt;
         this.selfDuration = endTime - startAt - this.subtrackFromSelf;
-        traceWriter?.write({
+        emitTraceEvents({
           name,
           cat: 'powersync',
           ph: 'X',

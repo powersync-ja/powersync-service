@@ -1,5 +1,12 @@
 import { Mutex } from 'async-mutex';
+import { EventEmitter } from 'node:events';
 import * as fs from 'node:fs/promises';
+
+export type TraceEvent = Record<string, any>;
+const metadataTraceEvents: TraceEvent[] = [];
+export const traceEvents = new EventEmitter<{
+  events: [TraceEvent[]];
+}>();
 
 /**
  * Write traces in the Chrome JSON Trace Format.
@@ -9,7 +16,7 @@ import * as fs from 'node:fs/promises';
 class TraceWriter {
   handle: fs.FileHandle | null = null;
   length = 0;
-  queue: any[] = [];
+  queue: TraceEvent[] = [];
   private mutex = new Mutex();
 
   constructor(public readonly path: string) {
@@ -27,14 +34,14 @@ class TraceWriter {
     });
   }
 
-  write(...traceEvents: any[]) {
-    this.writeAsync(...traceEvents).catch((e) => {
+  write(...events: TraceEvent[]) {
+    this.writeAsync(...events).catch((e) => {
       console.error(`Failed to write trace file`, e);
     });
   }
 
-  async writeAsync(...traceEvents: any[]) {
-    this.queue.push(...traceEvents);
+  async writeAsync(...events: TraceEvent[]) {
+    this.queue.push(...events);
     await this.mutex.runExclusive(async () => {
       if (this.queue.length > 0) {
         // Write queued events.
@@ -55,13 +62,21 @@ const traceFile = process.env.POWERSYNC_TRACE_FILE;
  */
 export const traceWriter = traceFile ? new TraceWriter(traceFile) : null;
 
-if (traceWriter) {
-  traceWriter.write({
-    ph: 'M',
-    cat: '__metadata',
-    name: 'process_name',
-    pid: process.pid,
-    tid: 1000,
-    args: { name: 'powersync' }
-  });
+export function emitTraceEvents(...events: TraceEvent[]) {
+  metadataTraceEvents.push(...events.filter((event) => event.ph == 'M'));
+  traceEvents.emit('events', events);
+  traceWriter?.write(...events);
 }
+
+export function getMetadataTraceEvents() {
+  return metadataTraceEvents.slice();
+}
+
+emitTraceEvents({
+  ph: 'M',
+  cat: '__metadata',
+  name: 'process_name',
+  pid: process.pid,
+  tid: 1000,
+  args: { name: 'powersync' }
+});
