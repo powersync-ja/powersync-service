@@ -1,59 +1,4 @@
-import { Mutex } from 'async-mutex';
-import * as fs from 'node:fs/promises';
-
-class TraceWriter {
-  handle: fs.FileHandle | null = null;
-  length = 0;
-  queue: any[] = [];
-  private mutex = new Mutex();
-
-  constructor(public readonly path: string) {
-    this.open().catch((e) => {
-      console.error(`Failed to open trace file at ${path}`, e);
-    });
-  }
-
-  async open() {
-    await this.mutex.runExclusive(async () => {
-      this.handle = await fs.open(this.path, 'w+');
-      this.handle.truncate(0);
-      await this.handle.write('[]');
-      this.length = 2;
-    });
-  }
-
-  write(...traceEvents: any[]) {
-    this.writeAsync(...traceEvents).catch((e) => {
-      console.error(`Failed to write trace file`, e);
-    });
-  }
-
-  async writeAsync(...traceEvents: any[]) {
-    this.queue.push(...traceEvents);
-    await this.mutex.runExclusive(async () => {
-      if (this.queue.length > 0) {
-        const buffer = Buffer.from(JSON.stringify(this.queue));
-        await this.handle?.write(buffer, 1, buffer.length - 1, this.length - 1);
-        this.queue = [];
-        this.length += buffer.length - 2;
-      }
-    });
-  }
-}
-
-const traceFile = process.env.POWERSYNC_TRACE_FILE;
-const writer = traceFile ? new TraceWriter(traceFile) : null;
-
-if (writer) {
-  writer.write({
-    ph: 'M',
-    cat: '__metadata',
-    name: 'process_name',
-    pid: process.pid,
-    tid: 1000,
-    args: { name: 'powersync' }
-  });
-}
+import { traceWriter } from './TraceWriter.js';
 
 export interface Span extends Disposable {
   name: string;
@@ -73,6 +18,16 @@ function now() {
 
 let nextThreadId = 1;
 
+/**
+ * Lightweight tracing helper, with two main goals:
+ * 1. Generate aggregate timing info with low overhead.
+ * 2. Optional support for generating trace files during development.
+ *
+ * This is only intended for a single "thread" - concurrent operations on the same instance have undefined behavior.
+ * To trace concurrent operations, use separate instances of PerformanceTracer.
+ *
+ * Spans cannot be overlapping: If a parent span is ended, all nested spans are automatically ended.
+ */
 export class PerformanceTracer<K extends string> {
   stack: Span[] = [];
   threadId: number;
@@ -80,7 +35,7 @@ export class PerformanceTracer<K extends string> {
   constructor(traceName: string) {
     this.threadId = nextThreadId;
     nextThreadId += 1;
-    writer?.write({
+    traceWriter?.write({
       ph: 'M',
       cat: '__metadata',
       name: 'thread_name',
@@ -122,7 +77,7 @@ export class PerformanceTracer<K extends string> {
         this.endAt = endAt;
         const endTime = this.nestedSince ?? endAt;
         this.selfDuration = endTime - startAt - this.subtrackFromSelf;
-        writer?.write({
+        traceWriter?.write({
           name,
           cat: 'powersync',
           ph: 'X',

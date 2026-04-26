@@ -3,7 +3,6 @@ export * from './BucketStorage.js';
 export * from './BucketStorageBatch.js';
 export * from './BucketStorageFactory.js';
 export * from './ChecksumCache.js';
-export * from './PerformanceTracer.js';
 export * from './PersistedSyncRulesContent.js';
 export * from './ReplicationEventPayload.js';
 export * from './ReplicationLock.js';

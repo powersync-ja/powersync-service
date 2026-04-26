@@ -5,10 +5,10 @@ import {
   ScopedParameterLookup,
   SqliteJsonRow
 } from '@powersync/service-sync-rules';
+import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { PerformanceTracer } from './PerformanceTracer.js';
 import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
