@@ -43,12 +43,14 @@
     "uri-js": "^4.4.1",
     "uuid": "^11.1.0",
     "winston": "^3.13.0",
+    "ws": "^8.17.0",
     "yaml": "^2.8.3"
   },
   "devDependencies": {
     "@types/async": "^3.2.24",
     "@types/lodash": "^4.17.5",
     "@types/negotiator": "^0.6.4",
+    "@types/ws": "~8.2.0",
     "fastify": "^5.8.5",
     "fastify-plugin": "^5.0.1"
   }

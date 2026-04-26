@@ -1,4 +1,4 @@
-import { container, ContainerImplementation } from '@powersync/lib-services-framework';
+import { container, ContainerImplementation, logger } from '@powersync/lib-services-framework';
 import * as core from '@powersync/service-core';
 
 import { CoreModule } from '@powersync/service-module-core';
@@ -22,11 +22,40 @@ container.register(core.ModuleManager, moduleManager);
 // This is nice to have to avoid passing it around
 container.register(core.utils.CompoundConfigCollector, new core.utils.CompoundConfigCollector());
 
+let traceServerPromise: Promise<core.BasicCdpTraceServer> | undefined;
+
+function startTraceServer() {
+  traceServerPromise ??= core
+    .startBasicCdpTraceServer({
+      host: process.env.POWERSYNC_TRACE_CDP_HOST ?? '127.0.0.1',
+      port: process.env.POWERSYNC_TRACE_CDP_PORT ? Number(process.env.POWERSYNC_TRACE_CDP_PORT) : 9222
+    })
+    .then((server) => {
+      logger.info(`Trace CDP server listening at ${server.url}`);
+      logger.info(`Trace CDP WebSocket URL: ${server.webSocketDebuggerUrl}`);
+      return server;
+    })
+    .catch((error) => {
+      traceServerPromise = undefined;
+      logger.error('Failed to start trace CDP server', error);
+      throw error;
+    });
+
+  return traceServerPromise;
+}
+
+function withTraceServer(runner: core.utils.Runner): core.utils.Runner {
+  return async (runnerConfig) => {
+    await startTraceServer();
+    await runner(runnerConfig);
+  };
+}
+
 // Generate Commander CLI entry point program
 const { execute } = core.entry.generateEntryProgram({
-  [core.utils.ServiceRunner.API]: startServer,
-  [core.utils.ServiceRunner.SYNC]: startStreamRunner,
-  [core.utils.ServiceRunner.UNIFIED]: startUnifiedRunner
+  [core.utils.ServiceRunner.API]: withTraceServer(startServer),
+  [core.utils.ServiceRunner.SYNC]: withTraceServer(startStreamRunner),
+  [core.utils.ServiceRunner.UNIFIED]: withTraceServer(startUnifiedRunner)
 });
 
 /**
