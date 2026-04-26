@@ -151,10 +151,6 @@ export abstract class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
-  markTimer() {
-    return this.timer.mark();
-  }
-
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
 
   protected abstract get sourceRecordStore(): SourceRecordStore;

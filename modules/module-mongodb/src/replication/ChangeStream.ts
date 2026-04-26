@@ -11,7 +11,6 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   MetricsEngine,
-  PerformanceTimer,
   PerformanceTrace,
   RelationCache,
   ReplicationLagTracker,
@@ -107,8 +106,6 @@ export class ChangeStream {
   private changeStreamTimeout: number;
 
   private readonly sourceRowConverter: SourceRowConverter;
-
-  private internalTimer = new PerformanceTimer(['parse_duration']);
 
   constructor(options: ChangeStreamOptions) {
     this.storage = options.storage;

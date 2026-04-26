@@ -14,7 +14,6 @@ import {
   CheckpointResult,
   deserializeReplicaId,
   InternalOpId,
-  PerformanceTimer,
   storage,
   utils
 } from '@powersync/service-core';
@@ -102,7 +101,6 @@ export class PostgresBucketBatch
   private clearedError = false;
   private readonly storageConfig: storage.StorageVersionConfig;
   private readonly currentDataStore: PostgresCurrentDataStore;
-  private timer = new PerformanceTimer([]);
 
   constructor(protected options: PostgresBucketBatchOptions) {
     super();
@@ -125,10 +123,6 @@ export class PostgresBucketBatch
 
   get lastCheckpointLsn() {
     return this.last_checkpoint_lsn;
-  }
-
-  markTimer(): storage.PerformanceInstrumentation {
-    return this.timer.mark();
   }
 
   async [Symbol.asyncDispose]() {

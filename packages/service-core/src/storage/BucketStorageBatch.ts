@@ -4,7 +4,7 @@ import { BSON } from 'bson';
 import { InternalOpId } from '../util/utils.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
-import { BatchedCustomWriteCheckpointOptions, PerformanceInstrumentation } from './storage-index.js';
+import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,
@@ -12,8 +12,6 @@ export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptio
 };
 
 export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageListener>, AsyncDisposable {
-  markTimer(): PerformanceInstrumentation;
-
   /**
    * Alias for [Symbol.asyncDispose]
    */
