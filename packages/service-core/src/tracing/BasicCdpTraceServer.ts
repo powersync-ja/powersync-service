@@ -1,9 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import * as http from 'node:http';
 import { Session } from 'node:inspector/promises';
 import type { AddressInfo } from 'node:net';
-import { basename } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import type { Protocol } from 'devtools-protocol';
 import type { ProtocolMapping } from 'devtools-protocol/types/protocol-mapping.js';
 import browserProtocol from 'devtools-protocol/json/browser_protocol.json' with { type: 'json' };
@@ -54,6 +51,7 @@ export interface BasicCdpTraceServerOptions {
   host?: string;
   port?: number;
   path?: string;
+  targetId?: string;
   traceConfig?: Protocol.Tracing.TraceConfig;
 }
 
@@ -69,6 +67,7 @@ const DEFAULT_TRACE_CONFIG: Protocol.Tracing.TraceConfig = {
   includedCategories: ['node', 'node.async_hooks', 'node.perf', 'node.perf.usertiming', 'v8']
 };
 
+const DEFAULT_TARGET_ID = 'powersync-service-core';
 const CPU_PROFILE_TRACE_CATEGORY = 'disabled-by-default-v8.cpu_profiler';
 const CPU_PROFILE_TRACE_SOURCE = 'Internal';
 const CPU_PROFILE_THREAD_ID = 1001;
@@ -84,7 +83,7 @@ const PROTOCOL_DESCRIPTOR: ProtocolDescriptor = {
 
 export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptions = {}): Promise<BasicCdpTraceServer> {
   const host = options.host ?? '127.0.0.1';
-  const targetId = randomUUID();
+  const targetId = options.targetId ?? DEFAULT_TARGET_ID;
   const wsPath = options.path ?? `/${targetId}`;
   const traceConfig = options.traceConfig ?? DEFAULT_TRACE_CONFIG;
 
@@ -743,16 +742,15 @@ function nowMicros() {
   return Number(process.hrtime.bigint() / 1000n);
 }
 
-function targetDescriptor(targetId: string, baseUrl: string, webSocketDebuggerUrl: string) {
+function targetDescriptor(targetId: string, _baseUrl: string, webSocketDebuggerUrl: string) {
   const frontendWebSocketUrl = webSocketDebuggerUrl.replace(/^ws:\/\//, '');
-  const entrypoint = process.argv[1];
 
   return {
     id: targetId,
     type: 'page',
-    title: entrypoint ? basename(entrypoint) : 'PowerSync trace target',
+    title: 'PowerSync trace target',
     description: 'PowerSync trace target',
-    url: entrypoint ? pathToFileURL(entrypoint).href : baseUrl,
+    url: `powersync://${targetId}`,
     webSocketDebuggerUrl,
     devtoolsFrontendUrl: `devtools://devtools/bundled/inspector.html?experiments=true&ws=${frontendWebSocketUrl}`,
     devtoolsFrontendUrlCompat: `devtools://devtools/bundled/inspector.html?experiments=true&ws=${frontendWebSocketUrl}`
