@@ -72,7 +72,7 @@ function now() {
   return Number(process.hrtime.bigint() / 1000n);
 }
 export class PerformanceTrace<K extends string> {
-  stack: (Span | null)[] = [];
+  stack: Span[] = [];
 
   constructor(keys: K[]) {}
 
@@ -104,6 +104,9 @@ export class PerformanceTrace<K extends string> {
         if (this.endAt != 0) {
           return this.nestedDurations;
         }
+        while (stack.length - 1 > index) {
+          stack[stack.length - 1].end();
+        }
         const endAt = now();
         this.endAt = endAt;
         const endTime = this.nestedSince ?? endAt;
@@ -120,18 +123,14 @@ export class PerformanceTrace<K extends string> {
             selfTime: this.selfDuration
           }
         });
-        stack[index] = null;
-        while (stack.length > 0 && stack[stack.length - 1] == null) {
-          stack.pop();
-        }
-        const newTop = stack[stack.length - 1];
-        if (newTop != null && stack.length <= index) {
-          newTop.subtrackFromSelf += endAt - newTop.nestedSince!;
+        stack.pop();
+        if (parent != null) {
+          parent.subtrackFromSelf += endAt - parent.nestedSince!;
           for (let key in this.nestedDurations) {
-            newTop.nestedDurations[key] = (newTop.nestedDurations[key] ?? 0) + this.nestedDurations[key];
+            parent.nestedDurations[key] = (parent.nestedDurations[key] ?? 0) + this.nestedDurations[key];
           }
-          newTop.nestedDurations[this.name] = (newTop.nestedDurations[this.name] ?? 0) + this.selfDuration;
-          newTop.nestedSince = undefined;
+          parent.nestedDurations[this.name] = (parent.nestedDurations[this.name] ?? 0) + this.selfDuration;
+          parent.nestedSince = undefined;
         }
         return this.nestedDurations;
       },
