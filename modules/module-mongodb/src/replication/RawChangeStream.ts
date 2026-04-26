@@ -39,7 +39,7 @@ export interface RawChangeStreamOptions {
 
   logger?: Logger;
 
-  tracer?: PerformanceTrace<any>;
+  tracer?: PerformanceTrace<'changestream'>;
 }
 
 export interface ChangeStreamBatch {
@@ -177,7 +177,7 @@ async function* rawChangeStreamInner(
   try {
     {
       const start = performance.now();
-      using aggregateSpan = options.tracer?.span('changestream:aggregate');
+      using aggregateSpan = options.tracer?.span('changestream', 'aggregate');
       // Step 1: Send the aggregate command to start the change stream
       const aggregateResult = await db
         .command(
@@ -226,7 +226,7 @@ async function* rawChangeStreamInner(
       options.signal?.throwIfAborted();
 
       const start = performance.now();
-      using commandSpan = options.tracer?.span('changestream:getmore');
+      using commandSpan = options.tracer?.span('changestream', 'getmore');
       const getMoreResult: mongo.Document = await db
         .command(
           {

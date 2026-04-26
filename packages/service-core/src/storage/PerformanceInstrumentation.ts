@@ -74,7 +74,7 @@ function now() {
 export class PerformanceTrace<K extends string> {
   stack: Span[] = [];
 
-  constructor(keys: K[]) {}
+  constructor(categories: K[]) {}
 
   mark(): PerformanceInstrumentation {
     return {
@@ -84,13 +84,17 @@ export class PerformanceTrace<K extends string> {
     };
   }
 
-  span(name: K): Span {
+  span(category: K, subcat?: string): Span {
     const stack = this.stack;
     const index = this.stack.length;
     const parent = this.stack[this.stack.length - 1];
     const startAt = now();
     if (parent != null) {
       parent.nestedSince ??= startAt;
+    }
+    let name: string = category;
+    if (subcat) {
+      name += ':' + subcat;
     }
     const s: Span = {
       name,
@@ -129,7 +133,7 @@ export class PerformanceTrace<K extends string> {
           for (let key in this.nestedDurations) {
             parent.nestedDurations[key] = (parent.nestedDurations[key] ?? 0) + this.nestedDurations[key];
           }
-          parent.nestedDurations[this.name] = (parent.nestedDurations[this.name] ?? 0) + this.selfDuration;
+          parent.nestedDurations[category] = (parent.nestedDurations[category] ?? 0) + this.selfDuration;
           parent.nestedSince = undefined;
         }
         return this.nestedDurations;

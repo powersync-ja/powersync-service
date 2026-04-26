@@ -197,7 +197,7 @@ export interface CreateWriterOptions extends ParseSyncRulesOptions {
    */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 
-  tracer?: PerformanceTrace<any>;
+  tracer?: PerformanceTrace<'storage' | 'evaluate'>;
 
   logger?: Logger;
 }

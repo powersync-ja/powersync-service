@@ -61,7 +61,7 @@ export interface MongoBucketBatchOptions {
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   logger?: Logger;
-  tracer?: PerformanceTrace<any>;
+  tracer?: PerformanceTrace<'storage' | 'evaluate'>;
 }
 
 export abstract class MongoBucketBatch
@@ -87,7 +87,7 @@ export abstract class MongoBucketBatch
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private clearedError = false;
 
-  private timer: PerformanceTrace<any>;
+  private timer: PerformanceTrace<'storage' | 'evaluate'>;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -180,7 +180,7 @@ export abstract class MongoBucketBatch
     let resumeBatch: OperationBatch | null = null;
 
     let evaluatingDuration: number = 0;
-    using _ = this.timer.span('flush');
+    using _ = this.timer.span('storage', 'flush');
 
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
       if (batch != null) {
@@ -220,7 +220,7 @@ export abstract class MongoBucketBatch
   ): Promise<{ batch: OperationBatch | null; innerFlushDuration: number }> {
     let sizes: Map<string, number> | undefined = undefined;
     let innerFlushDuration: number = 0;
-    using _ = this.timer.span('replicate_batch');
+    using _ = this.timer.span('storage', 'replicate_batch');
     if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
@@ -258,7 +258,7 @@ export abstract class MongoBucketBatch
         }
         continue;
       }
-      using lookupSpan = this.timer.span('lookup');
+      using lookupSpan = this.timer.span('storage', 'lookup');
       const lookups = b.map((r) => ({
         sourceTableId: mongoTableId(r.record.sourceTable.id),
         replicaId: r.beforeId
@@ -295,7 +295,7 @@ export abstract class MongoBucketBatch
           evalSpan.end();
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
-          using persistSpan = this.timer.span('persist_flush');
+          using persistSpan = this.timer.span('storage', 'persist_flush');
           const { flushedAny, duration } = await persistedBatch!.flush(this.session, options);
 
           innerFlushDuration += duration;
@@ -313,7 +313,7 @@ export abstract class MongoBucketBatch
 
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
-        using _ = this.timer.span('persist_flush');
+        using _ = this.timer.span('storage', 'persist_flush');
         const { flushedAny, duration } = await persistedBatch.flush(this.session, options);
         didFlush ||= flushedAny;
         innerFlushDuration += duration;
@@ -321,7 +321,7 @@ export abstract class MongoBucketBatch
     }
 
     if (didFlush) {
-      using _ = this.timer.span('clear_error');
+      using _ = this.timer.span('storage', 'clear_error');
       await this.clearError();
     }
 
@@ -1053,7 +1053,7 @@ export abstract class MongoBucketBatch
         }
         evalSpan.end();
 
-        using _ = this.timer.span('persist_flush');
+        using _ = this.timer.span('storage', 'persist_flush');
         await persistedBatch.flush(session);
         lastBatchCount = batch.length;
 
