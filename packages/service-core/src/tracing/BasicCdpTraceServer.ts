@@ -7,6 +7,14 @@ import browserProtocol from 'devtools-protocol/json/browser_protocol.json' with 
 import jsProtocol from 'devtools-protocol/json/js_protocol.json' with { type: 'json' };
 import * as WebSocket from 'ws';
 import pkg from '../../package.json' with { type: 'json' };
+import {
+  httpClientRequestErrorChannel,
+  httpClientRequestFinishChannel,
+  httpClientRequestStartChannel,
+  type DebugHttpRequestFailed,
+  type DebugHttpRequestFinished,
+  type DebugHttpRequestStarted
+} from './DebugHttpChannel.js';
 import { getMetadataTraceEvents, traceEvents, type TraceEvent } from './TraceWriter.js';
 
 type JsonObject = Record<string, unknown>;
@@ -40,6 +48,7 @@ interface MessageContext {
   sendTracingComplete(): void;
   readStream(params: Protocol.IO.ReadRequest): Protocol.IO.ReadResponse;
   closeStream(params: Protocol.IO.CloseRequest): void;
+  setNetworkEnabled(enabled: boolean): void;
 }
 
 interface NodeCpuProfileResult {
@@ -73,7 +82,17 @@ const DEFAULT_CPU_PROFILE_SAMPLING_INTERVAL_MICROS = 50;
 const CPU_PROFILE_TRACE_CATEGORY = 'disabled-by-default-v8.cpu_profiler';
 const CPU_PROFILE_THREAD_ID = 1001;
 const DEFAULT_STREAM_CHUNK_SIZE = 1024 * 1024;
-const SUPPORTED_DOMAINS = new Set(['Console', 'Debugger', 'HeapProfiler', 'IO', 'Profiler', 'Runtime', 'Schema', 'Tracing']);
+const SUPPORTED_DOMAINS = new Set([
+  'Console',
+  'Debugger',
+  'HeapProfiler',
+  'IO',
+  'Network',
+  'Profiler',
+  'Runtime',
+  'Schema',
+  'Tracing'
+]);
 const CDP_PROTOCOL_VERSION = `${browserProtocol.version.major}.${browserProtocol.version.minor}`;
 const PROTOCOL_DESCRIPTOR: ProtocolDescriptor = {
   version: browserProtocol.version,
@@ -141,12 +160,13 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
     let profilerEvents: TraceEvent[] = [];
     let tracingCpuProfilerActive = false;
     let nextCpuProfileId = 1;
+    let networkEnabled = false;
     let traceTransferMode: TraceTransferMode = 'ReportEvents';
     let bufferedTraceEvents: TraceEvent[] = [];
     let nextStreamId = 1;
     const streams = new Map<string, { data: string; offset: number }>();
 
-    const sendEvent = (method: CdpEvent | `${TraceDomain}.dataCollected` | `${TraceDomain}.tracingComplete`, params: JsonObject = {}) => {
+    const sendEvent = (method: CdpEvent | `${TraceDomain}.dataCollected` | `${TraceDomain}.tracingComplete`, params: object = {}) => {
       if (ws.readyState == WebSocket.WebSocket.OPEN) {
         ws.send(JSON.stringify({ method, params }));
       }
@@ -196,6 +216,26 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
 
     traceEvents.on('events', onInternalTraceEvents);
     inspectorSession.on('inspectorNotification', onInspectorNotification);
+    const onDebugHttpRequestStarted = (message: unknown) => {
+      if (networkEnabled) {
+        sendEvent('Network.requestWillBeSent', debugHttpRequestToNetworkEvent(message as DebugHttpRequestStarted));
+      }
+    };
+    const onDebugHttpRequestFinished = (message: unknown) => {
+      if (networkEnabled) {
+        const events = debugHttpResponseToNetworkEvents(message as DebugHttpRequestFinished);
+        sendEvent('Network.responseReceived', events.responseReceived);
+        sendEvent('Network.loadingFinished', events.loadingFinished);
+      }
+    };
+    const onDebugHttpRequestFailed = (message: unknown) => {
+      if (networkEnabled) {
+        sendEvent('Network.loadingFailed', debugHttpFailureToNetworkEvent(message as DebugHttpRequestFailed));
+      }
+    };
+    httpClientRequestStartChannel.subscribe(onDebugHttpRequestStarted);
+    httpClientRequestFinishChannel.subscribe(onDebugHttpRequestFinished);
+    httpClientRequestErrorChannel.subscribe(onDebugHttpRequestFailed);
 
     ws.on('message', (raw) => {
       handleMessage(
@@ -273,6 +313,9 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
           },
           closeStream(params) {
             streams.delete(params.handle);
+          },
+          setNetworkEnabled(enabled) {
+            networkEnabled = enabled;
           }
         },
         raw
@@ -292,6 +335,9 @@ export async function startBasicCdpTraceServer(options: BasicCdpTraceServerOptio
     ws.on('close', () => {
       traceEvents.off('events', onInternalTraceEvents);
       inspectorSession.off('inspectorNotification', onInspectorNotification);
+      httpClientRequestStartChannel.unsubscribe(onDebugHttpRequestStarted);
+      httpClientRequestFinishChannel.unsubscribe(onDebugHttpRequestFinished);
+      httpClientRequestErrorChannel.unsubscribe(onDebugHttpRequestFailed);
       if (tracingCpuProfilerActive) {
         tracingCpuProfilerActive = false;
         stopNodeCpuProfiler(inspectorSession).catch((error) => {
@@ -389,6 +435,12 @@ async function handleMethod(
       return {
         domains: PROTOCOL_DESCRIPTOR.domains.map((domain) => ({ name: domain.domain, version: CDP_PROTOCOL_VERSION }))
       } satisfies Protocol.Schema.GetDomainsResponse;
+    case 'Network.enable':
+      context.setNetworkEnabled(true);
+      return {};
+    case 'Network.disable':
+      context.setNetworkEnabled(false);
+      return {};
     case 'IO.read':
       return context.readStream(params as unknown as Protocol.IO.ReadRequest);
     case 'IO.close':
@@ -421,6 +473,69 @@ function methodNotFound(method: string) {
 
 function invalidStreamHandle(handle: string) {
   return Object.assign(new Error(`Invalid stream handle: ${handle}`), { code: -32000 });
+}
+
+function debugHttpRequestToNetworkEvent(event: DebugHttpRequestStarted): Protocol.Network.RequestWillBeSentEvent {
+  return {
+    requestId: event.requestId,
+    loaderId: event.requestId,
+    documentURL: 'powersync://debug-network',
+    request: {
+      url: event.url,
+      method: event.method,
+      headers: event.headers ?? {},
+      postData: event.postData,
+      hasPostData: event.postData != null,
+      initialPriority: 'Medium',
+      referrerPolicy: 'no-referrer'
+    },
+    timestamp: event.timestamp,
+    wallTime: event.wallTime,
+    initiator: { type: 'other' },
+    redirectHasExtraInfo: false,
+    type: 'Fetch'
+  };
+}
+
+function debugHttpResponseToNetworkEvents(event: DebugHttpRequestFinished) {
+  const encodedDataLength = event.encodedDataLength ?? 0;
+  return {
+    responseReceived: {
+      requestId: event.requestId,
+      loaderId: event.requestId,
+      timestamp: event.timestamp,
+      type: 'Fetch',
+      response: {
+        url: event.url,
+        status: event.status,
+        statusText: event.statusText,
+        headers: event.headers ?? {},
+        mimeType: 'application/json',
+        charset: 'utf-8',
+        connectionReused: true,
+        connectionId: 0,
+        encodedDataLength,
+        protocol: 'mongodb',
+        securityState: 'neutral'
+      },
+      hasExtraInfo: false
+    } satisfies Protocol.Network.ResponseReceivedEvent,
+    loadingFinished: {
+      requestId: event.requestId,
+      timestamp: event.timestamp,
+      encodedDataLength
+    } satisfies Protocol.Network.LoadingFinishedEvent
+  };
+}
+
+function debugHttpFailureToNetworkEvent(event: DebugHttpRequestFailed): Protocol.Network.LoadingFailedEvent {
+  return {
+    requestId: event.requestId,
+    timestamp: event.timestamp,
+    type: 'Fetch',
+    errorText: event.errorText,
+    canceled: event.canceled
+  };
 }
 
 function isChromeTraceEvent(event: TraceEvent) {

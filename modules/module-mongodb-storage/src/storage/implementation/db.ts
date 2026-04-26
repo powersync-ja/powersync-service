@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
+import { instrumentMongoClientDebugHttpEvents, POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
 import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
@@ -281,11 +281,10 @@ export class PowerSyncMongo {
 export type VersionedPowerSyncMongo = BaseVersionedPowerSyncMongo;
 
 export function createPowerSyncMongo(config: MongoStorageConfig, options?: lib_mongo.MongoConnectionOptions) {
-  return new PowerSyncMongo(
-    lib_mongo.createMongoClient(config, {
-      powersyncVersion: POWERSYNC_VERSION,
-      ...options
-    }),
-    { database: config.database }
-  );
+  const client = lib_mongo.createMongoClient(config, {
+    powersyncVersion: POWERSYNC_VERSION,
+    ...options
+  });
+  instrumentMongoClientDebugHttpEvents(client, { label: 'storage' });
+  return new PowerSyncMongo(client, { database: config.database });
 }

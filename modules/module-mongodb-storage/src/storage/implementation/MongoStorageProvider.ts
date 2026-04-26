@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
+import { instrumentMongoClientDebugHttpEvents, POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoReportStorage } from '../MongoReportStorage.js';
@@ -27,6 +27,7 @@ export class MongoStorageProvider implements storage.StorageProvider {
       powersyncVersion: POWERSYNC_VERSION,
       maxPoolSize: resolvedConfig.storage.max_pool_size ?? 8
     });
+    instrumentMongoClientDebugHttpEvents(client, { label: 'storage' });
 
     let shuttingDown = false;
 

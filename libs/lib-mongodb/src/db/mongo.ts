@@ -78,7 +78,8 @@ export function createMongoClient(config: BaseMongoConfigDecoded, options?: Mong
     maxPoolSize: options?.maxPoolSize ?? 8,
 
     maxConnecting: 3,
-    maxIdleTimeMS: 60_000
+    maxIdleTimeMS: 60_000,
+    monitorCommands: true
   });
 }
 

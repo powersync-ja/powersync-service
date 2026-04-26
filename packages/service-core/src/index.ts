@@ -44,5 +44,6 @@ export * as streams from './streams/streams-index.js';
 
 export * from './tracing/PerformanceTracer.js';
 export * from './tracing/BasicCdpTraceServer.js';
+export * from './tracing/DebugHttpChannel.js';
 
 export * as bson from 'bson';

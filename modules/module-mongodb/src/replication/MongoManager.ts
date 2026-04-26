@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 
 import { BaseObserver } from '@powersync/lib-services-framework';
-import { BSON_DESERIALIZE_DATA_OPTIONS, POWERSYNC_VERSION } from '@powersync/service-core';
+import { BSON_DESERIALIZE_DATA_OPTIONS, instrumentMongoClientDebugHttpEvents, POWERSYNC_VERSION } from '@powersync/service-core';
 import { NormalizedMongoConnectionConfig } from '../types/types.js';
 
 export interface MongoManagerListener {
@@ -53,11 +53,13 @@ export class MongoManager extends BaseObserver<MongoManagerListener> {
 
       maxConnecting: 3,
       maxIdleTimeMS: params.maxIdleTimeMS ?? 60_000,
+      monitorCommands: true,
 
       ...BSON_DESERIALIZE_DATA_OPTIONS,
 
       ...overrides
     });
+    instrumentMongoClientDebugHttpEvents(this.client, { label: 'source' });
     this.db = this.client.db(options.database, {});
   }
 
