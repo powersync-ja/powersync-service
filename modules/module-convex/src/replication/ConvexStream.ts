@@ -1,15 +1,16 @@
 import {
   container,
   DatabaseConnectionError,
+  logger as defaultLogger,
   ErrorCode,
   Logger,
-  logger as defaultLogger,
   ReplicationAbortedError,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
 import {
   MetricsEngine,
   RelationCache,
+  ReplicationLagTracker,
   SaveOperationTag,
   SourceEntityDescriptor,
   SourceTable,
@@ -50,13 +51,12 @@ export class ConvexStream {
   private readonly logger: Logger;
 
   private readonly relationCache = new RelationCache(getCacheIdentifier);
+  private replicationLag = new ReplicationLagTracker();
 
   private tableSchemaCache: ConvexTableSchema[] | null = null;
   private tableSchemaPropertiesByName = new Map<string, Record<string, unknown>>();
 
-  private oldestUncommittedChange: Date | null = null;
   private lastKeepaliveAt = 0;
-  private isStartingReplication = true;
   private lastTouchedAt = performance.now();
 
   constructor(private readonly options: ConvexStreamOptions) {
@@ -64,6 +64,10 @@ export class ConvexStream {
     this.metrics = options.metrics;
     this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: options.connections.schema });
     this.logger = options.logger ?? defaultLogger;
+  }
+
+  get isStartingReplication() {
+    return this.replicationLag.isStartingReplication;
   }
 
   private get connections() {
@@ -153,6 +157,10 @@ export class ConvexStream {
       let changesInPage = 0;
       let sawCheckpointMarker = false;
       const snapshottedTablesInPage = new Set<string>();
+
+      // track the begin of a batch/"transaction?"
+      // TODO(steven) verify this for real
+      this.replicationLag.trackUncommittedChange(new Date(nextCursor));
       for (const change of page.values) {
         if (this.abortSignal.aborted) {
           throw new ReplicationAbortedError('Replication interrupted');
@@ -182,30 +190,27 @@ export class ConvexStream {
         }
 
         changesInPage += 1;
-        if (this.oldestUncommittedChange == null) {
-          this.oldestUncommittedChange = new Date();
-        }
       }
 
       if (changesInPage > 0) {
+        // TODO(steven) Should this be commiting at this point? If this is paged?
+        // Where are the transactio boundaries
         const didCommit = await batch.commit(pageLsn, {
           createEmptyCheckpoints: false,
-          oldestUncommittedChange: this.oldestUncommittedChange
+          oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
         });
 
-        if (didCommit) {
+        if (!didCommit.checkpointBlocked) {
           this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
-          this.oldestUncommittedChange = null;
-          this.isStartingReplication = false;
+          this.replicationLag.markCommitted();
         }
       } else if (sawCheckpointMarker) {
         await batch.keepalive(pageLsn);
         this.lastKeepaliveAt = Date.now();
-        this.isStartingReplication = false;
       } else if (nextCursor != cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
         await batch.keepalive(pageLsn);
+        this.replicationLag.markStarted();
         this.lastKeepaliveAt = Date.now();
-        this.isStartingReplication = false;
       }
 
       cursor = nextCursor;
@@ -223,15 +228,8 @@ export class ConvexStream {
     }
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
-    if (this.oldestUncommittedChange == null) {
-      if (this.isStartingReplication) {
-        return undefined;
-      }
-      return 0;
-    }
-
-    return Date.now() - this.oldestUncommittedChange.getTime();
+  getReplicationLagMillis(): number | undefined {
+    return this.replicationLag.getLagMillis();
   }
 
   private async initSlot(): Promise<{ needsInitialSync: boolean; snapshotLsn: string | null }> {
