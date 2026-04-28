@@ -77,6 +77,9 @@ export class PowerSyncMongo {
     this.connection_report_events = this.db.collection('connection_report_events');
   }
 
+  versioned(storageConfig: StorageConfig & { incrementalReprocessing: true }): VersionedPowerSyncMongoV3;
+  versioned(storageConfig: StorageConfig & { incrementalReprocessing: false }): VersionedPowerSyncMongoV1;
+  versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo;
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
     if (storageConfig.incrementalReprocessing) {
       return new VersionedPowerSyncMongoV3(this, storageConfig);

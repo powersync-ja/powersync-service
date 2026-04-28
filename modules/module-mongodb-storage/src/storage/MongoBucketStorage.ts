@@ -1,4 +1,4 @@
-import { GetIntanceOptions, storage } from '@powersync/service-core';
+import { GetIntanceOptions, LEGACY_STORAGE_VERSION, storage } from '@powersync/service-core';
 
 import { DO_NOT_LOG, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -327,32 +327,51 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return rules!;
   }
 
-  async getActiveSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
+  async getActiveSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | MongoPersistedSyncRulesContentV3 | null> {
     const doc = await this.db.sync_rules.findOne(
       {
         state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
       },
       { sort: { _id: -1 }, limit: 1 }
     );
+
+    return this.getSyncRulesContent(doc, [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED]);
+  }
+
+  private async getSyncRulesContent(doc: SyncRuleDocument | null, stateFilter: storage.SyncRuleState[]) {
     if (doc == null) {
       return null;
+    }
+    const storageConfig = getMongoStorageConfig(doc.storage_version ?? LEGACY_STORAGE_VERSION);
+
+    if (storageConfig.incrementalReprocessing) {
+      const v3 = doc as SyncRuleDocumentV3;
+      const active = v3.sync_configs.find((c) => stateFilter.includes(c.state));
+      if (active == null) {
+        return null;
+      }
+
+      // TODO: cache this
+      const db = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
+      const syncConfigDoc = await db.syncConfigDefinitions.findOne({ _id: active._id });
+      if (syncConfigDoc == null) {
+        return null;
+      }
+      return new MongoPersistedSyncRulesContentV3(this.db, v3, syncConfigDoc);
     }
 
     return new MongoPersistedSyncRulesContent(this.db, doc);
   }
 
-  async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
+  async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | MongoPersistedSyncRulesContentV3 | null> {
     const doc = await this.db.sync_rules.findOne(
       {
         state: storage.SyncRuleState.PROCESSING
       },
       { sort: { _id: -1 }, limit: 1 }
     );
-    if (doc == null) {
-      return null;
-    }
 
-    return new MongoPersistedSyncRulesContent(this.db, doc);
+    return this.getSyncRulesContent(doc, [storage.SyncRuleState.PROCESSING]);
   }
 
   async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
@@ -362,9 +381,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       })
       .toArray();
 
-    return docs.map((doc) => {
-      return new MongoPersistedSyncRulesContent(this.db, doc);
-    });
+    return (
+      await Promise.all(
+        docs.map((doc) => {
+          return this.getSyncRulesContent(doc, [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE]);
+        })
+      )
+    ).filter((r) => r != null);
   }
 
   async getStoppedSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
@@ -374,9 +397,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       })
       .toArray();
 
-    return docs.map((doc) => {
-      return new MongoPersistedSyncRulesContent(this.db, doc);
-    });
+    return (
+      await Promise.all(
+        docs.map((doc) => {
+          return this.getSyncRulesContent(doc, [storage.SyncRuleState.STOP]);
+        })
+      )
+    ).filter((d) => d != null);
   }
 
   async getActiveStorage(): Promise<MongoSyncBucketStorage | null> {
