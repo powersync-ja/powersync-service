@@ -9,6 +9,13 @@ export interface Span extends Disposable {
   subtrackFromSelf: number;
   nestedDurations: Record<string, number>;
 
+  /**
+   * End the span - same as [Symbol.dispose]().
+   *
+   * Safe to call multiple times. Any nested spans will automatically end as well.
+   *
+   * Returns an aggregate record of category -> "selfDuration".
+   */
   end(): Record<string, number>;
 }
 
@@ -45,6 +52,17 @@ export class PerformanceTracer<K extends string> {
     });
   }
 
+  /**
+   * Recommended usage:
+   *
+   *   using _ = tracer.span('cat', 'details');
+   *
+   * The above automatically ends the span when it goes out of scope. Alternatively, call
+   * .end() on the span to end it earlier.
+   *
+   * @param category one of the defined categories
+   * @param subcat optional subcategory. Not used for calculating "self" durations in the aggregate API.
+   */
   span(category: K, subcat?: string): Span {
     const stack = this.stack;
     const index = this.stack.length;

@@ -258,12 +258,9 @@ export abstract class MongoBucketBatch
 
       let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
 
+      // The current code structure makes it tricky to cleanly split this span from the one
+      // where fluhsing. So we manually end and re-create this span whenever we flush.
       let evalSpan = this.tracer.span('evaluate');
-      using _ = {
-        [Symbol.dispose]() {
-          evalSpan.end();
-        }
-      };
       for (let op of b) {
         if (resumeBatch) {
           resumeBatch.push(op);
@@ -564,11 +561,9 @@ export abstract class MongoBucketBatch
   }
 
   private async withTransaction(cb: () => Promise<void>) {
-    const start = performance.now();
-    let lockDelay: number = 0;
-    let retryDelay: number = 0;
+    using lockSpan = this.tracer.span('storage', 'internal_lock');
     await replicationMutex.exclusiveLock(async () => {
-      lockDelay = performance.now() - start;
+      lockSpan.end();
       await this.session.withTransaction(
         async () => {
           try {
@@ -580,7 +575,7 @@ export abstract class MongoBucketBatch
               this.logger.warn('Transaction error', e as Error);
             }
             const delay = Math.random() * 50;
-            retryDelay += delay;
+            using _ = this.tracer.span('storage', 'retry_delay');
             await timers.setTimeout(delay);
             throw e;
           }
@@ -588,18 +583,12 @@ export abstract class MongoBucketBatch
         { maxCommitTimeMS: 10000 }
       );
     });
-    const totalDuration = performance.now() - start;
-    return {
-      totalDuration,
-      lockDelay,
-      retryDelay
-    };
   }
 
   private async withReplicationTransaction(
     description: string,
     callback: (session: mongo.ClientSession, opSeq: MongoIdSequence) => Promise<void>
-  ) {
+  ): Promise<void> {
     let flushTry = 0;
 
     const start = Date.now();
@@ -607,7 +596,7 @@ export abstract class MongoBucketBatch
 
     const session = this.session;
 
-    return await this.withTransaction(async () => {
+    await this.withTransaction(async () => {
       flushTry += 1;
       if (flushTry % 10 == 0) {
         this.logger.info(`${description} - try ${flushTry}`);
