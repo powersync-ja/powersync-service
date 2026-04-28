@@ -1,4 +1,4 @@
-import { InternalOpId } from '@powersync/service-core';
+import { InternalOpId, SerializedSyncPlan, SyncRuleState } from '@powersync/service-core';
 import * as bson from 'bson';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
@@ -11,8 +11,93 @@ import {
   ReplicaId,
   SourceTableDocument,
   SourceTableKey,
+  SyncRuleDocument,
   TaggedBucketParameterDocument
 } from '../models.js';
+
+export interface SyncRuleDocumentV3 extends SyncRuleDocument {
+  storage_version: number;
+
+  /**
+   * These contain the _state_ for each sync config.
+   *
+   * In common cases, we'd have either only one "active" sync config, or one active + one processing.
+   *
+   * But we don't restrict ourselves to that - we support any number of sync configs in any state here.
+   *
+   * In general, we we attempt to keep the small but regularly updated state here, while keeping the more static configuration
+   * in a separate sync_config collection.
+   *
+   * Any checkpoint updates all sync configs at the same time, but the effect on each checkpoint may be different. We consider
+   * snapshot state / no_checkpoint_before separately for each.
+   *
+   * A replication stream can only have a single resume point, so we keep that outside of this sync_configs array, still
+   * in the top_level snapshot_lsn field.
+   */
+  sync_configs: {
+    _id: bson.ObjectId;
+    /**
+     * If false, we cannot create any checkpoints.
+     */
+    snapshot_done: boolean;
+    state: SyncRuleState;
+
+    /**
+     * The last consistent checkpoint.
+     *
+     * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
+     */
+    last_checkpoint: bigint | null;
+    /**
+     * The LSN associated with the last consistent checkpoint.
+     *
+     * This is specifically used to correlate with write checkpoints, and not for resuming replication.
+     */
+    last_checkpoint_lsn: string | null;
+
+    /**
+     * If set, no new checkpoints may be created < this value.
+     */
+    no_checkpoint_before: string | null;
+
+    /**
+     * Goes together with no_checkpoint_before.
+     *
+     * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
+     * then the checkpoint must be equal to this keepalive_op.
+     *
+     * TODO: Re-check this - the description above is confusing.
+     */
+    keepalive_op: bigint | null;
+
+    // TODO: check whether these fields should be top-level or per-sync-config
+    // last_checkpoint_ts: Date | null;
+    // last_keepalive_ts: Date | null;
+    // last_fatal_error: string | null;
+    // last_fatal_error_ts: Date | null;
+  }[];
+}
+
+export interface SyncConfigDefinition {
+  _id: bson.ObjectId;
+  state: SyncRuleState;
+  created_at: Date;
+  storage_version: number;
+
+  content: string;
+  serialized_plan?: SerializedSyncPlan | null;
+
+  rule_mapping: {
+    /**
+     * Map of uniqueName -> id, unique per replication stream.
+     */
+    definitions: Record<string, string>;
+    /**
+     * Map of (lookupName, queryId) -> id, unique per replication stream.
+     */
+    parameter_indexes: Record<string, string>;
+  };
+}
 
 export interface CurrentBucketV3 extends CurrentBucket {
   def: BucketDefinitionId;
