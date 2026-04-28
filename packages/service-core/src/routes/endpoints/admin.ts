@@ -131,6 +131,10 @@ export const reprocess = routeDefinition({
       });
     }
 
+    // There are some differences between this and using asUpdateOptions():
+    // 1. This always re-parses the source YAML. If there are changes to the sync stream compiler, that can affect the sync plan.
+    // 2. If the source does not set the storage version, this will update it do the current version.
+    // We can consider tweaking this behavior in the future.
     const new_rules = await activeBucketStorage.updateSyncRules(
       storage.updateSyncRulesFromYaml(active.sync_rules.config.content, {
         // These sync rules already passed validation. But if the rules are not valid anymore due

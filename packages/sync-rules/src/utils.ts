@@ -62,8 +62,11 @@ export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
   const byBucketId: Record<string, ResolvedBucket> = {};
 
   for (const bucket of buckets) {
-    if (Object.hasOwn(byBucketId, bucket.bucket)) {
-      byBucketId[bucket.bucket].inclusion_reasons.push(...bucket.inclusion_reasons);
+    const existing = byBucketId[bucket.bucket];
+
+    if (existing != null) {
+      existing.inclusion_reasons.push(...bucket.inclusion_reasons);
+      existing.priority = Math.min(existing.priority, bucket.priority) as BucketPriority;
     } else {
       // Clone so that we can modify the merged value without affecting the input value
       byBucketId[bucket.bucket] = cloneResolvedBucket(bucket);

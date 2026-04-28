@@ -1,6 +1,5 @@
 import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
 import {
-  ParameterIndexLookupCreator,
   BucketParameterQuerier,
   CompatibilityContext,
   EvaluatedParameters,
@@ -14,6 +13,7 @@ import {
   mergeBucketParameterQueriers,
   mergeDataSources,
   mergeParameterIndexLookupCreators,
+  ParameterIndexLookupCreator,
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,

@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
 import { matchedSchemaChangeQuery } from '@module/utils/parser-utils.js';
+import { describe, expect, test } from 'vitest';
 
 describe('MySQL Parser Util Tests', () => {
   test('matchedSchemaChangeQuery function', () => {

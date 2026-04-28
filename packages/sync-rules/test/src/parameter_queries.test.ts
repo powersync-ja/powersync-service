@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 import { HydrationState } from '../../src/HydrationState.js';
 import {
-  BucketParameterQuerier,
   BucketDataScope,
+  BucketParameterQuerier,
   GetQuerierOptions,
   mergeParameterIndexLookupCreators,
   ParameterLookupScope,
   QuerierError,
-  RequestParameters,
   ScopedParameterLookup,
   SourceTableInterface,
   SqlParameterQuery,

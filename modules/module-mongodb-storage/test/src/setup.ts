@@ -1,6 +1,6 @@
 import { container } from '@powersync/lib-services-framework';
-import { beforeAll, beforeEach } from 'vitest';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
+import { beforeAll, beforeEach } from 'vitest';
 
 beforeAll(async () => {
   // Executes for every test file

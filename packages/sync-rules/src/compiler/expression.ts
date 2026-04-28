@@ -1,13 +1,13 @@
 import { Expr, NodeLocation, PGNode } from 'pgsql-ast-parser';
-import { SourceResultSet } from './table.js';
-import { EqualsIgnoringResultSet, equalsIgnoringResultSetList } from './compatibility.js';
-import { StableHasher } from './equality.js';
-import { ConnectionParameterSource } from '../sync_plan/plan.js';
+import { getLocation } from '../errors.js';
 import { ExternalData, SqlExpression } from '../sync_plan/expression.js';
 import { ExpressionToSqlite } from '../sync_plan/expression_to_sql.js';
 import { RecursiveExpressionVisitor } from '../sync_plan/expression_visitor.js';
-import { getLocation } from '../errors.js';
+import { ConnectionParameterSource } from '../sync_plan/plan.js';
+import { EqualsIgnoringResultSet, equalsIgnoringResultSetList } from './compatibility.js';
 import { ParsingErrorListener } from './compiler.js';
+import { StableHasher } from './equality.js';
+import { SourceResultSet } from './table.js';
 
 /**
  * An analyzed SQL expression tracking dependencies on non-static data (i.e. rows or connection sources).

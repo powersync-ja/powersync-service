@@ -1,4 +1,4 @@
-import { Expr, NodeLocation, PGNode } from 'pgsql-ast-parser';
+import { NodeLocation, PGNode } from 'pgsql-ast-parser';
 import * as yaml from 'yaml';
 
 export interface ErrorLocation {

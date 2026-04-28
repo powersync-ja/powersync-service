@@ -17,8 +17,8 @@ import {
 } from '@powersync/service-core';
 import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
 import mysqlPromise from 'mysql2/promise';
-import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 import timers from 'timers/promises';
+import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 
 /**
  * Tests operating on the binlog stream need to configure the stream and manage asynchronous

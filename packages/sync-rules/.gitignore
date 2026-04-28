@@ -1,1 +1,3 @@
 schema/
+grammar/docs/*
+!grammar/docs/*.resolved.ebnf

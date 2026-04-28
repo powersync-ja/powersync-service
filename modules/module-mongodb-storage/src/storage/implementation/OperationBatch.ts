@@ -2,7 +2,7 @@ import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { storage } from '@powersync/service-core';
-import { mongoTableId } from '../storage-index.js';
+import { mongoTableId } from '../../utils/util.js';
 
 /**
  * Maximum number of operations in a batch.

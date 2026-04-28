@@ -1,16 +1,14 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { api, ParseSyncRulesOptions, ReplicationHeadCallback } from '@powersync/service-core';
 import * as pgwire from '@powersync/service-jpgwire';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import * as replication_utils from '../replication/replication-utils.js';
-import { getDebugTableInfo } from '../replication/replication-utils.js';
 import { KEEPALIVE_STATEMENT, PUBLICATION_NAME } from '../replication/WalStream.js';
+import { PostgresTypeResolver } from '../types/resolver.js';
 import * as types from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
-import { CustomTypeRegistry } from '../types/registry.js';
-import { PostgresTypeResolver } from '../types/resolver.js';
 
 export class PostgresRouteAPIAdapter implements api.RouteAPI {
   private typeCache: PostgresTypeResolver;
@@ -141,85 +139,25 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
     tablePatterns: sync_rules.TablePattern[],
     sqlSyncRules: sync_rules.SqlSyncRules
   ): Promise<api.PatternResult[]> {
-    let result: api.PatternResult[] = [];
-
-    for (let tablePattern of tablePatterns) {
-      const schema = tablePattern.schema;
-
-      let patternResult: api.PatternResult = {
-        schema: schema,
-        pattern: tablePattern.tablePattern,
-        wildcard: tablePattern.isWildcard
-      };
-      result.push(patternResult);
-
-      if (tablePattern.isWildcard) {
-        patternResult.tables = [];
-        const prefix = tablePattern.tablePrefix;
-        const results = await lib_postgres.retriedQuery(this.pool, {
-          statement: `SELECT c.oid AS relid, c.relname AS table_name
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1
-        AND c.relkind = 'r'
-        AND c.relname LIKE $2`,
-          params: [
-            { type: 'varchar', value: schema },
-            { type: 'varchar', value: tablePattern.tablePattern }
-          ]
-        });
-
-        for (let row of pgwire.pgwireRows(results)) {
-          const name = row.table_name as string;
-          const relationId = row.relid as number;
-          if (!name.startsWith(prefix)) {
-            continue;
-          }
-          const details = await this.getDebugTableInfo(tablePattern, name, relationId, sqlSyncRules);
-          patternResult.tables.push(details);
-        }
-      } else {
-        const results = await lib_postgres.retriedQuery(this.pool, {
-          statement: `SELECT c.oid AS relid, c.relname AS table_name
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1
-        AND c.relkind = 'r'
-        AND c.relname = $2`,
-          params: [
-            { type: 'varchar', value: schema },
-            { type: 'varchar', value: tablePattern.tablePattern }
-          ]
-        });
-        if (results.rows.length == 0) {
-          // Table not found
-          patternResult.table = await this.getDebugTableInfo(tablePattern, tablePattern.name, null, sqlSyncRules);
-        } else {
-          const row = pgwire.pgwireRows(results)[0];
-          const name = row.table_name as string;
-          const relationId = row.relid as number;
-          patternResult.table = await this.getDebugTableInfo(tablePattern, name, relationId, sqlSyncRules);
-        }
-      }
+    if (!this.config) {
+      throw new ServiceAssertionError(`config is required`);
     }
-    return result;
-  }
 
-  protected async getDebugTableInfo(
-    tablePattern: sync_rules.TablePattern,
-    name: string,
-    relationId: number | null,
-    syncRules: sync_rules.SqlSyncRules
-  ): Promise<service_types.TableInfo> {
-    return getDebugTableInfo({
-      db: this.pool,
-      name: name,
-      publicationName: this.publicationName,
-      connectionTag: this.connectionTag,
-      tablePattern: tablePattern,
-      relationId: relationId,
-      syncRules: syncRules
+    const connection = await pgwire.connectPgWire(this.config, {
+      type: 'standard',
+      applicationName: getApplicationName()
     });
+    try {
+      return await replication_utils.getDebugTablesInfo({
+        db: connection,
+        publicationName: this.publicationName,
+        connectionTag: this.connectionTag,
+        tablePatterns,
+        syncRules: sqlSyncRules
+      });
+    } finally {
+      await connection.end();
+    }
   }
 
   async getReplicationLagBytes(options: api.ReplicationLagOptions): Promise<number | undefined> {
@@ -244,6 +182,56 @@ FROM pg_replication_slots WHERE slot_name = $1 LIMIT 1;`,
       code: ErrorCode.PSYNC_S4001,
       description: `Could not determine replication lag for slot ${slotName}`
     });
+  }
+
+  async getSlotWalBudget(options: api.SlotWalBudgetOptions): Promise<api.SlotWalBudgetInfo | undefined> {
+    const { slotName } = options;
+
+    // Query slot status
+    const slotResult = await lib_postgres.retriedQuery(this.pool, {
+      statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
+      params: [{ type: 'varchar', value: slotName }]
+    });
+    const [slot] = pgwire.pgwireRows(slotResult);
+    if (!slot) {
+      return undefined;
+    }
+
+    const walStatus = slot.wal_status;
+    if (walStatus == null) {
+      // PG < 13 — wal_status column doesn't exist
+      return undefined;
+    }
+
+    const result: api.SlotWalBudgetInfo = {
+      wal_status: String(walStatus)
+    };
+
+    // Query max_slot_wal_keep_size
+    try {
+      const settingsResult = await lib_postgres.retriedQuery(this.pool, {
+        statement: `SELECT setting, unit FROM pg_settings WHERE name = 'max_slot_wal_keep_size'`
+      });
+      const [row] = pgwire.pgwireRows(settingsResult);
+      if (row) {
+        const setting = Number(row.setting);
+        if (setting >= 0) {
+          const unit = String(row.unit ?? 'MB');
+          const multiplier = unit === 'kB' ? 1024 : unit === '8kB' ? 8192 : 1024 * 1024; // default MB
+          result.max_slot_wal_keep_size = setting * multiplier;
+        }
+        // setting < 0 means unlimited — leave undefined
+      }
+    } catch (e) {
+      // Best-effort — budget info is informational
+    }
+
+    // safe_wal_size (PG 13+, only populated when max_slot_wal_keep_size is set)
+    if (slot.safe_wal_size != null) {
+      result.safe_wal_size = Number(slot.safe_wal_size);
+    }
+
+    return result;
   }
 
   async getReplicationHead(): Promise<string> {

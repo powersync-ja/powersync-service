@@ -1,5 +1,5 @@
-import { ndjsonStream } from './ndjson.js';
 import type * as types from '@powersync/service-core';
+import { ndjsonStream } from './ndjson.js';
 import { isCheckpoint, isCheckpointComplete, isStreamingSyncData, normalizeData } from './util.js';
 
 export interface GetCheckpointOptions {

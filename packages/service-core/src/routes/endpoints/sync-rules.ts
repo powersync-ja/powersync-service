@@ -4,9 +4,9 @@ import type { FastifyPluginAsync } from 'fastify';
 import * as t from 'ts-codec';
 
 import { RouteAPI } from '../../api/RouteAPI.js';
+import { updateSyncRulesFromConfig, updateSyncRulesFromYaml } from '../../storage/BucketStorageFactory.js';
 import { authApi } from '../auth.js';
 import { routeDefinition } from '../router.js';
-import { updateSyncRulesFromConfig, updateSyncRulesFromYaml } from '../../storage/BucketStorageFactory.js';
 
 const DeploySyncRulesRequest = t.object({
   content: t.string
@@ -56,7 +56,7 @@ export const deploySyncRules = routeDefinition({
 
     try {
       const apiHandler = service_context.routerEngine.getAPI();
-      syncConfig = SqlSyncRules.fromYaml(payload.params.content, {
+      syncConfig = SqlSyncRules.fromYaml(content, {
         ...apiHandler.getParseSyncRulesOptions(),
         // We don't do any schema-level validation at this point
         schema: undefined
@@ -70,9 +70,7 @@ export const deploySyncRules = routeDefinition({
       });
     }
 
-    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(
-      updateSyncRulesFromConfig(syncConfig.config)
-    );
+    const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 
     return {
       slot_name: sync_rules.slot_name

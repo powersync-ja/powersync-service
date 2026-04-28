@@ -14,6 +14,16 @@ export interface ReplicationLagOptions {
   bucketStorage: SyncRulesBucketStorage;
 }
 
+export interface SlotWalBudgetInfo {
+  wal_status: string;
+  safe_wal_size?: number;
+  max_slot_wal_keep_size?: number;
+}
+
+export interface SlotWalBudgetOptions {
+  slotName: string;
+}
+
 /**
  *  Describes all the methods currently required to service the sync API endpoints.
  */
@@ -48,6 +58,13 @@ export interface RouteAPI {
    *          replicated yet, in bytes.
    */
   getReplicationLagBytes(options: ReplicationLagOptions): Promise<number | undefined>;
+
+  /**
+   * @returns WAL budget information for the replication slot, or undefined
+   *          if the slot doesn't exist or the source doesn't support this.
+   *          Only implemented by the Postgres adapter.
+   */
+  getSlotWalBudget?(options: SlotWalBudgetOptions): Promise<SlotWalBudgetInfo | undefined>;
 
   /**
    * Get the current LSN or equivalent replication HEAD position identifier.

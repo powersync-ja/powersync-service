@@ -6,11 +6,11 @@ import { jsonValueToSqlite } from './utils.js';
 // This allows for consumers of this lib to resolve types correctly
 /// <reference types="./wkx.d.ts" />
 import wkx from '@syncpoint/wkx';
-import { ExpressionType, SqliteType, SqliteValueType, TYPE_INTEGER } from './ExpressionType.js';
 import * as uuid from 'uuid';
-import { CustomSqliteValue } from './types/custom_sqlite_value.js';
-import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
 import { cast, CAST_TYPES, castAsBlob, castAsText } from './cast.js';
+import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
+import { ExpressionType, SqliteType, SqliteValueType, TYPE_INTEGER } from './ExpressionType.js';
+import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 
 export const BASIC_OPERATORS = new Set<string>([
   '=',

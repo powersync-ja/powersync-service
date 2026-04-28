@@ -1,9 +1,9 @@
-import { bson, ColumnDescriptor, SourceTable } from '@powersync/service-core';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { MSSQLBaseType } from '../types/mssql-data-types.js';
+import { bson, ColumnDescriptor, SourceTable } from '@powersync/service-core';
 import sql from 'mssql';
-import { escapeIdentifier } from '../utils/mssql.js';
 import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
+import { MSSQLBaseType } from '../types/mssql-data-types.js';
+import { escapeIdentifier } from '../utils/mssql.js';
 
 export interface MSSQLSnapshotQuery {
   initialize(): Promise<void>;

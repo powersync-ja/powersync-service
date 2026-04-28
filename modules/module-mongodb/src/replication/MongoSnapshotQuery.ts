@@ -1,6 +1,8 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { bson } from '@powersync/service-core';
+import { parseDocumentId } from './bufferToSqlite.js';
+import { getCursorBatchBytes } from './internal-mongodb-utils.js';
 
 /**
  * Performs a collection snapshot query, chunking by ranges of _id.
@@ -21,7 +23,9 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
     this.batchSize = options.batchSize;
   }
 
-  async nextChunk(): Promise<{ docs: mongo.Document[]; lastKey: Uint8Array } | { docs: []; lastKey: null }> {
+  async nextChunk(): Promise<
+    { docs: Buffer[]; lastKey: Uint8Array; bytes: number } | { docs: []; lastKey: null; bytes: 0 }
+  > {
     let cursor = this.lastCursor;
     let newCursor = false;
     if (cursor == null || cursor.closed) {
@@ -43,7 +47,8 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
         // batchSize is 1 more than limit to auto-close the cursor.
         // See https://github.com/mongodb/node-mongodb-native/pull/4580
         batchSize: this.batchSize + 1,
-        sort: { _id: 1 }
+        sort: { _id: 1 },
+        raw: true
       });
       newCursor = true;
     }
@@ -52,20 +57,22 @@ export class ChunkedSnapshotQuery implements AsyncDisposable {
       this.lastCursor = null;
       if (newCursor) {
         // We just created a new cursor and it has no results - we have finished the end of the query.
-        return { docs: [], lastKey: null };
+        return { docs: [], lastKey: null, bytes: 0 };
       } else {
         // The cursor may have hit the batch limit - retry
         return this.nextChunk();
       }
     }
-    const docBatch = cursor.readBufferedDocuments();
+    const bytes = getCursorBatchBytes(cursor);
+    const docBatch = cursor.readBufferedDocuments() as Buffer[];
     this.lastCursor = cursor;
     if (docBatch.length == 0) {
       throw new ReplicationAssertionError(`MongoDB snapshot query returned an empty batch, but hasNext() was true.`);
     }
-    const lastKey = docBatch[docBatch.length - 1]._id;
+    const lastDoc = docBatch[docBatch.length - 1];
+    const { id: lastKey, idBuffer } = parseDocumentId(lastDoc);
     this.lastKey = lastKey;
-    return { docs: docBatch, lastKey: bson.serialize({ _id: lastKey }) };
+    return { docs: docBatch, lastKey: idBuffer, bytes };
   }
 
   async [Symbol.asyncDispose](): Promise<void> {

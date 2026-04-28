@@ -4,9 +4,9 @@ import {
   makeMultiHostnameLookupFunction,
   ServiceError
 } from '@powersync/lib-services-framework';
-import * as t from 'ts-codec';
 import ConnectionURI from 'mongodb-connection-string-url';
 import { LookupFunction } from 'node:net';
+import * as t from 'ts-codec';
 
 export const MONGO_CONNECTION_TYPE = 'mongodb' as const;
 
@@ -128,9 +128,12 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded): Normalize
     );
   }
 
-  const database = options.database ?? uri.pathname.split('/')[1] ?? '';
-  const username = options.username ?? uri.username;
-  const password = options.password ?? uri.password;
+  const database = options.database ?? decodeURIComponent(uri.pathname.split('/')[1] ?? '');
+  // ConnectionURI's username/password getters return URL-encoded values.
+  // Decode them so SCRAM auth uses the actual credentials, not the encoded form.
+  // Without this, passwords containing characters like '=', '@', '+' fail authentication.
+  const username = options.username ?? decodeURIComponent(uri.username);
+  const password = options.password ?? decodeURIComponent(uri.password);
 
   uri.password = '';
   uri.username = '';

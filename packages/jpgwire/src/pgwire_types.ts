@@ -7,8 +7,8 @@ import {
   TimeValue,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
-import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 import { StructureParser } from './structure_parser.js';
+import { dateToSqlite, lsnMakeComparable, timestampToSqlite, timestamptzToSqlite } from './util.js';
 
 export enum PgTypeOid {
   TEXT = 25,

@@ -1,9 +1,9 @@
+import { CURRENT_STORAGE_VERSION } from '@powersync/service-core';
 import { describe, expect, test } from 'vitest';
 import { populateData } from '../../dist/utils/populate_test_data.js';
 import { env } from './env.js';
 import { describeWithStorage, StorageVersionTestContext, TEST_CONNECTION_OPTIONS } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
-import { CURRENT_STORAGE_VERSION } from '@powersync/service-core';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage(

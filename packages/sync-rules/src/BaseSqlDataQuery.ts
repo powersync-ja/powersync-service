@@ -8,12 +8,12 @@ import { TablePattern } from './TablePattern.js';
 import {
   QueryParameters,
   QuerySchema,
-  UnscopedEvaluatedRow,
-  UnscopedEvaluationResult,
   SourceSchema,
   SourceSchemaTable,
   SqliteJsonRow,
-  SqliteRow
+  SqliteRow,
+  UnscopedEvaluatedRow,
+  UnscopedEvaluationResult
 } from './types.js';
 import { filterJsonRow } from './utils.js';
 

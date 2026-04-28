@@ -1,9 +1,9 @@
 import * as timers from 'timers/promises';
 
 import { SemaphoreInterface } from 'async-mutex';
+import { serialize } from 'bson';
 import * as util from '../util/util-index.js';
 import { RequestTracker } from './RequestTracker.js';
-import { serialize } from 'bson';
 
 export type TokenStreamOptions = {
   /**

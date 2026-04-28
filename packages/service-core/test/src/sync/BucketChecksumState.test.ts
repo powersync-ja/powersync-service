@@ -15,13 +15,12 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
   ParameterIndexLookupCreator,
-  RequestJwtPayload,
   ScopedParameterLookup,
+  SourceTableInterface,
   SqliteJsonRow,
   SqliteRow,
   SqlSyncRules,
   TablePattern,
-  SourceTableInterface,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
@@ -986,6 +985,7 @@ bucket_definitions:
       expect(errorMessages[0]).toContain('tasks: 20');
       expect(errorMessages[0]).toContain('comments: 10');
 
+      expect(errorData[0].checkpoint).toEqual(1n);
       expect(errorData[0].parameter_query_results).toBe(60);
       expect(errorData[0].parameter_query_results_by_definition).toEqual({
         projects: 30,

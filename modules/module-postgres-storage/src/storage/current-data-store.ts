@@ -1,8 +1,8 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { storage } from '@powersync/service-core';
 import * as t from 'ts-codec';
-import { pick } from '../utils/ts-codec.js';
 import * as models from '../types/models/CurrentData.js';
+import { pick } from '../utils/ts-codec.js';
 
 type Queryable = Pick<lib_postgres.DatabaseClient, 'sql' | 'streamRows'>;
 

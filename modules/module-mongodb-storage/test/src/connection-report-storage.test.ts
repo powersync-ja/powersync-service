@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { INITIALIZED_MONGO_REPORT_STORAGE_FACTORY } from './util.js';
+import { MongoReportStorage } from '@module/storage/MongoReportStorage.js';
 import { register, ReportUserData } from '@powersync/service-core-tests';
 import { event_types } from '@powersync/service-types';
-import { MongoReportStorage } from '@module/storage/MongoReportStorage.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { INITIALIZED_MONGO_REPORT_STORAGE_FACTORY } from './util.js';
 
 const userData = register.REPORT_TEST_USERS;
 const dates = register.REPORT_TEST_DATES;

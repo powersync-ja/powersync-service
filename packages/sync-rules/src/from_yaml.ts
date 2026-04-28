@@ -1,5 +1,4 @@
 import { Document, isScalar, LineCounter, Node, parseDocument, Scalar, YAMLMap, YAMLSeq } from 'yaml';
-import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { DEFAULT_BUCKET_PRIORITY, isValidPriority } from './BucketDescription.js';
 import {
   CompatibilityContext,
@@ -7,18 +6,21 @@ import {
   CompatibilityOption,
   TimeValuePrecision
 } from './compatibility.js';
-import { SqlSyncRules } from './SqlSyncRules.js';
-import { validateSyncRulesSchema } from './json_schema.js';
-import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
-import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
-import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
-import { syncStreamFromSql } from './streams/from_sql.js';
-import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
-import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 import { PreparedSubquery } from './compiler/sqlite.js';
+import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
+import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
+import { validateSyncRulesSchema } from './json_schema.js';
+import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js';
+import { SqlSyncRules } from './SqlSyncRules.js';
+import { validateStorageVersion } from './StorageVersion.js';
+import { syncStreamFromSql } from './streams/from_sql.js';
+import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
+import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
+import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
+import { QueryParseOptions, SourceSchema, StreamParseOptions } from './types.js';
+import { buildParsedToSourceValueMap, isBlockScalar, isQuotedScalar } from './yaml_scalar_map.js';
 
 const ACCEPT_POTENTIALLY_DANGEROUS_QUERIES = Symbol('ACCEPT_POTENTIALLY_DANGEROUS_QUERIES');
 
@@ -68,9 +70,11 @@ export class SyncConfigFromYaml {
     }
 
     let compatibility: CompatibilityContext;
+    let storageVersion: number | undefined;
     if (parsed.has('config')) {
       const declaredOptions = parsed.get('config') as YAMLMap;
       compatibility = this.#parseCompatibilityOptions(declaredOptions);
+      storageVersion = this.#validateStorageVersion(declaredOptions);
     } else {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
     }
@@ -96,6 +100,8 @@ export class SyncConfigFromYaml {
 
       result = this.#legacyParseBucketDefinitionsAndStreams(bucketMap, streamMap, compatibility);
     }
+
+    result.storageVersion = storageVersion;
 
     const eventDefinitions = this.#parseEventDefinitions(parsed, compatibility);
     result.eventDescriptors.push(...eventDefinitions);
@@ -410,6 +416,31 @@ export class SyncConfigFromYaml {
     return rules;
   }
 
+  #validateStorageVersion(config: YAMLMap): number | undefined {
+    const storageScalar = config.get('storage_version', true);
+    if (storageScalar != null) {
+      if (typeof storageScalar.value == 'number') {
+        const rawVersion = storageScalar.value;
+        const version = validateStorageVersion(storageScalar.value);
+        if (version == null) {
+          this.#errors.push(this.#yamlError(storageScalar, `Storage version ${storageScalar.value} is not supported`));
+        } else if (!version.stable) {
+          const error = this.#yamlError(
+            storageScalar,
+            `Storage version ${version.version} is unstable, and may cause unexpected behavior or stop functioning in any release`
+          );
+          error.type = 'warning';
+          this.#errors.push(error);
+        }
+        return version?.version;
+      } else {
+        this.#errors.push(this.#yamlError(storageScalar, 'Storage version must be numeric'));
+        return undefined;
+      }
+    }
+    return undefined;
+  }
+
   #parseEventDefinitions(parsed: Document, compatibility: CompatibilityContext) {
     const eventMap = parsed.get('event_definitions') as YAMLMap;
     const eventDescriptors: SqlEventDescriptor[] = [];
@@ -535,22 +566,33 @@ export class SyncConfigFromYaml {
    * @param error An error in the scalar content. Offsets will be translated to point at the full YAML source.
    */
   #addErrorFromScalar(scalar: Scalar, value: string, err: SqlRuleError) {
-    let sourceOffset = scalar.srcToken!.offset;
-    if (scalar.type == Scalar.QUOTE_DOUBLE || scalar.type == Scalar.QUOTE_SINGLE) {
-      // TODO: Is there a better way to do this?
-      sourceOffset += 1;
-    }
+    const srcToken = scalar.srcToken!;
+    // For block scalars, skip past the | or > header line. For quoted scalars, skip the opening quote.
+    const valueStart = isBlockScalar(scalar.type)
+      ? this.yaml.indexOf('\n', srcToken.offset) + 1
+      : srcToken.offset + (isQuotedScalar(scalar.type) ? 1 : 0);
+
     let offset: number;
     let end: number;
+
+    // Build an offset map to translate parsed-value positions to source positions, handling
+    // escape sequences in quoted scalars and stripped indentation in block scalars.
+    const valueSource = isQuotedScalar(scalar.type)
+      ? this.yaml.slice(valueStart, scalar.range![1] - 1)
+      : this.yaml.slice(valueStart, scalar.range![1]);
+    const offsetMap = buildParsedToSourceValueMap(valueSource, scalar.type);
+
     if (err instanceof SqlRuleError && err.location) {
-      offset = err.location!.start + sourceOffset;
-      end = err.location!.end + sourceOffset;
+      offset = valueStart + (offsetMap[err.location.start] ?? err.location.start);
+      end = valueStart + (offsetMap[err.location.end] ?? err.location.end);
     } else if (typeof (err as any).token?._location?.start == 'number') {
-      offset = sourceOffset + (err as any).token?._location?.start;
-      end = sourceOffset + (err as any).token?._location?.end;
+      const rawStart = (err as any).token._location.start;
+      const rawEnd = (err as any).token._location.end;
+      offset = valueStart + (offsetMap[rawStart] ?? rawStart);
+      end = valueStart + (offsetMap[rawEnd] ?? rawEnd);
     } else {
-      offset = sourceOffset;
-      end = sourceOffset + Math.max(value.length, 1);
+      offset = valueStart;
+      end = valueStart + Math.max(value.length, 1);
     }
 
     const pos = { start: offset, end };

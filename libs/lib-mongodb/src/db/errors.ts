@@ -4,8 +4,8 @@ import {
   ErrorCode,
   ServiceError
 } from '@powersync/lib-services-framework';
-import { isMongoServerError } from './mongo.js';
 import { MongoNetworkError, MongoServerSelectionError } from 'mongodb';
+import { isMongoServerError } from './mongo.js';
 
 export function mapConnectionError(err: any): ServiceError {
   const cause = err.cause;

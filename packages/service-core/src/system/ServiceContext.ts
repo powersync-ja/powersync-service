@@ -1,5 +1,6 @@
 import { container, LifeCycledSystem, MigrationManager, ServiceIdentifier } from '@powersync/lib-services-framework';
 
+import { EventsEngine } from '../events/EventsEngine.js';
 import { framework } from '../index.js';
 import * as metrics from '../metrics/MetricsEngine.js';
 import { PowerSyncMigrationManager } from '../migrations/PowerSyncMigrationManager.js';
@@ -8,7 +9,6 @@ import * as routes from '../routes/routes-index.js';
 import * as storage from '../storage/storage-index.js';
 import { SyncContext } from '../sync/SyncContext.js';
 import * as utils from '../util/util-index.js';
-import { EventsEngine } from '../events/EventsEngine.js';
 
 export interface ServiceContext {
   configuration: utils.ResolvedPowerSyncConfig;

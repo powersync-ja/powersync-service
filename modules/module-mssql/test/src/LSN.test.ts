@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
 import { LSN } from '@module/common/LSN.js';
+import { describe, expect, test } from 'vitest';
 
 describe('LSN', () => {
   test('normalizes lowercase hex strings to uppercase', () => {

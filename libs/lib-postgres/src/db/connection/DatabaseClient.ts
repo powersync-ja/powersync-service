@@ -1,6 +1,6 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
+import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import * as pgwire from '@powersync/service-jpgwire';
-import pDefer, { DeferredPromise } from 'p-defer';
 import { AbstractPostgresConnection, sql } from './AbstractPostgresConnection.js';
 import { ConnectionLease, ConnectionSlot, NotificationListener } from './ConnectionSlot.js';
 import { WrappedConnection } from './WrappedConnection.js';
@@ -32,6 +32,8 @@ export const TRANSACTION_CONNECTION_COUNT = 5;
  * which require being executed on the same connection.
  */
 export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientListener> {
+  [DO_NOT_LOG] = true;
+
   closed: boolean;
 
   pool: pgwire.PgClient;
@@ -39,7 +41,7 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
   protected connections: ConnectionSlot[];
 
   protected initialized: Promise<void>;
-  protected queue: DeferredPromise<ConnectionLease>[];
+  protected queue: PromiseWithResolvers<ConnectionLease>[];
 
   constructor(protected options: DatabaseClientOptions) {
     super();
@@ -197,7 +199,7 @@ export class DatabaseClient extends AbstractPostgresConnection<DatabaseClientLis
     await this.initialized;
 
     // Queue the operation
-    const deferred = pDefer<ConnectionLease>();
+    const deferred = Promise.withResolvers<ConnectionLease>();
     this.queue.push(deferred);
 
     this.pokeSlots();

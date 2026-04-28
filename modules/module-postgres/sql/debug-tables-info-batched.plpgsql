@@ -1,0 +1,230 @@
+DO $$
+DECLARE
+  input_patterns jsonb := current_setting('powersync.debug.table_patterns', true)::jsonb;
+  current_publication text := current_setting('powersync.debug.publication_name', true);
+  select_probe_results jsonb := '[]'::jsonb;
+  debug_cursor refcursor := 'powersync_debug_tables_cursor';
+  select_target record;
+BEGIN
+  -- Capture per-table read failures without aborting the whole batch.
+  FOR select_target IN
+    WITH patterns AS (
+      SELECT *
+      FROM jsonb_to_recordset(input_patterns) AS p(
+        pattern_ord int,
+        schema_name text,
+        table_pattern text,
+        is_wildcard boolean,
+        table_prefix text,
+        input_name text
+      )
+    )
+    SELECT
+      p.pattern_ord,
+      p.schema_name,
+      c.relname AS table_name,
+      c.oid::int8 AS relid
+    FROM patterns p
+    JOIN pg_namespace n ON n.nspname = p.schema_name
+    JOIN pg_class c ON c.relnamespace = n.oid
+    WHERE c.relkind = 'r'
+      AND (
+        (p.is_wildcard AND c.relname LIKE p.table_pattern AND left(c.relname, length(p.table_prefix)) = p.table_prefix)
+        OR
+        (NOT p.is_wildcard AND c.relname = p.table_pattern)
+      )
+    ORDER BY p.pattern_ord, c.relname
+  LOOP
+    BEGIN
+      -- Query a single row from each table, to confirm that we can query the table
+      -- (no permission errors)
+      -- %I covers identifier escaping
+      EXECUTE format('SELECT 1 FROM %I.%I LIMIT 1', select_target.schema_name, select_target.table_name);
+      select_probe_results := select_probe_results || jsonb_build_array(
+        jsonb_build_object(
+          'pattern_ord', select_target.pattern_ord,
+          'relid', select_target.relid,
+          'message', NULL
+        )
+      );
+    EXCEPTION WHEN OTHERS THEN
+      select_probe_results := select_probe_results || jsonb_build_array(
+        jsonb_build_object(
+          'pattern_ord', select_target.pattern_ord,
+          'relid', select_target.relid,
+          'message', SQLERRM
+        )
+      );
+    END;
+  END LOOP;
+
+  -- OPEN debug_cursor to allow returning results
+  OPEN debug_cursor FOR
+    WITH patterns AS (
+      -- Rehydrate the requested patterns once for the bulk metadata pass.
+      SELECT *
+      FROM jsonb_to_recordset(input_patterns) AS p(
+        pattern_ord int,
+        schema_name text,
+        table_pattern text,
+        is_wildcard boolean,
+        table_prefix text,
+        input_name text
+      )
+    ),
+    matched AS (
+      -- Expand each requested pattern to the concrete tables that exist.
+      SELECT
+        p.pattern_ord,
+        p.schema_name,
+        p.table_pattern,
+        p.is_wildcard,
+        p.input_name,
+        c.relid,
+        c.table_name,
+        c.relreplident,
+        c.relrowsecurity
+      FROM patterns p
+      LEFT JOIN LATERAL (
+        SELECT
+          c.oid::int8 AS relid,
+          c.relname AS table_name,
+          c.relreplident,
+          c.relrowsecurity
+        FROM pg_namespace n
+        JOIN pg_class c ON c.relnamespace = n.oid
+        WHERE n.nspname = p.schema_name
+          AND c.relkind = 'r'
+          AND (
+            (p.is_wildcard AND c.relname LIKE p.table_pattern AND left(c.relname, length(p.table_prefix)) = p.table_prefix)
+            OR
+            (NOT p.is_wildcard AND c.relname = p.table_pattern)
+          )
+        ORDER BY c.relname
+      ) c ON true
+      WHERE NOT p.is_wildcard OR c.relid IS NOT NULL
+    ),
+    existing AS (
+      -- Deduplicate matched tables while carrying the pg_class metadata we already have.
+      SELECT DISTINCT
+        relid::oid AS relid,
+        CASE relreplident
+          WHEN 'd' THEN 'default'
+          WHEN 'n' THEN 'nothing'
+          WHEN 'f' THEN 'full'
+          WHEN 'i' THEN 'index'
+        END AS replication_identity,
+        relrowsecurity AS rls_enabled
+      FROM matched
+      WHERE relid IS NOT NULL
+    ),
+    replication_columns AS (
+      -- Resolve the actual replication-id columns for default/index/full modes.
+      SELECT
+        e.relid,
+        a.attname AS name,
+        a.attnum AS attnum
+      FROM existing e
+      JOIN pg_index i ON i.indrelid = e.relid AND i.indisprimary
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE e.replication_identity = 'default' AND a.attnum > 0
+
+      UNION ALL
+
+      SELECT
+        e.relid,
+        a.attname AS name,
+        a.attnum AS attnum
+      FROM existing e
+      JOIN pg_index i ON i.indrelid = e.relid AND i.indisreplident
+      JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+      WHERE e.replication_identity = 'index' AND a.attnum > 0
+
+      UNION ALL
+
+      SELECT
+        e.relid,
+        a.attname AS name,
+        a.attnum AS attnum
+      FROM existing e
+      JOIN pg_attribute a ON a.attrelid = e.relid
+      WHERE e.replication_identity = 'full' AND a.attnum > 0
+    ),
+    publication_membership AS (
+      -- Check publication membership in bulk instead of once per table.
+      SELECT
+        m.pattern_ord,
+        m.relid
+      FROM matched m
+      JOIN pg_publication_tables p
+        ON p.pubname = current_publication
+       AND p.schemaname = m.schema_name
+       AND p.tablename = m.table_name
+      WHERE m.relid IS NOT NULL
+    ),
+    user_info AS (
+      -- Current-role capabilities are constant across all tables in this batch.
+      SELECT
+        current_user AS username,
+        r.rolsuper AS is_superuser,
+        r.rolbypassrls AS bypasses_rls
+      FROM pg_roles r
+      WHERE r.rolname = current_user
+    ),
+    rls_check AS (
+      -- Pair role capabilities with the row-security metadata already carried from pg_class.
+      SELECT
+        e.relid::int8 AS relid,
+        e.rls_enabled,
+        u.username,
+        u.is_superuser,
+        u.bypasses_rls
+      FROM existing e
+      CROSS JOIN user_info u
+    ),
+    select_probes AS (
+      -- Rehydrate the recorded SELECT probe failures for the final result set.
+      SELECT *
+      FROM jsonb_to_recordset(select_probe_results) AS s(
+        pattern_ord int,
+        relid int8,
+        message text
+      )
+    )
+    SELECT
+      m.pattern_ord,
+      m.schema_name,
+      COALESCE(m.table_name, m.input_name) AS name,
+      m.relid AS relation_id,
+      e.replication_identity,
+      COALESCE(
+        jsonb_agg(rc.name ORDER BY rc.attnum) FILTER (WHERE rc.name IS NOT NULL),
+        '[]'::jsonb
+      )::text AS replication_id_json,
+      sp.message AS select_error,
+      (pm.relid IS NOT NULL) AS in_publication,
+      rls.rls_enabled,
+      rls.username,
+      rls.is_superuser,
+      rls.bypasses_rls
+    FROM matched m
+    LEFT JOIN existing e ON e.relid = m.relid
+    LEFT JOIN replication_columns rc ON rc.relid = m.relid
+    LEFT JOIN publication_membership pm ON pm.pattern_ord = m.pattern_ord AND pm.relid = m.relid
+    LEFT JOIN rls_check rls ON rls.relid = m.relid
+    LEFT JOIN select_probes sp ON sp.pattern_ord = m.pattern_ord AND sp.relid = m.relid
+    GROUP BY
+      m.pattern_ord,
+      m.schema_name,
+      COALESCE(m.table_name, m.input_name),
+      m.relid,
+      e.replication_identity,
+      sp.message,
+      pm.relid,
+      rls.rls_enabled,
+      rls.username,
+      rls.is_superuser,
+      rls.bypasses_rls
+    ORDER BY m.pattern_ord, COALESCE(m.table_name, m.input_name);
+END
+$$

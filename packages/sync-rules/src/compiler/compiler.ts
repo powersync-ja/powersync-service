@@ -1,16 +1,16 @@
 import { NodeLocation, parse, PGNode, Statement } from 'pgsql-ast-parser';
-import { HashSet } from './equality.js';
-import { PointLookup, RowEvaluator } from './rows.js';
-import { StreamResolver } from './bucket_resolver.js';
 import { StreamOptions, SyncPlan } from '../sync_plan/plan.js';
-import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
-import { QuerierGraphBuilder } from './querier_graph.js';
-import { StreamQueryParser } from './parser.js';
+import { SourceSchema } from '../types.js';
+import { StreamResolver } from './bucket_resolver.js';
+import { DangerousParameterDetector } from './detect_dangerous_parameters.js';
+import { HashSet } from './equality.js';
 import { NodeLocations } from './expression.js';
+import { CompilerModelToSyncPlan } from './ir_to_sync_plan.js';
+import { StreamQueryParser } from './parser.js';
+import { QuerierGraphBuilder } from './querier_graph.js';
+import { PointLookup, RowEvaluator } from './rows.js';
 import { SqlScope } from './scope.js';
 import { PreparedSubquery } from './sqlite.js';
-import { SourceSchema } from '../types.js';
-import { DangerousParameterDetector } from './detect_dangerous_parameters.js';
 
 export interface SyncStreamsCompilerOptions {
   /**

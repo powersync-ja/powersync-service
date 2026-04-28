@@ -1,14 +1,16 @@
+import { describe, expect, test } from 'vitest';
 import {
   applyValueContext,
+  BucketDataSource,
   CompatibilityContext,
-  DateTimeValue,
-  toSyncRulesValue,
-  TimeValue,
-  CompatibilityEdition,
   DateTimeSourceOptions,
-  TimeValuePrecision
+  DateTimeValue,
+  mergeBuckets,
+  ResolvedBucket,
+  TimeValue,
+  TimeValuePrecision,
+  toSyncRulesValue
 } from '../../src/index.js';
-import { describe, expect, test } from 'vitest';
 
 describe('toSyncRulesValue', () => {
   const legacy = new CompatibilityContext({ edition: 1 });
@@ -40,5 +42,34 @@ describe('toSyncRulesValue', () => {
 
     expect(TimeValue.parse('12:13:14.15', sourceOptions)?.toSqliteValue(syncStreams)).toStrictEqual('12:13:14.150');
     expect(TimeValue.parse('12:13:14.15', sourceOptions)?.toSqliteValue(legacy)).toStrictEqual('12:13:14.15');
+  });
+});
+
+describe('mergeBuckets', () => {
+  test('merges single bucket', () => {
+    const fakeSource: BucketDataSource = null as any;
+    const a: ResolvedBucket = {
+      definition: 'a',
+      inclusion_reasons: ['default'],
+      priority: 3,
+      bucket: 'bkt',
+      source: fakeSource
+    };
+    const b: ResolvedBucket = {
+      definition: 'a',
+      inclusion_reasons: [{ subscription: 1 }],
+      priority: 2,
+      bucket: 'bkt',
+      source: fakeSource
+    };
+
+    expect(mergeBuckets([a, b])).toStrictEqual([
+      {
+        definition: 'a',
+        inclusion_reasons: ['default', { subscription: 1 }],
+        priority: 2,
+        bucket: 'bkt'
+      }
+    ]);
   });
 });

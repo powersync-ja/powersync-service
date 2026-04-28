@@ -1,13 +1,13 @@
-import type { ParameterIndexLookupCreator, BucketDataSource } from '../BucketSource.js';
-import { StableHasher } from './equality.js';
+import type { BucketDataSource, ParameterIndexLookupCreator } from '../BucketSource.js';
+import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import {
   EqualsIgnoringResultSet,
   equalsIgnoringResultSetList,
   equalsIgnoringResultSetUnordered
 } from './compatibility.js';
+import { StableHasher } from './equality.js';
 import { RowExpression } from './filter.js';
 import { PhysicalSourceResultSet, TableValuedResultSet } from './table.js';
-import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 
 /**
  * A key describing how buckets or parameter lookups are parameterized.

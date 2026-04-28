@@ -1,13 +1,13 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
 import { BucketPriority } from './BucketDescription.js';
 import { ScopedParameterLookup, UnscopedParameterLookup } from './BucketParameterQuerier.js';
+import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { RequestFunctionCall } from './request_functions.js';
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
-import { BucketDataSource } from './BucketSource.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
 import { jsonValueToSqlite, toSyncRulesParameters } from './utils.js';
 

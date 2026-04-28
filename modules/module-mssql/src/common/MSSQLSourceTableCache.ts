@@ -1,6 +1,6 @@
 import { SourceTable } from '@powersync/service-core';
-import { MSSQLSourceTable } from './MSSQLSourceTable.js';
 import { ServiceAssertionError } from '@powersync/service-errors';
+import { MSSQLSourceTable } from './MSSQLSourceTable.js';
 
 export class MSSQLSourceTableCache {
   private cache = new Map<number | string, MSSQLSourceTable>();

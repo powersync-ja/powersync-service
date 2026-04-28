@@ -1,5 +1,11 @@
 # @powersync/service-types
 
+## 0.15.1
+
+### Patch Changes
+
+- 41875f7: Detect WAL slot invalidation mid-snapshot, warn on WAL budget depletion, block futile retries, and surface WAL budget in the diagnostics API.
+
 ## 0.15.0
 
 ### Minor Changes

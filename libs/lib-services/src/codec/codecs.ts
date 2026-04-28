@@ -1,6 +1,6 @@
-import * as t from 'ts-codec';
-import * as bson from 'bson';
 import { DateTimeValue } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
+import * as t from 'ts-codec';
 
 export const buffer = t.codec<Buffer, string>(
   'Buffer',

@@ -1,4 +1,3 @@
-import { describe, expect, test, beforeEach } from 'vitest';
 import { CustomTypeRegistry } from '@module/types/registry.js';
 import { CHAR_CODE_COMMA, PgTypeOid } from '@powersync/service-jpgwire';
 import {
@@ -7,6 +6,7 @@ import {
   CompatibilityEdition,
   toSyncRulesValue
 } from '@powersync/service-sync-rules';
+import { beforeEach, describe, expect, test } from 'vitest';
 
 describe('custom type registry', () => {
   let registry: CustomTypeRegistry;

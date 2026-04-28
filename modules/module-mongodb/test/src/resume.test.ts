@@ -15,7 +15,17 @@ function defineResumeTest({ factory: factoryGenerator, storageVersion }: Storage
     return ChangeStreamTestContext.open(factoryGenerator, { ...options, storageVersion });
   };
 
-  test('resuming with a different source database', async () => {
+  test.skip('resuming with a different source database', async () => {
+    // This test is not functioning anymore.
+    // Previously, we mostly used individual change stream _id's for resumeTokens. Those would become invalid
+    // when the database is changed.
+    // Now, we mostly use postBatchResumeToken when we can, which do not become invalidated in this case.
+    // This is recommended by the change stream spec.
+    // The old behavior wasn't 100% consistent either - it _could_ use postBatchResumeToken, in which
+    // case it would similarly not be invalidated.
+    // We can revisit the logic to invalidate the change stream at a later point, potentially by
+    // keeping track of the source database name.
+
     await using context = await openContext();
     const { db } = context;
 

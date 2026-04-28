@@ -1,5 +1,17 @@
 # @powersync/service-errors
 
+## 0.4.2
+
+### Patch Changes
+
+- 41875f7: Detect WAL slot invalidation mid-snapshot, warn on WAL budget depletion, block futile retries, and surface WAL budget in the diagnostics API.
+
+## 0.4.1
+
+### Patch Changes
+
+- 8d5d7ee: Added schema change detection and handling for the SQL Server adapter
+
 ## 0.4.0
 
 ### Minor Changes

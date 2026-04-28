@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+import { logger } from '@powersync/lib-services-framework';
 import {
   Closeable,
   Deferred,
@@ -28,7 +29,6 @@ import {
 } from 'rsocket-core';
 import * as WebSocket from 'ws';
 import { WebsocketDuplexConnection } from './WebsocketDuplexConnection.js';
-import { logger } from '@powersync/lib-services-framework';
 
 export type SocketFactory = (options: SocketOptions) => WebSocket.WebSocketServer;
 

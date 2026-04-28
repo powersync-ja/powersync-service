@@ -323,6 +323,224 @@ exports[`common table expressions > as parameter query 1`] = `
 }
 `;
 
+exports[`common table expressions > can reference CTE multiple times 1`] = `
+{
+  "buckets": [
+    {
+      "hash": 187425881,
+      "sources": [
+        0,
+      ],
+      "uniqueName": "a|0",
+    },
+  ],
+  "dataSources": [
+    {
+      "columns": [
+        "star",
+      ],
+      "filters": [],
+      "hash": 6968780,
+      "outputTableName": "tbl_a",
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "col_1",
+            },
+            "type": "data",
+          },
+        },
+        {
+          "expr": {
+            "source": {
+              "column": "col_2",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "tbl_a",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "parameterIndexes": [
+    {
+      "filters": [],
+      "hash": 250920890,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "0",
+      },
+      "output": [
+        {
+          "source": {
+            "column": "id",
+          },
+          "type": "data",
+        },
+      ],
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "id",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "user_profiles",
+      },
+      "tableValuedFunctions": [],
+    },
+    {
+      "filters": [],
+      "hash": 215867003,
+      "lookupScope": {
+        "lookupName": "lookup",
+        "queryId": "1",
+      },
+      "output": [
+        {
+          "source": {
+            "column": "id",
+          },
+          "type": "data",
+        },
+      ],
+      "partitionBy": [
+        {
+          "expr": {
+            "source": {
+              "column": "col_1",
+            },
+            "type": "data",
+          },
+        },
+      ],
+      "table": {
+        "connection": null,
+        "schema": null,
+        "table": "tbl_2",
+      },
+      "tableValuedFunctions": [],
+    },
+  ],
+  "streams": [
+    {
+      "queriers": [
+        {
+          "bucket": 0,
+          "lookupStages": [
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "function": "->>",
+                      "parameters": [
+                        {
+                          "source": {
+                            "request": "auth",
+                          },
+                          "type": "data",
+                        },
+                        {
+                          "type": "lit_string",
+                          "value": "$.sub",
+                        },
+                      ],
+                      "type": "function",
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+            ],
+            [
+              {
+                "instantiation": [
+                  {
+                    "expr": {
+                      "function": "->>",
+                      "parameters": [
+                        {
+                          "source": {
+                            "request": "auth",
+                          },
+                          "type": "data",
+                        },
+                        {
+                          "type": "lit_string",
+                          "value": "$.sub",
+                        },
+                      ],
+                      "type": "function",
+                    },
+                    "type": "request",
+                  },
+                ],
+                "lookup": 0,
+                "type": "parameter",
+              },
+              {
+                "instantiation": [
+                  {
+                    "lookup": {
+                      "idInStage": 0,
+                      "stageId": 0,
+                    },
+                    "resultIndex": 0,
+                    "type": "lookup",
+                  },
+                ],
+                "lookup": 1,
+                "type": "parameter",
+              },
+            ],
+          ],
+          "requestFilters": [],
+          "sourceInstantiation": [
+            {
+              "lookup": {
+                "idInStage": 0,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+            {
+              "lookup": {
+                "idInStage": 1,
+                "stageId": 1,
+              },
+              "resultIndex": 0,
+              "type": "lookup",
+            },
+          ],
+        },
+      ],
+      "stream": {
+        "isSubscribedByDefault": false,
+        "name": "a",
+        "priority": 3,
+      },
+    },
+  ],
+  "version": 1,
+}
+`;
+
 exports[`common table expressions > multiple output references 1`] = `
 {
   "buckets": [

@@ -34,9 +34,9 @@ import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTabl
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
+import { PostgresCurrentDataStore } from './current-data-store.js';
 import { PostgresBucketStorageFactory } from './PostgresBucketStorageFactory.js';
 import { PostgresCompactor } from './PostgresCompactor.js';
-import { PostgresCurrentDataStore } from './current-data-store.js';
 
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
@@ -50,6 +50,8 @@ export class PostgresSyncRulesStorage
   extends framework.BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
+  [framework.DO_NOT_LOG] = true;
+
   public readonly group_id: number;
   public readonly sync_rules: storage.PersistedSyncRulesContent;
   public readonly slot_name: string;

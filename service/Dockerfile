@@ -1,4 +1,4 @@
-FROM node:24.13.0-trixie AS builder
+FROM node:24.14.0-trixie AS builder
 WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
@@ -46,6 +46,7 @@ COPY libs/lib-postgres/src libs/lib-postgres/src/
 
 COPY modules/module-core/src modules/module-core/src/
 COPY modules/module-postgres/src modules/module-postgres/src/
+COPY modules/module-postgres/sql modules/module-postgres/sql/
 COPY modules/module-postgres-storage/src modules/module-postgres-storage/src/
 COPY modules/module-mongodb/src modules/module-mongodb/src/
 COPY modules/module-mongodb-storage/src modules/module-mongodb-storage/src/
@@ -59,7 +60,7 @@ RUN pnpm build:production && \
 
 # === PROD ===
 
-FROM node:24.13.0-trixie-slim
+FROM node:24.14.0-trixie-slim
 WORKDIR /app
 
 COPY --from=builder /app/ ./

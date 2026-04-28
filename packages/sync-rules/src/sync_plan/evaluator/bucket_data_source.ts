@@ -1,4 +1,5 @@
 import { BucketDataSource } from '../../BucketSource.js';
+import { idFromData } from '../../cast.js';
 import { ColumnDefinition } from '../../ExpressionType.js';
 import { SourceTableInterface } from '../../SourceTableInterface.js';
 import { TablePattern } from '../../TablePattern.js';
@@ -9,19 +10,18 @@ import {
   UnscopedEvaluatedRow,
   UnscopedEvaluationResult
 } from '../../types.js';
-import { idFromData } from '../../cast.js';
 import { filterJsonRow, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
-import { SqlExpression } from '../expression.js';
-import { ExpressionToSqlite } from '../expression_to_sql.js';
-import * as plan from '../plan.js';
-import { StreamEvaluationContext } from './index.js';
 import {
   ScalarExpressionEvaluator,
   scalarStatementToSql,
   TableValuedFunctionOutput
 } from '../engine/scalar_expression_engine.js';
-import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
+import { SqlExpression } from '../expression.js';
+import { ExpressionToSqlite } from '../expression_to_sql.js';
+import * as plan from '../plan.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
+import { StreamEvaluationContext } from './index.js';
+import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();

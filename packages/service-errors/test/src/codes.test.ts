@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ErrorCode } from '../../src/codes.js';
 
 // This file never exports anything - it is only used for checking our

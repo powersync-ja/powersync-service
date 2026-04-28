@@ -1,4 +1,5 @@
 import { framework, storage } from '@powersync/service-core';
+import { ReplicationError } from '@powersync/service-types';
 import * as t from 'ts-codec';
 import { bigint, pgwire_number } from '../codecs.js';
 import { jsonContainerObject } from './json.js';
@@ -59,7 +60,8 @@ export const SyncRules = t.object({
           overrides: t.record(t.boolean),
           maxTimeValuePrecision: t.number.optional()
         }),
-        eventDescriptors: t.record(t.array(t.string))
+        eventDescriptors: t.record(t.array(t.string)),
+        errors: t.array(ReplicationError).optional()
       })
     )
   )

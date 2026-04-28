@@ -1,6 +1,6 @@
 import { StreamingSyncRequest } from '@/index.js';
 import { schema } from '@powersync/lib-services-framework';
-import { describe, test, expect, it } from 'vitest';
+import { describe, expect, test } from 'vitest';
 
 describe('protocol types', () => {
   describe('StreamingSyncRequest', () => {

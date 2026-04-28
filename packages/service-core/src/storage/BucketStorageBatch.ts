@@ -1,10 +1,10 @@
 import { ObserverClient } from '@powersync/lib-services-framework';
 import { EvaluatedParameters, EvaluatedRow, SqliteRow, ToastableSqliteRow } from '@powersync/service-sync-rules';
 import { BSON } from 'bson';
+import { InternalOpId } from '../util/utils.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
-import { InternalOpId } from '../util/utils.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,

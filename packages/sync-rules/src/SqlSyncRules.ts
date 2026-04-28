@@ -1,8 +1,9 @@
+import { BucketPriority } from './BucketDescription.js';
 import { BucketParameterQuerier, QuerierError } from './BucketParameterQuerier.js';
-import { SyncRulesErrors, YamlError } from './errors.js';
-import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
+import { SyncRulesErrors, YamlError } from './errors.js';
 import { SyncConfigFromYaml } from './from_yaml.js';
+import { RequestParameters, SourceSchema, SqliteJsonRow } from './types.js';
 
 export interface SyncRulesOptions {
   schema?: SourceSchema;
@@ -17,6 +18,13 @@ export interface SyncRulesOptions {
 }
 
 export interface RequestedStream {
+  /**
+   * Sync Streams can be requested with a different priority than the one originally used to define the stream.
+   *
+   * When set, buckets queried for this stream should use this override priority instead of the default one.
+   */
+  priorityOverride: BucketPriority | null;
+
   /**
    * The parameters for the explicit stream subscription.
    *

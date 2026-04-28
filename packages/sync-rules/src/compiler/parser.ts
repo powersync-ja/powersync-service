@@ -10,33 +10,34 @@ import {
   SelectFromStatement,
   Statement
 } from 'pgsql-ast-parser';
+import { expandNodeLocations } from '../errors.js';
+import { SourceSchemaTable } from '../index.js';
+import { cartesianProduct } from '../streams/utils.js';
+import { SqlExpression } from '../sync_plan/expression.js';
+import { ImplicitSchemaTablePattern } from '../TablePattern.js';
+import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
+import { ColumnInRow, ExpressionInput, NodeLocations, SourceLocation, SyncExpression } from './expression.js';
 import {
-  PhysicalSourceResultSet,
-  TableValuedResultSet,
-  SourceResultSet,
-  SyntacticResultSetSource,
-  BaseSourceResultSet
-} from './table.js';
-import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
-import { ColumnInRow, ExpressionInput, NodeLocations, SyncExpression } from './expression.js';
-import {
+  And,
   BaseTerm,
   EqualsClause,
   InvalidExpressionError,
   Or,
-  And,
   RowExpression,
   SingleDependencyExpression
 } from './filter.js';
-import { expandNodeLocations } from '../errors.js';
-import { cartesianProduct } from '../streams/utils.js';
-import { PostgresToSqlite, PreparedSubquery } from './sqlite.js';
-import { SqlScope } from './scope.js';
-import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
-import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { composeExpressionNodes, FilterConditionSimplifier } from './filter_simplifier.js';
-import { SqlExpression } from '../sync_plan/expression.js';
-import { SourceSchemaTable } from '../index.js';
+import { ColumnSource, ExpressionColumnSource, StarColumnSource } from './rows.js';
+import { SqlScope } from './scope.js';
+import { PostgresToSqlite, PreparedSubquery } from './sqlite.js';
+import {
+  BaseSourceResultSet,
+  CloneTableReferences,
+  PhysicalSourceResultSet,
+  SourceResultSet,
+  SyntacticResultSetSource,
+  TableValuedResultSet
+} from './table.js';
 
 /**
  * A parsed stream query in its canonical form.
@@ -79,6 +80,7 @@ export interface ParsedStreamQuery {
    * All filters, in disjunctive normal form (an OR of ANDs).
    */
   where: Or;
+  span: SourceLocation;
 }
 
 export interface StreamQueryParserOptions {
@@ -161,7 +163,10 @@ export class StreamQueryParser {
         return null;
       }
 
-      const where = this.compileFilterClause();
+      const where = this.compileFilterClause(
+        // The statement must be a select statement, as processAst would have returned false otherwise.
+        stmt as SelectFromStatement
+      );
       const joined: SourceResultSet[] = [];
       for (const source of this.resultSets.values()) {
         if (source != this.primaryResultSet) {
@@ -173,7 +178,11 @@ export class StreamQueryParser {
         resultColumns: this.resultColumns,
         sourceTable: this.primaryResultSet,
         joined,
-        where: where
+        where: where,
+        span: {
+          location: stmt,
+          errors: this.errors
+        }
       };
     } else {
       return null;
@@ -270,6 +279,7 @@ export class StreamQueryParser {
 
   private addSubquery(source: SyntacticResultSetSource, subquery: PreparedSubquery) {
     subquery.tables.forEach((v, k) => this.resultSets.set(k, v));
+
     if (subquery.where) {
       this.where.push(subquery.where);
     }
@@ -287,7 +297,9 @@ export class StreamQueryParser {
       // If this references a CTE in scope, use that instead of names.
       const cte = from.name.schema == null ? scope.resolveCommonTableExpression(from.name.name) : null;
       if (cte) {
-        this.addSubquery(source, cte);
+        // Inline the CTE here by cloning it for this specific reference, see the comment on CloneTableReferences for
+        // why this is necessary.
+        this.addSubquery(source, CloneTableReferences.clonePreparedSubquery(cte, this.nodeLocations));
       } else {
         // Not a CTE, so treat it as a source database table.
         const pattern = new ImplicitSchemaTablePattern(from.name.schema ?? null, from.name.name);
@@ -488,7 +500,7 @@ export class StreamQueryParser {
       // references.
       const defaultResultSet = this.statementScope.defaultResultSet;
       if (defaultResultSet) {
-        return this.resolveSoure(defaultResultSet);
+        return this.resolveSource(defaultResultSet);
       } else {
         this.errors.report('Invalid unqualified reference since multiple tables are in scope', node);
         return null;
@@ -500,11 +512,11 @@ export class StreamQueryParser {
         return null;
       }
 
-      return this.resolveSoure(result);
+      return this.resolveSource(result);
     }
   }
 
-  private resolveSoure(source: SyntacticResultSetSource): SourceResultSet | PreparedSubquery {
+  private resolveSource(source: SyntacticResultSetSource): SourceResultSet | PreparedSubquery {
     if (this.resultSets.has(source)) {
       return this.resultSets.get(source)!;
     } else if (this.subqueryResultSets.has(source)) {
@@ -531,13 +543,27 @@ export class StreamQueryParser {
     }
   }
 
-  private compileFilterClause(): Or {
+  private compileFilterClause(stmt: SelectFromStatement): Or {
     const andTerms: PendingFilterExpression[] = [];
     for (const expr of this.where) {
       andTerms.push(this.extractBooleanOperators(expr));
     }
 
-    const pendingDnf = toDisjunctiveNormalForm({ type: 'and', inner: andTerms }, this.nodeLocations);
+    let pendingDnf: PendingOr;
+    try {
+      pendingDnf = toDisjunctiveNormalForm({ type: 'and', inner: andTerms }, this.nodeLocations);
+    } catch (e) {
+      if (e instanceof TooManyInnerTermsError) {
+        this.errors.report(
+          'For Sync Streams, inner OR operators need to be moved up to be top-level filters. Applying that to this query results in too many inner nodes.',
+          stmt.where ?? stmt
+        );
+
+        return { terms: [{ terms: [] }] };
+      }
+
+      throw e;
+    }
 
     // Within the DNF, each base expression (that is, anything not an OR or AND) is either:
     //
@@ -730,6 +756,7 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
     case 'and': {
       const baseFactors: PendingBaseTerm[] = [];
       const orTerms: PendingOr[] = [];
+      let expandedLength = 1;
 
       for (const originalTerm of expr.inner) {
         const normalized = prepareToDNF(originalTerm, locations);
@@ -738,6 +765,7 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
           baseFactors.push(...(normalized.inner as PendingBaseTerm[]));
         } else if (normalized.type == 'or') {
           orTerms.push(normalized);
+          expandedLength *= normalized.inner.length;
         } else {
           // prepareToDNF would have eliminated NOT operators
           baseFactors.push(normalized as PendingBaseTerm);
@@ -746,6 +774,10 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
 
       if (orTerms.length == 0) {
         return { type: 'and', inner: baseFactors };
+      }
+
+      if (expandedLength > 100) {
+        throw new TooManyInnerTermsError();
       }
 
       // If there's an OR term within the AND, apply the distributive law to turn the term into an AND within an outer
@@ -778,5 +810,11 @@ function prepareToDNF(expr: PendingFilterExpression, locations: NodeLocations): 
     case 'base':
       // There are no boolean operators to adopt.
       return expr;
+  }
+}
+
+class TooManyInnerTermsError extends Error {
+  constructor() {
+    super('Too many inner terms when transforming to DNF');
   }
 }

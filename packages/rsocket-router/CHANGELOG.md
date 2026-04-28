@@ -1,5 +1,25 @@
 # @powersync/service-rsocket-router
 
+## 0.2.19
+
+### Patch Changes
+
+- Updated dependencies [afc9890]
+- Updated dependencies [756746c]
+  - @powersync/lib-services-framework@0.9.3
+
+## 0.2.18
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.9.2
+
+## 0.2.17
+
+### Patch Changes
+
+- @powersync/lib-services-framework@0.9.1
+
 ## 0.2.16
 
 ### Patch Changes

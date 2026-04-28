@@ -1,17 +1,16 @@
+import * as common from '@module/common/common-index.js';
+import { toColumnDescriptors } from '@module/common/common-index.js';
+import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
+import { eventIsWriteMutation, eventIsXid } from '@module/replication/zongji/zongji-utils.js';
+import { BinLogEvent, ZongJi } from '@powersync/mysql-zongji';
 import {
   applyRowContext,
   CompatibilityContext,
   SqliteInputRow,
-  SqliteRow,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 import { afterAll, describe, expect, test } from 'vitest';
 import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
-import { eventIsWriteMutation, eventIsXid } from '@module/replication/zongji/zongji-utils.js';
-import * as common from '@module/common/common-index.js';
-import { BinLogEvent, ZongJi } from '@powersync/mysql-zongji';
-import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
-import { toColumnDescriptors } from '@module/common/common-index.js';
 
 describe('MySQL Data Types', () => {
   const connectionManager = new MySQLConnectionManager(TEST_CONNECTION_OPTIONS, {});

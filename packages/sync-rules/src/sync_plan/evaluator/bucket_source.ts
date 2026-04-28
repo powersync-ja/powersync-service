@@ -127,7 +127,7 @@ class PreparedQuerier {
         const desc = bucketDescription(
           bucketScope,
           JSONBucketNameSerialize.stringify(instantiation),
-          this.stream.priority
+          subscription?.priorityOverride ?? this.stream.priority
         );
         return resolvedBucket(desc, {
           definition: this.stream.name,

@@ -1,8 +1,8 @@
-import { ColumnDescriptor, SourceTable, bson } from '@powersync/service-core';
-import { PgChunk, PgConnection, PgType, StatementParam, PgTypeOid } from '@powersync/service-jpgwire';
 import { escapeIdentifier } from '@powersync/lib-service-postgres';
-import { SqliteValue } from '@powersync/service-sync-rules';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import { ColumnDescriptor, SourceTable, bson } from '@powersync/service-core';
+import { PgChunk, PgConnection, PgType, PgTypeOid } from '@powersync/service-jpgwire';
+import { SqliteValue } from '@powersync/service-sync-rules';
 
 export interface SnapshotQuery {
   initialize(): Promise<void>;

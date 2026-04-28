@@ -1,6 +1,6 @@
 // Adapted from https://github.com/josdejong/lossless-json/blob/dfb8a1a787ae167fffec068c3b6623179d3bfb95/src/stringify.ts
 
-import type { GenericObject, Replacer, NumberStringifier, JavaScriptValue } from 'lossless-json';
+import type { GenericObject, JavaScriptValue, NumberStringifier, Replacer } from 'lossless-json';
 import { isNumber } from 'lossless-json';
 
 /**

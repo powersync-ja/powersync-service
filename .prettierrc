@@ -5,7 +5,7 @@
   "useTabs": false,
   "printWidth": 120,
   "trailingComma": "none",
-  "plugins": ["prettier-plugin-embed", "prettier-plugin-sql"],
+  "plugins": ["prettier-plugin-embed", "prettier-plugin-sql", "prettier-plugin-organize-imports"],
   "embeddedSqlTags": ["sql", "db.sql", "this.db.sql"],
   "language": "postgresql",
   "keywordCase": "upper"

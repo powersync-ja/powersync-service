@@ -1,8 +1,8 @@
-import { And, BaseTerm, EqualsClause, isBaseTerm, Or, SingleDependencyExpression } from './filter.js';
-import { NodeLocations, SyncExpression } from './expression.js';
-import { SourceResultSet } from './table.js';
-import { BinaryOperator, SqlExpression } from '../sync_plan/expression.js';
 import { expandNodeLocations } from '../errors.js';
+import { BinaryOperator, SqlExpression } from '../sync_plan/expression.js';
+import { NodeLocations, SyncExpression } from './expression.js';
+import { And, BaseTerm, EqualsClause, isBaseTerm, Or, SingleDependencyExpression } from './filter.js';
+import { SourceResultSet } from './table.js';
 
 export class FilterConditionSimplifier {
   simplifyOr(or: Or): Or {

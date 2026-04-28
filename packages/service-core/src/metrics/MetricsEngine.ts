@@ -1,5 +1,5 @@
 import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
-import { Counter, UpDownCounter, ObservableGauge, MetricMetadata, MetricsFactory } from './metrics-interfaces.js';
+import { Counter, MetricMetadata, MetricsFactory, ObservableGauge, UpDownCounter } from './metrics-interfaces.js';
 
 export interface MetricsEngineOptions {
   factory: MetricsFactory;

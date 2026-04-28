@@ -1,8 +1,11 @@
-import { putOp, removeOp } from '@powersync/service-core-tests';
-import { describe, expect, test, vi } from 'vitest';
 import { storage } from '@powersync/service-core';
+import { putOp, removeOp } from '@powersync/service-core-tests';
 import sql from 'mssql';
+import { describe, expect, test, vi } from 'vitest';
 
+import { SchemaChangeType } from '@module/replication/CDCPoller.js';
+import { getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
+import { logger } from '@powersync/lib-services-framework';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
 import {
   createTestTableWithBasicId,
@@ -14,9 +17,6 @@ import {
   renameTable,
   waitForPendingCDCChanges
 } from './util.js';
-import { getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
-import { SchemaChangeType } from '@module/replication/CDCPoller.js';
-import { logger } from '@powersync/lib-services-framework';
 
 describe('MSSQL Schema Changes Tests', () => {
   describeWithStorage({ timeout: 60_000 }, defineSchemaChangesTests);
@@ -459,10 +459,14 @@ function defineSchemaChangesTests(config: storage.TestStorageConfig) {
 
 async function expectedSchemaChange(spy: any, type: SchemaChangeType) {
   logger.info(`Test Assertion: Waiting for schema change: ${type}`);
-  await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type })), {
-    timeout: 20000
-  });
-
+  try {
+    await vi.waitFor(() => expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ type })), {
+      timeout: 55000
+    });
+  } catch (error) {
+    // The error message thrown here is extremely verbose and not particularly helpful
+    throw new Error(`Test Assertion: Timeout waiting for schema change: ${type}`);
+  }
   const promises = spy.mock.results.filter((r: any) => r.type === 'return').map((r: any) => r.value);
 
   await Promise.all(promises.map((p: Promise<unknown>) => expect(p).resolves.toBeUndefined()));

@@ -1,4 +1,4 @@
-import { Alter, AST, Create, Drop, TruncateStatement, RenameStatement, DropIndexStatement } from 'node-sql-parser';
+import { Alter, AST, Create, Drop, DropIndexStatement, RenameStatement, TruncateStatement } from 'node-sql-parser';
 
 // We ignore create table statements, since even in the worst case we will pick up the changes when row events for that
 // table are received.

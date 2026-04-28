@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
 import { isVersionAtLeast } from '@module/utils/mysql-utils.js';
+import { describe, expect, test } from 'vitest';
 
 describe('MySQL Utility Tests', () => {
   test('Minimum version checking ', () => {

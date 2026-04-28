@@ -1,5 +1,5 @@
-import { evaluateOperator } from '../../src/index.js';
 import { describe, expect, test } from 'vitest';
+import { evaluateOperator } from '../../src/index.js';
 
 describe('SQL operators', () => {
   test('=', () => {

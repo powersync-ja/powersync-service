@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "esnext",
+    "noEmit": true,
+    "composite": false,
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["scripts/**/*.mts"]
+}

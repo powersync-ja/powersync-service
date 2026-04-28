@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { compileSingleStreamAndSerialize, compileToSyncPlanWithoutErrors } from './utils.js';
 import { serializeSyncPlan } from '../../../src/index.js';
+import { compileSingleStreamAndSerialize, compileToSyncPlanWithoutErrors } from './utils.js';
 
 describe('new sync stream features', () => {
   test('order-independent parameters', () => {
@@ -312,5 +312,35 @@ streams:
     expect(plan.streams[0].queriers).toHaveLength(2);
 
     expect(serializeSyncPlan(plan)).toMatchSnapshot();
+  });
+
+  describe('circular references', () => {
+    test('at first level', () => {
+      expect(
+        compileSingleStreamAndSerialize(
+          'SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c2 = b.c2 AND b.u = auth.user_id()'
+        )
+      ).toMatchSnapshot();
+    });
+
+    test('nested', () => {
+      // This introduces two bucket parameters (for a.c1 and a.c4). We create a lookup on
+      //   - Table d (lookup index 0), output columns c3 and c4, no partitions.
+      //   - Table c (lookup index 1), output column c2 and partition by c3.
+      //   - Table b (lookup index 2), output column c1 and partition by c2.
+      expect(
+        compileSingleStreamAndSerialize(`SELECT a.* FROM a, b, c, d WHERE
+          a.c1 = b.c1 AND b.c2 = c.c2 AND c.c3 = d.c3 AND d.c4 = a.c4
+        `)
+      ).toMatchSnapshot();
+    });
+
+    test('table-valued', () => {
+      expect(
+        compileSingleStreamAndSerialize(`SELECT a.*
+          FROM a, b, json_each(a.tags) AS j
+          WHERE a.k = b.k AND j.value = b.v`)
+      ).toMatchSnapshot();
+    });
   });
 });

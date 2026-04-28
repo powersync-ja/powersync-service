@@ -1,5 +1,3 @@
-import { delimiter } from 'path';
-
 /**
  * Utility to parse encoded structural values, such as arrays, composite types, ranges and multiranges.
  */

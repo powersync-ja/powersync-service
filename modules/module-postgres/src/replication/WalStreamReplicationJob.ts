@@ -1,10 +1,11 @@
 import { container, logger } from '@powersync/lib-services-framework';
+import { MissingReplicationSlotError, shouldRetryReplication } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
-import { MissingReplicationSlotError, sendKeepAlive, WalStream } from './WalStream.js';
+import { sendKeepAlive, WalStream } from './WalStream.js';
 
 import { replication } from '@powersync/service-core';
-import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 import { getApplicationName } from '../utils/application-name.js';
+import { ConnectionManagerFactory } from './ConnectionManagerFactory.js';
 
 export interface WalStreamReplicationJobOptions extends replication.AbstractReplicationJobOptions {
   connectionFactory: ConnectionManagerFactory;
@@ -91,8 +92,10 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
       }
 
       if (e instanceof MissingReplicationSlotError) {
-        // This stops replication on this slot and restarts with a new slot
-        await this.options.storage.factory.restartReplication(this.storage.group_id);
+        if (shouldRetryReplication(e)) {
+          // This stops replication on this slot and restarts with a new slot
+          await this.options.storage.factory.restartReplication(this.storage.group_id);
+        }
       }
 
       // No need to rethrow - the error is already logged, and retry behavior is the same on error
@@ -132,7 +135,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
     }
   }
 
-  async getReplicationLagMillis(): Promise<number | undefined> {
+  getReplicationLagMillis(): number | undefined {
     return this.lastStream?.getReplicationLagMillis();
   }
 }

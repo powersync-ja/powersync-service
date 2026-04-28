@@ -3,8 +3,8 @@ import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersy
 import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import { MongoStorageConfig } from '../../types/types.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { PowerSyncMongo } from './db.js';
 import { MongoReportStorage } from '../MongoReportStorage.js';
+import { PowerSyncMongo } from './db.js';
 
 export class MongoStorageProvider implements storage.StorageProvider {
   get type() {

@@ -1,8 +1,8 @@
-import * as net from 'node:net';
+import { ErrorCode, ServiceError } from '@powersync/service-errors';
+import ip from 'ipaddr.js';
 import * as dns from 'node:dns';
 import * as dnsp from 'node:dns/promises';
-import ip from 'ipaddr.js';
-import { ErrorCode, ServiceError } from '@powersync/service-errors';
+import * as net from 'node:net';
 
 export interface LookupOptions {
   reject_ip_ranges: string[];

@@ -327,9 +327,20 @@ jobs:
             -p 1433:1433 \
             -d mcr.microsoft.com/mssql/server:${{ matrix.mssql-version }}-latest
 
-      - name: Wait for MSSQL to be healthy
+      - name: Wait for MSSQL to accept connections
         run: |
           timeout 120 bash -c 'until docker inspect --format="{{.State.Health.Status}}" MSSQLTestDatabase | grep -q "healthy"; do sleep 2; done'
+
+      - name: Wait for MSSQL Server Agent to be running
+        run: |
+          timeout 120 bash -c '
+            until docker exec MSSQLTestDatabase /opt/mssql-tools18/bin/sqlcmd \
+              -C -S localhost -U sa -P "${{ env.MSSQL_SA_PASSWORD }}" \
+              -h -1 -W \
+              -Q "SELECT status_desc FROM sys.dm_server_services WHERE servicename LIKE '\''SQL Server Agent%'\'';" \
+              | grep -q "^Running$"; do
+              sleep 2
+            done'
 
       - name: Initialize MSSQL database
         run: |

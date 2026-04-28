@@ -1,6 +1,6 @@
 import * as jose from 'jose';
-import { KeySpec } from './KeySpec.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
+import { KeySpec } from './KeySpec.js';
 
 /**
  * Set of static keys.

@@ -7,22 +7,19 @@ import {
   initializeCoreReplicationMetrics,
   InternalOpId,
   LEGACY_STORAGE_VERSION,
-  OplogEntry,
   settledPromise,
   storage,
-  STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   unsettledPromise,
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
-import { bucketRequest, METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import { bucketRequest, METRICS_HELPER, StorageDataHelpers, test_utils } from '@powersync/service-core-tests';
 import * as pgwire from '@powersync/service-jpgwire';
 import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './util.js';
 
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
-  private syncRulesId?: number;
   private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
@@ -45,17 +42,15 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
 
     const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
-    const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
 
-    return new WalStreamTestContext(f, connectionManager, options?.walStreamOptions, storageVersion, versionedBuckets);
+    return new WalStreamTestContext(f, connectionManager, options?.walStreamOptions, storageVersion);
   }
 
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: PgManager,
     private walStreamOptions?: Partial<WalStreamOptions>,
-    private storageVersion: number = LEGACY_STORAGE_VERSION,
-    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false
+    private storageVersion: number = LEGACY_STORAGE_VERSION
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -97,7 +92,6 @@ export class WalStreamTestContext implements AsyncDisposable {
     const syncRules = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesId = syncRules.id;
     this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
@@ -109,7 +103,6 @@ export class WalStreamTestContext implements AsyncDisposable {
       throw new Error(`Next sync rules not available`);
     }
 
-    this.syncRulesId = syncRules.id;
     this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
@@ -121,7 +114,6 @@ export class WalStreamTestContext implements AsyncDisposable {
       throw new Error(`Active sync rules not available`);
     }
 
-    this.syncRulesId = syncRules.id;
     this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
@@ -194,35 +186,18 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
-    let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
-    return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
+    const helpers = new StorageDataHelpers(this.storage!, this.getSyncRulesContent());
+    const checkpoint = await this.getCheckpoint(options);
+    return helpers.getBucketsDataBatch(buckets, checkpoint);
   }
 
   /**
    * This waits for a client checkpoint.
    */
   async getBucketData(bucket: string, start?: InternalOpId | string | undefined, options?: { timeout?: number }) {
-    start ??= 0n;
-    if (typeof start == 'string') {
-      start = BigInt(start);
-    }
-    const syncRules = this.getSyncRulesContent();
+    const helpers = new StorageDataHelpers(this.storage!, this.getSyncRulesContent());
     const checkpoint = await this.getCheckpoint(options);
-    let map = [bucketRequest(syncRules, bucket, start)];
-    let data: OplogEntry[] = [];
-    while (true) {
-      const batch = this.storage!.getBucketDataBatch(checkpoint, map);
-
-      const batches = await test_utils.fromAsync(batch);
-      data = data.concat(batches[0]?.chunkData.data ?? []);
-      if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
-        break;
-      }
-      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
-    }
-    return data;
+    return helpers.getBucketData(bucket, checkpoint, start);
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }) {
@@ -265,8 +240,10 @@ export async function withMaxWalSize(db: pgwire.PgClient, size: string) {
   try {
     const r1 = await db.query(`SHOW max_slot_wal_keep_size`);
 
-    await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '100MB'`);
+    await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '${size}'`);
     await db.query(`SELECT pg_reload_conf()`);
+    // Wait for the config reload to propagate to all backends
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     const oldSize = r1.results[0].rows[0].decodeWithoutCustomTypes(0);
 
@@ -274,6 +251,8 @@ export async function withMaxWalSize(db: pgwire.PgClient, size: string) {
       [Symbol.asyncDispose]: async () => {
         await db.query(`ALTER SYSTEM SET max_slot_wal_keep_size = '${oldSize}'`);
         await db.query(`SELECT pg_reload_conf()`);
+        // Wait for the config reload to propagate to all backends
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
     };
   } catch (e) {

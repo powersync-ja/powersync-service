@@ -1,5 +1,82 @@
 # @powersync/service-image
 
+## 1.20.5
+
+### Patch Changes
+
+- 89020fe: Optimize Postgres validation checks to use fewer round-trips.
+- 2b72c2a: Prevent premature `partial_checkpoint_complete` lines for Sync Stream subscriptions with custom priorities. These would cause checksum errors before.
+- Updated dependencies [41875f7]
+- Updated dependencies [afc9890]
+- Updated dependencies [89020fe]
+- Updated dependencies [b6a7896]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [756746c]
+  - @powersync/service-core@1.20.5
+  - @powersync/service-module-postgres@0.19.4
+  - @powersync/lib-services-framework@0.9.3
+  - @powersync/service-module-postgres-storage@0.13.4
+  - @powersync/service-module-mongodb-storage@0.15.4
+  - @powersync/service-module-core@0.2.25
+  - @powersync/service-module-mongodb@0.15.4
+  - @powersync/service-module-mssql@0.6.3
+  - @powersync/service-module-mysql@0.12.4
+  - @powersync/service-rsocket-router@0.2.19
+
+## 1.20.4
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- Updated dependencies [df451c6]
+- Updated dependencies [11b4deb]
+  - @powersync/service-module-postgres-storage@0.13.3
+  - @powersync/service-core@1.20.4
+  - @powersync/service-module-mssql@0.6.2
+  - @powersync/service-module-core@0.2.24
+  - @powersync/service-module-postgres@0.19.3
+  - @powersync/service-module-mongodb@0.15.3
+  - @powersync/service-module-mysql@0.12.3
+  - @powersync/service-module-mongodb-storage@0.15.3
+  - @powersync/lib-services-framework@0.9.2
+  - @powersync/service-rsocket-router@0.2.18
+
+## 1.20.3
+
+### Patch Changes
+
+- Updated dependencies [9f30b26]
+- Updated dependencies [c546708]
+  - @powersync/service-module-mongodb@0.15.2
+  - @powersync/service-core@1.20.3
+  - @powersync/service-module-core@0.2.23
+  - @powersync/service-module-mongodb-storage@0.15.2
+  - @powersync/service-module-mssql@0.6.1
+  - @powersync/service-module-mysql@0.12.2
+  - @powersync/service-module-postgres@0.19.2
+  - @powersync/service-module-postgres-storage@0.13.2
+
+## 1.20.2
+
+### Patch Changes
+
+- Updated dependencies [4b2b776]
+- Updated dependencies [7ee87d4]
+- Updated dependencies [8d5d7ee]
+- Updated dependencies [4c92c24]
+- Updated dependencies [206633f]
+- Updated dependencies [275fd5f]
+  - @powersync/service-module-mongodb@0.15.1
+  - @powersync/service-module-mongodb-storage@0.15.1
+  - @powersync/service-core@1.20.2
+  - @powersync/service-module-mssql@0.6.0
+  - @powersync/service-module-postgres-storage@0.13.1
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/service-module-mysql@0.12.1
+  - @powersync/service-module-postgres@0.19.1
+  - @powersync/service-module-core@0.2.22
+  - @powersync/service-rsocket-router@0.2.17
+
 ## 1.20.1
 
 ### Patch Changes

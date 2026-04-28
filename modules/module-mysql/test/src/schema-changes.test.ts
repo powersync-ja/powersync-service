@@ -1,12 +1,12 @@
 import { compareIds, putOp, removeOp, test_utils } from '@powersync/service-core-tests';
 import { beforeAll, describe, expect, test } from 'vitest';
 
-import { storage } from '@powersync/service-core';
-import { createTestDb, describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
-import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
-import timers from 'timers/promises';
 import { MySQLConnectionManager } from '@module/replication/MySQLConnectionManager.js';
 import { getMySQLVersion, qualifiedMySQLTable, satisfiesVersion } from '@module/utils/mysql-utils.js';
+import { storage } from '@powersync/service-core';
+import timers from 'timers/promises';
+import { BinlogStreamTestContext } from './BinlogStreamUtils.js';
+import { createTestDb, describeWithStorage, TEST_CONNECTION_OPTIONS } from './util.js';
 
 describe('MySQL Schema Changes', () => {
   describeWithStorage({ timeout: 20_000 }, defineTests);

@@ -2,7 +2,7 @@ import crypto from 'crypto';
 
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { PowerSyncMongo, VersionedPowerSyncMongo } from './db.js';
+import { VersionedPowerSyncMongo } from './db.js';
 
 /**
  * Manages a lock on a sync rules document, so that only one process

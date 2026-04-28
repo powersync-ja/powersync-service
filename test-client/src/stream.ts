@@ -1,6 +1,6 @@
 import { StreamingSyncLine } from '@powersync/service-core';
-import type { openHttpStream } from './httpStream.js';
 import * as timers from 'node:timers/promises';
+import type { openHttpStream } from './httpStream.js';
 
 export type SyncOptions = {
   endpoint: string;

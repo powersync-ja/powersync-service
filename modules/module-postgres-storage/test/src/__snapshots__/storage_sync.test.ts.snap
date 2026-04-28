@@ -1,5 +1,99 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`sync - postgres > storage v1 > can override priority when subscribing to stream 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "1#todos|0["a"]",
+          "checksum": -1712802421,
+          "count": 1,
+          "priority": 0,
+          "subscriptions": [
+            {
+              "sub": 0,
+            },
+            {
+              "sub": 1,
+            },
+          ],
+        },
+        {
+          "bucket": "1#todos|0["b"]",
+          "checksum": -1291414318,
+          "count": 1,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "sub": 1,
+            },
+          ],
+        },
+      ],
+      "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": false,
+          "name": "todos",
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#todos|0["a"]",
+      "data": [
+        {
+          "checksum": 2582164875,
+          "data": "{"id":"a","description":"Test 1"}",
+          "object_id": "a",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "partial_checkpoint_complete": {
+      "last_op_id": "2",
+      "priority": 0,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#todos|0["b"]",
+      "data": [
+        {
+          "checksum": 3003552978,
+          "data": "{"id":"b","description":"Test 2"}",
+          "object_id": "b",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "243b0e26-87b2-578a-993c-5ac5b6f7fd64",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;
+
 exports[`sync - postgres > storage v1 > compacting data - invalidate checkpoint 1`] = `
 [
   {
@@ -1095,6 +1189,100 @@ exports[`sync - postgres > storage v1 > sync updates to parameter query only 2`]
 ]
 `;
 
+exports[`sync - postgres > storage v2 > can override priority when subscribing to stream 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "1#todos|0["a"]",
+          "checksum": -1712802421,
+          "count": 1,
+          "priority": 0,
+          "subscriptions": [
+            {
+              "sub": 0,
+            },
+            {
+              "sub": 1,
+            },
+          ],
+        },
+        {
+          "bucket": "1#todos|0["b"]",
+          "checksum": -1291414318,
+          "count": 1,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "sub": 1,
+            },
+          ],
+        },
+      ],
+      "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": false,
+          "name": "todos",
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#todos|0["a"]",
+      "data": [
+        {
+          "checksum": 2582164875,
+          "data": "{"id":"a","description":"Test 1"}",
+          "object_id": "a",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "partial_checkpoint_complete": {
+      "last_op_id": "2",
+      "priority": 0,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#todos|0["b"]",
+      "data": [
+        {
+          "checksum": 3003552978,
+          "data": "{"id":"b","description":"Test 2"}",
+          "object_id": "b",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "243b0e26-87b2-578a-993c-5ac5b6f7fd64",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
+    },
+  },
+]
+`;
+
 exports[`sync - postgres > storage v2 > compacting data - invalidate checkpoint 1`] = `
 [
   {
@@ -2185,6 +2373,100 @@ exports[`sync - postgres > storage v2 > sync updates to parameter query only 2`]
   {
     "checkpoint_complete": {
       "last_op_id": "1",
+    },
+  },
+]
+`;
+
+exports[`sync - postgres > storage v3 > can override priority when subscribing to stream 1`] = `
+[
+  {
+    "checkpoint": {
+      "buckets": [
+        {
+          "bucket": "1#todos|0["a"]",
+          "checksum": -1712802421,
+          "count": 1,
+          "priority": 0,
+          "subscriptions": [
+            {
+              "sub": 0,
+            },
+            {
+              "sub": 1,
+            },
+          ],
+        },
+        {
+          "bucket": "1#todos|0["b"]",
+          "checksum": -1291414318,
+          "count": 1,
+          "priority": 3,
+          "subscriptions": [
+            {
+              "sub": 1,
+            },
+          ],
+        },
+      ],
+      "last_op_id": "2",
+      "streams": [
+        {
+          "errors": [],
+          "is_default": false,
+          "name": "todos",
+        },
+      ],
+      "write_checkpoint": undefined,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#todos|0["a"]",
+      "data": [
+        {
+          "checksum": 2582164875,
+          "data": "{"id":"a","description":"Test 1"}",
+          "object_id": "a",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "1",
+          "subkey": "02d285ac-4f96-5124-8fba-c6d1df992dd1",
+        },
+      ],
+      "has_more": false,
+      "next_after": "1",
+    },
+  },
+  {
+    "partial_checkpoint_complete": {
+      "last_op_id": "2",
+      "priority": 0,
+    },
+  },
+  {
+    "data": {
+      "after": "0",
+      "bucket": "1#todos|0["b"]",
+      "data": [
+        {
+          "checksum": 3003552978,
+          "data": "{"id":"b","description":"Test 2"}",
+          "object_id": "b",
+          "object_type": "test",
+          "op": "PUT",
+          "op_id": "2",
+          "subkey": "243b0e26-87b2-578a-993c-5ac5b6f7fd64",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
+    "checkpoint_complete": {
+      "last_op_id": "2",
     },
   },
 ]

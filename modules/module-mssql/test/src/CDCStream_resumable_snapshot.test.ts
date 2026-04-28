@@ -1,13 +1,13 @@
-import { describe, expect, test } from 'vitest';
-import { env } from './env.js';
-import { createTestTableWithBasicId, describeWithStorage, waitForPendingCDCChanges } from './util.js';
-import { TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
+import { getLatestLSN } from '@module/utils/mssql.js';
+import { logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { TestStorageConfig } from '@powersync/service-core';
 import { METRICS_HELPER } from '@powersync/service-core-tests';
 import { ReplicationMetric } from '@powersync/service-types';
 import * as timers from 'node:timers/promises';
-import { logger, ReplicationAbortedError } from '@powersync/lib-services-framework';
+import { describe, expect, test } from 'vitest';
 import { CDCStreamTestContext } from './CDCStreamTestContext.js';
-import { getLatestLSN } from '@module/utils/mssql.js';
+import { env } from './env.js';
+import { createTestTableWithBasicId, describeWithStorage, waitForPendingCDCChanges } from './util.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function (config) {

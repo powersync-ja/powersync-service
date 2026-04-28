@@ -1,7 +1,6 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { describe, expect, test } from 'vitest';
 import { normalizeMongoConfig, parseMongoConnectionParam, parseMongoConnectionParams } from '../../src/types/types.js';
-import { LookupAddress } from 'node:dns';
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 
 describe('config', () => {
   test('Should normalize a simple URI', () => {
@@ -56,6 +55,25 @@ describe('config', () => {
     expect(normalized.database).equals('powersync_test');
     expect(normalized.username).equals('user');
     expect(normalized.password).equals('pass');
+  });
+
+  test('Should decode URL-encoded credentials', () => {
+    const uri = 'mongodb://user:pass%3Dword%40host@localhost:27017/powersync_test';
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri
+    });
+    expect(normalized.username).equals('user');
+    expect(normalized.password).equals('pass=word@host');
+  });
+
+  test('Should decode URL-encoded database name', () => {
+    const uri = 'mongodb://localhost:27017/my%20database';
+    const normalized = normalizeMongoConfig({
+      type: 'mongodb',
+      uri
+    });
+    expect(normalized.database).equals('my database');
   });
 
   test('Should normalize a +srv URI', () => {

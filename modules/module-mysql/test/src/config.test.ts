@@ -1,9 +1,9 @@
-import { describe, expect, test } from 'vitest';
 import {
   normalizeConnectionConfig,
   parseMySQLConnectionParam,
   parseMySQLConnectionParams
 } from '@module/types/types.js';
+import { describe, expect, test } from 'vitest';
 
 describe('config', () => {
   test('Should resolve database', () => {

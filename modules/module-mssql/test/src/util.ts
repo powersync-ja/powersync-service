@@ -1,23 +1,17 @@
 import * as types from '@module/types/types.js';
 import { logger } from '@powersync/lib-services-framework';
-import {
-  BucketStorageFactory,
-  InternalOpId,
-  ReplicationCheckpoint,
-  TestStorageConfig,
-  TestStorageFactory
-} from '@powersync/service-core';
+import { BucketStorageFactory, InternalOpId, ReplicationCheckpoint, TestStorageConfig } from '@powersync/service-core';
 
 import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import * as postgres_storage from '@powersync/service-module-postgres-storage';
 
-import { describe, TestOptions } from 'vitest';
-import { env } from './env.js';
+import { LSN } from '@module/common/LSN.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import { createCheckpoint, escapeIdentifier, getLatestLSN, toQualifiedTableName } from '@module/utils/mssql.js';
 import sql from 'mssql';
 import { v4 as uuid } from 'uuid';
-import { LSN } from '@module/common/LSN.js';
+import { describe, TestOptions } from 'vitest';
+import { env } from './env.js';
 
 export const TEST_URI = env.MSSQL_TEST_URI;
 

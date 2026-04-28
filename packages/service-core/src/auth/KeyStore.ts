@@ -4,7 +4,7 @@ import secs from '../util/secs.js';
 import { JwtPayload } from './JwtPayload.js';
 import { KeyCollector } from './KeyCollector.js';
 import { KeyOptions, KeySpec, SUPPORTED_ALGORITHMS } from './KeySpec.js';
-import { debugKeyNotFound, mapAuthError, SupabaseAuthDetails, tokenDebugDetails } from './utils.js';
+import { debugKeyNotFound, mapAuthError, SupabaseAuthDetails } from './utils.js';
 
 /**
  * KeyStore to get keys and verify tokens.

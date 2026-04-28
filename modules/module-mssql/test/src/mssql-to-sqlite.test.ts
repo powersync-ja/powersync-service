@@ -1,19 +1,5 @@
-import {
-  applyRowContext,
-  CompatibilityContext,
-  SQLITE_TRUE,
-  SqliteInputRow,
-  TimeValuePrecision
-} from '@powersync/service-sync-rules';
-import { afterAll, beforeEach, describe, expect, test } from 'vitest';
-import {
-  clearTestDb,
-  createUpperCaseUUID,
-  enableCDCForTable,
-  TEST_CONNECTION_OPTIONS,
-  waitForPendingCDCChanges
-} from './util.js';
 import { CDCToSqliteRow, toSqliteInputRow } from '@module/common/mssqls-to-sqlite.js';
+import { CDC_SCHEMA } from '@module/common/MSSQLSourceTable.js';
 import { MSSQLConnectionManager } from '@module/replication/MSSQLConnectionManager.js';
 import {
   escapeIdentifier,
@@ -22,8 +8,22 @@ import {
   getLatestReplicatedLSN,
   toQualifiedTableName
 } from '@module/utils/mssql.js';
+import {
+  applyRowContext,
+  CompatibilityContext,
+  SQLITE_TRUE,
+  SqliteInputRow,
+  TimeValuePrecision
+} from '@powersync/service-sync-rules';
 import sql from 'mssql';
-import { CDC_SCHEMA } from '@module/common/MSSQLSourceTable.js';
+import { afterAll, beforeEach, describe, expect, test } from 'vitest';
+import {
+  clearTestDb,
+  createUpperCaseUUID,
+  enableCDCForTable,
+  TEST_CONNECTION_OPTIONS,
+  waitForPendingCDCChanges
+} from './util.js';
 
 describe('MSSQL Data Types Tests', () => {
   const connectionManager = new MSSQLConnectionManager(TEST_CONNECTION_OPTIONS, {});

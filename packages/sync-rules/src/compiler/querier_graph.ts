@@ -1,3 +1,4 @@
+import { StreamOptions } from '../sync_plan/plan.js';
 import {
   EvaluateTableValuedFunction,
   ExpandingLookup,
@@ -10,9 +11,12 @@ import {
   StreamResolver
 } from './bucket_resolver.js';
 import { equalsIgnoringResultSet } from './compatibility.js';
+import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
+import { HashMap, HashSet, StableHasher } from './equality.js';
+import { ColumnInRow, SourceLocation } from './expression.js';
 import { And, BaseTerm, EqualsClause, RequestExpression, RowExpression, SingleDependencyExpression } from './filter.js';
+import { ParsedStreamQuery } from './parser.js';
 import {
-  ExpressionColumnSource,
   PartitionKey,
   PointLookup,
   RowEvaluator,
@@ -20,12 +24,7 @@ import {
   SourceRowProcessorAddedTableValuedFunction,
   TableValuedPartitionKey
 } from './rows.js';
-import { PhysicalSourceResultSet, TableValuedResultSet, SourceResultSet } from './table.js';
-import { ParsingErrorListener, SyncStreamsCompiler } from './compiler.js';
-import { HashMap, HashSet, StableHasher } from './equality.js';
-import { ParsedStreamQuery } from './parser.js';
-import { StreamOptions } from '../sync_plan/plan.js';
-import { ColumnInRow } from './expression.js';
+import { PhysicalSourceResultSet, SourceResultSet, TableValuedResultSet } from './table.js';
 
 /**
  * Builds stream resolvers for a single stream, potentially consisting of multiple queries.
@@ -33,6 +32,8 @@ import { ColumnInRow } from './expression.js';
 export class QuerierGraphBuilder {
   private readonly resolvers: StreamResolver[] = [];
   readonly counter: UniqueCounter;
+
+  private spanForGlobalErrors?: SourceLocation;
 
   constructor(
     readonly compiler: SyncStreamsCompiler,
@@ -45,6 +46,8 @@ export class QuerierGraphBuilder {
    * Adds a given query to the stream compiled by this builder.
    */
   process(query: ParsedStreamQuery, errors: ParsingErrorListener) {
+    this.spanForGlobalErrors ??= query.span;
+
     for (const variant of query.where.terms) {
       const resolved = new PendingQuerierPath(this, query, errors, variant).resolvePrimaryInput();
       this.resolvers.push(resolved);
@@ -56,6 +59,16 @@ export class QuerierGraphBuilder {
    */
   finish() {
     const buckets = this.mergeBuckets();
+    const maxBucketsPerStream = 100;
+    if (buckets.length > maxBucketsPerStream) {
+      const { location, errors } = this.spanForGlobalErrors!;
+      errors.report(
+        `This stream defines too many buckets (${buckets.length}, at most ${maxBucketsPerStream} are allowed). Try splitting queries into separate streams or move inner OR operators in filters to separate queries.`,
+        location
+      );
+      return [];
+    }
+
     this.compiler.output.resolvers.push(...buckets);
     return buckets;
   }
@@ -292,11 +305,28 @@ class PendingQuerierPath {
       } else {
         // Must be a match term.
         const partitionBy = (key: PartitionKey, otherRow: SingleDependencyExpression) => {
+          const otherResultSet = otherRow.resultSet;
+          if (
+            otherResultSet &&
+            this.resolveStack.find(
+              (s) =>
+                s === otherResultSet ||
+                (otherResultSet instanceof TableValuedResultSet && otherResultSet.inputResultSet == s)
+            )
+          ) {
+            // The other result set is already being resolved (so this is a circular reference). We will encounter this
+            // expression again as we go up the stack and the other result set would visit this expression (where the
+            // parameters are essentially swapped, the key here would be the otherRow from that perspective). Since this
+            // parameter lookup would have been resolved at that point, we can simply add the key as an output
+            // expression at that stage.
+            return;
+          }
+
           this.removePendingExpression(expression);
           const values = state.partition.putIfAbsent(key, () => []);
 
-          if (otherRow.resultSet != null) {
-            const lookup = this.resolveExpandingLookup(otherRow.resultSet);
+          if (otherResultSet != null) {
+            const lookup = this.resolveExpandingLookup(otherResultSet);
             const index = lookup.addOutput(new RowExpression(otherRow));
             const value = new LookupResultParameterValue(index);
             lookup.dependents.push(value);

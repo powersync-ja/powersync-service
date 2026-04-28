@@ -1,11 +1,11 @@
-import * as WebSocket from 'ws';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RSocketConnector, RSocketServer } from 'rsocket-core';
 import { WebsocketClientTransport } from 'rsocket-websocket-client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as WebSocket from 'ws';
 
+import { Duplex } from 'stream';
 import { WebsocketServerTransport } from '../../src/router/transport/WebSocketServerTransport.js';
 import { WebsocketDuplexConnection } from '../../src/router/transport/WebsocketDuplexConnection.js';
-import { Duplex } from 'stream';
 
 let nextPort = 5433;
 

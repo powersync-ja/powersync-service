@@ -40,11 +40,6 @@ export const deserializeParameterLookup = (lookup: bson.Binary) => {
   return parsed;
 };
 
-export const getLookupBucketDefinitionName = (lookup: bson.Binary) => {
-  const parsed = deserializeParameterLookup(lookup);
-  return parsed[0] as string;
-};
-
 /**
  * True if this is a bson.UUID.
  *

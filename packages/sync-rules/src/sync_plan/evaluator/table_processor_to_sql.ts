@@ -4,7 +4,6 @@ import {
   TableValuedFunctionOutput
 } from '../engine/scalar_expression_engine.js';
 import { SqlExpression } from '../expression.js';
-import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 
 /**

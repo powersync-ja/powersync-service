@@ -6,10 +6,10 @@ import {
   CustomArray,
   CustomObject,
   CustomSqliteValue,
+  DateTimeSourceOptions,
+  DateTimeValue,
   SqliteInputRow,
   SqliteInputValue,
-  DateTimeValue,
-  DateTimeSourceOptions,
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 
@@ -115,6 +115,9 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
   } else if (typeof data == 'number') {
     if (autoBigNum && Number.isInteger(data)) {
       return BigInt(data);
+    } else if (!Number.isFinite(data)) {
+      // Only finite numbers can be represented in JSON.
+      return null;
     } else {
       return data;
     }

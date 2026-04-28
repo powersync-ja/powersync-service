@@ -1,5 +1,48 @@
 # @powersync/service-module-core
 
+## 0.2.25
+
+### Patch Changes
+
+- Updated dependencies [41875f7]
+- Updated dependencies [afc9890]
+- Updated dependencies [b6a7896]
+- Updated dependencies [2b72c2a]
+- Updated dependencies [756746c]
+  - @powersync/service-types@0.15.1
+  - @powersync/service-core@1.20.5
+  - @powersync/lib-services-framework@0.9.3
+  - @powersync/service-rsocket-router@0.2.19
+
+## 0.2.24
+
+### Patch Changes
+
+- df451c6: Node 24.14.0 and other dependency upgrades.
+- Updated dependencies [df451c6]
+- Updated dependencies [11b4deb]
+  - @powersync/service-core@1.20.4
+  - @powersync/lib-services-framework@0.9.2
+  - @powersync/service-rsocket-router@0.2.18
+
+## 0.2.23
+
+### Patch Changes
+
+- @powersync/service-core@1.20.3
+
+## 0.2.22
+
+### Patch Changes
+
+- Updated dependencies [7ee87d4]
+- Updated dependencies [4c92c24]
+- Updated dependencies [206633f]
+- Updated dependencies [275fd5f]
+  - @powersync/service-core@1.20.2
+  - @powersync/lib-services-framework@0.9.1
+  - @powersync/service-rsocket-router@0.2.17
+
 ## 0.2.21
 
 ### Patch Changes

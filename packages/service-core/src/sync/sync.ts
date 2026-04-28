@@ -1,11 +1,5 @@
 import { JSONBig, JsonContainer } from '@powersync/service-jsonbig';
-import {
-  BucketDescription,
-  BucketPriority,
-  HydratedSyncRules,
-  ResolvedBucket,
-  SqliteJsonValue
-} from '@powersync/service-sync-rules';
+import { BucketPriority, HydratedSyncRules, ResolvedBucket, SqliteJsonValue } from '@powersync/service-sync-rules';
 
 import { AbortError } from 'ix/aborterror.js';
 

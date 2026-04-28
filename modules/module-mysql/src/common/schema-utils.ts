@@ -1,7 +1,7 @@
-import mysqlPromise from 'mysql2/promise';
-import * as mysql_utils from '../utils/mysql-utils.js';
 import { ColumnDescriptor } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
+import mysqlPromise from 'mysql2/promise';
+import * as mysql_utils from '../utils/mysql-utils.js';
 
 export interface GetColumnsOptions {
   connection: mysqlPromise.Connection;

@@ -1,9 +1,9 @@
+import { createLogger, logger as defaultLogger, transports } from '@powersync/lib-services-framework';
 import { framework, PowerSyncMigrationManager, ServiceContext, TestStorageOptions } from '@powersync/service-core';
 import { PostgresMigrationAgent } from '../migrations/PostgresMigrationAgent.js';
-import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
-import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
 import { PostgresBucketStorageFactory } from '../storage/PostgresBucketStorageFactory.js';
-import { logger as defaultLogger, createLogger, transports } from '@powersync/lib-services-framework';
+import { PostgresReportStorage } from '../storage/PostgresReportStorage.js';
+import { normalizePostgresStorageConfig, PostgresStorageConfigDecoded } from '../types/types.js';
 import { truncateTables } from './db.js';
 
 export type PostgresTestStorageOptions = {

@@ -1,6 +1,6 @@
 import * as jose from 'jose';
-import { KeySpec, KeyOptions } from './KeySpec.js';
 import { KeyCollector, KeyResult } from './KeyCollector.js';
+import { KeyOptions, KeySpec } from './KeySpec.js';
 
 export const SUPABASE_KEY_OPTIONS: KeyOptions = {
   requiresAudience: ['authenticated'],

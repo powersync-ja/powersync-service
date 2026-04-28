@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
+import { DEFAULT_TAG, serializeSyncPlan, StaticSchema } from '../../../src/index.js';
 import { compileToSyncPlanWithoutErrors, yamlToSyncPlan } from './utils.js';
-import { DEFAULT_TAG, serializeSyncPlan, SourceTableDefinition, StaticSchema } from '../../../src/index.js';
 
 describe('common table expressions', () => {
   test('as data source', () => {
@@ -205,5 +205,28 @@ streams:
         source: 'owned_orgs'
       }
     ]);
+  });
+
+  test('can reference CTE multiple times', () => {
+    const plan = compileToSyncPlanWithoutErrors(`
+config:
+  edition: 3
+
+streams:
+  a:
+    accept_potentially_dangerous_queries: true
+    with:
+      selected_profile: |
+        SELECT id FROM user_profiles WHERE id = auth.user_id()
+    queries:
+      - SELECT * FROM tbl_a
+        WHERE col_1 IN selected_profile
+          AND col_2 IN (
+            SELECT id FROM tbl_2
+            WHERE col_1 IN selected_profile
+          )
+`);
+
+    expect(serializeSyncPlan(plan)).toMatchSnapshot();
   });
 });

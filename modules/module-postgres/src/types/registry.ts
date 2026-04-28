@@ -1,3 +1,4 @@
+import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyValueContext,
   CompatibilityContext,
@@ -8,7 +9,6 @@ import {
   SqliteValueType,
   toSyncRulesValue
 } from '@powersync/service-sync-rules';
-import * as pgwire from '@powersync/service-jpgwire';
 
 interface BaseType {
   sqliteType: () => SqliteValueType;

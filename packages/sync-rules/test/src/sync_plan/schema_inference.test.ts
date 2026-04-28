@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'vitest';
 import {
   ColumnDefinition,
-  sqlTypeName,
   CompatibilityContext,
   DEFAULT_TAG,
-  javaScriptExpressionEngine,
-  SourceTableDefinition,
-  StaticSchema,
-  TablePattern,
-  PrecompiledSyncConfig,
   deserializeSyncPlan,
-  ExpressionType
+  ExpressionType,
+  javaScriptExpressionEngine,
+  PrecompiledSyncConfig,
+  SourceTableDefinition,
+  sqlTypeName,
+  StaticSchema,
+  TablePattern
 } from '../../../src/index.js';
-import { compileSingleStreamAndSerialize } from '../compiler/utils.js';
 import { SyncPlanSchemaAnalyzer } from '../../../src/sync_plan/schema_inference.js';
+import { compileSingleStreamAndSerialize } from '../compiler/utils.js';
 
 const assetsTable: SourceTableDefinition = {
   name: 'assets',
