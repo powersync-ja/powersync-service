@@ -175,16 +175,11 @@ export abstract class MongoBucketBatch
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
 
-    let evaluatingDuration: number = 0;
     using _ = this.tracer.span('storage', 'flush');
 
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
       if (batch != null) {
-        const start = performance.now();
-        const { batch: b, innerFlushDuration } = await this.replicateBatch(session, batch, opSeq, options);
-        resumeBatch = b;
-        const batchDuration = performance.now() - start;
-        evaluatingDuration += batchDuration - innerFlushDuration;
+        resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
       }
 
       if (this.write_checkpoint_batch.length > 0) {
@@ -213,9 +208,8 @@ export abstract class MongoBucketBatch
     batch: OperationBatch,
     op_seq: MongoIdSequence,
     options?: storage.BucketBatchCommitOptions
-  ): Promise<{ batch: OperationBatch | null; innerFlushDuration: number }> {
+  ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
-    let innerFlushDuration: number = 0;
     using _ = this.tracer.span('storage', 'replicate_batch');
     if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
@@ -292,9 +286,8 @@ export abstract class MongoBucketBatch
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
           using persistSpan = this.tracer.span('storage', 'persist_flush');
-          const { flushedAny, duration } = await persistedBatch!.flush(this.session, options);
+          const { flushedAny } = await persistedBatch!.flush(this.session, options);
 
-          innerFlushDuration += duration;
           didFlush ||= flushedAny;
           persistedBatch = null;
           // Computing our current progress is a little tricky here, since
@@ -310,9 +303,8 @@ export abstract class MongoBucketBatch
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
         using _ = this.tracer.span('storage', 'persist_flush');
-        const { flushedAny, duration } = await persistedBatch.flush(this.session, options);
+        const { flushedAny } = await persistedBatch.flush(this.session, options);
         didFlush ||= flushedAny;
-        innerFlushDuration += duration;
       }
     }
 
@@ -321,7 +313,7 @@ export abstract class MongoBucketBatch
       await this.clearError();
     }
 
-    return { batch: resumeBatch?.hasData() ? resumeBatch : null, innerFlushDuration };
+    return resumeBatch?.hasData() ? resumeBatch : null;
   }
 
   private saveOperation(

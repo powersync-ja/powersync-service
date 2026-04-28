@@ -299,8 +299,8 @@ export abstract class PersistedBatch {
       await this.flushBucketStates(session);
     }
 
-    const duration = Math.round(performance.now() - startAt);
     if (flushedSomething) {
+      const duration = Math.round(performance.now() - startAt);
       if (options?.oldestUncommittedChange != null) {
         const replicationLag = Math.round((Date.now() - options.oldestUncommittedChange.getTime()) / 1000);
 
@@ -341,8 +341,7 @@ export abstract class PersistedBatch {
       bucketDataCount: this.bucketDataCount,
       parameterDataCount: this.bucketParameters.length,
       currentDataCount: this.currentDataCount,
-      flushedAny: flushedSomething,
-      duration: duration
+      flushedAny: flushedSomething
     };
 
     this.bucketData = [];
