@@ -916,12 +916,6 @@ bucket_definitions:
       {
         message: "'mybucket' bucket definition must be an object",
         type: 'fatal'
-      },
-      // Ideally this should not be displayed - it's an additional JSON schema validation error
-      // for the same issue. For now we just include both.
-      {
-        message: 'must be object',
-        type: 'fatal'
       }
     ]);
   });

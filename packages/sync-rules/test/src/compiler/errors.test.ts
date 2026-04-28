@@ -730,4 +730,24 @@ streams:
       }
     ]);
   });
+
+  test('arrays where literals are expected', () => {
+    const [errors, _] = yamlToSyncPlan(`
+config:
+  edition: 3
+
+streams:
+  manybuckets:
+    with:
+      foo: # should not be an array
+        - SELECT 1 as bar
+    query: # should also not be an array (unless queries is used as a key)
+      - SELECT * FROM tbl WHERE id IN foo
+`);
+
+    expect(errors).toStrictEqual([
+      { message: 'Expected a scalar value here.', source: '- SELECT 1 as bar\n' },
+      { message: 'Expected a scalar value here.', source: '- SELECT * FROM tbl WHERE id IN foo\n' }
+    ]);
+  });
 });
