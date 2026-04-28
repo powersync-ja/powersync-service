@@ -49,17 +49,6 @@ export interface ChangeStreamBatch {
    * Size in bytes of this event.
    */
   byteSize: number;
-
-  /**
-   * Time in milliseconds that we waited for a response from MongoDB.
-   *
-   * This includes:
-   * 1. Time to send the command.
-   * 2. Time MongoDB waits for new data to be available.
-   * 3. Time MongoDB scans through the oplog.
-   * 4. Time to send the data back over the network, and parse the outer metadata.
-   */
-  commandDuration: number;
 }
 
 const deserialize = mongo.BSON.deserialize;
@@ -176,7 +165,6 @@ async function* rawChangeStreamInner(
 
   try {
     {
-      const start = performance.now();
       using aggregateSpan = options.tracer?.span('changestream', 'aggregate');
       // Step 1: Send the aggregate command to start the change stream
       const aggregateResult = await db
@@ -197,7 +185,6 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
-      const aggregateDuration = performance.now() - start;
       aggregateSpan?.end();
 
       const cursor = deserialize(aggregateResult.cursor, DESERIALIZE_CHANGE_STREAM);
@@ -216,8 +203,7 @@ async function* rawChangeStreamInner(
       yield {
         events: batch,
         resumeToken: cursor.postBatchResumeToken,
-        byteSize: aggregateResult.cursor.byteLength,
-        commandDuration: aggregateDuration
+        byteSize: aggregateResult.cursor.byteLength
       };
     }
 
@@ -225,7 +211,6 @@ async function* rawChangeStreamInner(
     while (cursorId && cursorId !== 0n) {
       options.signal?.throwIfAborted();
 
-      const start = performance.now();
       using commandSpan = options.tracer?.span('changestream', 'getmore');
       const getMoreResult: mongo.Document = await db
         .command(
@@ -253,7 +238,6 @@ async function* rawChangeStreamInner(
           throw mapChangeStreamError(e);
         });
 
-      const getMoreDuration = performance.now() - start;
       commandSpan?.end();
 
       const cursor = deserialize(getMoreResult.cursor, DESERIALIZE_CHANGE_STREAM);
@@ -268,8 +252,7 @@ async function* rawChangeStreamInner(
       yield {
         events: nextBatch,
         resumeToken: cursor.postBatchResumeToken,
-        byteSize: getMoreResult.cursor.byteLength,
-        commandDuration: getMoreDuration
+        byteSize: getMoreResult.cursor.byteLength
       };
     }
 
