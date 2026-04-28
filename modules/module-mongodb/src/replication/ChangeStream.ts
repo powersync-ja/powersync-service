@@ -482,7 +482,8 @@ export class ChangeStream {
     await using query = new ChunkedSnapshotQuery({
       collection,
       key: table.snapshotStatus?.lastKey,
-      batchSize: this.snapshotChunkLength
+      batchSize: this.snapshotChunkLength,
+      filter: table.initialSnapshotFilter?.mongo
     });
     if (query.lastKey != null) {
       this.logger.info(
@@ -490,6 +491,9 @@ export class ChangeStream {
       );
     } else {
       this.logger.info(`Replicating ${table.qualifiedName} ${table.formatSnapshotProgress()}`);
+    }
+    if (table.initialSnapshotFilter?.mongo) {
+      this.logger.info(`Applying initial snapshot filter: ${JSON.stringify(table.initialSnapshotFilter.mongo)}`);
     }
 
     let lastBatch = performance.now();

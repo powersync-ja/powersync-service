@@ -44,7 +44,11 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
     const request = this.transaction.request();
     const stream = request.toReadableStream();
 
-    request.query(`SELECT * FROM ${this.table.toQualifiedName()}`);
+    let query = `SELECT * FROM ${this.table.toQualifiedName()}`;
+    if (this.table.sourceTable.initialSnapshotFilter?.sql) {
+      query += ` WHERE (${this.table.sourceTable.initialSnapshotFilter.sql})`;
+    }
+    request.query(query);
 
     // MSSQL only streams one row at a time
     for await (const row of stream) {
@@ -141,17 +145,26 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
 
     const request = this.transaction.request();
     const stream = request.toReadableStream();
+    const snapshotFilter = this.table.sourceTable.initialSnapshotFilter?.sql;
+
     if (this.lastKey == null) {
-      request.query(`SELECT TOP(${this.batchSize}) * FROM ${this.table.toQualifiedName()} ORDER BY ${escapedKeyName}`);
+      let query = `SELECT TOP(${this.batchSize}) * FROM ${this.table.toQualifiedName()}`;
+      if (snapshotFilter) {
+        query += ` WHERE (${snapshotFilter})`;
+      }
+      query += ` ORDER BY ${escapedKeyName}`;
+      request.query(query);
     } else {
       if (this.key.typeId == null) {
         throw new Error(`typeId required for primary key ${this.key.name}`);
       }
-      request
-        .input('lastKey', this.lastKey)
-        .query(
-          `SELECT TOP(${this.batchSize}) * FROM ${this.table.toQualifiedName()} WHERE ${escapedKeyName} > @lastKey ORDER BY ${escapedKeyName}`
-        );
+      request.input('lastKey', this.lastKey);
+      let query = `SELECT TOP(${this.batchSize}) * FROM ${this.table.toQualifiedName()} WHERE ${escapedKeyName} > @lastKey`;
+      if (snapshotFilter) {
+        query += ` AND (${snapshotFilter})`;
+      }
+      query += ` ORDER BY ${escapedKeyName}`;
+      request.query(query);
     }
 
     // MSSQL only streams one row at a time
