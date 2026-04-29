@@ -5,14 +5,14 @@ import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import { BucketStateDocumentV3 } from './models.js';
-import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
-import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { BucketStateDocumentV5 } from './models.js';
+import type { MongoSyncBucketStorageV5 } from './MongoSyncBucketStorageV5.js';
+import { SingleBucketStoreV5 } from './SingleBucketStoreV5.js';
+import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
-export class MongoCompactorV3 extends MongoCompactor {
-  declare protected readonly db: VersionedPowerSyncMongoV3;
-  declare protected readonly storage: MongoSyncBucketStorageV3;
+export class MongoCompactorV5 extends MongoCompactor {
+  declare protected readonly db: VersionedPowerSyncMongoV5;
+  declare protected readonly storage: MongoSyncBucketStorageV5;
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -21,13 +21,13 @@ export class MongoCompactorV3 extends MongoCompactor {
     if (options.minBucketChanges <= 0) {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
-    // Same scan strategy as V1, but with the V3 bucket_state key shape.
+    // Same scan strategy as V1, but with the V5 bucket_state key shape.
     yield* this.dirtyBucketBatchesForCollection(
-      this.db.bucketStateV3(this.group_id),
+      this.db.bucketStateV5(this.group_id),
       { d: new mongo.MinKey() as any, b: new mongo.MinKey() as any },
       { d: new mongo.MaxKey() as any, b: new mongo.MaxKey() as any },
       options,
-      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
+      (bucketState) => (bucketState as BucketStateDocumentV5)._id.d
     );
   }
 
@@ -36,18 +36,18 @@ export class MongoCompactorV3 extends MongoCompactor {
       throw new ReplicationAssertionError('minBucketChanges must be >= 1');
     }
     return this.dirtyBucketBatchForChecksumsForCollection(
-      this.db.bucketStateV3(this.group_id),
+      this.db.bucketStateV5(this.group_id),
       {
         'estimate_since_compact.count': { $gte: options.minBucketChanges }
       },
-      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
+      (bucketState) => (bucketState as BucketStateDocumentV5)._id.d
     );
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
     await this.db
-      .bucketStateV3(this.group_id)
-      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], { ordered: false });
+      .bucketStateV5(this.group_id)
+      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV5>[], { ordered: false });
   }
 
   protected async computeChecksumsForBuckets(
@@ -56,7 +56,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     return this.storage.checksums.computePartialChecksumsDirectByDefinition(
       buckets.map(({ bucket, definitionId }) => {
         if (definitionId == null) {
-          throw new ServiceAssertionError(`Missing definitionId for V3 bucket checksum update on bucket ${bucket}`);
+          throw new ServiceAssertionError(`Missing definitionId for V5 bucket checksum update on bucket ${bucket}`);
         }
         return {
           bucket,
@@ -72,7 +72,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     definitionId: BucketDefinitionId | null
   ): mongo.Filter<BucketStateDocumentBase> {
     if (definitionId == null) {
-      throw new ServiceAssertionError(`Missing definitionId for V3 bucket state filter on bucket ${bucket}`);
+      throw new ServiceAssertionError(`Missing definitionId for V5 bucket state filter on bucket ${bucket}`);
     }
     return {
       _id: {
@@ -93,7 +93,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         return null;
       }
       const potentialIds = allDefinitionIds.map((definitionId) => ({ d: definitionId, b: bucket }));
-      const bucketState = await this.db.bucketStateV3(this.group_id).findOne({
+      const bucketState = await this.db.bucketStateV5(this.group_id).findOne({
         _id: { $in: potentialIds }
       });
       if (bucketState == null) {
@@ -102,6 +102,6 @@ export class MongoCompactorV3 extends MongoCompactor {
       definitionId = bucketState._id.d;
     }
 
-    return new SingleBucketStoreV3(this.db, { bucket, definitionId, replicationStreamId: this.group_id });
+    return new SingleBucketStoreV5(this.db, { bucket, definitionId, replicationStreamId: this.group_id });
   }
 }

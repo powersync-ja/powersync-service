@@ -13,26 +13,26 @@ import {
 } from '../common/PersistedBatch.js';
 import { SourceTableKey } from '../models.js';
 import {
-  BucketParameterDocumentV3,
-  BucketStateDocumentV3,
-  CurrentDataDocumentV3,
-  serializeBucketDataV3,
-  SourceTableDocumentV3,
-  taggedBucketParameterDocumentToV3
+  BucketParameterDocumentV5,
+  BucketStateDocumentV5,
+  CurrentDataDocumentV5,
+  serializeBucketDataV5,
+  SourceTableDocumentV5,
+  taggedBucketParameterDocumentToV5
 } from './models.js';
-import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { serializeParameterLookupV5 } from './MongoParameterLookupV5.js';
+import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
-export class PersistedBatchV3 extends PersistedBatch {
-  declare protected readonly db: VersionedPowerSyncMongoV3;
+export class PersistedBatchV5 extends PersistedBatch {
+  declare protected readonly db: VersionedPowerSyncMongoV5;
 
-  currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
+  currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV5> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
 
   protected checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId {
     if (definitionId == null) {
-      // This is required for V3 storage.
-      throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
+      // This is required for V5 storage.
+      throw new ReplicationAssertionError('Expected v5 bucket when incrementalReprocessing is enabled');
     }
     return definitionId;
   }
@@ -47,19 +47,19 @@ export class PersistedBatchV3 extends PersistedBatch {
 
     for (let lookup of data.existing_lookups) {
       if (lookup.indexId == null) {
-        throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected v5 lookup when incrementalReprocessing is enabled');
       }
       remaining_lookups.set(`${lookup.indexId}.${lookup.lookup.toString('base64')}`, lookup);
     }
 
     for (let result of evaluated) {
       const sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
-      const binLookup = serializeParameterLookupV3(result.lookup);
+      const binLookup = serializeParameterLookupV5(result.lookup);
       remaining_lookups.delete(`${sourceDefinitionId}.${binLookup.toString('base64')}`);
 
       const op_id = data.op_seq.next();
       this.debugLastOpId = op_id;
-      const values: BucketParameterDocumentV3 = {
+      const values: BucketParameterDocumentV5 = {
         _id: op_id,
         key: {
           t: mongoTableId(sourceTable.id),
@@ -81,9 +81,9 @@ export class PersistedBatchV3 extends PersistedBatch {
       this.debugLastOpId = op_id;
       const indexId = lookup.indexId;
       if (indexId == null) {
-        throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected v5 lookup when incrementalReprocessing is enabled');
       }
-      const values: BucketParameterDocumentV3 = {
+      const values: BucketParameterDocumentV5 = {
         _id: op_id,
         key: {
           t: mongoTableId(sourceTable.id),
@@ -126,8 +126,8 @@ export class PersistedBatchV3 extends PersistedBatch {
           update: {
             $set: {
               data: null,
-              buckets: [] as CurrentDataDocumentV3['buckets'],
-              lookups: [] as CurrentDataDocumentV3['lookups'],
+              buckets: [] as CurrentDataDocumentV5['buckets'],
+              lookups: [] as CurrentDataDocumentV5['lookups'],
               pending_delete: checkpointGreaterThan
             }
           },
@@ -147,7 +147,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   upsertCurrentData(values: UpsertCurrentDataOptions) {
     const buckets = values.buckets.map((bucket) => {
       if (bucket.definitionId == null) {
-        throw new ReplicationAssertionError('Expected v3 bucket when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected v5 bucket when incrementalReprocessing is enabled');
       }
       return {
         def: bucket.definitionId,
@@ -158,7 +158,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     });
     const lookups = values.lookups.map((lookup) => {
       if (lookup.indexId == null) {
-        throw new ReplicationAssertionError('Expected v3 lookup when incrementalReprocessing is enabled');
+        throw new ReplicationAssertionError('Expected v5 lookup when incrementalReprocessing is enabled');
       }
       return {
         i: lookup.indexId,
@@ -199,10 +199,10 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      await this.db.bucketDataV3(this.group_id, definitionId).bulkWrite(
+      await this.db.bucketDataV5(this.group_id, definitionId).bulkWrite(
         documents.map((document) => ({
           insertOne: {
-            document: serializeBucketDataV3(document)
+            document: serializeBucketDataV5(document)
           }
         })),
         {
@@ -222,10 +222,10 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [indexId, documents] of operationsByIndex.entries()) {
-      await this.db.parameterIndexV3(this.group_id, indexId).bulkWrite(
+      await this.db.parameterIndexV5(this.group_id, indexId).bulkWrite(
         documents.map((document) => ({
           insertOne: {
-            document: taggedBucketParameterDocumentToV3(document)
+            document: taggedBucketParameterDocumentToV5(document)
           }
         })),
         {
@@ -245,7 +245,7 @@ export class PersistedBatchV3 extends PersistedBatch {
       operationsBySourceTable.set(sourceTableId, existing);
     }
 
-    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [
+    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV5>[] = [
       ...this.sourceTablePendingDeletes.entries()
     ].map(([key, value]) => {
       return {
@@ -261,12 +261,12 @@ export class PersistedBatchV3 extends PersistedBatch {
     });
 
     if (sourceTableUpdates.length > 0) {
-      await this.db.sourceTablesV3(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
+      await this.db.sourceTablesV5(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
     }
 
     for (const operations of operationsBySourceTable.values()) {
       const sourceTableId = operations[0]!.sourceTableId;
-      await this.db.sourceRecordsV3(this.group_id, sourceTableId).bulkWrite(
+      await this.db.sourceRecordsV5(this.group_id, sourceTableId).bulkWrite(
         operations.map((entry) => entry.operation),
         {
           session,
@@ -277,7 +277,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   protected async flushBucketStates(session: mongo.ClientSession) {
-    await this.db.bucketStateV3(this.group_id).bulkWrite(this.getBucketStateUpdates(), {
+    await this.db.bucketStateV5(this.group_id).bulkWrite(this.getBucketStateUpdates(), {
       session,
       ordered: false
     });
@@ -288,7 +288,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     this.sourceTablePendingDeletes.clear();
   }
 
-  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[] {
+  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV5>[] {
     return Array.from(this.bucketStates.values()).map((state: BucketStateUpdate) => {
       if (state.definitionId == null) {
         throw new ReplicationAssertionError('Expected bucket definition id when incrementalReprocessing is enabled');
@@ -312,7 +312,7 @@ export class PersistedBatchV3 extends PersistedBatch {
           },
           upsert: true
         }
-      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV3>;
+      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV5>;
     });
   }
 }

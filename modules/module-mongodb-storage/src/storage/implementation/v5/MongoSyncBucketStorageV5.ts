@@ -25,18 +25,18 @@ import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
-import { BucketDataDocumentV3, BucketParameterDocumentV3, loadBucketDataDocumentV3 } from './models.js';
-import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
-import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
-import { MongoCompactorV3 } from './MongoCompactorV3.js';
-import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
-import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { BucketDataDocumentV5, BucketParameterDocumentV5, loadBucketDataDocumentV5 } from './models.js';
+import { MongoBucketBatchV5 } from './MongoBucketBatchV5.js';
+import { MongoChecksumsV5 } from './MongoChecksumsV5.js';
+import { MongoCompactorV5 } from './MongoCompactorV5.js';
+import { MongoParameterCompactorV5 } from './MongoParameterCompactorV5.js';
+import { deserializeParameterLookupV5, serializeParameterLookupV5 } from './MongoParameterLookupV5.js';
+import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
-export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
+export class MongoSyncBucketStorageV5 extends MongoSyncBucketStorage {
   // Declare types to be more specific
-  declare readonly db: VersionedPowerSyncMongoV3;
-  declare readonly checksums: MongoChecksumsV3;
+  declare readonly db: VersionedPowerSyncMongoV5;
+  declare readonly checksums: MongoChecksumsV5;
 
   constructor(
     factory: MongoBucketStorage,
@@ -52,7 +52,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected async initializeVersionStorage(): Promise<void> {
     const mapping = this.mapping;
     for (let source of mapping.allBucketDefinitionIds()) {
-      const collection = this.db.bucketDataV3(this.group_id, source).collectionName;
+      const collection = this.db.bucketDataV5(this.group_id, source).collectionName;
       await this.db.db
         .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
         .catch((error) => {
@@ -63,7 +63,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         });
     }
     for (let indexId of mapping.allParameterIndexIds()) {
-      await this.db.parameterIndexV3(this.group_id, indexId).createIndex(
+      await this.db.parameterIndexV5(this.group_id, indexId).createIndex(
         {
           lookup: 1,
           key: 1,
@@ -77,7 +77,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
-    return new MongoChecksumsV3(this.db, this.group_id, {
+    return new MongoChecksumsV5(this.db, this.group_id, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
       mapping: this.sync_rules.mapping
@@ -85,18 +85,18 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
-    return new MongoCompactorV3(this, this.db, options);
+    return new MongoCompactorV5(this, this.db, options);
   }
 
   protected createMongoParameterCompactor(
     checkpoint: InternalOpId,
     options: storage.CompactOptions
   ): MongoParameterCompactor {
-    return new MongoParameterCompactorV3(this.db, this.group_id, checkpoint, options);
+    return new MongoParameterCompactorV5(this.db, this.group_id, checkpoint, options);
   }
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
-    return new MongoBucketBatchV3(batchOptions);
+    return new MongoBucketBatchV5(batchOptions);
   }
 
   protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
@@ -125,7 +125,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
   }
 
-  protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {
+  protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5> {
     return {
       db: this.db,
       group_id: this.group_id,
@@ -137,7 +137,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: MongoSyncBucketStorageCheckpoint,
     lookups: ScopedParameterLookup[]
   ): Promise<SqliteJsonRow[]> {
-    return getParameterSetsV3(this.versionContext, checkpoint, lookups);
+    return getParameterSetsV5(this.versionContext, checkpoint, lookups);
   }
 
   protected getBucketDataBatchImpl(
@@ -145,30 +145,30 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     dataBuckets: storage.BucketDataRequest[],
     options?: storage.BucketDataBatchOptions
   ): AsyncIterable<storage.SyncBucketDataChunk> {
-    return getBucketDataBatchV3(this.versionContext, checkpoint, dataBuckets, options);
+    return getBucketDataBatchV5(this.versionContext, checkpoint, dataBuckets, options);
   }
 
   protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listBucketDataCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listBucketDataCollectionsV5(this.group_id)) {
       await collection.drop();
     }
   }
 
   protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listParameterIndexCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listParameterIndexCollectionsV5(this.group_id)) {
       await collection.collection.drop();
     }
   }
 
   protected async clearSourceRecords(_signal?: AbortSignal): Promise<void> {
-    for (const collection of await this.db.listSourceRecordCollectionsV3(this.group_id)) {
+    for (const collection of await this.db.listSourceRecordCollectionsV5(this.group_id)) {
       await collection.drop();
     }
   }
 
   protected async clearBucketState(_signal?: AbortSignal): Promise<void> {
     await this.db
-      .bucketStateV3(this.group_id)
+      .bucketStateV5(this.group_id)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -180,7 +180,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected async clearSourceTables(_signal?: AbortSignal): Promise<void> {
     await this.db
-      .sourceTablesV3(this.group_id)
+      .sourceTablesV5(this.group_id)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
       .catch((error) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -193,18 +193,18 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected getDataBucketChangesImpl(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
-    return getDataBucketChangesV3(this.versionContext, options);
+    return getDataBucketChangesV5(this.versionContext, options);
   }
 
   protected getParameterBucketChangesImpl(
     options: GetCheckpointChangesOptions
   ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
-    return getParameterBucketChangesV3(this.versionContext, options);
+    return getParameterBucketChangesV5(this.versionContext, options);
   }
 }
 
-export async function getParameterSetsV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+export async function getParameterSetsV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[]
 ): Promise<SqliteJsonRow[]> {
@@ -214,12 +214,12 @@ export async function getParameterSetsV3(
     const buildLookupPipeline = (
       lookup: ScopedParameterLookup
     ): {
-      collection: mongo.Collection<BucketParameterDocumentV3>;
+      collection: mongo.Collection<BucketParameterDocumentV5>;
       pipeline: mongo.Document[];
     } => {
       const indexId = lookup.indexId;
-      const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
-      const lookupFilter = serializeParameterLookupV3(lookup);
+      const collection = ctx.db.parameterIndexV5(ctx.group_id, indexId);
+      const lookupFilter = serializeParameterLookupV5(lookup);
       return {
         collection,
         pipeline: [
@@ -289,8 +289,8 @@ export async function getParameterSetsV3(
   });
 }
 
-export async function* getBucketDataBatchV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+export async function* getBucketDataBatchV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
   checkpoint: utils.InternalOpId,
   dataBuckets: storage.BucketDataRequest[],
   options?: storage.BucketDataBatchOptions
@@ -321,7 +321,7 @@ export async function* getBucketDataBatchV3(
     const [definitionId, requests] = definitionGroups[groupIndex];
     const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
     const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
-    const filters: mongo.Filter<BucketDataDocumentV3>[] = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
+    const filters: mongo.Filter<BucketDataDocumentV5>[] = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
       _id: {
         $gt: {
           b: bucket,
@@ -334,7 +334,7 @@ export async function* getBucketDataBatchV3(
       }
     }));
 
-    const cursor = ctx.db.bucketDataV3(ctx.group_id, definitionId).find(
+    const cursor = ctx.db.bucketDataV5(ctx.group_id, definitionId).find(
       {
         $or: filters
       },
@@ -365,9 +365,9 @@ export async function* getBucketDataBatchV3(
     let targetOp: InternalOpId | null = null;
 
     for (let rawData of data) {
-      const row = loadBucketDataDocumentV3(
+      const row = loadBucketDataDocumentV5(
         { replicationStreamId: ctx.group_id, definitionId },
-        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
+        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV5
       );
       const bucket = row.bucketKey.bucket;
 
@@ -424,13 +424,13 @@ export async function* getBucketDataBatchV3(
   }
 }
 
-export async function getDataBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+export async function getDataBucketChangesV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
   const limit = 1000;
   const bucketStateUpdates = await ctx.db
-    .bucketStateV3(ctx.group_id)
+    .bucketStateV5(ctx.group_id)
     .aggregate<{ _id: string; last_op: bigint }>(
       [
         {
@@ -466,15 +466,15 @@ export async function getDataBucketChangesV3(
   };
 }
 
-export async function getParameterBucketChangesV3(
-  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
+export async function getParameterBucketChangesV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
   options: GetCheckpointChangesOptions
 ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
   const limit = 1000;
   const indexIds = ctx.mapping.allParameterIndexIds();
   const collections = indexIds.map((indexId) => ({
     indexId,
-    collection: ctx.db.parameterIndexV3(ctx.group_id, indexId)
+    collection: ctx.db.parameterIndexV5(ctx.group_id, indexId)
   }));
   if (collections.length == 0) {
     return {
@@ -528,7 +528,7 @@ export async function getParameterBucketChangesV3(
     updatedParameterLookups: invalidateParameterUpdates
       ? new Set<string>()
       : new Set<string>(
-          parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookupV3(p.lookup, p.indexId)))
+          parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookupV5(p.lookup, p.indexId)))
         )
   };
 }

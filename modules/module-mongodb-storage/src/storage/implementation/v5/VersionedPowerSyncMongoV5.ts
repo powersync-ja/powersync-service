@@ -3,25 +3,25 @@ import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping
 import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
 import { CommonSourceTableDocument } from '../models.js';
 import {
-  BucketDataDocumentV3,
-  BucketParameterDocumentV3,
-  BucketStateDocumentV3,
-  CurrentDataDocumentV3,
-  SourceTableDocumentV3
+  BucketDataDocumentV5,
+  BucketParameterDocumentV5,
+  BucketStateDocumentV5,
+  CurrentDataDocumentV5,
+  SourceTableDocumentV5
 } from './models.js';
 
-export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
-  sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV3> {
+export class VersionedPowerSyncMongoV5 extends BaseVersionedPowerSyncMongo {
+  sourceRecordsV5(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV5> {
     const collectionName = this.sourceRecordsCollectionName(replicationStreamId, sourceTableId);
-    return this.db.collection<CurrentDataDocumentV3>(collectionName);
+    return this.db.collection<CurrentDataDocumentV5>(collectionName);
   }
 
-  async listSourceRecordCollectionsV3(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV3>[]> {
-    return this.listCollectionsByPrefix<CurrentDataDocumentV3>(`source_records_${replicationStreamId}_`);
+  async listSourceRecordCollectionsV5(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV5>[]> {
+    return this.listCollectionsByPrefix<CurrentDataDocumentV5>(`source_records_${replicationStreamId}_`);
   }
 
   async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
-    await this.sourceRecordsV3(replicationStreamId, sourceTableId).createIndex(
+    await this.sourceRecordsV5(replicationStreamId, sourceTableId).createIndex(
       {
         pending_delete: 1
       },
@@ -33,27 +33,27 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
   }
 
   commonSourceTables(replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
-    return this.sourceTablesV3(replicationStreamId) as mongo.Collection<CommonSourceTableDocument>;
+    return this.sourceTablesV5(replicationStreamId) as mongo.Collection<CommonSourceTableDocument>;
   }
 
-  bucketStateV3(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {
+  bucketStateV5(replicationStreamId: number): mongo.Collection<BucketStateDocumentV5> {
     return this.db.collection(`bucket_state_${replicationStreamId}`);
   }
 
-  parameterIndexV3(
+  parameterIndexV5(
     replicationStreamId: number,
     indexId: ParameterIndexId
-  ): mongo.Collection<BucketParameterDocumentV3> {
+  ): mongo.Collection<BucketParameterDocumentV5> {
     return this.db.collection(`parameter_index_${replicationStreamId}_${indexId}`);
   }
 
-  sourceTablesV3(replicationStreamId: number): mongo.Collection<SourceTableDocumentV3> {
-    return this.db.collection<SourceTableDocumentV3>(this.sourceTableCollectionName(replicationStreamId));
+  sourceTablesV5(replicationStreamId: number): mongo.Collection<SourceTableDocumentV5> {
+    return this.db.collection<SourceTableDocumentV5>(this.sourceTableCollectionName(replicationStreamId));
   }
 
   async initializeStreamStorage(replicationStreamId: number) {
-    const sourceTables = this.sourceTablesV3(replicationStreamId);
-    const bucketState = this.bucketStateV3(replicationStreamId);
+    const sourceTables = this.sourceTablesV5(replicationStreamId);
+    const bucketState = this.bucketStateV5(replicationStreamId);
     await sourceTables.createIndex(
       {
         connection_id: 1,
@@ -88,24 +88,24 @@ export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
     );
   }
 
-  bucketDataV3(replicationStreamId: number, definitionId: BucketDefinitionId) {
-    return this.db.collection<BucketDataDocumentV3>(`bucket_data_${replicationStreamId}_${definitionId}`);
+  bucketDataV5(replicationStreamId: number, definitionId: BucketDefinitionId) {
+    return this.db.collection<BucketDataDocumentV5>(`bucket_data_${replicationStreamId}_${definitionId}`);
   }
 
-  listBucketDataCollectionsV3(replicationStreamId: number) {
+  listBucketDataCollectionsV5(replicationStreamId: number) {
     return this.upstream.listBucketDataCollectionsV3(replicationStreamId);
   }
 
-  async listParameterIndexCollectionsV3(
+  async listParameterIndexCollectionsV5(
     replicationStreamId: number
-  ): Promise<{ collection: mongo.Collection<BucketParameterDocumentV3>; indexId: ParameterIndexId }[]> {
+  ): Promise<{ collection: mongo.Collection<BucketParameterDocumentV5>; indexId: ParameterIndexId }[]> {
     const prefix = `parameter_index_${replicationStreamId}_`;
     const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
 
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
       .map((collection) => ({
-        collection: this.db.collection<BucketParameterDocumentV3>(collection.name),
+        collection: this.db.collection<BucketParameterDocumentV5>(collection.name),
         indexId: collection.name.slice(prefix.length)
       }));
   }

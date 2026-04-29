@@ -7,29 +7,29 @@ import {
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
 import { BucketDataProperties } from '../models.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { BucketDataDocumentV3, BucketDataKeyV3, loadBucketDataDocumentV3, serializeBucketDataV3 } from './models.js';
+import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
+import { BucketDataDocumentV5, BucketDataKeyV5, loadBucketDataDocumentV5, serializeBucketDataV5 } from './models.js';
 
-export class SingleBucketStoreV3 implements SingleBucketStore {
+export class SingleBucketStoreV5 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
 
   constructor(
-    private db: VersionedPowerSyncMongoV3,
+    private db: VersionedPowerSyncMongoV5,
     public readonly key: BucketKey
   ) {
-    this.collection = db.bucketDataV3(
+    this.collection = db.bucketDataV5(
       key.replicationStreamId,
       key.definitionId
     ) as unknown as mongo.Collection<BucketDataDocumentGeneric>;
   }
 
   docId(o: InternalOpId): BucketDataDocumentGenericId {
-    // `satisfies BucketDataKeyV3` checks that we use the correct type for V3 storage
+    // `satisfies BucketDataKeyV5` checks that we use the correct type for V5 storage
     // `as BucketDataDocumentGenericId` does a cast to get the interface virtual type
     return {
       b: this.key.bucket,
       o
-    } satisfies BucketDataKeyV3 as BucketDataDocumentGenericId;
+    } satisfies BucketDataKeyV5 as BucketDataDocumentGenericId;
   }
 
   get minId(): BucketDataDocumentGenericId {
@@ -47,17 +47,17 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return serializeBucketDataV3({ bucketKey: this.key, ...source }) as BucketDataDocumentGeneric;
+    return serializeBucketDataV5({ bucketKey: this.key, ...source }) as BucketDataDocumentGeneric;
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    return loadBucketDataDocumentV3(this.key, doc as BucketDataDocumentV3);
+    return loadBucketDataDocumentV5(this.key, doc as BucketDataDocumentV5);
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    const document = doc as Pick<BucketDataDocumentV3, '_id' | T>;
+    const document = doc as Pick<BucketDataDocumentV5, '_id' | T>;
     const { _id, ...rest } = document;
     return {
       bucketKey: this.key,

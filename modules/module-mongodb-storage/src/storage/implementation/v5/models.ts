@@ -14,20 +14,20 @@ import {
   TaggedBucketParameterDocument
 } from '../models.js';
 
-export interface CurrentBucketV3 extends CurrentBucket {
+export interface CurrentBucketV5 extends CurrentBucket {
   def: BucketDefinitionId;
 }
 
-export interface RecordedLookupV3 {
+export interface RecordedLookupV5 {
   i: ParameterIndexId;
   l: bson.Binary;
 }
 
-export interface CurrentDataDocumentV3 {
+export interface CurrentDataDocumentV5 {
   _id: ReplicaId;
   data: bson.Binary | null;
-  buckets: CurrentBucketV3[];
-  lookups: RecordedLookupV3[];
+  buckets: CurrentBucketV5[];
+  lookups: RecordedLookupV5[];
   /**
    * If set, this can be deleted, once there is a consistent checkpoint >= pending_delete.
    *
@@ -36,15 +36,15 @@ export interface CurrentDataDocumentV3 {
   pending_delete?: bigint;
 }
 
-export interface BucketParameterDocumentV3 extends BucketParameterDocumentBase<SourceTableKey> {}
+export interface BucketParameterDocumentV5 extends BucketParameterDocumentBase<SourceTableKey> {}
 
-export type BucketDataKeyV3 = BucketDataKey;
+export type BucketDataKeyV5 = BucketDataKey;
 
-export interface BucketDataDocumentV3 extends BucketDataDocumentBase {
-  _id: BucketDataKeyV3;
+export interface BucketDataDocumentV5 extends BucketDataDocumentBase {
+  _id: BucketDataKeyV5;
 }
 
-export function serializeBucketDataV3(document: BucketDataDoc): BucketDataDocumentV3 {
+export function serializeBucketDataV5(document: BucketDataDoc): BucketDataDocumentV5 {
   const { bucketKey, o } = document;
   return {
     _id: {
@@ -63,9 +63,9 @@ export function serializeBucketDataV3(document: BucketDataDoc): BucketDataDocume
   };
 }
 
-export function loadBucketDataDocumentV3(
+export function loadBucketDataDocumentV5(
   context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>,
-  doc: BucketDataDocumentV3
+  doc: BucketDataDocumentV5
 ): BucketDataDoc {
   const { _id, ...rest } = doc;
   return {
@@ -78,18 +78,18 @@ export function loadBucketDataDocumentV3(
   };
 }
 
-export function taggedBucketParameterDocumentToV3(document: TaggedBucketParameterDocument): BucketParameterDocumentV3 {
+export function taggedBucketParameterDocumentToV5(document: TaggedBucketParameterDocument): BucketParameterDocumentV5 {
   const { index: _index, ...rest } = document;
-  return rest as BucketParameterDocumentV3;
+  return rest as BucketParameterDocumentV5;
 }
 
-export interface SourceTableDocumentV3 extends SourceTableDocument {
+export interface SourceTableDocumentV5 extends SourceTableDocument {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;
 }
 
-export interface BucketStateDocumentV3 extends BucketStateDocumentBase {
+export interface BucketStateDocumentV5 extends BucketStateDocumentBase {
   _id: BucketStateDocumentBase['_id'] & {
     d: BucketDefinitionId;
   };

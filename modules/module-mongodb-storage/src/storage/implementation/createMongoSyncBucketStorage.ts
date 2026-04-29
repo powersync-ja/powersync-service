@@ -4,6 +4,7 @@ import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './MongoSyncBucketStorage.js';
 import { MongoSyncBucketStorageV1 } from './v1/MongoSyncBucketStorageV1.js';
 import { MongoSyncBucketStorageV3 } from './v3/MongoSyncBucketStorageV3.js';
+import { MongoSyncBucketStorageV5 } from './v5/MongoSyncBucketStorageV5.js';
 
 export { MongoSyncBucketStorageOptions } from './MongoSyncBucketStorage.js';
 
@@ -17,7 +18,12 @@ export function createMongoSyncBucketStorage(
   writeCheckpointMode: storage.WriteCheckpointMode | undefined,
   options: MongoSyncBucketStorageOptions
 ): MongoSyncBucketStorage {
-  if (sync_rules.getStorageConfig().incrementalReprocessing) {
+  const storageConfig = sync_rules.getStorageConfig();
+  if (storageConfig.compressedBucketStorage) {
+    return new MongoSyncBucketStorageV5(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+  }
+
+  if (storageConfig.incrementalReprocessing) {
     return new MongoSyncBucketStorageV3(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
   }
 

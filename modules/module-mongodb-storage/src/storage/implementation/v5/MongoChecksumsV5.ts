@@ -9,22 +9,22 @@ import {
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
   emptyChecksumForRequest,
-  FetchPartialBucketChecksumV3,
+  FetchPartialBucketChecksumV3 as FetchPartialBucketChecksumV5,
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
-export class MongoChecksumsV3 extends MongoChecksums {
-  declare protected readonly db: VersionedPowerSyncMongoV3;
+export class MongoChecksumsV5 extends MongoChecksums {
+  declare protected readonly db: VersionedPowerSyncMongoV5;
   private readonly mapping: BucketDefinitionMapping;
 
-  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
+  constructor(db: VersionedPowerSyncMongoV5, group_id: number, options: MongoChecksumOptions) {
     super(db, group_id, options);
     this.mapping = options.mapping!;
   }
 
-  private normalizeBatch(batch: FetchPartialBucketChecksum[]): FetchPartialBucketChecksumV3[] {
+  private normalizeBatch(batch: FetchPartialBucketChecksum[]): FetchPartialBucketChecksumV5[] {
     return batch.map((request) => ({
       bucket: request.bucket,
       definitionId: this.mapping.bucketSourceId(request.source),
@@ -33,9 +33,9 @@ export class MongoChecksumsV3 extends MongoChecksums {
     }));
   }
 
-  async computePartialChecksumsDirectByDefinition(batch: FetchPartialBucketChecksumV3[]): Promise<PartialChecksumMap> {
+  async computePartialChecksumsDirectByDefinition(batch: FetchPartialBucketChecksumV5[]): Promise<PartialChecksumMap> {
     const results = new Map<string, PartialOrFullChecksum>();
-    const requestsByDefinition = new Map<string, FetchPartialBucketChecksumV3[]>();
+    const requestsByDefinition = new Map<string, FetchPartialBucketChecksumV5[]>();
 
     for (const request of batch) {
       const existing = requestsByDefinition.get(request.definitionId) ?? [];
@@ -46,8 +46,8 @@ export class MongoChecksumsV3 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucketDataV3(this.group_id, definitionId),
-        createV3BucketFilter
+        this.db.bucketDataV5(this.group_id, definitionId),
+        createV5BucketFilter
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -78,7 +78,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
     }
 
     const states = await this.db
-      .bucketStateV3(this.group_id)
+      .bucketStateV5(this.group_id)
       .find({
         $or: preFilters
       })
@@ -104,7 +104,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
   }
 }
 
-function createV3BucketFilter(request: Pick<FetchPartialBucketChecksumV3, 'bucket' | 'start' | 'end'>) {
+function createV5BucketFilter(request: Pick<FetchPartialBucketChecksumV5, 'bucket' | 'start' | 'end'>) {
   return {
     _id: {
       $gt: {

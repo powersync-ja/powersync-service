@@ -8,13 +8,13 @@ import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { cacheKey } from '../OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
-import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { CurrentDataDocumentV3, SourceTableDocumentV3 } from './models.js';
+import { serializeParameterLookupV5 } from './MongoParameterLookupV5.js';
+import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
+import { CurrentDataDocumentV5, SourceTableDocumentV5 } from './models.js';
 
-export class SourceRecordStoreV3 implements SourceRecordStore {
+export class SourceRecordStoreV5 implements SourceRecordStore {
   constructor(
-    private readonly db: VersionedPowerSyncMongoV3,
+    private readonly db: VersionedPowerSyncMongoV5,
     private readonly groupId: number,
     private readonly mapping: BucketDefinitionMapping
   ) {}
@@ -31,7 +31,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   mapParameterLookups(paramEvaluated: EvaluatedParameters[]): LoadedSourceRecord['lookups'] {
     return paramEvaluated.map((entry) => ({
       indexId: this.mapping.parameterLookupId(entry.lookup.source),
-      lookup: serializeParameterLookupV3(entry.lookup)
+      lookup: serializeParameterLookupV5(entry.lookup)
     }));
   }
 
@@ -39,8 +39,8 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     id: storage.ReplicaId,
     data: bson.Binary | null,
-    buckets: CurrentDataDocumentV3['buckets'],
-    lookups: CurrentDataDocumentV3['lookups']
+    buckets: CurrentDataDocumentV5['buckets'],
+    lookups: CurrentDataDocumentV5['lookups']
   ): LoadedSourceRecord {
     return {
       sourceTableId,
@@ -65,9 +65,9 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
       const filter = {
         _id: { $in: replicaIds as any[] }
-      } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const sizeCursor: mongo.AggregationCursor<CurrentDataDocumentV3 & { size: number }> = this.db
-        .sourceRecordsV3(this.groupId, sourceTableId)
+      } as unknown as mongo.Filter<CurrentDataDocumentV5>;
+      const sizeCursor: mongo.AggregationCursor<CurrentDataDocumentV5 & { size: number }> = this.db
+        .sourceRecordsV5(this.groupId, sourceTableId)
         .aggregate(
           [
             {
@@ -99,8 +99,8 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
       const filter = {
         _id: { $in: replicaIds as any[] }
-      } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(filter, { session, projection });
+      } as unknown as mongo.Filter<CurrentDataDocumentV5>;
+      const cursor = this.db.sourceRecordsV5(this.groupId, sourceTableId).find(filter, { session, projection });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(
           sourceTableId,
@@ -120,7 +120,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]> {
-    const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(
+    const cursor = this.db.sourceRecordsV5(this.groupId, sourceTableId).find(
       {
         pending_delete: { $exists: false }
       },
@@ -145,7 +145,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     // ones have dirty deletes in source_tables.
 
     const dirtySourceTables = await this.db
-      .sourceTablesV3(this.groupId)
+      .sourceTablesV5(this.groupId)
       .find(
         {
           latest_pending_delete: { $exists: true }
@@ -157,9 +157,9 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
       .toArray();
 
     let deletedCount = 0;
-    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [];
+    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV5>[] = [];
     for (const sourceTable of dirtySourceTables) {
-      const collection = this.db.sourceRecordsV3(this.groupId, sourceTable._id);
+      const collection = this.db.sourceRecordsV5(this.groupId, sourceTable._id);
       const result = await this.deletePendingDeletes(collection, sourceTable._id, lastCheckpoint, logger);
       deletedCount += result.deletedCount;
 
@@ -182,7 +182,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     }
 
     if (sourceTableUpdates.length > 0) {
-      await this.db.sourceTablesV3(this.groupId).bulkWrite(sourceTableUpdates, { ordered: false });
+      await this.db.sourceTablesV5(this.groupId).bulkWrite(sourceTableUpdates, { ordered: false });
     }
     if (deletedCount > 0) {
       logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);
@@ -190,7 +190,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   }
 
   private async deletePendingDeletes(
-    collection: mongo.Collection<CurrentDataDocumentV3>,
+    collection: mongo.Collection<CurrentDataDocumentV5>,
     sourceTableId: bson.ObjectId,
     lastCheckpoint: bigint,
     logger: Logger

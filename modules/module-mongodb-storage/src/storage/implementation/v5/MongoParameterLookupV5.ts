@@ -3,10 +3,10 @@ import { ScopedParameterLookup, SqliteJsonValue } from '@powersync/service-sync-
 import * as bson from 'bson';
 import { ParameterIndexId } from '../BucketDefinitionMapping.js';
 
-export function serializeParameterLookupV3(lookup: ScopedParameterLookup): bson.Binary {
+export function serializeParameterLookupV5(lookup: ScopedParameterLookup): bson.Binary {
   return new bson.Binary(bson.serialize({ l: lookup.values.slice(2) }));
 }
 
-export function deserializeParameterLookupV3(lookup: bson.Binary, indexId: ParameterIndexId): SqliteJsonValue[] {
+export function deserializeParameterLookupV5(lookup: bson.Binary, indexId: ParameterIndexId): SqliteJsonValue[] {
   return [indexId, '', ...deserializeParameterLookup(lookup)];
 }
