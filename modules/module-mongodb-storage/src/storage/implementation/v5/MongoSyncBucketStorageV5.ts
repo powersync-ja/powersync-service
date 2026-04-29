@@ -341,8 +341,6 @@ export async function* getBucketDataBatchV5(
       {
         session: undefined,
         sort: { _id: 1 },
-        limit: remainingLimit,
-        batchSize: remainingLimit + 1,
         raw: true,
         maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
       }
@@ -351,20 +349,13 @@ export async function* getBucketDataBatchV5(
     let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
       throw lib_mongo.mapQueryError(e, 'while reading bucket data');
     });
-    if (data.length == remainingLimit) {
-      batchHasMore = true;
-    }
-    if (data.length == 0) {
-      continue;
-    }
-
-    remainingLimit -= data.length;
 
     let chunkSizeBytes = 0;
     let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
+    let limitReached = false;
 
-    for (let rawData of data) {
+    doc_loop: for (let rawData of data) {
       const doc = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV5;
       for (const row of loadBucketDataDocumentV5({ replicationStreamId: ctx.group_id, definitionId }, doc)) {
         const bucket = row.bucketKey.bucket;
@@ -414,16 +405,22 @@ export async function* getBucketDataBatchV5(
         currentChunk.data.push(entry);
         currentChunk.next_after = entry.op_id;
         chunkSizeBytes += rawData.byteLength;
+
+        remainingLimit--;
+        if (remainingLimit <= 0) {
+          limitReached = true;
+          break doc_loop;
+        }
       }
     }
 
     if (currentChunk != null) {
       const yieldChunk = currentChunk;
-      yieldChunk.has_more = batchHasMore || (remainingLimit <= 0 && hasLaterDefinitionGroups);
+      yieldChunk.has_more = limitReached || batchHasMore;
       yield { chunkData: yieldChunk, targetOp: targetOp };
     }
 
-    if (batchHasMore || remainingLimit <= 0) {
+    if (limitReached || batchHasMore) {
       return;
     }
   }
