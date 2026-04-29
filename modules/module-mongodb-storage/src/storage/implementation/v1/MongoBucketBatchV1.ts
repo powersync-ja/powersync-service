@@ -1,4 +1,4 @@
-import { SourceTable } from '@powersync/service-core';
+import { SourceTable, storage } from '@powersync/service-core';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -28,5 +28,28 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
   protected async cleanupDroppedSourceTables(_tables: SourceTable[]) {
     // No-op for V1: source records live in a shared collection.
+  }
+
+  override async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
+    return super.commit(lsn, options);
+  }
+
+  override async keepalive(lsn: string): Promise<storage.CheckpointResult> {
+    return super.keepalive(lsn);
+  }
+
+  override async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    return super.markAllSnapshotDone(no_checkpoint_before_lsn);
+  }
+
+  override async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    return super.markTableSnapshotRequired(table);
+  }
+
+  override async markTableSnapshotDone(
+    tables: storage.SourceTable[],
+    no_checkpoint_before_lsn?: string
+  ): Promise<storage.SourceTable[]> {
+    return super.markTableSnapshotDone(tables, no_checkpoint_before_lsn);
   }
 }

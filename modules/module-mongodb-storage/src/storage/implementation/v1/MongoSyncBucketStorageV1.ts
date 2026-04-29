@@ -1,11 +1,13 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
   deserializeParameterLookup,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  maxLsn,
   ProtocolOpId,
   storage,
   utils
@@ -53,6 +55,103 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
     return new MongoBucketBatchV1(batchOptions);
+  }
+
+  protected async fetchCheckpointState(
+    session: mongo.ClientSession
+  ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
+    const doc = await this.db.sync_rules.findOne(
+      { _id: this.group_id },
+      {
+        session,
+        projection: { _id: 1, state: 1, last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
+      }
+    );
+    if (!doc?.snapshot_done || ![storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED].includes(doc.state)) {
+      return null;
+    }
+    return {
+      checkpoint: doc.last_checkpoint ?? 0n,
+      lsn: doc.last_checkpoint_lsn ?? null
+    };
+  }
+
+  protected async getWriterSyncState() {
+    const doc = await this.db.sync_rules.findOne(
+      {
+        _id: this.group_id
+      },
+      { projection: { last_checkpoint_lsn: 1, keepalive_op: 1, snapshot_lsn: 1 } }
+    );
+    const checkpointLsn = doc?.last_checkpoint_lsn ?? null;
+    return {
+      lastCheckpointLsn: checkpointLsn,
+      resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
+      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
+      syncConfigId: null
+    };
+  }
+
+  protected async terminateSyncRuleState(): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          state: storage.SyncRuleState.TERMINATED,
+          persisted_lsn: null,
+          snapshot_done: false
+        }
+      }
+    );
+  }
+
+  protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
+    const doc = await this.db.sync_rules.findOne(
+      {
+        _id: this.group_id
+      },
+      {
+        projection: {
+          snapshot_done: 1,
+          last_checkpoint_lsn: 1,
+          state: 1,
+          snapshot_lsn: 1
+        }
+      }
+    );
+    if (doc == null) {
+      throw new ServiceAssertionError('Cannot find sync rules status');
+    }
+
+    return {
+      snapshot_done: doc.snapshot_done,
+      snapshot_lsn: doc.snapshot_lsn ?? null,
+      active: doc.state == storage.SyncRuleState.ACTIVE,
+      checkpoint_lsn: doc.last_checkpoint_lsn
+    };
+  }
+
+  protected async clearSyncRuleState(): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          snapshot_done: false,
+          persisted_lsn: null,
+          last_checkpoint_lsn: null,
+          last_checkpoint: null,
+          no_checkpoint_before: null
+        },
+        $unset: {
+          snapshot_lsn: 1
+        }
+      },
+      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
+    );
   }
 
   protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {

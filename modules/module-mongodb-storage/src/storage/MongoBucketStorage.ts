@@ -118,7 +118,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         },
         {
           $set: {
-            state: storage.SyncRuleState.STOP
+            state: storage.SyncRuleState.STOP,
+            // v3 nested state
+            'sync_configs.$[].state': storage.SyncRuleState.STOP
           }
         }
       );
@@ -138,7 +140,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         },
         {
           $set: {
-            state: storage.SyncRuleState.ERRORED
+            state: storage.SyncRuleState.ERRORED,
+            'sync_configs.$[].state': storage.SyncRuleState.ERRORED
           }
         }
       );
@@ -153,7 +156,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         },
         {
           $set: {
-            state: storage.SyncRuleState.ERRORED
+            state: storage.SyncRuleState.ERRORED,
+            'sync_configs.$[].state': storage.SyncRuleState.ERRORED
           }
         }
       );
@@ -177,7 +181,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.*.state': storage.SyncRuleState.STOP } },
+        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.$[].state': storage.SyncRuleState.STOP } },
         { session }
       );
 
@@ -274,7 +278,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.*.state': storage.SyncRuleState.STOP } },
+        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.$[].state': storage.SyncRuleState.STOP } },
         { session }
       );
 

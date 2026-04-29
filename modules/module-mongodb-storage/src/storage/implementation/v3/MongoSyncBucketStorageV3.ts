@@ -1,10 +1,12 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  maxLsn,
   ProtocolOpId,
   storage,
   utils
@@ -23,7 +25,7 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
+import { MongoPersistedSyncRulesContent, MongoPersistedSyncRulesContentV3 } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import { BucketDataDocumentV3, BucketParameterDocumentV3, loadBucketDataDocumentV3 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
@@ -47,6 +49,14 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     options: MongoSyncBucketStorageOptions
   ) {
     super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+  }
+
+  private get syncConfigId(): bson.ObjectId {
+    const id = (this.sync_rules as unknown as MongoPersistedSyncRulesContentV3).syncConfigId;
+    if (id == null) {
+      throw new ServiceAssertionError('Missing sync config id for storage v3');
+    }
+    return id;
   }
 
   protected async initializeVersionStorage(): Promise<void> {
@@ -97,6 +107,143 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
     return new MongoBucketBatchV3(batchOptions);
+  }
+
+  protected async fetchCheckpointState(
+    session: mongo.ClientSession
+  ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
+    const syncConfigId = this.syncConfigId;
+    const doc = await this.db.sync_rules.findOne(
+      {
+        _id: this.group_id,
+        sync_configs: {
+          $elemMatch: {
+            _id: syncConfigId,
+            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+          }
+        }
+      },
+      {
+        session,
+        projection: {
+          sync_configs: {
+            $elemMatch: {
+              _id: syncConfigId
+            }
+          }
+        }
+      }
+    );
+    const syncConfig = (doc as any)?.sync_configs?.[0];
+    if (!syncConfig?.snapshot_done) {
+      return null;
+    }
+    return {
+      checkpoint: syncConfig.last_checkpoint ?? 0n,
+      lsn: syncConfig.last_checkpoint_lsn ?? null
+    };
+  }
+
+  protected async getWriterSyncState() {
+    const syncConfigId = this.syncConfigId;
+    const doc = await this.db.sync_rules.findOne(
+      {
+        _id: this.group_id,
+        'sync_configs._id': syncConfigId
+      },
+      {
+        projection: {
+          snapshot_lsn: 1,
+          sync_configs: {
+            $elemMatch: {
+              _id: syncConfigId
+            }
+          }
+        }
+      }
+    );
+    const syncConfig = (doc as any)?.sync_configs?.[0];
+    const checkpointLsn = syncConfig?.last_checkpoint_lsn ?? null;
+    return {
+      lastCheckpointLsn: checkpointLsn,
+      resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
+      keepaliveOp: syncConfig?.keepalive_op ?? null,
+      syncConfigId
+    };
+  }
+
+  protected async terminateSyncRuleState(): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          state: storage.SyncRuleState.TERMINATED,
+          persisted_lsn: null,
+          sync_configs: []
+        }
+      }
+    );
+  }
+
+  protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
+    const syncConfigId = this.syncConfigId;
+    const doc = await this.db.sync_rules.findOne(
+      {
+        _id: this.group_id,
+        'sync_configs._id': syncConfigId
+      },
+      {
+        projection: {
+          state: 1,
+          snapshot_lsn: 1,
+          sync_configs: {
+            $elemMatch: {
+              _id: syncConfigId
+            }
+          }
+        }
+      }
+    );
+    const syncConfig = (doc as any)?.sync_configs?.[0];
+    if (doc == null || syncConfig == null) {
+      throw new ServiceAssertionError('Cannot find sync rules status');
+    }
+
+    return {
+      snapshot_done: syncConfig.snapshot_done ?? false,
+      snapshot_lsn: doc.snapshot_lsn ?? null,
+      active: doc.state == storage.SyncRuleState.ACTIVE && syncConfig.state == storage.SyncRuleState.ACTIVE,
+      checkpoint_lsn: syncConfig.last_checkpoint_lsn ?? null
+    };
+  }
+
+  protected async clearSyncRuleState(): Promise<void> {
+    const syncConfigId = this.syncConfigId;
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id,
+        'sync_configs._id': syncConfigId
+      },
+      {
+        $set: {
+          persisted_lsn: null,
+          'sync_configs.$[config].snapshot_done': false,
+          'sync_configs.$[config].last_checkpoint_lsn': null,
+          'sync_configs.$[config].last_checkpoint': null,
+          'sync_configs.$[config].no_checkpoint_before': null,
+          'sync_configs.$[config].keepalive_op': null
+        },
+        $unset: {
+          snapshot_lsn: 1
+        }
+      },
+      {
+        maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
+        arrayFilters: [{ 'config._id': syncConfigId }]
+      }
+    );
   }
 
   protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {

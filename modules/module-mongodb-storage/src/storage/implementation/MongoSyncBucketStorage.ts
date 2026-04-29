@@ -13,7 +13,6 @@ import {
   CheckpointChanges,
   GetCheckpointChangesOptions,
   InternalOpId,
-  maxLsn,
   mergeAsyncIterables,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
@@ -46,6 +45,13 @@ export interface MongoSyncBucketStorageOptions {
 interface InternalCheckpointChanges extends CheckpointChanges {
   updatedWriteCheckpoints: Map<string, bigint>;
   invalidateWriteCheckpoints: boolean;
+}
+
+interface WriterSyncState {
+  lastCheckpointLsn: string | null;
+  resumeFromLsn: string | null;
+  keepaliveOp: InternalOpId | null;
+  syncConfigId?: bson.ObjectId | null;
 }
 
 /**
@@ -147,16 +153,12 @@ export abstract class MongoSyncBucketStorage
     return (await this.getCheckpointInternal()) ?? new EmptyReplicationCheckpoint();
   }
 
+  protected abstract fetchCheckpointState(session: mongo.ClientSession): Promise<{ checkpoint: bigint; lsn: string | null } | null>;
+
   async getCheckpointInternal(): Promise<storage.ReplicationCheckpoint | null> {
     return await this.db.client.withSession({ snapshot: true }, async (session) => {
-      const doc = await this.db.sync_rules.findOne(
-        { _id: this.group_id },
-        {
-          session,
-          projection: { _id: 1, state: 1, last_checkpoint: 1, last_checkpoint_lsn: 1, snapshot_done: 1 }
-        }
-      );
-      if (!doc?.snapshot_done || !['ACTIVE', 'ERRORED'].includes(doc.state)) {
+      const state = await this.fetchCheckpointState(session);
+      if (state == null) {
         return null;
       }
 
@@ -164,12 +166,7 @@ export abstract class MongoSyncBucketStorage
       if (snapshotTime == null) {
         throw new ServiceAssertionError('Missing snapshotTime in getCheckpoint()');
       }
-      return new MongoReplicationCheckpoint(
-        this,
-        doc.last_checkpoint ?? 0n,
-        doc.last_checkpoint_lsn ?? null,
-        snapshotTime
-      );
+      return new MongoReplicationCheckpoint(this, state.checkpoint, state.lsn, snapshotTime);
     });
   }
 
@@ -186,17 +183,12 @@ export abstract class MongoSyncBucketStorage
   }
 
   protected abstract createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch;
+  protected abstract getWriterSyncState(): Promise<WriterSyncState>;
 
   async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
     await this.initializeStorage();
 
-    const doc = await this.db.sync_rules.findOne(
-      {
-        _id: this.group_id
-      },
-      { projection: { last_checkpoint_lsn: 1, no_checkpoint_before: 1, keepalive_op: 1, snapshot_lsn: 1 } }
-    );
-    const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
+    const state = await this.getWriterSyncState();
 
     const batchOptions = {
       logger: options.logger,
@@ -205,12 +197,13 @@ export abstract class MongoSyncBucketStorage
       mapping: this.sync_rules.mapping,
       groupId: this.group_id,
       slotName: this.slot_name,
-      lastCheckpointLsn: checkpoint_lsn,
-      resumeFromLsn: maxLsn(checkpoint_lsn, doc?.snapshot_lsn),
-      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
+      lastCheckpointLsn: state.lastCheckpointLsn,
+      resumeFromLsn: state.resumeFromLsn,
+      keepaliveOp: state.keepaliveOp,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
-      markRecordUnavailable: options.markRecordUnavailable
+      markRecordUnavailable: options.markRecordUnavailable,
+      syncConfigId: state.syncConfigId
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
@@ -392,49 +385,20 @@ export abstract class MongoSyncBucketStorage
     this.checksums.clearCache();
   }
 
+  protected abstract terminateSyncRuleState(): Promise<void>;
+
   async terminate(options?: storage.TerminateOptions) {
     if (!options || options?.clearStorage) {
       await this.clear(options);
     }
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          state: storage.SyncRuleState.TERMINATED,
-          persisted_lsn: null,
-          snapshot_done: false
-        }
-      }
-    );
+    await this.terminateSyncRuleState();
     await this.db.notifyCheckpoint();
   }
 
-  async getStatus(): Promise<storage.SyncRuleStatus> {
-    const doc = await this.db.sync_rules.findOne(
-      {
-        _id: this.group_id
-      },
-      {
-        projection: {
-          snapshot_done: 1,
-          last_checkpoint_lsn: 1,
-          state: 1,
-          snapshot_lsn: 1
-        }
-      }
-    );
-    if (doc == null) {
-      throw new ServiceAssertionError('Cannot find sync rules status');
-    }
+  protected abstract getStatusImpl(): Promise<storage.SyncRuleStatus>;
 
-    return {
-      snapshot_done: doc.snapshot_done,
-      snapshot_lsn: doc.snapshot_lsn ?? null,
-      active: doc.state == 'ACTIVE',
-      checkpoint_lsn: doc.last_checkpoint_lsn
-    };
+  async getStatus(): Promise<storage.SyncRuleStatus> {
+    return this.getStatusImpl();
   }
 
   protected abstract clearBucketData(signal?: AbortSignal): Promise<void>;
@@ -446,6 +410,7 @@ export abstract class MongoSyncBucketStorage
   protected abstract clearBucketState(signal?: AbortSignal): Promise<void>;
 
   protected abstract clearSourceTables(signal?: AbortSignal): Promise<void>;
+  protected abstract clearSyncRuleState(): Promise<void>;
 
   async clear(options?: storage.ClearStorageOptions): Promise<void> {
     const signal = options?.signal;
@@ -454,24 +419,7 @@ export abstract class MongoSyncBucketStorage
       throw new ReplicationAbortedError('Aborted clearing data', signal.reason);
     }
 
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          snapshot_done: false,
-          persisted_lsn: null,
-          last_checkpoint_lsn: null,
-          last_checkpoint: null,
-          no_checkpoint_before: null
-        },
-        $unset: {
-          snapshot_lsn: 1
-        }
-      },
-      { maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS }
-    );
+    await this.clearSyncRuleState();
 
     await this.clearBucketData(signal);
     await this.clearParameterIndexes(signal);

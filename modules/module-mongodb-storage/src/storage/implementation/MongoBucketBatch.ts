@@ -47,6 +47,7 @@ export interface MongoBucketBatchOptions {
   syncRules: HydratedSyncRules;
   groupId: number;
   slotName: string;
+  syncConfigId?: bson.ObjectId | null;
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
   resumeFromLsn: string | null;
@@ -92,9 +93,9 @@ export abstract class MongoBucketBatch
    * 1. A commit LSN.
    * 2. A keepalive message LSN.
    */
-  private last_checkpoint_lsn: string | null = null;
+  protected last_checkpoint_lsn: string | null = null;
 
-  private persisted_op: InternalOpId | null = null;
+  protected persisted_op: InternalOpId | null = null;
 
   /**
    * Last written op, if any. This may not reflect a consistent checkpoint.
@@ -539,7 +540,7 @@ export abstract class MongoBucketBatch
     return result;
   }
 
-  private async withTransaction(cb: () => Promise<void>) {
+  protected async withTransaction(cb: () => Promise<void>) {
     await replicationMutex.exclusiveLock(async () => {
       await this.session.withTransaction(
         async () => {
