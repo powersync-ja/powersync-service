@@ -404,7 +404,6 @@ export async function* getBucketDataBatchV5(
 
         currentChunk.data.push(entry);
         currentChunk.next_after = entry.op_id;
-        chunkSizeBytes += rawData.byteLength;
 
         remainingLimit--;
         if (remainingLimit <= 0) {
@@ -412,6 +411,7 @@ export async function* getBucketDataBatchV5(
           break doc_loop;
         }
       }
+      chunkSizeBytes += rawData.byteLength;
     }
 
     if (currentChunk != null) {

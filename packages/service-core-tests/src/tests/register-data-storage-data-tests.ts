@@ -1332,39 +1332,67 @@ bucket_definitions:
       // 50 bytes is more than 1 row, less than 2 rows
       const { batch, global1Request, global2Request } = await setup({ limit: 3, chunkLimitBytes: 50 });
 
-      expect(batch.length).toEqual(3);
-      expect(batch[0].chunkData.bucket).toEqual(global1Request.bucket);
-      expect(batch[1].chunkData.bucket).toEqual(global2Request.bucket);
-      expect(batch[2].chunkData.bucket).toEqual(global2Request.bucket);
+      if (storageVersion >= 5) {
+        // In v5, ops in the same bucket share a document, so ops 2 and 3 (global2) are batched together
+        expect(batch.length).toEqual(2);
+        expect(batch[0].chunkData.bucket).toEqual(global1Request.bucket);
+        expect(batch[1].chunkData.bucket).toEqual(global2Request.bucket);
 
-      expect(test_utils.getBatchData(batch[0])).toEqual([
-        { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
-      ]);
+        expect(test_utils.getBatchData(batch[0])).toEqual([
+          { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
+        ]);
 
-      expect(test_utils.getBatchData(batch[1])).toEqual([
-        { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 }
-      ]);
-      expect(test_utils.getBatchData(batch[2])).toEqual([
-        { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
-      ]);
+        expect(test_utils.getBatchData(batch[1])).toEqual([
+          { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 },
+          { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
+        ]);
 
-      expect(test_utils.getBatchMeta(batch[0])).toEqual({
-        after: '0',
-        has_more: false,
-        next_after: '1'
-      });
+        expect(test_utils.getBatchMeta(batch[0])).toEqual({
+          after: '0',
+          has_more: false,
+          next_after: '1'
+        });
 
-      expect(test_utils.getBatchMeta(batch[1])).toEqual({
-        after: '0',
-        has_more: true,
-        next_after: '2'
-      });
+        expect(test_utils.getBatchMeta(batch[1])).toEqual({
+          after: '0',
+          has_more: true,
+          next_after: '3'
+        });
+      } else {
+        expect(batch.length).toEqual(3);
+        expect(batch[0].chunkData.bucket).toEqual(global1Request.bucket);
+        expect(batch[1].chunkData.bucket).toEqual(global2Request.bucket);
+        expect(batch[2].chunkData.bucket).toEqual(global2Request.bucket);
 
-      expect(test_utils.getBatchMeta(batch[2])).toEqual({
-        after: '2',
-        has_more: true,
-        next_after: '3'
-      });
+        expect(test_utils.getBatchData(batch[0])).toEqual([
+          { op_id: '1', op: 'PUT', object_id: 'test1', checksum: 2871785649 }
+        ]);
+
+        expect(test_utils.getBatchData(batch[1])).toEqual([
+          { op_id: '2', op: 'PUT', object_id: 'test2', checksum: 730027011 }
+        ]);
+        expect(test_utils.getBatchData(batch[2])).toEqual([
+          { op_id: '3', op: 'PUT', object_id: 'test3', checksum: 1359888332 }
+        ]);
+
+        expect(test_utils.getBatchMeta(batch[0])).toEqual({
+          after: '0',
+          has_more: false,
+          next_after: '1'
+        });
+
+        expect(test_utils.getBatchMeta(batch[1])).toEqual({
+          after: '0',
+          has_more: true,
+          next_after: '2'
+        });
+
+        expect(test_utils.getBatchMeta(batch[2])).toEqual({
+          after: '2',
+          has_more: true,
+          next_after: '3'
+        });
+      }
     });
   });
 
