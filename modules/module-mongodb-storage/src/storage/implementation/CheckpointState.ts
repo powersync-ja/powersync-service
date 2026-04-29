@@ -46,9 +46,7 @@ export function calculateCheckpointState(input: CheckpointStateInput): Checkpoin
     ? maxOpId(input.lastCheckpoint, input.persistedOp, input.keepaliveOp)
     : input.lastCheckpoint;
   const notEmpty =
-    input.createEmptyCheckpoints ||
-    input.keepaliveOp !== newKeepaliveOp ||
-    input.lastCheckpoint !== newLastCheckpoint;
+    input.createEmptyCheckpoints || input.keepaliveOp !== newKeepaliveOp || input.lastCheckpoint !== newLastCheckpoint;
 
   return {
     canCheckpoint,

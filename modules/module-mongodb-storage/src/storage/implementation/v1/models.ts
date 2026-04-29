@@ -1,5 +1,5 @@
-import * as bson from 'bson';
 import { SerializedSyncPlan } from '@powersync/service-core';
+import * as bson from 'bson';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketDataDocumentBase,

@@ -12,11 +12,7 @@ import { BucketDefinitionMapping } from './implementation/BucketDefinitionMappin
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
-import {
-  getMongoStorageConfig,
-  StorageConfig,
-  SyncRuleDocumentBase
-} from './implementation/models.js';
+import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import {
   MongoPersistedSyncRulesContentV1,

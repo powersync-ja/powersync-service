@@ -148,10 +148,7 @@ export abstract class MongoBucketBatch
 
   protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
 
-  abstract commit(
-    lsn: string,
-    options?: storage.BucketBatchCommitOptions
-  ): Promise<storage.CheckpointResult>;
+  abstract commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult>;
 
   abstract keepalive(lsn: string): Promise<storage.CheckpointResult>;
 
