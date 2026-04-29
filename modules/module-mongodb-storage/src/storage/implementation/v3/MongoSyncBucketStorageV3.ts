@@ -34,8 +34,8 @@ import {
   BucketDataDocumentV3,
   BucketParameterDocumentV3,
   loadBucketDataDocumentV3,
-  SyncRuleConfigStateV3,
-  SyncRuleDocumentV3
+  ReplicationStreamDocumentV3,
+  SyncRuleConfigStateV3
 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
@@ -70,11 +70,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return this.syncRulesV3.syncConfigId;
   }
 
-  private get syncRulesCollection(): mongo.Collection<SyncRuleDocumentV3> {
-    return this.db.sync_rules as unknown as mongo.Collection<SyncRuleDocumentV3>;
+  private get syncRulesCollection(): mongo.Collection<ReplicationStreamDocumentV3> {
+    return this.db.sync_rules as unknown as mongo.Collection<ReplicationStreamDocumentV3>;
   }
 
-  private syncConfigMatch(extra: mongo.Document = {}): mongo.Filter<SyncRuleDocumentV3> {
+  private syncConfigMatch(extra: mongo.Document = {}): mongo.Filter<ReplicationStreamDocumentV3> {
     return {
       _id: this.group_id,
       sync_configs: {
@@ -101,7 +101,14 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return [{ 'config._id': this.syncConfigId }];
   }
 
-  private selectedSyncConfig(doc: Pick<SyncRuleDocumentV3, 'sync_configs'> | null): SyncRuleConfigStateV3 | null {
+  /**
+   * For now, we only support a single sync config per replication stream.
+   *
+   * In the future we'll add support for multiple.
+   */
+  private selectedSyncConfig(
+    doc: Pick<ReplicationStreamDocumentV3, 'sync_configs'> | null
+  ): SyncRuleConfigStateV3 | null {
     return doc?.sync_configs?.[0] ?? null;
   }
 

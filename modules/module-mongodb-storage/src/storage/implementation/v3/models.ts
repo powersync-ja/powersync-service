@@ -16,6 +16,9 @@ import {
   TaggedBucketParameterDocument
 } from '../models.js';
 
+/**
+ * Embedded in sync_rules.sync_configs.
+ */
 export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields<bigint | null> {
   _id: bson.ObjectId;
 
@@ -27,7 +30,14 @@ export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields<bigint |
   state: SyncRuleState;
 }
 
-export interface SyncRuleDocumentV3 extends SyncRuleDocumentBase {
+/**
+ * Represents the state of a replication stream, in the sync_rules collection.
+ *
+ * Differences from V1:
+ * 1. The static config is moved into a separate sync_configs collection.
+ * 2. The same replication stream may be shared by multiple sync config instances.
+ */
+export interface ReplicationStreamDocumentV3 extends SyncRuleDocumentBase {
   storage_version: number;
 
   /**

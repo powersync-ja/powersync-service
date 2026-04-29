@@ -10,7 +10,7 @@ import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { SyncRuleDocumentV3 } from './models.js';
+import { ReplicationStreamDocumentV3 } from './models.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV3;
@@ -93,7 +93,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
     );
 
-    const state = (preUpdateDocument as SyncRuleDocumentV3)?.sync_configs?.[0];
+    const state = (preUpdateDocument as ReplicationStreamDocumentV3)?.sync_configs?.[0];
     if (state == null) {
       throw new ReplicationAssertionError(
         `Failed to update checkpoint - no matching sync_config for _id: ${this.group_id}/${this.syncConfigId.toHexString()}`
@@ -213,7 +213,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           }
         }
       );
-      const state = (doc as SyncRuleDocumentV3)?.sync_configs?.[0];
+      const state = (doc as ReplicationStreamDocumentV3)?.sync_configs?.[0];
       if (
         doc &&
         doc.state == storage.SyncRuleState.PROCESSING &&

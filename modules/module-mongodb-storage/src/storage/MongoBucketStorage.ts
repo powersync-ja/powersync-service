@@ -20,7 +20,7 @@ import {
 } from './implementation/MongoPersistedSyncRulesContent.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
-import { SyncConfigDefinition, SyncRuleDocumentV3 } from './storage-index.js';
+import { ReplicationStreamDocumentV3, SyncConfigDefinition } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
@@ -218,7 +218,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       };
       await versioned.syncConfigDefinitions.insertOne(syncConfigDoc, { session });
 
-      const doc: SyncRuleDocumentV3 = {
+      const doc: ReplicationStreamDocumentV3 = {
         _id: id,
         storage_version: storageVersion,
         sync_configs: [
@@ -346,7 +346,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const storageConfig = getMongoStorageConfig(doc.storage_version ?? LEGACY_STORAGE_VERSION);
 
     if (storageConfig.incrementalReprocessing) {
-      const v3 = doc as SyncRuleDocumentV3;
+      const v3 = doc as ReplicationStreamDocumentV3;
       const active = v3.sync_configs.find((c) => stateFilter.includes(c.state));
       if (active == null) {
         return null;

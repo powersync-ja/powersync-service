@@ -9,8 +9,8 @@ import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceR
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import {
   CurrentBucketV3,
-  SyncConfigDefinition,
-  SyncRuleDocumentV3
+  ReplicationStreamDocumentV3,
+  SyncConfigDefinition
 } from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -222,7 +222,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       bucketCollections.some((collection) => collection.name === `bucket_data_${syncRules.id}_${firstBucket?.def}`)
     ).toBe(true);
 
-    const syncRule = (await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id })) as SyncRuleDocumentV3;
+    const syncRule = (await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id })) as ReplicationStreamDocumentV3;
     const syncConfig = await db.syncConfigDefinitions.findOne({ _id: syncRule.sync_configs[0]._id });
     const ruleMapping: SyncConfigDefinition['rule_mapping'] | undefined = syncConfig?.rule_mapping;
     expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);

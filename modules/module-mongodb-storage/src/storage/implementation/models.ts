@@ -157,6 +157,9 @@ export interface IdSequenceDocument {
   op_id: bigint;
 }
 
+/**
+ * Base for sync_rules collection.
+ */
 export interface SyncRuleDocumentBase {
   _id: number;
 
@@ -206,7 +209,7 @@ export interface SyncRuleDocumentBase {
   storage_version?: number;
 }
 
-export interface SyncRuleCheckpointFields<TKeepaliveOp> {
+export interface SyncRuleCheckpointFields<TKeepaliveOp extends string | bigint | null> {
   /**
    * The last consistent checkpoint.
    *
@@ -229,6 +232,8 @@ export interface SyncRuleCheckpointFields<TKeepaliveOp> {
    *
    * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
    * then the checkpoint must be equal to this keepalive_op.
+   *
+   * This is a string in V1, bigint in V3.
    */
   keepalive_op: TKeepaliveOp;
 }

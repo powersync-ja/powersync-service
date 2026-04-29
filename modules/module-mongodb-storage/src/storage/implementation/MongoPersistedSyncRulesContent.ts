@@ -1,7 +1,7 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage, SyncRuleState } from '@powersync/service-core';
 import * as bson from 'bson';
-import { SyncConfigDefinition, SyncRuleDocumentV3 } from '../storage-index.js';
+import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../storage-index.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
@@ -75,7 +75,7 @@ export class MongoPersistedSyncRulesContentV1 extends MongoPersistedSyncRulesCon
 export class MongoPersistedSyncRulesContentV3 extends MongoPersistedSyncRulesContentBase {
   declare public readonly syncConfigId: bson.ObjectId;
 
-  constructor(db: PowerSyncMongo, doc: SyncRuleDocumentV3, config: SyncConfigDefinition) {
+  constructor(db: PowerSyncMongo, doc: ReplicationStreamDocumentV3, config: SyncConfigDefinition) {
     const state = doc.sync_configs.find((c) => c._id.equals(config._id));
     if (state == null) {
       throw new ServiceAssertionError(`Cannot find sync config ${config._id} in replication stream ${doc._id}`);
