@@ -40,6 +40,34 @@ export interface SyncRuleDocumentV3 extends SyncRuleDocument {
      * If false, we cannot create any checkpoints.
      */
     snapshot_done: boolean;
+
+    /**
+     * Permutations we want to support eventually:
+     *
+     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }]}
+     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }, { state: PROCESSING }]}
+     * { state: ACTIVE, sync_configs: [{ state: ERRORED }, { state: PROCESSING }]}
+     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }, { state: STOP }]}
+     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }, { state: PROCESSING }, { state: STOP }]}
+     * { state: PROCESSING, sync_configs: [{ state: PROCESSING }]}
+     * { state: PROCESSING, sync_configs: [{ state: STOP }]}
+     * { state: PROCESSING, sync_configs: [{ state: PROCESSING }, { state: STOP }]}
+     * { state: TERMINATED, sync_configs: []}
+     *
+     * These are also supported, but we may replace the outer state with simpler ACTIVE/PROCESSING states:
+     * { state: STOP, sync_configs: [{ state: STOP }]}
+     * { state: STOP, sync_configs: [{ state: STOP }, { state: STOP }]}
+     * { state: ERRORED, sync_configs: [{ state: ERRORED }]}
+     *
+     * In general:
+     * 1. The outer state does not indicate much anymore - the inner state is the important one.
+     * 2. We can only have one ACTIVE inner state globally.
+     * 3. Inner STOP state indicates sync configs for which we have data, that needs to be cleaned up.
+     * 4. Inner ERROR state indicates sync config we still use for syncing, but not for replication.
+     * 5. In theory, when sync rules are updated while we are busy with PROCESSING, we can re-use some of the partially replicated data.
+     * 6. In theory we could have multiple inner and outer states in PROCESSING. In practice, we transition them to stop as soon as we put a new one in PROCESSING.
+     * 7. We don't keep inner TERMINATED state around. At the point the inner sync config transitions to a TERMINATED state, there is nothing tying it to the replication stream anymore, and we just remove that reference completely.
+     */
     state: SyncRuleState;
 
     /**
@@ -78,11 +106,23 @@ export interface SyncRuleDocumentV3 extends SyncRuleDocument {
   }[];
 }
 
+/**
+ * Static sync config definition.
+ *
+ * This should be treated as immutable - we don't update this after initial creation.
+ */
 export interface SyncConfigDefinition {
   _id: bson.ObjectId;
-  state: SyncRuleState;
   created_at: Date;
   storage_version: number;
+  /**
+   * The related SyncRuleDocumentV3.
+   *
+   * Note that a specific sync config definition never moves between replication streams. Instead, we can create a new copy for the new replication stream.
+   *
+   * When terminating a specific sync config definition, we remove the reference from replication stream -> sync config, but this reference here remains as a historical record.
+   */
+  replication_stream_id: number;
 
   content: string;
   serialized_plan?: SerializedSyncPlan | null;

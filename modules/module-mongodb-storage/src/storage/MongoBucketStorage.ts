@@ -177,7 +177,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP } },
+        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.*.state': storage.SyncRuleState.STOP } },
         { session }
       );
 
@@ -204,7 +204,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
       const syncConfigDoc: SyncConfigDefinition = {
         _id: new ObjectId(),
-        state: storage.SyncRuleState.PROCESSING,
+        replication_stream_id: id,
         created_at: new Date(),
         storage_version: storageVersion,
         content: options.config.yaml,
@@ -274,7 +274,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP } },
+        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.*.state': storage.SyncRuleState.STOP } },
         { session }
       );
 

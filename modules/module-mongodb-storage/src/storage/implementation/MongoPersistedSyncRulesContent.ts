@@ -25,7 +25,7 @@ export class MongoPersistedSyncRulesContent extends storage.PersistedSyncRulesCo
       last_fatal_error_ts: doc.last_fatal_error_ts,
       last_checkpoint_ts: doc.last_checkpoint_ts,
       last_keepalive_ts: doc.last_keepalive_ts,
-      active: doc.state == 'ACTIVE',
+      active: doc.state == SyncRuleState.ACTIVE,
       storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
     this.mapping = new BucketDefinitionMapping();
@@ -76,7 +76,9 @@ export class MongoPersistedSyncRulesContentV3 extends storage.PersistedSyncRules
       last_fatal_error_ts: doc.last_fatal_error_ts,
       last_checkpoint_ts: doc.last_checkpoint_ts,
       last_keepalive_ts: doc.last_keepalive_ts,
-      active: doc.state == SyncRuleState.ACTIVE && config.state == SyncRuleState.ACTIVE,
+      active:
+        doc.state == SyncRuleState.ACTIVE &&
+        doc.sync_configs.find((c) => c._id == config._id)?.state == SyncRuleState.ACTIVE,
       storageVersion: doc.storage_version
     });
     this.mapping = BucketDefinitionMapping.fromSyncConfig(config);
