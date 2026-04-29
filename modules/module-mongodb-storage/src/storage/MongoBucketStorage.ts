@@ -12,10 +12,15 @@ import { BucketDefinitionMapping } from './implementation/BucketDefinitionMappin
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
-import { getMongoStorageConfig, StorageConfig, SyncRuleDocument } from './implementation/models.js';
+import {
+  getMongoStorageConfig,
+  StorageConfig,
+  SyncRuleDocumentBase,
+  SyncRuleDocumentV1
+} from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import {
-  MongoPersistedSyncRulesContent,
+  MongoPersistedSyncRulesContentV1,
   MongoPersistedSyncRulesContentV3
 } from './implementation/MongoPersistedSyncRulesContent.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -60,11 +65,11 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
+    const storageConfig = (syncRules as MongoPersistedSyncRulesContentV1).getStorageConfig();
     const storage = createMongoSyncBucketStorage(
       this,
       id,
-      syncRules as MongoPersistedSyncRulesContent,
+      syncRules as MongoPersistedSyncRulesContentV1,
       slot_name,
       undefined,
       {
@@ -220,7 +225,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const doc: SyncRuleDocumentV3 = {
         _id: id,
         storage_version: storageVersion,
-        content: '',
         sync_configs: [
           {
             _id: syncConfigDoc._id,
@@ -232,11 +236,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
             snapshot_done: false
           }
         ],
-        last_checkpoint: null,
-        last_checkpoint_lsn: null,
-        no_checkpoint_before: null,
-        keepalive_op: null,
-        snapshot_done: false,
         snapshot_lsn: undefined,
         state: storage.SyncRuleState.PROCESSING,
         slot_name: slot_name,
@@ -259,7 +258,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
   async updateSyncRules(
     options: storage.UpdateSyncRulesOptions
-  ): Promise<MongoPersistedSyncRulesContent | MongoPersistedSyncRulesContentV3> {
+  ): Promise<MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3> {
     const storageVersion =
       options.storageVersion ?? options.config.parsed.config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
 
@@ -268,7 +267,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       return this.updateSyncRulesV3(options, storageVersion, storageConfig);
     }
 
-    let rules: MongoPersistedSyncRulesContent | undefined = undefined;
+    let rules: MongoPersistedSyncRulesContentV1 | undefined = undefined;
 
     const session = this.session;
 
@@ -301,7 +300,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
-      const doc: SyncRuleDocument = {
+      const doc: SyncRuleDocumentV1 = {
         _id: id,
         storage_version: storageVersion,
         content: options.config.yaml,
@@ -322,7 +321,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
       await this.db.sync_rules.insertOne(doc, { session });
       await this.db.notifyCheckpoint();
-      rules = new MongoPersistedSyncRulesContent(this.db, doc);
+      rules = new MongoPersistedSyncRulesContentV1(this.db, doc);
       if (options.lock) {
         const lock = await rules.lock();
       }
@@ -331,7 +330,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return rules!;
   }
 
-  async getActiveSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | MongoPersistedSyncRulesContentV3 | null> {
+  async getActiveSyncRulesContent(): Promise<
+    MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 | null
+  > {
     const doc = await this.db.sync_rules.findOne(
       {
         state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
@@ -342,7 +343,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return this.getSyncRulesContent(doc, [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED]);
   }
 
-  private async getSyncRulesContent(doc: SyncRuleDocument | null, stateFilter: storage.SyncRuleState[]) {
+  private async getSyncRulesContent(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
     if (doc == null) {
       return null;
     }
@@ -364,10 +365,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       return new MongoPersistedSyncRulesContentV3(this.db, v3, syncConfigDoc);
     }
 
-    return new MongoPersistedSyncRulesContent(this.db, doc);
+    return new MongoPersistedSyncRulesContentV1(this.db, doc as SyncRuleDocumentV1);
   }
 
-  async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | MongoPersistedSyncRulesContentV3 | null> {
+  async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 | null> {
     const doc = await this.db.sync_rules.findOne(
       {
         state: storage.SyncRuleState.PROCESSING

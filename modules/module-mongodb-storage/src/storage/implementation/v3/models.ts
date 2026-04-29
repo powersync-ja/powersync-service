@@ -9,10 +9,10 @@ import {
   BucketStateDocumentBase,
   CurrentBucket,
   ReplicaId,
-  SyncRuleCheckpointFields,
-  SyncRuleDocumentBase,
   SourceTableDocument,
   SourceTableKey,
+  SyncRuleCheckpointFields,
+  SyncRuleDocumentBase,
   TaggedBucketParameterDocument
 } from '../models.js';
 
@@ -29,15 +29,6 @@ export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields<bigint |
 
 export interface SyncRuleDocumentV3 extends SyncRuleDocumentBase {
   storage_version: number;
-
-  /**
-   * Legacy top-level checkpoint fields retained for compatibility.
-   */
-  snapshot_done: boolean;
-  last_checkpoint: bigint | null;
-  last_checkpoint_lsn: string | null;
-  no_checkpoint_before: string | null;
-  keepalive_op: string | null;
 
   /**
    * These contain the checkpoint/state per sync config.

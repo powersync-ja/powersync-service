@@ -25,7 +25,10 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContent, MongoPersistedSyncRulesContentV3 } from '../MongoPersistedSyncRulesContent.js';
+import {
+  MongoPersistedSyncRulesContentV1,
+  MongoPersistedSyncRulesContentV3
+} from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV3,
@@ -51,7 +54,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   constructor(
     factory: MongoBucketStorage,
     group_id: number,
-    sync_rules: MongoPersistedSyncRulesContent,
+    sync_rules: MongoPersistedSyncRulesContentV1,
     slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
@@ -98,9 +101,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return [{ 'config._id': this.syncConfigId }];
   }
 
-  private selectedSyncConfig(
-    doc: Pick<SyncRuleDocumentV3, 'sync_configs'> | null
-  ): SyncRuleConfigStateV3 | null {
+  private selectedSyncConfig(doc: Pick<SyncRuleDocumentV3, 'sync_configs'> | null): SyncRuleConfigStateV3 | null {
     return doc?.sync_configs?.[0] ?? null;
   }
 
@@ -177,12 +178,9 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async getWriterSyncState() {
-    const doc = await this.syncRulesCollection.findOne(
-      this.syncConfigMatch(),
-      {
-        projection: this.syncConfigProjection({ snapshot_lsn: 1 })
-      }
-    );
+    const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
+      projection: this.syncConfigProjection({ snapshot_lsn: 1 })
+    });
     const syncConfig = this.selectedSyncConfig(doc);
     const checkpointLsn = syncConfig?.last_checkpoint_lsn ?? null;
     return {
@@ -209,12 +207,9 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
-    const doc = await this.syncRulesCollection.findOne(
-      this.syncConfigMatch(),
-      {
-        projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1 })
-      }
-    );
+    const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
+      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1 })
+    });
     const syncConfig = this.selectedSyncConfig(doc);
     if (doc == null || syncConfig == null) {
       throw new ServiceAssertionError('Cannot find sync rules status');

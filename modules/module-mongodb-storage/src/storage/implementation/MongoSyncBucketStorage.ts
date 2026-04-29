@@ -34,7 +34,7 @@ import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
+import { MongoPersistedSyncRulesContentV1 } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
@@ -81,7 +81,7 @@ export abstract class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    protected readonly sync_rules: MongoPersistedSyncRulesContent,
+    protected readonly sync_rules: MongoPersistedSyncRulesContentV1,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
@@ -153,7 +153,9 @@ export abstract class MongoSyncBucketStorage
     return (await this.getCheckpointInternal()) ?? new EmptyReplicationCheckpoint();
   }
 
-  protected abstract fetchCheckpointState(session: mongo.ClientSession): Promise<{ checkpoint: bigint; lsn: string | null } | null>;
+  protected abstract fetchCheckpointState(
+    session: mongo.ClientSession
+  ): Promise<{ checkpoint: bigint; lsn: string | null } | null>;
 
   async getCheckpointInternal(): Promise<storage.ReplicationCheckpoint | null> {
     return await this.db.client.withSession({ snapshot: true }, async (session) => {

@@ -6,7 +6,7 @@ import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
-import { getMongoStorageConfig, SyncRuleDocument } from './models.js';
+import { getMongoStorageConfig, SyncRuleDocumentV1 } from './models.js';
 
 abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncRulesContent {
   public current_lock: MongoSyncRulesLock | null = null;
@@ -50,12 +50,8 @@ abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncR
   }
 }
 
-export class MongoPersistedSyncRulesContent extends MongoPersistedSyncRulesContentBase {
-
-  constructor(
-    db: PowerSyncMongo,
-    doc: SyncRuleDocument
-  ) {
+export class MongoPersistedSyncRulesContentV1 extends MongoPersistedSyncRulesContentBase {
+  constructor(db: PowerSyncMongo, doc: SyncRuleDocumentV1) {
     super(db, {
       id: doc._id,
       sync_rules_content: doc.content,
@@ -78,11 +74,7 @@ export class MongoPersistedSyncRulesContent extends MongoPersistedSyncRulesConte
 export class MongoPersistedSyncRulesContentV3 extends MongoPersistedSyncRulesContentBase {
   declare public readonly syncConfigId: bson.ObjectId;
 
-  constructor(
-    db: PowerSyncMongo,
-    doc: SyncRuleDocumentV3,
-    config: SyncConfigDefinition
-  ) {
+  constructor(db: PowerSyncMongo, doc: SyncRuleDocumentV3, config: SyncConfigDefinition) {
     const state = doc.sync_configs.find((c) => c._id.equals(config._id));
     if (state == null) {
       throw new ServiceAssertionError(`Cannot find sync config ${config._id} in replication stream ${doc._id}`);

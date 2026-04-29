@@ -4,7 +4,7 @@ import { storage as core_storage, migrations } from '@powersync/service-core';
 import * as storage from '../../../storage/storage-index.js';
 import { MongoStorageConfig } from '../../../types/types.js';
 
-interface LegacySyncRulesDocument extends storage.SyncRuleDocument {
+interface LegacySyncRulesDocument extends storage.SyncRuleDocumentV1 {
   /**
    * True if this is the active sync rules.
    * requires `snapshot_done == true` and `replicating == true`.

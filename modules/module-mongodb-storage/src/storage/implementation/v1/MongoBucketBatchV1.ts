@@ -1,10 +1,11 @@
-import { SourceTable, storage } from '@powersync/service-core';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
+import { SourceTable, storage } from '@powersync/service-core';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
+import { SyncRuleDocumentV1 } from '../models.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
@@ -91,7 +92,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       ]
     };
 
-    const preUpdateDocument = await this.db.sync_rules.findOneAndUpdate(
+    const preUpdateDocument = (await this.db.sync_rules.findOneAndUpdate(
       { _id: this.group_id },
       [
         {
@@ -141,7 +142,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           last_checkpoint: 1
         }
       }
-    );
+    )) as SyncRuleDocumentV1;
 
     if (preUpdateDocument == null) {
       throw new ReplicationAssertionError(
@@ -294,7 +295,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     const session = this.session;
     let activated = false;
     await session.withTransaction(async () => {
-      const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
+      const doc = (await this.db.sync_rules.findOne({ _id: this.group_id }, { session })) as SyncRuleDocumentV1;
       if (doc && doc.state == storage.SyncRuleState.PROCESSING && doc.snapshot_done && doc.last_checkpoint != null) {
         await this.db.sync_rules.updateOne(
           {

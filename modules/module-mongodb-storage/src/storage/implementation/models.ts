@@ -198,9 +198,6 @@ export interface SyncRuleDocumentBase {
 
   last_fatal_error_ts: Date | null;
 
-  content: string;
-  serialized_plan?: SerializedSyncPlan | null;
-
   lock?: {
     id: string;
     expires_at: Date;
@@ -237,6 +234,8 @@ export interface SyncRuleCheckpointFields<TKeepaliveOp> {
 }
 
 export interface SyncRuleDocumentV1 extends SyncRuleDocumentBase, SyncRuleCheckpointFields<string | null> {
+  content: string;
+  serialized_plan?: SerializedSyncPlan | null;
 
   /**
    * True if initial snapshot has been replicated.
@@ -245,8 +244,6 @@ export interface SyncRuleDocumentV1 extends SyncRuleDocumentBase, SyncRuleCheckp
    */
   snapshot_done: boolean;
 }
-
-export type SyncRuleDocument = SyncRuleDocumentV1;
 
 export interface StorageConfig extends storage.StorageVersionConfig {
   /**
@@ -281,11 +278,6 @@ export function getMongoStorageConfig(storageVersion: number): StorageConfig {
 export interface CheckpointEventDocument {
   _id: bson.ObjectId;
 }
-
-export type SyncRuleCheckpointState = Pick<
-  SyncRuleDocument,
-  'last_checkpoint' | 'last_checkpoint_lsn' | '_id' | 'state'
->;
 
 export interface CustomWriteCheckpointDocument {
   _id: bson.ObjectId;
