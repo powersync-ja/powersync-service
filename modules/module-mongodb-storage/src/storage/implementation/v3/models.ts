@@ -9,101 +9,43 @@ import {
   BucketStateDocumentBase,
   CurrentBucket,
   ReplicaId,
+  SyncRuleCheckpointFields,
+  SyncRuleDocumentBase,
   SourceTableDocument,
   SourceTableKey,
-  SyncRuleDocument,
   TaggedBucketParameterDocument
 } from '../models.js';
 
-export interface SyncRuleDocumentV3 extends SyncRuleDocument {
+export interface SyncRuleConfigStateV3 extends SyncRuleCheckpointFields<bigint | null> {
+  _id: bson.ObjectId;
+
+  /**
+   * If false, we cannot create any checkpoints.
+   */
+  snapshot_done: boolean;
+
+  state: SyncRuleState;
+}
+
+export interface SyncRuleDocumentV3 extends SyncRuleDocumentBase {
   storage_version: number;
 
   /**
-   * These contain the _state_ for each sync config.
-   *
-   * In common cases, we'd have either only one "active" sync config, or one active + one processing.
-   *
-   * But we don't restrict ourselves to that - we support any number of sync configs in any state here.
-   *
-   * In general, we we attempt to keep the small but regularly updated state here, while keeping the more static configuration
-   * in a separate sync_config collection.
-   *
-   * Any checkpoint updates all sync configs at the same time, but the effect on each checkpoint may be different. We consider
-   * snapshot state / no_checkpoint_before separately for each.
-   *
-   * A replication stream can only have a single resume point, so we keep that outside of this sync_configs array, still
-   * in the top_level snapshot_lsn field.
+   * Legacy top-level checkpoint fields retained for compatibility.
    */
-  sync_configs: {
-    _id: bson.ObjectId;
-    /**
-     * If false, we cannot create any checkpoints.
-     */
-    snapshot_done: boolean;
+  snapshot_done: boolean;
+  last_checkpoint: bigint | null;
+  last_checkpoint_lsn: string | null;
+  no_checkpoint_before: string | null;
+  keepalive_op: string | null;
 
-    /**
-     * Permutations we want to support eventually:
-     *
-     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }]}
-     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }, { state: PROCESSING }]}
-     * { state: ACTIVE, sync_configs: [{ state: ERRORED }, { state: PROCESSING }]}
-     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }, { state: STOP }]}
-     * { state: ACTIVE, sync_configs: [{ state: ACTIVE }, { state: PROCESSING }, { state: STOP }]}
-     * { state: PROCESSING, sync_configs: [{ state: PROCESSING }]}
-     * { state: PROCESSING, sync_configs: [{ state: STOP }]}
-     * { state: PROCESSING, sync_configs: [{ state: PROCESSING }, { state: STOP }]}
-     * { state: TERMINATED, sync_configs: []}
-     *
-     * These are also supported, but we may replace the outer state with simpler ACTIVE/PROCESSING states:
-     * { state: STOP, sync_configs: [{ state: STOP }]}
-     * { state: STOP, sync_configs: [{ state: STOP }, { state: STOP }]}
-     * { state: ERRORED, sync_configs: [{ state: ERRORED }]}
-     *
-     * In general:
-     * 1. The outer state does not indicate much anymore - the inner state is the important one.
-     * 2. We can only have one ACTIVE inner state globally.
-     * 3. Inner STOP state indicates sync configs for which we have data, that needs to be cleaned up.
-     * 4. Inner ERROR state indicates sync config we still use for syncing, but not for replication.
-     * 5. In theory, when sync rules are updated while we are busy with PROCESSING, we can re-use some of the partially replicated data.
-     * 6. In theory we could have multiple inner and outer states in PROCESSING. In practice, we transition them to stop as soon as we put a new one in PROCESSING.
-     * 7. We don't keep inner TERMINATED state around. At the point the inner sync config transitions to a TERMINATED state, there is nothing tying it to the replication stream anymore, and we just remove that reference completely.
-     */
-    state: SyncRuleState;
-
-    /**
-     * The last consistent checkpoint.
-     *
-     * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
-     */
-    last_checkpoint: bigint | null;
-    /**
-     * The LSN associated with the last consistent checkpoint.
-     *
-     * This is specifically used to correlate with write checkpoints, and not for resuming replication.
-     */
-    last_checkpoint_lsn: string | null;
-
-    /**
-     * If set, no new checkpoints may be created < this value.
-     */
-    no_checkpoint_before: string | null;
-
-    /**
-     * Goes together with no_checkpoint_before.
-     *
-     * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
-     * then the checkpoint must be equal to this keepalive_op.
-     *
-     * TODO: Re-check this - the description above is confusing.
-     */
-    keepalive_op: bigint | null;
-
-    // TODO: check whether these fields should be top-level or per-sync-config
-    // last_checkpoint_ts: Date | null;
-    // last_keepalive_ts: Date | null;
-    // last_fatal_error: string | null;
-    // last_fatal_error_ts: Date | null;
-  }[];
+  /**
+   * These contain the checkpoint/state per sync config.
+   *
+   * In common cases we'd have one active config or one active + one processing config,
+   * but the model allows multiple configs in any state.
+   */
+  sync_configs: SyncRuleConfigStateV3[];
 }
 
 /**

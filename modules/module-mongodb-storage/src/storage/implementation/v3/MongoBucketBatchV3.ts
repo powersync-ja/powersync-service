@@ -3,6 +3,7 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
+import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -99,30 +100,25 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       );
     }
 
-    const canCheckpoint =
-      state.snapshot_done === true &&
-      (state.last_checkpoint_lsn == null || state.last_checkpoint_lsn <= lsn) &&
-      (state.no_checkpoint_before == null || state.no_checkpoint_before <= lsn);
-
-    const keepaliveOp = state.keepalive_op == null ? null : BigInt(state.keepalive_op);
-    const maxKeepalive = [keepaliveOp ?? 0n, this.persisted_op ?? 0n, 0n].reduce((a, b) => (a > b ? a : b));
-    const newKeepaliveOp = canCheckpoint ? null : maxKeepalive;
-    const newLastCheckpoint = canCheckpoint
-      ? [state.last_checkpoint ?? 0n, this.persisted_op ?? 0n, keepaliveOp ?? 0n, 0n].reduce((a, b) => (a > b ? a : b))
-      : state.last_checkpoint;
-    const notEmpty =
-      createEmptyCheckpoints || state.keepalive_op !== newKeepaliveOp || state.last_checkpoint !== newLastCheckpoint;
-    const checkpointCreated = canCheckpoint && notEmpty;
-    const checkpointBlocked = !canCheckpoint;
+    const checkpointState = calculateCheckpointState({
+      lsn,
+      snapshotDone: state.snapshot_done === true,
+      lastCheckpointLsn: state.last_checkpoint_lsn,
+      noCheckpointBefore: state.no_checkpoint_before,
+      keepaliveOp: state.keepalive_op == null ? null : BigInt(state.keepalive_op),
+      lastCheckpoint: state.last_checkpoint,
+      persistedOp: this.persisted_op,
+      createEmptyCheckpoints
+    });
 
     const updateSet: Record<string, any> = {
       last_keepalive_ts: now,
       last_fatal_error: null,
       last_fatal_error_ts: null,
-      'sync_configs.$[config].keepalive_op': newKeepaliveOp,
-      'sync_configs.$[config].last_checkpoint': newLastCheckpoint
+      'sync_configs.$[config].keepalive_op': checkpointState.newKeepaliveOp,
+      'sync_configs.$[config].last_checkpoint': checkpointState.newLastCheckpoint
     };
-    if (checkpointCreated) {
+    if (checkpointState.checkpointCreated) {
       updateSet['sync_configs.$[config].last_checkpoint_lsn'] = lsn;
       updateSet['snapshot_lsn'] = null;
       updateSet['last_checkpoint_ts'] = now;
@@ -142,7 +138,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       }
     );
 
-    if (checkpointBlocked) {
+    if (checkpointState.checkpointBlocked) {
       if (Date.now() - this.lastWaitingLogThrottledV3 > 5_000) {
         this.logger.info(
           `Waiting before creating checkpoint, currently at ${lsn} / ${state.keepalive_op}. Current state: ${JSON.stringify(
@@ -156,18 +152,40 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         this.lastWaitingLogThrottledV3 = Date.now();
       }
     } else {
-      if (checkpointCreated) {
-        this.logger.debug(`Created checkpoint at ${lsn} / ${newLastCheckpoint}`);
+      if (checkpointState.checkpointCreated) {
+        this.logger.debug(`Created checkpoint at ${lsn} / ${checkpointState.newLastCheckpoint}`);
       }
       await this.autoActivateV3(lsn);
       await this.db.notifyCheckpoint();
       this.persisted_op = null;
       this.last_checkpoint_lsn = lsn;
-      if (newLastCheckpoint != null) {
-        await this.sourceRecordStore.postCommitCleanup(newLastCheckpoint, this.logger);
+      if (checkpointState.newLastCheckpoint != null) {
+        await this.sourceRecordStore.postCommitCleanup(checkpointState.newLastCheckpoint, this.logger);
       }
     }
-    return { checkpointBlocked, checkpointCreated };
+    return {
+      checkpointBlocked: checkpointState.checkpointBlocked,
+      checkpointCreated: checkpointState.checkpointCreated
+    };
+  }
+
+  async keepalive(lsn: string): Promise<storage.CheckpointResult> {
+    return await this.commit(lsn, { createEmptyCheckpoints: true });
+  }
+
+  async setResumeLsn(lsn: string): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id,
+        'sync_configs._id': this.syncConfigId
+      },
+      {
+        $set: {
+          snapshot_lsn: lsn
+        }
+      },
+      { session: this.session }
+    );
   }
 
   private async autoActivateV3(lsn: string): Promise<void> {

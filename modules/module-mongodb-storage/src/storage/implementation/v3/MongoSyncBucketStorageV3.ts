@@ -27,7 +27,13 @@ import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent, MongoPersistedSyncRulesContentV3 } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
-import { BucketDataDocumentV3, BucketParameterDocumentV3, loadBucketDataDocumentV3 } from './models.js';
+import {
+  BucketDataDocumentV3,
+  BucketParameterDocumentV3,
+  loadBucketDataDocumentV3,
+  SyncRuleConfigStateV3,
+  SyncRuleDocumentV3
+} from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
@@ -40,6 +46,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   declare readonly db: VersionedPowerSyncMongoV3;
   declare readonly checksums: MongoChecksumsV3;
 
+  private readonly syncRulesV3: MongoPersistedSyncRulesContentV3;
+
   constructor(
     factory: MongoBucketStorage,
     group_id: number,
@@ -49,14 +57,51 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     options: MongoSyncBucketStorageOptions
   ) {
     super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+    if (!(sync_rules instanceof MongoPersistedSyncRulesContentV3)) {
+      throw new ServiceAssertionError('Missing sync config id for storage v3');
+    }
+    this.syncRulesV3 = sync_rules;
   }
 
   private get syncConfigId(): bson.ObjectId {
-    const id = (this.sync_rules as unknown as MongoPersistedSyncRulesContentV3).syncConfigId;
-    if (id == null) {
-      throw new ServiceAssertionError('Missing sync config id for storage v3');
-    }
-    return id;
+    return this.syncRulesV3.syncConfigId;
+  }
+
+  private get syncRulesCollection(): mongo.Collection<SyncRuleDocumentV3> {
+    return this.db.sync_rules as unknown as mongo.Collection<SyncRuleDocumentV3>;
+  }
+
+  private syncConfigMatch(extra: mongo.Document = {}): mongo.Filter<SyncRuleDocumentV3> {
+    return {
+      _id: this.group_id,
+      sync_configs: {
+        $elemMatch: {
+          _id: this.syncConfigId,
+          ...extra
+        }
+      }
+    };
+  }
+
+  private syncConfigProjection(extra: mongo.Document = {}): mongo.Document {
+    return {
+      ...extra,
+      sync_configs: {
+        $elemMatch: {
+          _id: this.syncConfigId
+        }
+      }
+    };
+  }
+
+  private syncConfigArrayFilters(): mongo.UpdateOptions['arrayFilters'] {
+    return [{ 'config._id': this.syncConfigId }];
+  }
+
+  private selectedSyncConfig(
+    doc: Pick<SyncRuleDocumentV3, 'sync_configs'> | null
+  ): SyncRuleConfigStateV3 | null {
+    return doc?.sync_configs?.[0] ?? null;
   }
 
   protected async initializeVersionStorage(): Promise<void> {
@@ -112,29 +157,16 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected async fetchCheckpointState(
     session: mongo.ClientSession
   ): Promise<{ checkpoint: bigint; lsn: string | null } | null> {
-    const syncConfigId = this.syncConfigId;
-    const doc = await this.db.sync_rules.findOne(
-      {
-        _id: this.group_id,
-        sync_configs: {
-          $elemMatch: {
-            _id: syncConfigId,
-            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-          }
-        }
-      },
+    const doc = await this.syncRulesCollection.findOne(
+      this.syncConfigMatch({
+        state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
+      }),
       {
         session,
-        projection: {
-          sync_configs: {
-            $elemMatch: {
-              _id: syncConfigId
-            }
-          }
-        }
+        projection: this.syncConfigProjection()
       }
     );
-    const syncConfig = (doc as any)?.sync_configs?.[0];
+    const syncConfig = this.selectedSyncConfig(doc);
     if (!syncConfig?.snapshot_done) {
       return null;
     }
@@ -145,30 +177,19 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async getWriterSyncState() {
-    const syncConfigId = this.syncConfigId;
-    const doc = await this.db.sync_rules.findOne(
+    const doc = await this.syncRulesCollection.findOne(
+      this.syncConfigMatch(),
       {
-        _id: this.group_id,
-        'sync_configs._id': syncConfigId
-      },
-      {
-        projection: {
-          snapshot_lsn: 1,
-          sync_configs: {
-            $elemMatch: {
-              _id: syncConfigId
-            }
-          }
-        }
+        projection: this.syncConfigProjection({ snapshot_lsn: 1 })
       }
     );
-    const syncConfig = (doc as any)?.sync_configs?.[0];
+    const syncConfig = this.selectedSyncConfig(doc);
     const checkpointLsn = syncConfig?.last_checkpoint_lsn ?? null;
     return {
       lastCheckpointLsn: checkpointLsn,
       resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
       keepaliveOp: syncConfig?.keepalive_op ?? null,
-      syncConfigId
+      syncConfigId: this.syncConfigId
     };
   }
 
@@ -188,25 +209,13 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
-    const syncConfigId = this.syncConfigId;
-    const doc = await this.db.sync_rules.findOne(
+    const doc = await this.syncRulesCollection.findOne(
+      this.syncConfigMatch(),
       {
-        _id: this.group_id,
-        'sync_configs._id': syncConfigId
-      },
-      {
-        projection: {
-          state: 1,
-          snapshot_lsn: 1,
-          sync_configs: {
-            $elemMatch: {
-              _id: syncConfigId
-            }
-          }
-        }
+        projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1 })
       }
     );
-    const syncConfig = (doc as any)?.sync_configs?.[0];
+    const syncConfig = this.selectedSyncConfig(doc);
     if (doc == null || syncConfig == null) {
       throw new ServiceAssertionError('Cannot find sync rules status');
     }
@@ -220,12 +229,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   protected async clearSyncRuleState(): Promise<void> {
-    const syncConfigId = this.syncConfigId;
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id,
-        'sync_configs._id': syncConfigId
-      },
+    await this.syncRulesCollection.updateOne(
+      this.syncConfigMatch(),
       {
         $set: {
           persisted_lsn: null,
@@ -241,7 +246,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       },
       {
         maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS,
-        arrayFilters: [{ 'config._id': syncConfigId }]
+        arrayFilters: this.syncConfigArrayFilters()
       }
     );
   }

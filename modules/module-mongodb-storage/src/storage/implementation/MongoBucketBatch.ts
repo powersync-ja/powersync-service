@@ -14,13 +14,11 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   BucketStorageMarkRecordUnavailable,
-  CheckpointResult,
   deserializeBson,
   InternalOpId,
   isCompleteRow,
   SaveOperationTag,
   storage,
-  SyncRuleState,
   utils
 } from '@powersync/service-core';
 import * as timers from 'node:timers/promises';
@@ -29,7 +27,6 @@ import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import { SyncRuleDocument } from './models.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
@@ -114,8 +111,6 @@ export abstract class MongoBucketBatch
    */
   public resumeFromLsn: string | null = null;
 
-  private needsActivation = true;
-
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger ?? defaultLogger;
@@ -152,6 +147,24 @@ export abstract class MongoBucketBatch
   protected abstract get sourceRecordStore(): SourceRecordStore;
 
   protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
+
+  abstract commit(
+    lsn: string,
+    options?: storage.BucketBatchCommitOptions
+  ): Promise<storage.CheckpointResult>;
+
+  abstract keepalive(lsn: string): Promise<storage.CheckpointResult>;
+
+  abstract setResumeLsn(lsn: string): Promise<void>;
+
+  abstract markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+
+  abstract markTableSnapshotRequired(table: storage.SourceTable): Promise<void>;
+
+  abstract markTableSnapshotDone(
+    tables: storage.SourceTable[],
+    no_checkpoint_before_lsn?: string
+  ): Promise<storage.SourceTable[]>;
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
@@ -646,257 +659,6 @@ export abstract class MongoBucketBatch
     await this[Symbol.asyncDispose]();
   }
 
-  private lastWaitingLogThottled = 0;
-
-  async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<CheckpointResult> {
-    const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
-
-    await this.flush(options);
-
-    const now = new Date();
-
-    // Mark relevant write checkpoints as "processed".
-    // This makes it easier to identify write checkpoints that are "valid" in order.
-    await this.db.write_checkpoints.updateMany(
-      {
-        processed_at_lsn: null,
-        'lsns.1': { $lte: lsn }
-      },
-      {
-        $set: {
-          processed_at_lsn: lsn
-        }
-      },
-      {
-        session: this.session
-      }
-    );
-
-    const can_checkpoint = {
-      $and: [
-        { $eq: ['$snapshot_done', true] },
-        {
-          $or: [{ $eq: ['$last_checkpoint_lsn', null] }, { $lte: ['$last_checkpoint_lsn', { $literal: lsn }] }]
-        },
-        {
-          $or: [{ $eq: ['$no_checkpoint_before', null] }, { $lte: ['$no_checkpoint_before', { $literal: lsn }] }]
-        }
-      ]
-    };
-
-    const new_keepalive_op = {
-      $cond: [
-        can_checkpoint,
-        { $literal: null },
-        {
-          $toString: {
-            $max: [{ $toLong: '$keepalive_op' }, { $literal: this.persisted_op }, 0n]
-          }
-        }
-      ]
-    };
-
-    const new_last_checkpoint = {
-      $cond: [
-        can_checkpoint,
-        {
-          $max: ['$last_checkpoint', { $literal: this.persisted_op }, { $toLong: '$keepalive_op' }, 0n]
-        },
-        '$last_checkpoint'
-      ]
-    };
-
-    // For this query, we need to handle multiple cases, depending on the state:
-    // 1. Normal commit - advance last_checkpoint to this.persisted_op.
-    // 2. Commit delayed by no_checkpoint_before due to snapshot. In this case we only advance keepalive_op.
-    // 3. Commit with no new data - here may may set last_checkpoint = keepalive_op, if a delayed commit is relevant.
-    // We want to do as much as possible in a single atomic database operation, which makes this somewhat complex.
-    let preUpdateDocument = await this.db.sync_rules.findOneAndUpdate(
-      { _id: this.group_id },
-      [
-        {
-          $set: {
-            _can_checkpoint: can_checkpoint,
-            _not_empty: createEmptyCheckpoints
-              ? true
-              : {
-                  $or: [
-                    { $literal: createEmptyCheckpoints },
-                    { $ne: ['$keepalive_op', new_keepalive_op] },
-                    { $ne: ['$last_checkpoint', new_last_checkpoint] }
-                  ]
-                }
-          }
-        },
-        {
-          $set: {
-            last_checkpoint_lsn: {
-              $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: lsn }, '$last_checkpoint_lsn']
-            },
-            last_checkpoint_ts: {
-              $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: now }, '$last_checkpoint_ts']
-            },
-            last_keepalive_ts: { $literal: now },
-            last_fatal_error: { $literal: null },
-            last_fatal_error_ts: { $literal: null },
-            keepalive_op: new_keepalive_op,
-            last_checkpoint: new_last_checkpoint,
-            // Unset snapshot_lsn on checkpoint
-            snapshot_lsn: {
-              $cond: [{ $and: ['$_can_checkpoint', '$_not_empty'] }, { $literal: null }, '$snapshot_lsn']
-            }
-          }
-        },
-        {
-          $unset: ['_can_checkpoint', '_not_empty']
-        }
-      ],
-      {
-        session: this.session,
-        // We return the before document, so that we can check the previous state to determine if a checkpoint was actually created or if we were blocked by snapshot/no_checkpoint_before.
-        returnDocument: 'before',
-        projection: {
-          snapshot_done: 1,
-          last_checkpoint_lsn: 1,
-          no_checkpoint_before: 1,
-          keepalive_op: 1,
-          last_checkpoint: 1
-        }
-      }
-    );
-
-    if (preUpdateDocument == null) {
-      throw new ReplicationAssertionError(
-        'Failed to update checkpoint - no matching sync_rules document for _id: ' + this.group_id
-      );
-    }
-
-    // This re-implements the same logic as in the pipeline, to determine what was actually updated.
-    // Unfortunately we cannot return these from the pipeline directly, so we need to re-implement the logic.
-    const canCheckpoint =
-      preUpdateDocument.snapshot_done === true &&
-      (preUpdateDocument.last_checkpoint_lsn == null || preUpdateDocument.last_checkpoint_lsn <= lsn) &&
-      (preUpdateDocument.no_checkpoint_before == null || preUpdateDocument.no_checkpoint_before <= lsn);
-
-    const keepaliveOp = preUpdateDocument.keepalive_op == null ? null : BigInt(preUpdateDocument.keepalive_op);
-    const maxKeepalive = [keepaliveOp ?? 0n, this.persisted_op ?? 0n, 0n].reduce((a, b) => (a > b ? a : b));
-    const newKeepaliveOp = canCheckpoint ? null : maxKeepalive.toString();
-    const newLastCheckpoint = canCheckpoint
-      ? [preUpdateDocument.last_checkpoint ?? 0n, this.persisted_op ?? 0n, keepaliveOp ?? 0n, 0n].reduce((a, b) =>
-          a > b ? a : b
-        )
-      : preUpdateDocument.last_checkpoint;
-    const notEmpty =
-      createEmptyCheckpoints ||
-      preUpdateDocument.keepalive_op !== newKeepaliveOp ||
-      preUpdateDocument.last_checkpoint !== newLastCheckpoint;
-    const checkpointCreated = canCheckpoint && notEmpty;
-
-    const checkpointBlocked = !canCheckpoint;
-
-    if (checkpointBlocked) {
-      // Failed on snapshot_done or no_checkpoint_before.
-      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
-        this.logger.info(
-          `Waiting before creating checkpoint, currently at ${lsn} / ${preUpdateDocument.keepalive_op}. Current state: ${JSON.stringify(
-            {
-              snapshot_done: preUpdateDocument.snapshot_done,
-              last_checkpoint_lsn: preUpdateDocument.last_checkpoint_lsn,
-              no_checkpoint_before: preUpdateDocument.no_checkpoint_before
-            }
-          )}`
-        );
-        this.lastWaitingLogThottled = Date.now();
-      }
-    } else {
-      if (checkpointCreated) {
-        this.logger.debug(`Created checkpoint at ${lsn} / ${newLastCheckpoint}`);
-      }
-      await this.autoActivate(lsn);
-      await this.db.notifyCheckpoint();
-      this.persisted_op = null;
-      this.last_checkpoint_lsn = lsn;
-      if (newLastCheckpoint != null) {
-        await this.sourceRecordStore.postCommitCleanup(newLastCheckpoint, this.logger);
-      }
-    }
-    return { checkpointBlocked, checkpointCreated };
-  }
-
-  /**
-   * Switch from processing -> active if relevant.
-   *
-   * Called on new commits.
-   */
-  private async autoActivate(lsn: string) {
-    if (!this.needsActivation) {
-      return;
-    }
-
-    // Activate the batch, so it can start processing.
-    // This is done automatically when the first save() is called.
-
-    const session = this.session;
-    let activated = false;
-    await session.withTransaction(async () => {
-      const doc = await this.db.sync_rules.findOne({ _id: this.group_id }, { session });
-      if (doc && doc.state == SyncRuleState.PROCESSING && doc.snapshot_done && doc.last_checkpoint != null) {
-        await this.db.sync_rules.updateOne(
-          {
-            _id: this.group_id
-          },
-          {
-            $set: {
-              state: storage.SyncRuleState.ACTIVE
-            }
-          },
-          { session }
-        );
-
-        await this.db.sync_rules.updateMany(
-          {
-            _id: { $ne: this.group_id },
-            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
-          },
-          {
-            $set: {
-              state: storage.SyncRuleState.STOP
-            }
-          },
-          { session }
-        );
-        activated = true;
-      } else if (doc?.state != SyncRuleState.PROCESSING) {
-        this.needsActivation = false;
-      }
-    });
-    if (activated) {
-      this.logger.info(`Activated new sync rules at ${lsn}`);
-      await this.db.notifyCheckpoint();
-      this.needsActivation = false;
-    }
-  }
-
-  async keepalive(lsn: string): Promise<CheckpointResult> {
-    return await this.commit(lsn, { createEmptyCheckpoints: true });
-  }
-
-  async setResumeLsn(lsn: string): Promise<void> {
-    const update: Partial<SyncRuleDocument> = {
-      snapshot_lsn: lsn
-    };
-
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: update
-      },
-      { session: this.session }
-    );
-  }
-
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     const { after, before, sourceTable, tag } = record;
     for (const event of this.getTableEvents(sourceTable)) {
@@ -1042,80 +804,6 @@ export abstract class MongoBucketBatch
     });
 
     return copy;
-  }
-
-  async markAllSnapshotDone(no_checkpoint_before_lsn: string) {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          snapshot_done: true,
-          last_keepalive_ts: new Date()
-        },
-        $max: {
-          no_checkpoint_before: no_checkpoint_before_lsn
-        }
-      },
-      { session: this.session }
-    );
-  }
-
-  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          snapshot_done: false
-        }
-      },
-      { session: this.session }
-    );
-  }
-
-  async markTableSnapshotDone(tables: storage.SourceTable[], no_checkpoint_before_lsn?: string) {
-    const session = this.session;
-    const ids = tables.map((table) => mongoTableId(table.id));
-
-    await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.group_id).updateMany(
-        { _id: { $in: ids } },
-        {
-          $set: {
-            snapshot_done: true
-          },
-          $unset: {
-            snapshot_status: 1
-          }
-        },
-        { session }
-      );
-
-      if (no_checkpoint_before_lsn != null) {
-        await this.db.sync_rules.updateOne(
-          {
-            _id: this.group_id
-          },
-          {
-            $set: {
-              last_keepalive_ts: new Date()
-            },
-            $max: {
-              no_checkpoint_before: no_checkpoint_before_lsn
-            }
-          },
-          { session: this.session }
-        );
-      }
-    });
-    return tables.map((table) => {
-      const copy = table.clone();
-      copy.snapshotComplete = true;
-      return copy;
-    });
   }
 
   protected async clearError(): Promise<void> {

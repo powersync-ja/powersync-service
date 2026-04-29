@@ -157,17 +157,10 @@ export interface IdSequenceDocument {
   op_id: bigint;
 }
 
-export interface SyncRuleDocument {
+export interface SyncRuleDocumentBase {
   _id: number;
 
   state: storage.SyncRuleState;
-
-  /**
-   * True if initial snapshot has been replicated.
-   *
-   * Can only be false if state == PROCESSING.
-   */
-  snapshot_done: boolean;
 
   /**
    * This is now used for "resumeLsn".
@@ -181,31 +174,6 @@ export interface SyncRuleDocument {
    * More specifically, we resume replication from max(snapshot_lsn, last_checkpoint_lsn).
    */
   snapshot_lsn: string | undefined;
-
-  /**
-   * The last consistent checkpoint.
-   *
-   * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
-   */
-  last_checkpoint: bigint | null;
-
-  /**
-   * The LSN associated with the last consistent checkpoint.
-   */
-  last_checkpoint_lsn: string | null;
-
-  /**
-   * If set, no new checkpoints may be created < this value.
-   */
-  no_checkpoint_before: string | null;
-
-  /**
-   * Goes together with no_checkpoint_before.
-   *
-   * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
-   * then the checkpoint must be equal to this keepalive_op.
-   */
-  keepalive_op: string | null;
 
   slot_name: string | null;
 
@@ -240,6 +208,45 @@ export interface SyncRuleDocument {
 
   storage_version?: number;
 }
+
+export interface SyncRuleCheckpointFields<TKeepaliveOp> {
+  /**
+   * The last consistent checkpoint.
+   *
+   * There may be higher OpIds used in the database if we're in the middle of replicating a large transaction.
+   */
+  last_checkpoint: bigint | null;
+
+  /**
+   * The LSN associated with the last consistent checkpoint.
+   */
+  last_checkpoint_lsn: string | null;
+
+  /**
+   * If set, no new checkpoints may be created < this value.
+   */
+  no_checkpoint_before: string | null;
+
+  /**
+   * Goes together with no_checkpoint_before.
+   *
+   * If a keepalive is triggered that creates the checkpoint > no_checkpoint_before,
+   * then the checkpoint must be equal to this keepalive_op.
+   */
+  keepalive_op: TKeepaliveOp;
+}
+
+export interface SyncRuleDocumentV1 extends SyncRuleDocumentBase, SyncRuleCheckpointFields<string | null> {
+
+  /**
+   * True if initial snapshot has been replicated.
+   *
+   * Can only be false if state == PROCESSING.
+   */
+  snapshot_done: boolean;
+}
+
+export type SyncRuleDocument = SyncRuleDocumentV1;
 
 export interface StorageConfig extends storage.StorageVersionConfig {
   /**
