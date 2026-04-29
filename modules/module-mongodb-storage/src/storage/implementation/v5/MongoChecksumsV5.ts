@@ -1,3 +1,4 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import {
   bson,
   BucketChecksum,
@@ -46,7 +47,9 @@ export class MongoChecksumsV5 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucketDataV5(this.group_id, definitionId),
+        this.db.bucketDataV5(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<
+          import('../models.js').BucketDataDocumentBase
+        >,
         createV5BucketFilter
       );
       for (const checksum of groupResults.values()) {

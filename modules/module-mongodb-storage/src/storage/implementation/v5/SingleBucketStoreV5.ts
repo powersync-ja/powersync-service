@@ -47,22 +47,37 @@ export class SingleBucketStoreV5 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return serializeBucketDataV5({ bucketKey: this.key, ...source }) as BucketDataDocumentGeneric;
+    return serializeBucketDataV5(this.key.bucket, [
+      { bucketKey: this.key, ...source }
+    ]) as unknown as BucketDataDocumentGeneric;
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    return loadBucketDataDocumentV5(this.key, doc as BucketDataDocumentV5);
+    const generator = loadBucketDataDocumentV5(this.key, doc as unknown as BucketDataDocumentV5);
+    const first = generator.next();
+    if (first.done) {
+      throw new Error('Empty ops array in BucketDataDocumentV5');
+    }
+    return first.value;
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    const document = doc as Pick<BucketDataDocumentV5, '_id' | T>;
-    const { _id, ...rest } = document;
+    const document = doc as unknown as Pick<BucketDataDocumentV5, '_id' | 'ops'>;
+    const op = document.ops?.[0];
+    if (op == null) {
+      // Fallback for partial documents without ops array
+      const { _id, ...rest } = doc as any;
+      return {
+        bucketKey: this.key,
+        o: _id.o,
+        ...rest
+      } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
+    }
     return {
       bucketKey: this.key,
-      o: _id.o,
-      ...rest
+      ...op
     } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
   }
 }

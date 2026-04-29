@@ -3,11 +3,11 @@ import * as bson from 'bson';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import {
-  BucketDataDocumentBase,
   BucketDataKey,
   BucketParameterDocumentBase,
   BucketStateDocumentBase,
   CurrentBucket,
+  OpType,
   ReplicaId,
   SourceTableDocument,
   SourceTableKey,
@@ -40,42 +40,93 @@ export interface BucketParameterDocumentV5 extends BucketParameterDocumentBase<S
 
 export type BucketDataKeyV5 = BucketDataKey;
 
-export interface BucketDataDocumentV5 extends BucketDataDocumentBase {
-  _id: BucketDataKeyV5;
+export interface BucketOperationV5 {
+  o: bigint;
+  op: OpType;
+  source_table?: bson.ObjectId;
+  source_key?: ReplicaId;
+  table?: string;
+  row_id?: string;
+  checksum: bigint;
+  data: string | null;
 }
 
-export function serializeBucketDataV5(document: BucketDataDoc): BucketDataDocumentV5 {
-  const { bucketKey, o } = document;
+export interface BucketDataDocumentV5 {
+  _id: BucketDataKeyV5;
+  min_op: bigint;
+  checksum: bigint;
+  count: number;
+  size: number;
+  target_op?: bigint | null;
+  ops: BucketOperationV5[];
+}
+
+export function serializeBucketDataV5(bucket: string, operations: BucketDataDoc[]): BucketDataDocumentV5 {
+  const minOp = operations[0].o;
+  const maxOp = operations[operations.length - 1].o;
+
+  let totalChecksum = 0n;
+  let totalSize = 0;
+  let maxTargetOp: bigint | null = null;
+
+  const ops: BucketOperationV5[] = operations.map((op) => {
+    totalChecksum += op.checksum;
+    totalSize += op.data?.length ?? 0;
+
+    if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
+      maxTargetOp = op.target_op;
+    }
+
+    return {
+      o: op.o,
+      op: op.op,
+      source_table: op.source_table,
+      source_key: op.source_key,
+      table: op.table,
+      row_id: op.row_id,
+      checksum: op.checksum,
+      data: op.data
+    };
+  });
+
   return {
     _id: {
-      b: bucketKey.bucket,
-      o: o
+      b: bucket,
+      o: maxOp
     },
-    // List fields directly, so that we don't accidentally persist any unknown fields
-    op: document.op,
-    source_table: document.source_table,
-    source_key: document.source_key,
-    table: document.table,
-    row_id: document.row_id,
-    checksum: document.checksum,
-    data: document.data,
-    target_op: document.target_op
+    min_op: minOp,
+    checksum: totalChecksum,
+    count: operations.length,
+    size: totalSize,
+    target_op: maxTargetOp,
+    ops
   };
 }
 
-export function loadBucketDataDocumentV5(
+export function* loadBucketDataDocumentV5(
   context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>,
   doc: BucketDataDocumentV5
-): BucketDataDoc {
-  const { _id, ...rest } = doc;
-  return {
-    bucketKey: {
-      ...context,
-      bucket: _id.b
-    },
-    o: _id.o,
-    ...rest
+): Generator<BucketDataDoc> {
+  const { _id, ops } = doc;
+  const bucketKey = {
+    ...context,
+    bucket: _id.b
   };
+
+  for (const op of ops) {
+    yield {
+      bucketKey,
+      o: op.o,
+      op: op.op,
+      source_table: op.source_table,
+      source_key: op.source_key,
+      table: op.table,
+      row_id: op.row_id,
+      checksum: op.checksum,
+      data: op.data,
+      target_op: null
+    };
+  }
 }
 
 export function taggedBucketParameterDocumentToV5(document: TaggedBucketParameterDocument): BucketParameterDocumentV5 {

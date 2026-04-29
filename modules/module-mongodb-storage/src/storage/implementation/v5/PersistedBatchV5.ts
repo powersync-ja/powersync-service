@@ -5,6 +5,7 @@ import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
@@ -13,6 +14,7 @@ import {
 } from '../common/PersistedBatch.js';
 import { SourceTableKey } from '../models.js';
 import {
+  BucketDataDocumentV5,
   BucketParameterDocumentV5,
   BucketStateDocumentV5,
   CurrentDataDocumentV5,
@@ -199,18 +201,58 @@ export class PersistedBatchV5 extends PersistedBatch {
     }
 
     for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      await this.db.bucketDataV5(this.group_id, definitionId).bulkWrite(
-        documents.map((document) => ({
-          insertOne: {
-            document: serializeBucketDataV5(document)
-          }
-        })),
-        {
+      const operationsByBucket = new Map<string, typeof documents>();
+      for (const document of documents) {
+        const existing = operationsByBucket.get(document.bucketKey.bucket) ?? [];
+        existing.push(document);
+        operationsByBucket.set(document.bucketKey.bucket, existing);
+      }
+
+      const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV5>[] = [];
+      for (const [bucket, ops] of operationsByBucket.entries()) {
+        const chunks = this.chunkBucketData(ops);
+        for (const chunk of chunks) {
+          inserts.push({
+            insertOne: {
+              document: serializeBucketDataV5(bucket, chunk)
+            }
+          });
+        }
+      }
+
+      if (inserts.length > 0) {
+        await this.db.bucketDataV5(this.group_id, definitionId).bulkWrite(inserts, {
           session,
           ordered: false
-        }
-      );
+        });
+      }
     }
+  }
+
+  private chunkBucketData(operations: BucketDataDoc[]): BucketDataDoc[][] {
+    const chunks: BucketDataDoc[][] = [];
+    let currentChunk: BucketDataDoc[] = [];
+    let currentSize = 0;
+    const maxDocSize = 1024 * 1024; // 1MB threshold
+
+    for (const op of operations) {
+      const opSize = op.data?.length ?? 0;
+
+      if (currentSize + opSize > maxDocSize && currentChunk.length > 0) {
+        chunks.push(currentChunk);
+        currentChunk = [];
+        currentSize = 0;
+      }
+
+      currentChunk.push(op);
+      currentSize += opSize;
+    }
+
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk);
+    }
+
+    return chunks;
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {

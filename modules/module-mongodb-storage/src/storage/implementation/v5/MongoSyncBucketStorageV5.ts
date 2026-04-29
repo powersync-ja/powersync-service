@@ -365,51 +365,50 @@ export async function* getBucketDataBatchV5(
     let targetOp: InternalOpId | null = null;
 
     for (let rawData of data) {
-      const row = loadBucketDataDocumentV5(
-        { replicationStreamId: ctx.group_id, definitionId },
-        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV5
-      );
-      const bucket = row.bucketKey.bucket;
+      const doc = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV5;
+      for (const row of loadBucketDataDocumentV5({ replicationStreamId: ctx.group_id, definitionId }, doc)) {
+        const bucket = row.bucketKey.bucket;
 
-      if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
-        let start: ProtocolOpId | undefined = undefined;
-        if (currentChunk != null) {
-          if (currentChunk.bucket == bucket) {
-            currentChunk.has_more = true;
-            start = currentChunk.next_after;
+        if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
+          let start: ProtocolOpId | undefined = undefined;
+          if (currentChunk != null) {
+            if (currentChunk.bucket == bucket) {
+              currentChunk.has_more = true;
+              start = currentChunk.next_after;
+            }
+
+            const yieldChunk = currentChunk;
+            currentChunk = null;
+            chunkSizeBytes = 0;
+            yield { chunkData: yieldChunk, targetOp: targetOp };
+            targetOp = null;
           }
 
-          const yieldChunk = currentChunk;
-          currentChunk = null;
-          chunkSizeBytes = 0;
-          yield { chunkData: yieldChunk, targetOp: targetOp };
-          targetOp = null;
-        }
-
-        if (start == null) {
-          const startOpId = bucketMap.get(bucket);
-          if (startOpId == null) {
-            throw new Error(`data for unexpected bucket: ${bucket}`);
+          if (start == null) {
+            const startOpId = bucketMap.get(bucket);
+            if (startOpId == null) {
+              throw new Error(`data for unexpected bucket: ${bucket}`);
+            }
+            start = internalToExternalOpId(startOpId);
           }
-          start = internalToExternalOpId(startOpId);
+          currentChunk = {
+            bucket,
+            after: start,
+            has_more: false,
+            data: [],
+            next_after: start
+          };
         }
-        currentChunk = {
-          bucket,
-          after: start,
-          has_more: false,
-          data: [],
-          next_after: start
-        };
-      }
 
-      const entry = mapOpEntry(row);
-      if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
-        targetOp = row.target_op;
-      }
+        const entry = mapOpEntry(row);
+        if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
+          targetOp = row.target_op;
+        }
 
-      currentChunk.data.push(entry);
-      currentChunk.next_after = entry.op_id;
-      chunkSizeBytes += rawData.byteLength;
+        currentChunk.data.push(entry);
+        currentChunk.next_after = entry.op_id;
+        chunkSizeBytes += rawData.byteLength;
+      }
     }
 
     if (currentChunk != null) {
