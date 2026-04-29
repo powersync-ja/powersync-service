@@ -6,7 +6,8 @@ import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
 import { MongoSyncRulesLock } from './MongoSyncRulesLock.js';
 import { PowerSyncMongo } from './db.js';
-import { getMongoStorageConfig, SyncRuleDocumentV1 } from './models.js';
+import { getMongoStorageConfig } from './models.js';
+import { SyncRuleDocumentV1 } from './v1/models.js';
 
 abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncRulesContent {
   public current_lock: MongoSyncRulesLock | null = null;

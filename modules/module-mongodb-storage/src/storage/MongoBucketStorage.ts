@@ -15,14 +15,14 @@ import { PowerSyncMongo } from './implementation/db.js';
 import {
   getMongoStorageConfig,
   StorageConfig,
-  SyncRuleDocumentBase,
-  SyncRuleDocumentV1
+  SyncRuleDocumentBase
 } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
 import {
   MongoPersistedSyncRulesContentV1,
   MongoPersistedSyncRulesContentV3
 } from './implementation/MongoPersistedSyncRulesContent.js';
+import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
 import { SyncConfigDefinition, SyncRuleDocumentV3 } from './storage-index.js';
 

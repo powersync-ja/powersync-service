@@ -5,10 +5,10 @@ import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
-import { SyncRuleDocumentV1 } from '../models.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
+import { SyncRuleDocumentV1 } from './models.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV1;

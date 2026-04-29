@@ -21,14 +21,20 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { CommonSourceTableDocument, SourceKey, SyncRuleDocumentV1 } from '../models.js';
+import { CommonSourceTableDocument, SourceKey } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContentV1 } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
-import { BucketDataDocumentV1, BucketDataKeyV1, BucketStateDocument, loadBucketDataDocumentV1 } from './models.js';
+import {
+  BucketDataDocumentV1,
+  BucketDataKeyV1,
+  BucketStateDocument,
+  loadBucketDataDocumentV1,
+  SyncRuleDocumentV1
+} from './models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
 import { MongoCompactorV1 } from './MongoCompactorV1.js';

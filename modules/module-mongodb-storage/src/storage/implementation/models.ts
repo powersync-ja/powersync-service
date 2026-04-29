@@ -1,5 +1,5 @@
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
-import { InternalOpId, SerializedSyncPlan, storage } from '@powersync/service-core';
+import { InternalOpId, storage } from '@powersync/service-core';
 import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
@@ -231,18 +231,6 @@ export interface SyncRuleCheckpointFields<TKeepaliveOp> {
    * then the checkpoint must be equal to this keepalive_op.
    */
   keepalive_op: TKeepaliveOp;
-}
-
-export interface SyncRuleDocumentV1 extends SyncRuleDocumentBase, SyncRuleCheckpointFields<string | null> {
-  content: string;
-  serialized_plan?: SerializedSyncPlan | null;
-
-  /**
-   * True if initial snapshot has been replicated.
-   *
-   * Can only be false if state == PROCESSING.
-   */
-  snapshot_done: boolean;
 }
 
 export interface StorageConfig extends storage.StorageVersionConfig {
