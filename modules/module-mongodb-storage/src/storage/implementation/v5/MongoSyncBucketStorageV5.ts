@@ -368,6 +368,16 @@ export async function* getBucketDataBatchV5(
       const doc = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV5;
       for (const row of loadBucketDataDocumentV5({ replicationStreamId: ctx.group_id, definitionId }, doc)) {
         const bucket = row.bucketKey.bucket;
+        const startOpId = bucketMap.get(bucket);
+        if (startOpId == null) {
+          throw new Error(`data for unexpected bucket: ${bucket}`);
+        }
+        if (row.o <= startOpId) {
+          continue;
+        }
+        if (row.o > end) {
+          continue;
+        }
 
         if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
           let start: ProtocolOpId | undefined = undefined;
@@ -385,10 +395,6 @@ export async function* getBucketDataBatchV5(
           }
 
           if (start == null) {
-            const startOpId = bucketMap.get(bucket);
-            if (startOpId == null) {
-              throw new Error(`data for unexpected bucket: ${bucket}`);
-            }
             start = internalToExternalOpId(startOpId);
           }
           currentChunk = {
