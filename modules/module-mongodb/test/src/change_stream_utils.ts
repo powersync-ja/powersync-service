@@ -145,7 +145,8 @@ export class ChangeStreamTestContext {
       // Specifically reduce this from the default for tests on MongoDB <= 6.0, otherwise it can take
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
-      snapshotChunkLength: this.streamOptions?.snapshotChunkLength
+      snapshotChunkLength: this.streamOptions?.snapshotChunkLength,
+      keepaliveIntervalMs: this.streamOptions?.keepaliveIntervalMs
     };
     this._walStream = new ChangeStream(options);
     return this._walStream!;
@@ -179,7 +180,9 @@ export class ChangeStreamTestContext {
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
-      getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
+      getClientCheckpoint(this.client, this.db, this.factory, {
+        timeout: options?.timeout ?? 15_000
+      }),
       this.streamPromise?.then((e) => {
         if (e.status == 'rejected') {
           throw e.reason;
@@ -249,6 +252,7 @@ export async function getClientCheckpoint(
   options?: { timeout?: number }
 ): Promise<InternalOpId> {
   const start = Date.now();
+
   const lsn = await createCheckpoint(client, db, STANDALONE_CHECKPOINT_ID);
   // This old API needs a persisted checkpoint id.
   // Since we don't use LSNs anymore, the only way to get that is to wait.

@@ -170,17 +170,39 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
  */
 export const STANDALONE_CHECKPOINT_ID = '_standalone_checkpoint';
 
+/**
+ * Create a checkpoint by upserting a document in _powersync_checkpoints.
+ *
+ * Returns either:
+ * - A standard LSN string (from operationTime or wall clock) for storage
+ *   boundaries like no_checkpoint_before, where lexicographic comparison is used.
+ * - A sentinel string ('sentinel:<id>:<i>') for the streaming loop's
+ *   waitForCheckpointLsn, where the loop matches by document content instead
+ *   of comparing LSNs.
+ *
+ * Cosmos DB is detected automatically: when session.operationTime is null
+ * (Cosmos DB does not provide it), the function falls back to wall clock
+ * timestamps or sentinel format depending on the mode.
+ *
+ * @param mode
+ *   'lsn' (default) — return a real LSN string. Uses operationTime when
+ *     available (standard MongoDB), falls back to wall clock (Cosmos DB).
+ *   'sentinel' — return a sentinel marker for event-based matching in the
+ *     streaming loop.
+ */
 export async function createCheckpoint(
   client: mongo.MongoClient,
   db: mongo.Db,
-  id: mongo.ObjectId | string
+  id: mongo.ObjectId | string,
+  options?: { mode?: 'lsn' | 'sentinel' }
 ): Promise<string> {
+  const mode = options?.mode ?? 'lsn';
   const session = client.startSession();
   try {
     // We use an unique id per process, and clear documents on startup.
     // This is so that we can filter events for our own process only, and ignore
     // events from other processes.
-    await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
+    const result = await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
       {
         _id: id as any
       },
@@ -193,9 +215,27 @@ export async function createCheckpoint(
         session
       }
     );
-    const time = session.operationTime!;
-    // TODO: Use the above when we support custom write checkpoints
-    return new MongoLSN({ timestamp: time }).comparable;
+
+    if (mode === 'sentinel') {
+      // Sentinel path: return a marker that the streaming loop matches by
+      // event content. NOT for storage boundaries (lexicographic comparison
+      // would fail — 'sentinel:...' > any hex LSN string).
+      const i = result?.i;
+      return `sentinel:${id}:${i}`;
+    }
+
+    // LSN path: return a real LSN for storage comparison.
+    // Use operationTime when available (standard MongoDB).
+    const time = session.operationTime;
+    if (time != null) {
+      return new MongoLSN({ timestamp: time }).comparable;
+    }
+
+    // Wall clock fallback: Cosmos DB does not provide operationTime.
+    // Uses second precision with increment 0, consistent with wallTime-derived
+    // LSNs from getEventTimestamp().
+    const fallbackTimestamp = mongo.Timestamp.fromBits(0, Math.floor(Date.now() / 1000));
+    return new MongoLSN({ timestamp: fallbackTimestamp }).comparable;
   } finally {
     await session.endSession();
   }
