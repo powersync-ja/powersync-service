@@ -363,7 +363,8 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
       const outputs = await this.input.source.getParameterSets(
         [...this.resolveInputs(lookup.instantiation)].map((instantiation) =>
           ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(instantiation))
-        )
+        ),
+        'todo'
       );
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.

@@ -357,14 +357,16 @@ export abstract class MongoSyncBucketStorage
 
   protected abstract getParameterSetsImpl(
     checkpoint: MongoReplicationCheckpoint,
-    lookups: ScopedParameterLookup[]
+    lookups: ScopedParameterLookup[],
+    limit: number | undefined
   ): Promise<SqliteJsonRow[]>;
 
   async getParameterSets(
     checkpoint: MongoReplicationCheckpoint,
-    lookups: ScopedParameterLookup[]
+    lookups: ScopedParameterLookup[],
+    limit: number | undefined
   ): Promise<SqliteJsonRow[]> {
-    return this.getParameterSetsImpl(checkpoint, lookups);
+    return this.getParameterSetsImpl(checkpoint, lookups, limit);
   }
 
   protected abstract getBucketDataBatchImpl(
@@ -777,8 +779,8 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     this.#storage = storage;
   }
 
-  async getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-    return this.#storage.getParameterSets(this, lookups);
+  async getParameterSets(lookups: ScopedParameterLookup[], limit?: number): Promise<SqliteJsonRow[]> {
+    return this.#storage.getParameterSets(this, lookups, limit);
   }
 }
 

@@ -540,11 +540,12 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
       };
     }
 
+    const debugName = `Legacy Bucket Definition ${bucketDataScope.source.uniqueName}`;
     return {
       staticBuckets: [],
       hasDynamicBuckets: true,
       queryDynamicBucketDescriptions: async (source: ParameterLookupSource) => {
-        const bucketParameters = await source.getParameterSets(lookups);
+        const bucketParameters = await source.getParameterSets(lookups, debugName);
         return this.resolveBucketDescriptions(bucketParameters, requestParameters, bucketDataScope).map((bucket) => {
           return resolvedBucket(bucket, { definition: this.descriptorName, inclusion_reasons: reasons });
         });

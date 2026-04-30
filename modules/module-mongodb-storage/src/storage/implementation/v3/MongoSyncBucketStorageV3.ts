@@ -5,6 +5,7 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
   utils
@@ -135,9 +136,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
-    lookups: ScopedParameterLookup[]
+    lookups: ScopedParameterLookup[],
+    limit: number | undefined
   ): Promise<SqliteJsonRow[]> {
-    return getParameterSetsV3(this.versionContext, checkpoint, lookups);
+    return getParameterSetsV3(this.versionContext, checkpoint, lookups, limit);
   }
 
   protected getBucketDataBatchImpl(
@@ -206,7 +208,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 export async function getParameterSetsV3(
   ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
-  lookups: ScopedParameterLookup[]
+  lookups: ScopedParameterLookup[],
+  limit: number | undefined
 ): Promise<SqliteJsonRow[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
@@ -220,38 +223,45 @@ export async function getParameterSetsV3(
       const indexId = lookup.indexId;
       const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
       const lookupFilter = serializeParameterLookupV3(lookup);
-      return {
-        collection,
-        pipeline: [
-          {
-            $match: {
-              lookup: lookupFilter,
-              _id: { $lte: checkpoint.checkpoint }
-            }
-          },
-          {
-            $sort: {
-              key: 1,
-              _id: -1
-            }
-          },
-          {
-            $group: {
-              _id: {
-                key: '$key'
-              },
-              bucket_parameters: {
-                $first: '$bucket_parameters'
-              }
-            }
-          },
-          {
-            $project: {
-              _id: 0,
-              bucket_parameters: 1
+      const pipeline: mongo.Document[] = [
+        {
+          $match: {
+            lookup: lookupFilter,
+            _id: { $lte: checkpoint.checkpoint }
+          }
+        },
+        {
+          $sort: {
+            key: 1,
+            _id: -1
+          }
+        },
+        {
+          $group: {
+            _id: {
+              key: '$key'
+            },
+            bucket_parameters: {
+              $first: '$bucket_parameters'
             }
           }
-        ]
+        },
+        {
+          $project: {
+            _id: 0,
+            bucket_parameters: 1
+          }
+        }
+      ];
+      if (limit != null) {
+        // This still has potential to return too many rows because it's put into a union, but at least the amount of
+        // rows we get wouldn't be unbounded.
+        pipeline.push({ $limit: limit });
+      }
+
+      return {
+        collection,
+        pipeline
       };
     };
 
@@ -285,7 +295,12 @@ export async function getParameterSetsV3(
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
 
-    return rows.flatMap((row) => row.bucket_parameters);
+    const expandedRows = rows.flatMap((row) => row.bucket_parameters);
+    if (limit != null && expandedRows.length > limit) {
+      throw new ParameterSetLimitExceededError(limit);
+    }
+
+    return expandedRows;
   });
 }
 

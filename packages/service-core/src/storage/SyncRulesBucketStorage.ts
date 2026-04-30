@@ -320,8 +320,41 @@ export interface ReplicationCheckpoint {
    * Used to resolve "dynamic" parameter queries.
    *
    * This gets parameter sets specific to this checkpoint.
+   *
+   * @throws {@link ParameterSetLimitExceededError}
+   * Thrown if a limit parameter is set and the resolved lookups in bucket storage exceeds that limit.
    */
-  getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]>;
+  getParameterSets(lookups: ScopedParameterLookup[], limit?: number): Promise<SqliteJsonRow[]>;
+}
+
+/**
+ * An exception thrown by {@link ReplicationCheckpoint} implementations if there are too many parameter results.
+ *
+ * This is not a suitable exception to show to users, `BucketParameterState` adds additional context.
+ */
+export class ParameterSetLimitExceededError extends Error {
+  constructor(
+    readonly limit: number,
+    readonly breakdown?: ParameterQueryInvocationLog[]
+  ) {
+    super(`Too many parameter results (limit was ${limit})`);
+  }
+}
+
+export interface ParameterQueryInvocationLog {
+  /**
+   * The definition for which a parameter query was invoked.
+   *
+   * The exact format of definition is unspecified, it's shown to users to help them debug this failure.
+   */
+  definition: string;
+  /**
+   * If {@link didExceedLimit} is false, the amount of rows returned by the invocation.
+   *
+   * Otherwise, the maximum amount of rows this invocation was allowed to return.
+   */
+  resultsOrLimit: number;
+  didExceedLimit: boolean;
 }
 
 export interface WatchWriteCheckpointOptions {
