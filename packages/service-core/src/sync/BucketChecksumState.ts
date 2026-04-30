@@ -635,8 +635,9 @@ export class BucketParameterState {
       let remainingBudget = parameterLimit;
 
       // Log of lookups to provide a breakdown if we exceed the dynamic lookup limit.
-      // FIXME: This is so horrible and will completely fall apart if we e.g. use concurrent queriers. For Sync Streams,
-      // we should use an explicit graph structure based on sync plans to replace the imperative querier interface.
+      // FIXME: This is horrible, Sync Streams will invoke the callback concurrently and we can't properly deal with
+      // that. We should replace queriers for Sync Streams with an explicit graph structure based on sync plans instead
+      // of adding these checks to the imperative querier interface.
       const lookupLog: storage.ParameterQueryInvocationLog[] = [];
 
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
