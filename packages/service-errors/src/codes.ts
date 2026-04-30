@@ -154,7 +154,7 @@ export enum ErrorCode {
    * Socket timeout while querying the source database.
    *
    * This can happen if Postgres takes too long to respond to a query, or if there is
-   * a network-levle issue.
+   * a network-level issue.
    */
   PSYNC_S1121 = 'PSYNC_S1121',
 

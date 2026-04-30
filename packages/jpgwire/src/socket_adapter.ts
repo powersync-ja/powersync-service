@@ -40,7 +40,7 @@ export class SocketAdapter {
       lookup: options.lookup,
 
       // This closes the connection if no data was sent or received for the given time,
-      // even if the connection is still actaully alive.
+      // even if the connection is still actually alive.
       timeout: POWERSYNC_SOCKET_DEFAULT_TIMEOUT,
 
       // This configures TCP keepalive.

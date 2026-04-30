@@ -257,7 +257,7 @@ export class DatabaseQueryError extends ServiceError {
   /**
    * Source query that triggered the error.
    *
-   * This should never returned to a client, but will show up in logs.
+   * This should never be returned to a client, but will show up in logs.
    */
   public query: string | undefined = undefined;
 
