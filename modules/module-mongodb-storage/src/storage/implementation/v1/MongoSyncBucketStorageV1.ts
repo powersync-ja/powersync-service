@@ -221,15 +221,15 @@ export async function getParameterSetsV1(
             }
           },
           {
+            $limit: limit + 1
+          },
+          {
             $group: {
               _id: { key: '$key', lookup: '$lookup' },
               bucket_parameters: {
                 $first: '$bucket_parameters'
               }
             }
-          },
-          {
-            $limit: limit + 1
           }
         ],
         {

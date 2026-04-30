@@ -801,12 +801,12 @@ function formatParameterQueryBreakdown(limit: number, log: storage.ParameterQuer
 
   // When an exception about too many parameter results is thrown, the last entry is the one that finally exceeded the
   // limit.
-  const failure = log.pop()!;
+  const results = Array.from(log);
+  const failure = results.pop()!;
 
   let message = '\nInvoked parameter queries by definition:';
-  const largestResults = Array.from(log)
-    .sort((a, b) => b.resultsOrLimit - a.resultsOrLimit)
-    .splice(0, 9);
+  results.sort((a, b) => b.resultsOrLimit - a.resultsOrLimit);
+  const largestResults = results.splice(0, 9);
 
   for (const entry of largestResults) {
     message += `\n  ${entry.definition}: ${entry.resultsOrLimit} results.`;

@@ -239,6 +239,9 @@ export async function getParameterSetsV3(
               _id: -1
             }
           },
+          // This limit still allows returning too many rows because this filter might be put into a $unionWith, but
+          // at least the amount of rows we'd return isn't unbounded.
+          { $limit: limit + 1 },
           {
             $group: {
               _id: {
@@ -254,10 +257,7 @@ export async function getParameterSetsV3(
               _id: 0,
               bucket_parameters: 1
             }
-          },
-          // This limit still allows returning too many rows because this filter might be put into a $unionWith, but
-          // at least the amount of rows we'd return isn't unbounded.
-          { $limit: limit + 1 }
+          }
         ]
       };
     };
@@ -293,7 +293,7 @@ export async function getParameterSetsV3(
       });
 
     const expandedRows = rows.flatMap((row) => row.bucket_parameters);
-    if (limit != null && expandedRows.length > limit) {
+    if (expandedRows.length > limit) {
       throw new ParameterSetLimitExceededError(limit);
     }
 
