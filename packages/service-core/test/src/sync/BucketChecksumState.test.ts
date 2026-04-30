@@ -978,26 +978,26 @@ streams:
 
       // Verify error log includes breakdown
       expect(errorMessages[0]).toContain('Invoked parameter queries by definition:');
-      expect(errorMessages[0]).toContain('Index on magic_sequence used by a: 30 results.');
-      expect(errorMessages[0]).toContain('Index on magic_sequence used by b, c: 20 results.');
+      expect(errorMessages[0]).toContain('Stream a evaluating parameter on magic_sequence: 30 results.');
+      expect(errorMessages[0]).toContain('Stream b evaluating parameter on magic_sequence: 20 results.');
       expect(errorMessages[0]).toContain(
-        'Index on magic_sequence used by b, c exceeded the remaining limit of 5 available results.'
+        'Stream c evaluating parameter on magic_sequence exceeded the remaining limit of 5 available results.'
       );
 
       expect(errorData[0].checkpoint).toEqual(1n);
       expect(errorData[0].parameterResults).toEqual([
         {
-          definition: 'Index on magic_sequence used by a',
+          definition: 'Stream a evaluating parameter on magic_sequence',
           didExceedLimit: false,
           resultsOrLimit: 30
         },
         {
-          definition: 'Index on magic_sequence used by b, c',
+          definition: 'Stream b evaluating parameter on magic_sequence',
           didExceedLimit: false,
           resultsOrLimit: 20
         },
         {
-          definition: 'Index on magic_sequence used by b, c',
+          definition: 'Stream c evaluating parameter on magic_sequence',
           didExceedLimit: true,
           resultsOrLimit: 5
         }

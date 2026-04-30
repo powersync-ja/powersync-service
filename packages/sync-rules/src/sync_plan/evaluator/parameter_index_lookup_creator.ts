@@ -13,17 +13,12 @@ import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
   readonly defaultLookupScope: ParameterLookupScope;
   private readonly evaluator: ScalarExpressionEvaluator;
-  private readonly sourceTable: TablePattern;
+  readonly sourceTable: TablePattern;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
   private readonly numberOfOutputs: number;
   private readonly numberOfParameters: number;
-  readonly debugDescription: string;
 
-  constructor(
-    plan: plan.SyncPlan,
-    source: plan.StreamParameterIndexLookupCreator,
-    { engine, defaultSchema }: StreamEvaluationContext
-  ) {
+  constructor(source: plan.StreamParameterIndexLookupCreator, { engine, defaultSchema }: StreamEvaluationContext) {
     this.defaultLookupScope = {
       ...source.defaultLookupScope,
       source: this
@@ -44,25 +39,6 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     });
     this.sourceTable = source.sourceTable.toTablePattern(defaultSchema);
     this.evaluatorInputs = translationHelper.mapper.instantiation;
-
-    const usedByStreams = plan.streams
-      .filter((s) => {
-        for (const querier of s.queriers) {
-          for (const stage of querier.lookupStages) {
-            for (const element of stage) {
-              if (element.type == 'parameter' && element.lookup === source) {
-                return true;
-              }
-            }
-          }
-        }
-
-        return false;
-      })
-      .map((s) => s.stream.name)
-      .join(', ');
-
-    this.debugDescription = `Index on ${source.sourceTable.name} used by ${usedByStreams}`;
   }
 
   getSourceTables(): Set<TablePattern> {

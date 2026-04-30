@@ -54,6 +54,7 @@ import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_cr
  */
 export class RequestParameterEvaluators {
   private constructor(
+    readonly stream: plan.StreamOptions,
     /**
      * Pending lookup stages, or their cached outputs.
      */
@@ -98,6 +99,7 @@ export class RequestParameterEvaluators {
     }
 
     return new RequestParameterEvaluators(
+      this.stream,
       this.lookupStages.map((stage) => stage.map(cloneLookup)),
       this.parameterValues.map(cloneValue)
     );
@@ -142,12 +144,18 @@ export class RequestParameterEvaluators {
   /**
    * Prepares evaluators for a description of parameter values obtained from a compiled querier in the sync plan.
    *
+   * @param stream Used to show the name of the stream for debugging purposes.
    * @param lookupStages The {@link plan.StreamQuerier.lookupStages} of the querier to compile.
    * @param values The {@link plan.StreamQuerier.sourceInstantiation} of the querier to compile.
    * @param input Access to bucket and parameter sources generated for buckets and parameter lookups referenced by the
    * querier.
    */
-  static prepare(lookupStages: plan.ExpandingLookup[][], values: plan.ParameterValue[], input: StreamInput) {
+  static prepare(
+    stream: plan.StreamOptions,
+    lookupStages: plan.ExpandingLookup[][],
+    values: plan.ParameterValue[],
+    input: StreamInput
+  ) {
     const mappedStages: PreparedExpandingLookup[][] = [];
     const lookupToStage = new Map<plan.ExpandingLookup, { stage: number; index: number }>();
 
@@ -223,7 +231,7 @@ export class RequestParameterEvaluators {
       }
     }
 
-    return new RequestParameterEvaluators(mappedStages, mapParameterValues(values));
+    return new RequestParameterEvaluators(stream, mappedStages, mapParameterValues(values));
   }
 }
 
@@ -361,12 +369,12 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
     const lookup = this.evaluators.lookupStages[stage][index];
     if (lookup.type == 'parameter') {
       const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
-      const source = scope.source as PreparedParameterIndexLookupCreator;
+      const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
       const outputs = await this.input.source.getParameterSets(
         [...this.resolveInputs(lookup.instantiation)].map((instantiation) =>
           ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(instantiation))
         ),
-        source.debugDescription
+        `Stream ${this.evaluators.stream.name} evaluating parameter on ${resolvedLookup.sourceTable.name}`
       );
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
