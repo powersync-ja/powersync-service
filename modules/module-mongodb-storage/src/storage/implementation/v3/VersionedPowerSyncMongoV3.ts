@@ -7,10 +7,15 @@ import {
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
-  SourceTableDocumentV3
+  SourceTableDocumentV3,
+  SyncConfigDefinition
 } from './models.js';
 
 export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
+  get syncConfigDefinitions() {
+    return this.db.collection<SyncConfigDefinition>('sync_config');
+  }
+
   sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV3> {
     const collectionName = this.sourceRecordsCollectionName(replicationStreamId, sourceTableId);
     return this.db.collection<CurrentDataDocumentV3>(collectionName);

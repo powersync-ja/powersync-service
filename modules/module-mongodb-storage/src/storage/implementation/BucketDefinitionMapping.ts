@@ -1,12 +1,12 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
-import { SyncRuleDocument } from './models.js';
+import { SyncConfigDefinition } from '../storage-index.js';
 
 export type BucketDefinitionId = string;
 export type ParameterIndexId = string;
 
 export class BucketDefinitionMapping {
-  static fromSyncRules(doc: Pick<SyncRuleDocument, 'rule_mapping'>): BucketDefinitionMapping {
+  static fromSyncConfig(doc: Pick<SyncConfigDefinition, 'rule_mapping'>): BucketDefinitionMapping {
     return new BucketDefinitionMapping(doc.rule_mapping?.definitions ?? {}, doc.rule_mapping?.parameter_indexes ?? {});
   }
 
@@ -63,7 +63,7 @@ export class BucketDefinitionMapping {
     return `${lookupName}#${queryId}`;
   }
 
-  serialize(): NonNullable<SyncRuleDocument['rule_mapping']> {
+  serialize(): SyncConfigDefinition['rule_mapping'] {
     return {
       definitions: { ...this.definitions },
       parameter_indexes: { ...this.parameterLookupMapping }
