@@ -38,6 +38,7 @@ import { MissingReplicationSlotError } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { getPgOutputRelation, getRelId, referencedColumnTypeIds } from './PgRelation.js';
 import { checkSourceConfiguration, checkTableRls, getReplicationIdentityColumns } from './replication-utils.js';
+import { rquery } from './rquery.js';
 import {
   ChunkedSnapshotQuery,
   IdSnapshotQuery,
@@ -232,7 +233,7 @@ export class WalStream {
         query += ' AND c.relname = $2';
       }
 
-      const result = await db.query({
+      const result = await rquery(db, {
         statement: query,
         params: [
           { type: 'varchar', value: schema },
@@ -256,7 +257,7 @@ export class WalStream {
         continue;
       }
 
-      const rs = await db.query({
+      const rs = await rquery(db, {
         statement: `SELECT 1 FROM pg_publication_tables WHERE pubname = $1 AND schemaname = $2 AND tablename = $3`,
         params: [
           { type: 'varchar', value: PUBLICATION_NAME },
@@ -315,7 +316,7 @@ export class WalStream {
 
     // Check if replication slot exists
     const slot = pgwire.pgwireRows(
-      await this.connections.pool.query({
+      await rquery(this.connections.pool, {
         // We specifically want wal_status and invalidation_reason, but it's not available on older versions,
         // so we just query *.
         statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
@@ -393,7 +394,7 @@ export class WalStream {
 
     try {
       const rows = pgwire.pgwireRows(
-        await this.connections.pool.query({
+        await rquery(this.connections.pool, {
           statement: `SELECT setting, unit FROM pg_settings WHERE name = 'max_slot_wal_keep_size'`
         })
       );
@@ -471,7 +472,7 @@ export class WalStream {
     await this.queryMaxSlotWalKeepSize();
 
     const rows = pgwire.pgwireRows(
-      await this.connections.pool.query({
+      await rquery(this.connections.pool, {
         statement: 'SELECT * FROM pg_replication_slots WHERE slot_name = $1',
         params: [{ type: 'varchar', value: this.slot_name }]
       })
@@ -512,7 +513,7 @@ export class WalStream {
   }
 
   async estimatedCountNumber(db: pgwire.PgConnection, table: storage.SourceTable): Promise<number> {
-    const results = await db.query({
+    const results = await rquery(db, {
       statement: `SELECT reltuples::bigint AS estimate
 FROM   pg_class
 WHERE  oid = $1::regclass`,
@@ -543,14 +544,14 @@ WHERE  oid = $1::regclass`,
       // initial replication where we left off.
       await this.storage.clear({ signal: this.abort_signal });
 
-      await db.query({
+      await rquery(db, {
         statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
         params: [{ type: 'varchar', value: slotName }]
       });
 
       // We use the replication connection here, not a pool.
       // The replication slot must be created before we start snapshotting tables.
-      await replicationConnection.query(`CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
+      await rquery(replicationConnection, `CREATE_REPLICATION_SLOT ${slotName} LOGICAL pgoutput`);
 
       this.logger.info(`Created replication slot ${slotName}`);
     }
@@ -599,7 +600,7 @@ WHERE  oid = $1::regclass`,
 
         // Get the current LSN for the snapshot.
         // We could also use the LSN from the last table snapshot.
-        const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+        const rs = await rquery(db, `select pg_current_wal_lsn() as lsn`);
         const noCommitBefore = rs.rows[0].decodeWithoutCustomTypes(0);
 
         await batch.markAllSnapshotDone(noCommitBefore);
@@ -655,7 +656,7 @@ WHERE  oid = $1::regclass`,
     // Note: We use the default "Read Committed" isolation level here, not snapshot isolation.
     // The data may change during the transaction, but that is compensated for in the streaming
     // replication afterwards.
-    await db.query('BEGIN');
+    await rquery(db, 'BEGIN');
     try {
       await this.snapshotTable(batch, db, table, limited);
 
@@ -672,15 +673,20 @@ WHERE  oid = $1::regclass`,
       // 1. Complete the snapshot.
       // 2. Wait until logical replication has caught up with all the change between A and B.
       // Calling `markSnapshotDone(LSN B)` covers that.
-      const rs = await db.query(`select pg_current_wal_lsn() as lsn`);
+      const rs = await rquery(db, `select pg_current_wal_lsn() as lsn`);
       const tableLsnNotBefore = rs.rows[0].decodeWithoutCustomTypes(0);
       // Side note: A ROLLBACK would probably also be fine here, since we only read in this transaction.
-      await db.query('COMMIT');
+      await rquery(db, 'COMMIT');
       const [resultTable] = await batch.markTableSnapshotDone([table], tableLsnNotBefore);
       this.relationCache.update(resultTable);
       return resultTable;
     } catch (e) {
-      await db.query('ROLLBACK');
+      try {
+        await rquery(db, 'ROLLBACK');
+      } catch (e) {
+        // Ignore rollback errors after a failed transaction.
+        // If this happens, the connection is not likely recoverable anyway.
+      }
       throw e;
     }
   }

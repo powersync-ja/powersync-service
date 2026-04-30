@@ -254,6 +254,13 @@ export class DatabaseConnectionError extends ServiceError {
 export class DatabaseQueryError extends ServiceError {
   public cause: any;
 
+  /**
+   * Source query that triggered the error.
+   *
+   * This should never returned to a client, but will show up in logs.
+   */
+  public query: string | undefined = undefined;
+
   constructor(code: ErrorCode, message: string, cause?: any) {
     super({
       code: code,

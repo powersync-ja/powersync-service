@@ -3,6 +3,7 @@
 import { once } from 'node:events';
 import net from 'node:net';
 import tls from 'node:tls';
+import { SocketTimeoutError } from './errors.js';
 import { recordBytesRead } from './metrics.js';
 
 // pgwire doesn't natively support configuring timeouts, but we just hardcode a default.
@@ -76,7 +77,7 @@ export class SocketAdapter {
     this._socket.on('end', () => this._readResume());
     // Custom timeout handling
     this._socket.on('timeout', () => {
-      this._socket.destroy(new Error('Socket idle timeout'));
+      this._socket.destroy(new SocketTimeoutError(`Socket timed out after ${this._socket.timeout}ms`));
     });
     this._socket.on('error', (error) => {
       this._error = error;

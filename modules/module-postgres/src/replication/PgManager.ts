@@ -5,6 +5,7 @@ import { PostgresTypeResolver } from '../types/resolver.js';
 import { NormalizedPostgresConnectionConfig } from '../types/types.js';
 import { getApplicationName } from '../utils/application-name.js';
 import { getServerVersion } from '../utils/postgres_version.js';
+import { rquery } from './rquery.js';
 
 export interface PgManagerOptions extends pgwire.PgPoolOptions {}
 
@@ -70,14 +71,14 @@ export class PgManager extends BaseObserver<PgManagerListener> {
     // Use an shorter timeout for snapshot connections.
     // This is to detect broken connections early, instead of waiting
     // for the full 6 minutes.
-    // This we are constantly using the connection, we don't need any
+    // Since we are constantly using the connection, we don't need any
     // custom keepalives.
 
     (connection as any)._socket.setTimeout(SNAPSHOT_SOCKET_TIMEOUT);
 
     // Disable statement timeout for snapshot queries.
     // On Supabase, the default is 2 minutes.
-    await connection.query(`set session statement_timeout = 0`);
+    await rquery(connection, `set session statement_timeout = 0`);
 
     return connection;
   }
