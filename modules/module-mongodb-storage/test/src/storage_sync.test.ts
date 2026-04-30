@@ -157,7 +157,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
   });
 
-  test.runIf(storageVersion >= 3)('uses v3 mongodb model shapes', async () => {
+  test.runIf(storageVersion == 3)('uses v3 mongodb model shapes', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -396,7 +396,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     }
   );
 
-  test.runIf(storageVersion >= 3)('cleans pending deletes only for tracked v3 source tables', async () => {
+  test.runIf(storageVersion == 3)('cleans pending deletes only for tracked v3 source tables', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(

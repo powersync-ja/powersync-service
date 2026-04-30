@@ -5,6 +5,7 @@ import { logger } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
   InternalOpId,
+  STORAGE_VERSION_5,
   SUPPORTED_STORAGE_VERSIONS,
   TestStorageConfig,
   TestStorageFactory
@@ -26,7 +27,7 @@ export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.
   url: env.PG_STORAGE_TEST_URL
 });
 
-const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
+const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS.filter((v) => v !== STORAGE_VERSION_5);
 
 export interface StorageVersionTestContext {
   factory: TestStorageFactory;

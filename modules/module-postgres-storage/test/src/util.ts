@@ -1,4 +1,4 @@
-import { SUPPORTED_STORAGE_VERSIONS } from '@powersync/service-core';
+import { STORAGE_VERSION_5, SUPPORTED_STORAGE_VERSIONS } from '@powersync/service-core';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { normalizePostgresStorageConfig, PostgresMigrationAgent } from '../../src/index.js';
@@ -36,4 +36,4 @@ export const POSTGRES_STORAGE_SETUP = postgresTestSetup({
 export const POSTGRES_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP;
 export const POSTGRES_REPORT_STORAGE_FACTORY = POSTGRES_STORAGE_SETUP.reportFactory;
 
-export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
+export const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS.filter((v) => v !== STORAGE_VERSION_5);

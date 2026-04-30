@@ -319,7 +319,7 @@ export function emptyChecksumForRequest(
 /**
  * Convert output of the $group stage into a checksum.
  */
-function checksumFromAggregate(doc: bson.Document): PartialOrFullChecksum {
+export function checksumFromAggregate(doc: bson.Document): PartialOrFullChecksum {
   const partialChecksum = Number(BigInt(doc.checksum_total) & 0xffffffffn) & 0xffffffff;
   const bucket = doc._id;
 

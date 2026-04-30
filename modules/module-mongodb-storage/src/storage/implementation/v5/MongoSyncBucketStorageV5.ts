@@ -1,0 +1,536 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
+import { mongo } from '@powersync/lib-service-mongodb';
+import {
+  CheckpointChanges,
+  GetCheckpointChangesOptions,
+  InternalOpId,
+  internalToExternalOpId,
+  ProtocolOpId,
+  storage,
+  utils
+} from '@powersync/service-core';
+import { JSONBig } from '@powersync/service-jsonbig';
+import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
+import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import { MongoBucketStorage } from '../../MongoBucketStorage.js';
+import {
+  MongoSyncBucketStorageCheckpoint,
+  MongoSyncBucketStorageContext
+} from '../common/MongoSyncBucketStorageContext.js';
+import { CommonSourceTableDocument } from '../models.js';
+import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { MongoChecksums } from '../MongoChecksums.js';
+import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
+import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
+import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import { BucketDataDocumentV5, BucketParameterDocumentV5, loadBucketDataDocumentV5 } from './models.js';
+import { MongoBucketBatchV5 } from './MongoBucketBatchV5.js';
+import { MongoChecksumsV5 } from './MongoChecksumsV5.js';
+import { MongoCompactorV5 } from './MongoCompactorV5.js';
+import { MongoParameterCompactorV5 } from './MongoParameterCompactorV5.js';
+import { deserializeParameterLookupV5, serializeParameterLookupV5 } from './MongoParameterLookupV5.js';
+import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
+
+export class MongoSyncBucketStorageV5 extends MongoSyncBucketStorage {
+  // Declare types to be more specific
+  declare readonly db: VersionedPowerSyncMongoV5;
+  declare readonly checksums: MongoChecksumsV5;
+
+  constructor(
+    factory: MongoBucketStorage,
+    group_id: number,
+    sync_rules: MongoPersistedSyncRulesContent,
+    slot_name: string,
+    writeCheckpointMode: storage.WriteCheckpointMode | undefined,
+    options: MongoSyncBucketStorageOptions
+  ) {
+    super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+  }
+
+  protected async initializeVersionStorage(): Promise<void> {
+    const mapping = this.mapping;
+    for (let source of mapping.allBucketDefinitionIds()) {
+      const collection = this.db.bucketDataV5(this.group_id, source).collectionName;
+      await this.db.db
+        .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
+        .catch((error) => {
+          if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
+            return;
+          }
+          throw error;
+        });
+    }
+    for (let indexId of mapping.allParameterIndexIds()) {
+      await this.db.parameterIndexV5(this.group_id, indexId).createIndex(
+        {
+          lookup: 1,
+          key: 1,
+          _id: -1
+        },
+        {
+          name: 'lookup_op_id'
+        }
+      );
+    }
+  }
+
+  protected createMongoChecksums(options: MongoSyncBucketStorageOptions): MongoChecksums {
+    return new MongoChecksumsV5(this.db, this.group_id, {
+      ...options.checksumOptions,
+      storageConfig: options?.storageConfig,
+      mapping: this.sync_rules.mapping
+    });
+  }
+
+  createMongoCompactor(options: MongoCompactOptions): MongoCompactor {
+    return new MongoCompactorV5(this, this.db, options);
+  }
+
+  protected createMongoParameterCompactor(
+    checkpoint: InternalOpId,
+    options: storage.CompactOptions
+  ): MongoParameterCompactor {
+    return new MongoParameterCompactorV5(this.db, this.group_id, checkpoint, options);
+  }
+
+  protected createWriterImpl(batchOptions: MongoBucketBatchOptions): storage.BucketStorageBatch {
+    return new MongoBucketBatchV5(batchOptions);
+  }
+
+  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
+    return {};
+  }
+
+  protected augmentCreatedSourceTableDocument(
+    createDoc: CommonSourceTableDocument,
+    options: storage.ResolveTableOptions,
+    candidateSourceTable: storage.SourceTable
+  ): void {
+    const bucketDataSourceIds = options.sync_rules.definition.bucketDataSources
+      .filter((source) => source.tableSyncsData(candidateSourceTable))
+      .map((source) => this.mapping.bucketSourceId(source));
+    const parameterLookupSourceIds = options.sync_rules.definition.bucketParameterLookupSources
+      .filter((source) => source.tableSyncsParameters(candidateSourceTable))
+      .map((source) => this.mapping.parameterLookupId(source));
+
+    Object.assign(createDoc, {
+      bucket_data_source_ids: bucketDataSourceIds,
+      parameter_lookup_source_ids: parameterLookupSourceIds
+    });
+  }
+
+  protected async initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void> {
+    await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
+  }
+
+  protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5> {
+    return {
+      db: this.db,
+      group_id: this.group_id,
+      mapping: this.mapping
+    };
+  }
+
+  protected getParameterSetsImpl(
+    checkpoint: MongoSyncBucketStorageCheckpoint,
+    lookups: ScopedParameterLookup[]
+  ): Promise<SqliteJsonRow[]> {
+    return getParameterSetsV5(this.versionContext, checkpoint, lookups);
+  }
+
+  protected getBucketDataBatchImpl(
+    checkpoint: utils.InternalOpId,
+    dataBuckets: storage.BucketDataRequest[],
+    options?: storage.BucketDataBatchOptions
+  ): AsyncIterable<storage.SyncBucketDataChunk> {
+    return getBucketDataBatchV5(this.versionContext, checkpoint, dataBuckets, options);
+  }
+
+  protected async clearBucketData(_signal?: AbortSignal): Promise<void> {
+    for (const collection of await this.db.listBucketDataCollectionsV5(this.group_id)) {
+      await collection.drop();
+    }
+  }
+
+  protected async clearParameterIndexes(_signal?: AbortSignal): Promise<void> {
+    for (const collection of await this.db.listParameterIndexCollectionsV5(this.group_id)) {
+      await collection.collection.drop();
+    }
+  }
+
+  protected async clearSourceRecords(_signal?: AbortSignal): Promise<void> {
+    for (const collection of await this.db.listSourceRecordCollectionsV5(this.group_id)) {
+      await collection.drop();
+    }
+  }
+
+  protected async clearBucketState(_signal?: AbortSignal): Promise<void> {
+    await this.db
+      .bucketStateV5(this.group_id)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
+  }
+
+  protected async clearSourceTables(_signal?: AbortSignal): Promise<void> {
+    await this.db
+      .sourceTablesV5(this.group_id)
+      .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
+      .catch((error) => {
+        if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+          return;
+        }
+        throw error;
+      });
+  }
+
+  protected getDataBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+    return getDataBucketChangesV5(this.versionContext, options);
+  }
+
+  protected getParameterBucketChangesImpl(
+    options: GetCheckpointChangesOptions
+  ): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+    return getParameterBucketChangesV5(this.versionContext, options);
+  }
+}
+
+export async function getParameterSetsV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
+  checkpoint: MongoSyncBucketStorageCheckpoint,
+  lookups: ScopedParameterLookup[]
+): Promise<SqliteJsonRow[]> {
+  return ctx.db.client.withSession({ snapshot: true }, async (session) => {
+    setSessionSnapshotTime(session, checkpoint.snapshotTime);
+
+    const buildLookupPipeline = (
+      lookup: ScopedParameterLookup
+    ): {
+      collection: mongo.Collection<BucketParameterDocumentV5>;
+      pipeline: mongo.Document[];
+    } => {
+      const indexId = lookup.indexId;
+      const collection = ctx.db.parameterIndexV5(ctx.group_id, indexId);
+      const lookupFilter = serializeParameterLookupV5(lookup);
+      return {
+        collection,
+        pipeline: [
+          {
+            $match: {
+              lookup: lookupFilter,
+              _id: { $lte: checkpoint.checkpoint }
+            }
+          },
+          {
+            $sort: {
+              key: 1,
+              _id: -1
+            }
+          },
+          {
+            $group: {
+              _id: {
+                key: '$key'
+              },
+              bucket_parameters: {
+                $first: '$bucket_parameters'
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              bucket_parameters: 1
+            }
+          }
+        ]
+      };
+    };
+
+    const [firstLookup, ...remainingLookups] = lookups;
+    const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup);
+    if (firstQuery == null) {
+      return [];
+    }
+
+    const pipeline: mongo.Document[] = [
+      ...firstQuery.pipeline,
+      ...remainingLookups.map((lookup) => {
+        const query = buildLookupPipeline(lookup);
+        return {
+          $unionWith: {
+            coll: query.collection.collectionName,
+            pipeline: query.pipeline
+          }
+        };
+      })
+    ];
+
+    const rows = await firstQuery.collection
+      .aggregate<{ bucket_parameters: SqliteJsonRow[] }>(pipeline, {
+        session,
+        readConcern: 'snapshot',
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+      })
+      .toArray()
+      .catch((e) => {
+        throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
+      });
+
+    return rows.flatMap((row) => row.bucket_parameters);
+  });
+}
+
+export async function* getBucketDataBatchV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
+  checkpoint: utils.InternalOpId,
+  dataBuckets: storage.BucketDataRequest[],
+  options?: storage.BucketDataBatchOptions
+): AsyncIterable<storage.SyncBucketDataChunk> {
+  if (dataBuckets.length == 0) {
+    return;
+  }
+
+  if (checkpoint == null) {
+    throw new Error('checkpoint is null');
+  }
+
+  const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
+  const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
+  const end = checkpoint;
+  let remainingLimit = batchLimit;
+
+  const requestsByDefinition = new Map<string, storage.BucketDataRequest[]>();
+  for (const request of dataBuckets) {
+    const definitionId = ctx.mapping.bucketSourceId(request.source);
+    const requests = requestsByDefinition.get(definitionId) ?? [];
+    requests.push(request);
+    requestsByDefinition.set(definitionId, requests);
+  }
+
+  const definitionGroups = Array.from(requestsByDefinition.entries());
+  for (let groupIndex = 0; groupIndex < definitionGroups.length && remainingLimit > 0; groupIndex++) {
+    const [definitionId, requests] = definitionGroups[groupIndex];
+    const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
+    const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
+    const filters: mongo.Filter<BucketDataDocumentV5>[] = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
+      _id: {
+        $gt: {
+          b: bucket,
+          o: start
+        },
+        $lte: {
+          b: bucket,
+          o: end as any
+        }
+      }
+    }));
+
+    const cursor = ctx.db.bucketDataV5(ctx.group_id, definitionId).find(
+      {
+        $or: filters
+      },
+      {
+        session: undefined,
+        sort: { _id: 1 },
+        raw: true,
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+      }
+    ) as unknown as mongo.FindCursor<Buffer>;
+
+    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
+      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
+    });
+
+    let chunkSizeBytes = 0;
+    let currentChunk: utils.SyncBucketData | null = null;
+    let targetOp: InternalOpId | null = null;
+    let limitReached = false;
+
+    doc_loop: for (let rawData of data) {
+      const doc = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV5;
+      for (const row of loadBucketDataDocumentV5({ replicationStreamId: ctx.group_id, definitionId }, doc)) {
+        const bucket = row.bucketKey.bucket;
+        const startOpId = bucketMap.get(bucket);
+        if (startOpId == null) {
+          throw new Error(`data for unexpected bucket: ${bucket}`);
+        }
+        if (row.o <= startOpId) {
+          continue;
+        }
+        if (row.o > end) {
+          continue;
+        }
+
+        if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
+          let start: ProtocolOpId | undefined = undefined;
+          if (currentChunk != null) {
+            if (currentChunk.bucket == bucket) {
+              currentChunk.has_more = true;
+              start = currentChunk.next_after;
+            }
+
+            const yieldChunk = currentChunk;
+            currentChunk = null;
+            chunkSizeBytes = 0;
+            yield { chunkData: yieldChunk, targetOp: targetOp };
+            targetOp = null;
+          }
+
+          if (start == null) {
+            start = internalToExternalOpId(startOpId);
+          }
+          currentChunk = {
+            bucket,
+            after: start,
+            has_more: false,
+            data: [],
+            next_after: start
+          };
+        }
+
+        const entry = mapOpEntry(row);
+        if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
+          targetOp = row.target_op;
+        }
+
+        currentChunk.data.push(entry);
+        currentChunk.next_after = entry.op_id;
+
+        remainingLimit--;
+        if (remainingLimit <= 0) {
+          limitReached = true;
+          break doc_loop;
+        }
+      }
+      chunkSizeBytes += rawData.byteLength;
+    }
+
+    if (currentChunk != null) {
+      const yieldChunk = currentChunk;
+      yieldChunk.has_more = limitReached || batchHasMore;
+      yield { chunkData: yieldChunk, targetOp: targetOp };
+    }
+
+    if (limitReached || batchHasMore) {
+      return;
+    }
+  }
+}
+
+export async function getDataBucketChangesV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
+  options: GetCheckpointChangesOptions
+): Promise<Pick<CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
+  const limit = 1000;
+  const bucketStateUpdates = await ctx.db
+    .bucketStateV5(ctx.group_id)
+    .aggregate<{ _id: string; last_op: bigint }>(
+      [
+        {
+          $match: {
+            last_op: { $gt: options.lastCheckpoint.checkpoint }
+          }
+        },
+        {
+          $group: {
+            _id: '$_id.b',
+            last_op: { $max: '$last_op' }
+          }
+        },
+        {
+          $sort: {
+            last_op: 1
+          }
+        },
+        {
+          $limit: limit + 1
+        }
+      ],
+      { maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
+    )
+    .toArray();
+
+  const buckets = bucketStateUpdates.map((doc) => doc._id);
+  const invalidateDataBuckets = buckets.length > limit;
+
+  return {
+    invalidateDataBuckets,
+    updatedDataBuckets: invalidateDataBuckets ? new Set<string>() : new Set(buckets)
+  };
+}
+
+export async function getParameterBucketChangesV5(
+  ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV5>,
+  options: GetCheckpointChangesOptions
+): Promise<Pick<CheckpointChanges, 'updatedParameterLookups' | 'invalidateParameterBuckets'>> {
+  const limit = 1000;
+  const indexIds = ctx.mapping.allParameterIndexIds();
+  const collections = indexIds.map((indexId) => ({
+    indexId,
+    collection: ctx.db.parameterIndexV5(ctx.group_id, indexId)
+  }));
+  if (collections.length == 0) {
+    return {
+      invalidateParameterBuckets: false,
+      updatedParameterLookups: new Set<string>()
+    };
+  }
+  const checkpointFilter = {
+    _id: { $gt: options.lastCheckpoint.checkpoint, $lte: options.nextCheckpoint.checkpoint }
+  };
+  const pipelineForCollection = (indexId: string) => [
+    {
+      $match: checkpointFilter
+    },
+    {
+      $project: {
+        _id: 0,
+        lookup: 1,
+        indexId: { $literal: indexId }
+      }
+    }
+  ];
+  const [firstCollection, ...remainingCollections] = collections;
+  const parameterUpdates = await firstCollection.collection
+    .aggregate<{ lookup: bson.Binary; indexId: string }>(
+      [
+        ...pipelineForCollection(firstCollection.indexId),
+        ...remainingCollections.map((collection) => {
+          return {
+            $unionWith: {
+              coll: collection.collection.collectionName,
+              pipeline: pipelineForCollection(collection.indexId)
+            }
+          };
+        }),
+        {
+          $limit: limit + 1
+        }
+      ],
+      {
+        batchSize: limit + 2,
+        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+      }
+    )
+    .toArray();
+
+  const invalidateParameterUpdates = parameterUpdates.length > limit;
+
+  return {
+    invalidateParameterBuckets: invalidateParameterUpdates,
+    updatedParameterLookups: invalidateParameterUpdates
+      ? new Set<string>()
+      : new Set<string>(
+          parameterUpdates.map((p) => JSONBig.stringify(deserializeParameterLookupV5(p.lookup, p.indexId)))
+        )
+  };
+}

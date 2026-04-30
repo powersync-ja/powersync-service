@@ -40,6 +40,13 @@ export const STORAGE_VERSION_2 = 2;
 export const STORAGE_VERSION_3 = 3;
 
 /**
+ * Compressed bucket storage with aggregated per-document checksums.
+ *
+ * This is currently unstable, and not enabled by default yet.
+ */
+export const STORAGE_VERSION_5 = 5;
+
+/**
  * Oldest supported storage version.
  */
 export const LEGACY_STORAGE_VERSION = STORAGE_VERSION_1;
@@ -54,7 +61,7 @@ export const CURRENT_STORAGE_VERSION = STORAGE_VERSION_2;
  *
  * This includes unstable versions.
  */
-export const SUPPORTED_STORAGE_VERSIONS = [STORAGE_VERSION_1, STORAGE_VERSION_2, STORAGE_VERSION_3];
+export const SUPPORTED_STORAGE_VERSIONS = [STORAGE_VERSION_1, STORAGE_VERSION_2, STORAGE_VERSION_3, STORAGE_VERSION_5];
 
 /**
  * Shared storage-version behavior across storage implementations.
@@ -72,6 +79,11 @@ export const STORAGE_VERSION_CONFIG: Record<number, StorageVersionConfig | undef
   },
   [STORAGE_VERSION_3]: {
     version: STORAGE_VERSION_3,
+    versionedBuckets: true,
+    softDeleteCurrentData: true
+  },
+  [STORAGE_VERSION_5]: {
+    version: STORAGE_VERSION_5,
     versionedBuckets: true,
     softDeleteCurrentData: true
   }

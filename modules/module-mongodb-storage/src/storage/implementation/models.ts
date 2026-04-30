@@ -267,10 +267,15 @@ export interface StorageConfig extends storage.StorageVersionConfig {
    * Enables v3 MongoDB storage behavior used for incremental reprocessing.
    */
   incrementalReprocessing: boolean;
+  /**
+   * Enables v5 MongoDB storage with compressed bucket data.
+   */
+  compressedBucketStorage: boolean;
 }
 
 const LONG_CHECKSUMS_STORAGE_VERSION = 2;
 const INCREMENTAL_REPROCESSING_STORAGE_VERSION = storage.STORAGE_VERSION_3;
+const COMPRESSED_BUCKET_STORAGE_VERSION = storage.STORAGE_VERSION_5;
 
 export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
@@ -281,7 +286,8 @@ export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   return {
     ...baseConfig,
     longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION,
-    incrementalReprocessing: storageVersion >= INCREMENTAL_REPROCESSING_STORAGE_VERSION
+    incrementalReprocessing: storageVersion >= INCREMENTAL_REPROCESSING_STORAGE_VERSION,
+    compressedBucketStorage: storageVersion >= COMPRESSED_BUCKET_STORAGE_VERSION
   };
 }
 

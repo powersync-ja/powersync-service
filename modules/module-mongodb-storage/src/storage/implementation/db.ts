@@ -26,6 +26,7 @@ import {
 import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
 import { BucketDataDocumentV3 } from './v3/models.js';
 import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
+import { VersionedPowerSyncMongoV5 } from './v5/VersionedPowerSyncMongoV5.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -78,6 +79,10 @@ export class PowerSyncMongo {
   }
 
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
+    if (storageConfig.compressedBucketStorage) {
+      return new VersionedPowerSyncMongoV5(this, storageConfig);
+    }
+
     if (storageConfig.incrementalReprocessing) {
       return new VersionedPowerSyncMongoV3(this, storageConfig);
     }
