@@ -398,9 +398,9 @@ export class PostgresSyncRulesStorage
   async getParameterSets(
     checkpoint: ReplicationCheckpoint,
     lookups: sync_rules.ScopedParameterLookup[],
-    limit: number | undefined
+    limit: number
   ): Promise<sync_rules.SqliteJsonRow[]> {
-    let stmt = lib_postgres.sql`
+    const rows = await this.db.sql`
       SELECT DISTINCT
         ON (lookup, source_table, source_key) lookup,
         source_table,
@@ -416,9 +416,9 @@ export class PostgresSyncRulesStorage
             decode((FILTER ->> 0)::text, 'hex') -- Decode the hex string to bytea
           FROM
             jsonb_array_elements(${{
-              type: 'jsonb',
-              value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
-            }}) AS FILTER
+        type: 'jsonb',
+        value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
+      }}) AS FILTER
         )
         AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
       ORDER BY
@@ -426,15 +426,12 @@ export class PostgresSyncRulesStorage
         source_table,
         source_key,
         id DESC
-    `;
-    if (limit != null) {
-      stmt.params!.push({ type: 'int4', value: limit + 1 });
-      stmt = { statement: ' LIMIT $', params: stmt.params };
-    }
-
-    const codec = pick(models.BucketParameters, ['bucket_parameters']);
-    const rows = (await this.db.queryRows(stmt)).map((row) => codec.decode(row as any));
-    if (limit != null && rows.length > limit) {
+      LIMIT
+        ${{ type: 'int4', value: limit }}
+    `
+      .decoded(pick(models.BucketParameters, ['bucket_parameters']))
+      .rows();
+    if (rows.length > limit) {
       throw new ParameterSetLimitExceededError(limit);
     }
 
@@ -908,7 +905,7 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     public readonly lsn: string | null
   ) {}
 
-  getParameterSets(lookups: sync_rules.ScopedParameterLookup[], limit?: number): Promise<sync_rules.SqliteJsonRow[]> {
+  getParameterSets(lookups: sync_rules.ScopedParameterLookup[], limit: number): Promise<sync_rules.SqliteJsonRow[]> {
     return this.storage.getParameterSets(this, lookups, limit);
   }
 }

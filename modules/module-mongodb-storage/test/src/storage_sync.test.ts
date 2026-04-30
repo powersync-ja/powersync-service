@@ -198,7 +198,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
         expect(lookups.map((l) => l.indexKey)).toEqual([['shape-check']]);
         expect(lookups[0].indexId).toEqual('1');
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([{ owner_id: 'user-1' }]);
         return parameter_sets;
       }

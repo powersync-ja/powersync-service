@@ -75,7 +75,7 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([{ group_id: 'group1a' }]);
         return parameter_sets;
       }
@@ -136,7 +136,7 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
 
-        const parameter_sets = await checkpoint1.getParameterSets(lookups);
+        const parameter_sets = await checkpoint1.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([{ group_id: 'group1' }]);
         return parameter_sets;
       }
@@ -147,7 +147,7 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
 
-        const parameter_sets = await checkpoint2.getParameterSets(lookups);
+        const parameter_sets = await checkpoint2.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([{ group_id: 'group2' }]);
         return parameter_sets;
       }
@@ -226,7 +226,7 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => JSON.stringify(l.indexKey)).sort()).toEqual(['["list1"]', '["list2"]']);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         expect(parameter_sets.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
           { todo_id: 'todo1' },
           { todo_id: 'todo2' }
@@ -285,7 +285,7 @@ bucket_definitions:
 
       return await querier.queryDynamicBucketDescriptions({
         async getParameterSets(lookups) {
-          const parameter_sets = await checkpoint.getParameterSets(lookups);
+          const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
           expect(parameter_sets).toEqual(expectedParameterSets);
           return parameter_sets;
         }
@@ -363,7 +363,7 @@ bucket_definitions:
       getParameterSets: async (lookups) => {
         expect(lookups.map((l) => l.indexKey)).toEqual([[n1]]);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([{ group_id: 'group1' }]);
         return parameter_sets;
       }
@@ -415,7 +415,7 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => l.indexKey)).toEqual([['u1']]);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
         return parameter_sets;
       }
@@ -495,7 +495,7 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => l.indexKey)).toEqual([[]]);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
         expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
         return parameter_sets;
@@ -601,7 +601,7 @@ bucket_definitions:
       await querier.queryDynamicBucketDescriptions({
         async getParameterSets(lookups) {
           foundLookups.push(...lookups);
-          const output = await checkpoint.getParameterSets(lookups);
+          const output = await checkpoint.getParameterSets(lookups, 1000);
           parameter_sets.push(...output);
           return output;
         }
@@ -664,7 +664,7 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([]);
         return parameter_sets;
       }
@@ -763,7 +763,7 @@ streams:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => l.indexKey)).toEqual([['baz']]);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups);
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
         expect(parameter_sets).toEqual([{ '0': 'bar' }]);
         return parameter_sets;
       }

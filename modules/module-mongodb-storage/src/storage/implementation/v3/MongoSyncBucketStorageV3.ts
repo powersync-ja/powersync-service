@@ -137,7 +137,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
     lookups: ScopedParameterLookup[],
-    limit: number | undefined
+    limit: number
   ): Promise<SqliteJsonRow[]> {
     return getParameterSetsV3(this.versionContext, checkpoint, lookups, limit);
   }
@@ -209,7 +209,7 @@ export async function getParameterSetsV3(
   ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[],
-  limit: number | undefined
+  limit: number
 ): Promise<SqliteJsonRow[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
@@ -223,45 +223,42 @@ export async function getParameterSetsV3(
       const indexId = lookup.indexId;
       const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
       const lookupFilter = serializeParameterLookupV3(lookup);
-      const pipeline: mongo.Document[] = [
-        {
-          $match: {
-            lookup: lookupFilter,
-            _id: { $lte: checkpoint.checkpoint }
-          }
-        },
-        {
-          $sort: {
-            key: 1,
-            _id: -1
-          }
-        },
-        {
-          $group: {
-            _id: {
-              key: '$key'
-            },
-            bucket_parameters: {
-              $first: '$bucket_parameters'
-            }
-          }
-        },
-        {
-          $project: {
-            _id: 0,
-            bucket_parameters: 1
-          }
-        }
-      ];
-      if (limit != null) {
-        // This still has potential to return too many rows because it's put into a union, but at least the amount of
-        // rows we get wouldn't be unbounded.
-        pipeline.push({ $limit: limit });
-      }
 
       return {
         collection,
-        pipeline
+        pipeline: [
+          {
+            $match: {
+              lookup: lookupFilter,
+              _id: { $lte: checkpoint.checkpoint }
+            }
+          },
+          {
+            $sort: {
+              key: 1,
+              _id: -1
+            }
+          },
+          {
+            $group: {
+              _id: {
+                key: '$key'
+              },
+              bucket_parameters: {
+                $first: '$bucket_parameters'
+              }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              bucket_parameters: 1
+            }
+          },
+          // This limit still allows returning too many rows because this filter might be put into a $unionWith, but
+          // at least the amount of rows we'd return isn't unbounded.
+          { $limit: limit }
+        ]
       };
     };
 

@@ -98,7 +98,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
     lookups: ScopedParameterLookup[],
-    limit: number | undefined
+    limit: number
   ): Promise<SqliteJsonRow[]> {
     return getParameterSetsV1(this.versionContext, checkpoint, lookups, limit);
   }
@@ -198,56 +198,58 @@ export async function getParameterSetsV1(
   ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[],
-  limit: number | undefined
+  limit: number
 ): Promise<SqliteJsonRow[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
-    const pipeline: mongo.Document[] = [
-      {
-        $match: {
-          'key.g': ctx.group_id,
-          lookup: { $in: lookupFilter },
-          _id: { $lte: checkpoint.checkpoint }
-        }
-      },
-      {
-        $sort: {
-          _id: -1
-        }
-      },
-      {
-        $group: {
-          _id: { key: '$key', lookup: '$lookup' },
-          bucket_parameters: {
-            $first: '$bucket_parameters'
-          }
-        }
-      }
-    ];
-    if (limit != null) {
-      pipeline.push({ $limit: limit + 1 });
-    }
     const rows = await ctx.db.parameterIndexV1
-      .aggregate(pipeline, {
-        session,
-        readConcern: 'snapshot',
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      })
+      .aggregate(
+        [
+          {
+            $match: {
+              'key.g': ctx.group_id,
+              lookup: { $in: lookupFilter },
+              _id: { $lte: checkpoint.checkpoint }
+            }
+          },
+          {
+            $sort: {
+              _id: -1
+            }
+          },
+          {
+            $group: {
+              _id: { key: '$key', lookup: '$lookup' },
+              bucket_parameters: {
+                $first: '$bucket_parameters'
+              }
+            }
+          },
+          {
+            $limit: limit
+          }
+        ],
+        {
+          session,
+          readConcern: 'snapshot',
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+        }
+      )
       .toArray()
       .catch((e) => {
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
-    if (limit != null && rows.length > limit) {
-      throw new ParameterSetLimitExceededError(limit);
-    }
-
     const groupedParameters = rows.map((row) => {
       return row.bucket_parameters;
     });
-    return groupedParameters.flat();
+    const results = groupedParameters.flat();
+    if (results.length > limit) {
+      throw new ParameterSetLimitExceededError(limit);
+    }
+    return results;
   });
 }
 

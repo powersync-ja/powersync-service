@@ -322,9 +322,9 @@ export interface ReplicationCheckpoint {
    * This gets parameter sets specific to this checkpoint.
    *
    * @throws {@link ParameterSetLimitExceededError}
-   * Thrown if a limit parameter is set and the resolved lookups in bucket storage exceeds that limit.
+   * Thrown if resolved lookups in bucket storage exceed the `limit` parameter.
    */
-  getParameterSets(lookups: ScopedParameterLookup[], limit?: number): Promise<SqliteJsonRow[]>;
+  getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<SqliteJsonRow[]>;
 }
 
 /**
