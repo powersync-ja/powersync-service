@@ -17,9 +17,11 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
   private readonly numberOfOutputs: number;
   private readonly numberOfParameters: number;
+  readonly debugDescription: string;
 
   constructor(
-    private readonly source: plan.StreamParameterIndexLookupCreator,
+    plan: plan.SyncPlan,
+    source: plan.StreamParameterIndexLookupCreator,
     { engine, defaultSchema }: StreamEvaluationContext
   ) {
     this.defaultLookupScope = {
@@ -42,6 +44,25 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     });
     this.sourceTable = source.sourceTable.toTablePattern(defaultSchema);
     this.evaluatorInputs = translationHelper.mapper.instantiation;
+
+    const usedByStreams = plan.streams
+      .filter((s) => {
+        for (const querier of s.queriers) {
+          for (const stage of querier.lookupStages) {
+            for (const element of stage) {
+              if (element.type == 'parameter' && element.lookup === source) {
+                return true;
+              }
+            }
+          }
+        }
+
+        return false;
+      })
+      .map((s) => s.stream.name)
+      .join(', ');
+
+    this.debugDescription = `Index on ${source.sourceTable.name} used by ${usedByStreams}`;
   }
 
   getSourceTables(): Set<TablePattern> {

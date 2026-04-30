@@ -48,7 +48,7 @@ export class PrecompiledSyncConfig extends SyncConfig {
     }
 
     for (const parameter of plan.parameterIndexes) {
-      const prepared = new PreparedParameterIndexLookupCreator(parameter, context);
+      const prepared = new PreparedParameterIndexLookupCreator(plan, parameter, context);
       preparedLookups.set(parameter, prepared);
       this.bucketParameterLookupSources.push(prepared);
     }

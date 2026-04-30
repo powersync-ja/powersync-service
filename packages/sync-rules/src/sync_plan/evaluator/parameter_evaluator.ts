@@ -12,6 +12,7 @@ import {
 import { MapSourceVisitor, visitExpr } from '../expression_visitor.js';
 import * as plan from '../plan.js';
 import { StreamInput } from './bucket_source.js';
+import { PreparedParameterIndexLookupCreator } from './parameter_index_lookup_creator.js';
 
 /**
  * Finds bucket parameters for a given request or subscription.
@@ -360,11 +361,12 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
     const lookup = this.evaluators.lookupStages[stage][index];
     if (lookup.type == 'parameter') {
       const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
+      const source = scope.source as PreparedParameterIndexLookupCreator;
       const outputs = await this.input.source.getParameterSets(
         [...this.resolveInputs(lookup.instantiation)].map((instantiation) =>
           ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(instantiation))
         ),
-        'todo'
+        source.debugDescription
       );
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.

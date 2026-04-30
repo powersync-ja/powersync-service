@@ -548,7 +548,6 @@ export class BucketParameterState {
 
         throw e;
       }
-      update = await this.getCheckpointUpdateDynamic(checkpoint);
     } else {
       update = await this.getCheckpointUpdateStatic(checkpoint);
     }
@@ -570,6 +569,7 @@ export class BucketParameterState {
       if (update.dynamicBucketsByDefinition && update.dynamicBucketsByDefinition.size > 0) {
         const breakdown = formatDynamicBucketBreakdown(update.dynamicBucketsByDefinition);
         errorMessage += breakdown.message;
+        logData.parameter_query_results_by_definition = breakdown.countsByDefinition;
       }
 
       this.logger.error(errorMessage, logData);
@@ -652,7 +652,7 @@ export class BucketParameterState {
             return rows;
           } catch (e: unknown) {
             if (e instanceof ParameterSetLimitExceededError) {
-              lookupLog.push({ definition, resultsOrLimit: remainingBudget, didExceedLimit: false });
+              lookupLog.push({ definition, resultsOrLimit: remainingBudget, didExceedLimit: true });
               throw new ParameterSetLimitExceededError(parameterLimit, lookupLog);
             }
 
@@ -777,7 +777,7 @@ function formatDynamicBucketBreakdown(parameterQueryResultsByDefinition: Map<str
   const allSorted = Array.from(parameterQueryResultsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
   const sortedDefinitions = allSorted.slice(0, 10);
 
-  let message = '\Dynamic buckets by definition:';
+  let message = '\nDynamic buckets by definition:';
   const countsByDefinition: Record<string, number> = {};
   for (const [definition, count] of sortedDefinitions) {
     message += `\n  ${definition}: ${count}`;
@@ -805,14 +805,14 @@ function formatParameterQueryBreakdown(limit: number, log: storage.ParameterQuer
   let message = '\nInvoked parameter queries by definition:';
   const largestResults = Array.from(log)
     .sort((a, b) => b.resultsOrLimit - a.resultsOrLimit)
-    .splice(9);
+    .splice(0, 9);
 
   for (const entry of largestResults) {
     message += `\n  ${entry.definition}: ${entry.resultsOrLimit} results.`;
   }
 
   if (largestResults.length < log.length) {
-    message += `\n ... and ${log.length - largestResults.length} more invocations`;
+    message += `\n ... and ${largestResults.length - log.length} more invocations`;
   }
 
   message += `\n ${failure.definition} exceeded the remaining limit of ${failure.resultsOrLimit} available results.`;
