@@ -1,7 +1,6 @@
 {
   "extends": "../../../tsconfig.tests.json",
   "compilerOptions": {
-    "baseUrl": "./",
     "outDir": "dist",
     "paths": {
       "@/*": ["../src/*"]
