@@ -229,7 +229,7 @@ export async function getParameterSetsV1(
             }
           },
           {
-            $limit: limit
+            $limit: limit + 1
           }
         ],
         {

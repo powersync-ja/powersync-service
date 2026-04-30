@@ -779,4 +779,56 @@ streams:
       }
     ]);
   });
+
+  test('respects parameter limit', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  a:
+    auto_subscribe: true
+    query: SELECT * FROM a WHERE id IN (SELECT id FROM b)
+    `,
+        {
+          storageVersion
+        }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const testTable = await test_utils.resolveTestTable(writer, 'b', ['id'], config);
+    await writer.markAllSnapshotDone('1/1');
+
+    for (let i = 0; i < 10; i++) {
+      await writer.save({
+        sourceTable: testTable,
+        tag: storage.SaveOperationTag.INSERT,
+        after: {
+          id: `t${i}`
+        },
+        afterReplicaId: test_utils.rid(`t${i}`)
+      });
+    }
+
+    await writer.commit('1/1');
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'u' }), {});
+    const querier = sync_rules.getBucketParameterQuerier(test_utils.querierOptions(parameters)).querier;
+
+    await expect(
+      querier.queryDynamicBucketDescriptions({
+        async getParameterSets(lookups) {
+          const parameter_sets = await checkpoint.getParameterSets(lookups, 5);
+          return parameter_sets;
+        }
+      })
+    ).rejects.toThrow('Too many parameter results (limit was 5)');
+  });
 }

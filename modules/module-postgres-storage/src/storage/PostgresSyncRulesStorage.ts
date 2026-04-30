@@ -427,7 +427,7 @@ export class PostgresSyncRulesStorage
         source_key,
         id DESC
       LIMIT
-        ${{ type: 'int4', value: limit }}
+        ${{ type: 'int4', value: limit + 1 }}
     `
       .decoded(pick(models.BucketParameters, ['bucket_parameters']))
       .rows();

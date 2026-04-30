@@ -257,7 +257,7 @@ export async function getParameterSetsV3(
           },
           // This limit still allows returning too many rows because this filter might be put into a $unionWith, but
           // at least the amount of rows we'd return isn't unbounded.
-          { $limit: limit }
+          { $limit: limit + 1 }
         ]
       };
     };
