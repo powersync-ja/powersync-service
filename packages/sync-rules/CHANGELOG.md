@@ -1,5 +1,15 @@
 # @powersync/service-sync-rules
 
+## 0.35.1
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- 17503d1: Fix miscompilations and compiler crashes when CTEs are referenced multiple times.
+- cdb8993: Add `config.storage_version` configuration option.
+- 824e229: Support multiple references between the same tables as join conditions for Sync Streams (the compiler would previously crash due to an "internal circular reference error").
+- 9e474d3: Improve error messages when invalid YAML nodes are used where a scalar value is expected.
+
 ## 0.35.0
 
 ### Minor Changes

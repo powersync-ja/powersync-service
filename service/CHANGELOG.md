@@ -1,5 +1,27 @@
 # @powersync/service-image
 
+## 1.20.6
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- Updated dependencies [f20f318]
+- Updated dependencies [9add445]
+- Updated dependencies [d564c23]
+- Updated dependencies [cdb8993]
+- Updated dependencies [75174c4]
+- Updated dependencies [176885c]
+  - @powersync/service-core@1.20.6
+  - @powersync/service-module-core@0.2.26
+  - @powersync/lib-services-framework@0.9.4
+  - @powersync/service-module-postgres@0.19.5
+  - @powersync/service-module-mongodb@0.16.0
+  - @powersync/service-module-postgres-storage@0.13.5
+  - @powersync/service-module-mongodb-storage@0.15.5
+  - @powersync/service-module-mssql@0.6.4
+  - @powersync/service-module-mysql@0.12.5
+  - @powersync/service-rsocket-router@0.2.20
+
 ## 1.20.5
 
 ### Patch Changes

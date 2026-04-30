@@ -1,5 +1,11 @@
 # @powersync/service-errors
 
+## 0.4.3
+
+### Patch Changes
+
+- 75174c4: Improve Postgres query errors.
+
 ## 0.4.2
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # test-client
 
+## 0.1.73
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- Updated dependencies [f20f318]
+- Updated dependencies [9add445]
+- Updated dependencies [cdb8993]
+  - @powersync/service-core@1.20.6
+
 ## 0.1.72
 
 ### Patch Changes
