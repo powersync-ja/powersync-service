@@ -198,7 +198,7 @@ export abstract class MongoSyncBucketStorage
     );
     const checkpoint_lsn = doc?.last_checkpoint_lsn ?? null;
 
-    const batchOptions = {
+    const batchOptions: MongoBucketBatchOptions = {
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
@@ -210,7 +210,8 @@ export abstract class MongoSyncBucketStorage
       keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
-      markRecordUnavailable: options.markRecordUnavailable
+      markRecordUnavailable: options.markRecordUnavailable,
+      tracer: options.tracer
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));

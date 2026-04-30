@@ -42,4 +42,6 @@ export * as utils from './util/util-index.js';
 export * from './streams/streams-index.js';
 export * as streams from './streams/streams-index.js';
 
+export * from './tracing/PerformanceTracer.js';
+
 export * as bson from 'bson';

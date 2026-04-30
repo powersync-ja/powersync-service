@@ -18,6 +18,7 @@ import {
   deserializeBson,
   InternalOpId,
   isCompleteRow,
+  PerformanceTracer,
   SaveOperationTag,
   storage,
   SyncRuleState,
@@ -60,6 +61,7 @@ export interface MongoBucketBatchOptions {
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   logger?: Logger;
+  tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 }
 
 export abstract class MongoBucketBatch
@@ -84,6 +86,8 @@ export abstract class MongoBucketBatch
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private clearedError = false;
+
+  private tracer: PerformanceTracer<'storage' | 'evaluate'>;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -133,6 +137,7 @@ export abstract class MongoBucketBatch
     this.batch = new OperationBatch();
 
     this.persisted_op = options.keepaliveOp ?? null;
+    this.tracer = options.tracer ?? new PerformanceTracer('MongoDB storage');
   }
 
   addCustomWriteCheckpoint(checkpoint: storage.BatchedCustomWriteCheckpointOptions): void {
@@ -170,6 +175,8 @@ export abstract class MongoBucketBatch
     let last_op: InternalOpId | null = null;
     let resumeBatch: OperationBatch | null = null;
 
+    using _ = this.tracer.span('storage', 'flush');
+
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
       if (batch != null) {
         resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
@@ -203,6 +210,7 @@ export abstract class MongoBucketBatch
     options?: storage.BucketBatchCommitOptions
   ): Promise<OperationBatch | null> {
     let sizes: Map<string, number> | undefined = undefined;
+    using _ = this.tracer.span('storage', 'replicate_batch');
     if (this.storeCurrentData && !this.skipExistingRows) {
       // We skip this step if we don't store current_data, since the sizes will
       // always be small in that case.
@@ -240,14 +248,19 @@ export abstract class MongoBucketBatch
         }
         continue;
       }
+      using lookupSpan = this.tracer.span('storage', 'lookup');
       const lookups = b.map((r) => ({
         sourceTableId: mongoTableId(r.record.sourceTable.id),
         replicaId: r.beforeId
       }));
       let sourceRecordLookup = await this.sourceRecordStore.loadDocuments(session, lookups, this.skipExistingRows);
+      lookupSpan.end();
 
       let persistedBatch: PersistedBatch | null = this.createPersistedBatch(transactionSize);
 
+      // The current code structure makes it tricky to cleanly split this span from the one
+      // where fluhsing. So we manually end and re-create this span whenever we flush.
+      let evalSpan = this.tracer.span('evaluate');
       for (let op of b) {
         if (resumeBatch) {
           resumeBatch.push(op);
@@ -266,26 +279,34 @@ export abstract class MongoBucketBatch
         }
 
         if (persistedBatch!.shouldFlushTransaction()) {
+          evalSpan.end();
           // Transaction is getting big.
           // Flush, and resume in a new transaction.
+          using persistSpan = this.tracer.span('storage', 'persist_flush');
           const { flushedAny } = await persistedBatch!.flush(this.session, options);
+
           didFlush ||= flushedAny;
           persistedBatch = null;
           // Computing our current progress is a little tricky here, since
           // we're stopping in the middle of a batch.
           // We create a new batch, and push any remaining operations to it.
           resumeBatch = new OperationBatch();
+          persistSpan.end();
+          evalSpan = this.tracer.span('evaluate');
         }
       }
+      evalSpan.end();
 
       if (persistedBatch) {
         transactionSize = persistedBatch.currentSize;
+        using _ = this.tracer.span('storage', 'persist_flush');
         const { flushedAny } = await persistedBatch.flush(this.session, options);
         didFlush ||= flushedAny;
       }
     }
 
     if (didFlush) {
+      using _ = this.tracer.span('storage', 'clear_error');
       await this.clearError();
     }
 
@@ -540,7 +561,9 @@ export abstract class MongoBucketBatch
   }
 
   private async withTransaction(cb: () => Promise<void>) {
+    using lockSpan = this.tracer.span('storage', 'internal_lock');
     await replicationMutex.exclusiveLock(async () => {
+      lockSpan.end();
       await this.session.withTransaction(
         async () => {
           try {
@@ -551,7 +574,9 @@ export abstract class MongoBucketBatch
             } else {
               this.logger.warn('Transaction error', e as Error);
             }
-            await timers.setTimeout(Math.random() * 50);
+            const delay = Math.random() * 50;
+            using _ = this.tracer.span('storage', 'retry_delay');
+            await timers.setTimeout(delay);
             throw e;
           }
         },
@@ -979,6 +1004,7 @@ export abstract class MongoBucketBatch
     let lastBatchCount = BATCH_LIMIT;
     while (lastBatchCount == BATCH_LIMIT) {
       await this.withReplicationTransaction(`Truncate ${sourceTable.qualifiedName}`, async (session, opSeq) => {
+        using evalSpan = this.tracer.span('evaluate');
         const sourceTableId = mongoTableId(sourceTable.id);
         const batch = await this.sourceRecordStore.loadTruncateBatch(session, sourceTableId, BATCH_LIMIT);
         const persistedBatch = this.createPersistedBatch(0);
@@ -1002,6 +1028,9 @@ export abstract class MongoBucketBatch
           // Since this is not from streaming replication, we can do a hard delete
           persistedBatch.hardDeleteCurrentData(sourceTableId, value.replicaId);
         }
+        evalSpan.end();
+
+        using _ = this.tracer.span('storage', 'persist_flush');
         await persistedBatch.flush(session);
         lastBatchCount = batch.length;
 
