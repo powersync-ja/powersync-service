@@ -104,7 +104,12 @@ class PreparedQuerier {
     this.dataSource = options.preparedBuckets.get(querier.bucket)!;
     this.matchesParameters = PreparedQuerier.prepareFilters(options.engine, querier.requestFilters);
 
-    this.lookupStages = RequestParameterEvaluators.prepare(querier.lookupStages, querier.sourceInstantiation, options);
+    this.lookupStages = RequestParameterEvaluators.prepare(
+      stream,
+      querier.lookupStages,
+      querier.sourceInstantiation,
+      options
+    );
   }
 
   querierForSubscription(

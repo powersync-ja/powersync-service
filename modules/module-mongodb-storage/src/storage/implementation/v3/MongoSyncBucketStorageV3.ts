@@ -5,6 +5,7 @@ import {
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
+  ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
   utils
@@ -135,9 +136,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
-    lookups: ScopedParameterLookup[]
+    lookups: ScopedParameterLookup[],
+    limit: number
   ): Promise<SqliteJsonRow[]> {
-    return getParameterSetsV3(this.versionContext, checkpoint, lookups);
+    return getParameterSetsV3(this.versionContext, checkpoint, lookups, limit);
   }
 
   protected getBucketDataBatchImpl(
@@ -206,7 +208,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 export async function getParameterSetsV3(
   ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
-  lookups: ScopedParameterLookup[]
+  lookups: ScopedParameterLookup[],
+  limit: number
 ): Promise<SqliteJsonRow[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
@@ -220,6 +223,7 @@ export async function getParameterSetsV3(
       const indexId = lookup.indexId;
       const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
       const lookupFilter = serializeParameterLookupV3(lookup);
+
       return {
         collection,
         pipeline: [
@@ -235,6 +239,9 @@ export async function getParameterSetsV3(
               _id: -1
             }
           },
+          // This limit still allows returning too many rows because this filter might be put into a $unionWith, but
+          // at least the amount of rows we'd return isn't unbounded.
+          { $limit: limit + 1 },
           {
             $group: {
               _id: {
@@ -285,7 +292,12 @@ export async function getParameterSetsV3(
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
 
-    return rows.flatMap((row) => row.bucket_parameters);
+    const expandedRows = rows.flatMap((row) => row.bucket_parameters);
+    if (expandedRows.length > limit) {
+      throw new ParameterSetLimitExceededError(limit);
+    }
+
+    return expandedRows;
   });
 }
 

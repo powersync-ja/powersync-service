@@ -7,6 +7,7 @@ import {
   ChecksumMap,
   InternalOpId,
   JwtPayload,
+  ParameterSetLimitExceededError,
   ReplicationCheckpoint,
   StreamingSyncRequest,
   SyncContext,
@@ -900,19 +901,131 @@ config:
       expect(logData[0].parameter_query_results).toBe(3);
     });
 
-    test('throws error with breakdown when parameter query limit is exceeded', async () => {
+    test('throws error with breakdown when too many parameters were fetched', async () => {
+      const syncRules = SqlSyncRules.fromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  a:
+    auto_subscribe: true
+    query: SELECT * FROM a WHERE id IN (SELECT id FROM magic_sequence WHERE count0 = auth.parameter('a'))
+  b:
+    auto_subscribe: true
+    query: SELECT * FROM a WHERE id IN (SELECT id FROM magic_sequence WHERE count1 = auth.parameter('b'))
+  c:
+    auto_subscribe: true
+    query: SELECT * FROM a WHERE id IN (SELECT id FROM magic_sequence WHERE count1 = auth.parameter('c'))
+`,
+        { defaultSchema: 'public' }
+      ).config.hydrate({
+        hydrationState: versionedHydrationState(1)
+      });
+
+      const storage = new MockBucketChecksumStateStorage();
+
+      const errorMessages: string[] = [];
+      const errorData: any[] = [];
+      const mockLogger = {
+        info: () => {},
+        error: (message: string, data: any) => {
+          errorMessages.push(message);
+          errorData.push(data);
+        },
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const smallContext = new SyncContext({
+        maxBuckets: 100,
+        maxParameterQueryResults: 55,
+        maxDataFetchConcurrency: 10
+      });
+
+      const state = new BucketChecksumState({
+        syncContext: smallContext,
+        tokenPayload: new JwtPayload({
+          sub: 'u1',
+          // Create 60 total results: 30 a + 20 b + 10 c
+          a: BigInt(30),
+          b: BigInt(20),
+          c: BigInt(10)
+        }),
+        syncRequest,
+        syncRules,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      await expect(
+        state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(1n, (lookups, limit) => {
+            expect(lookups).toHaveLength(1);
+            const [{ values }] = lookups;
+            expect(values[0]).toStrictEqual('lookup');
+
+            const count = Number(values[2]); // The count parameter from streams
+            if (count > limit) {
+              throw new ParameterSetLimitExceededError(limit);
+            }
+            return Array.from({ length: count }, (_, i) => ({ '0': BigInt(i) }));
+          }),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        })
+      ).rejects.toThrow('Too many parameter query results (limit of 55)');
+
+      // Verify error log includes breakdown
+      expect(errorMessages[0]).toContain('Invoked parameter queries by definition:');
+      expect(errorMessages[0]).toContain('Stream a evaluating parameter on magic_sequence: 30 results.');
+      expect(errorMessages[0]).toContain('Stream b evaluating parameter on magic_sequence: 20 results.');
+      expect(errorMessages[0]).toContain(
+        'Stream c evaluating parameter on magic_sequence exceeded the remaining limit of 5 available results.'
+      );
+
+      expect(errorData[0].checkpoint).toEqual(1n);
+      expect(errorData[0].parameterResults).toEqual([
+        {
+          definition: 'Stream a evaluating parameter on magic_sequence',
+          didExceedLimit: false,
+          resultsOrLimit: 30
+        },
+        {
+          definition: 'Stream b evaluating parameter on magic_sequence',
+          didExceedLimit: false,
+          resultsOrLimit: 20
+        },
+        {
+          definition: 'Stream c evaluating parameter on magic_sequence',
+          didExceedLimit: true,
+          resultsOrLimit: 5
+        }
+      ]);
+    });
+
+    test('throws error with breakdown when dynamic bucket limit is exceeded', async () => {
+      // These streams are designed to return buckets without consuming too many parameters (as exceeding that limit is
+      // a different error).
+      // Note that we have to use different parameters for the streams to ensure they get put into distinct buckets.
       const SYNC_RULES_MULTI = SqlSyncRules.fromYaml(
         `
-bucket_definitions:
+config:
+  edition: 3
+
+with:
+  param: SELECT id FROM users WHERE public_id = auth.user_id()
+
+streams:
   projects:
-    parameters: select id from projects where user_id = request.user_id()
-    data: []
+    auto_subscribe: true
+    query: SELECT id FROM projects WHERE p1 IN param AND p2 IN auth.parameter('a')
   tasks:
-    parameters: select id from tasks where user_id = request.user_id()
-    data: []
+    auto_subscribe: true
+    query: SELECT id FROM tasks WHERE p1 IN param AND p2 IN auth.parameter('b')
   comments:
-    parameters: select id from comments where user_id = request.user_id()
-    data: []
+    auto_subscribe: true
+    query: SELECT id FROM comments WHERE p1 IN param AND p2 IN auth.parameter('c')
     `,
         { defaultSchema: 'public' }
       ).config.hydrate({ hydrationState: versionedHydrationState(4) });
@@ -939,48 +1052,34 @@ bucket_definitions:
 
       const state = new BucketChecksumState({
         syncContext: smallContext,
-        tokenPayload: new JwtPayload({ sub: 'u1' }),
+        tokenPayload: new JwtPayload({
+          sub: 'u1',
+          // Create 60 total results: 30 projects + 20 tasks + 10 comments
+          a: Array.from({ length: 30 }, (_, i) => BigInt(i)),
+          b: Array.from({ length: 20 }, (_, i) => BigInt(i)),
+          c: Array.from({ length: 10 }, (_, i) => BigInt(i))
+        }),
         syncRequest,
         syncRules: SYNC_RULES_MULTI,
         bucketStorage: storage,
         logger: mockLogger as any
       });
 
-      // Create 60 total results: 30 projects + 20 tasks + 10 comments
-      const projectIds = Array.from({ length: 30 }, (_, i) => ({ id: i + 1 }));
-      const taskIds = Array.from({ length: 20 }, (_, i) => ({ id: i + 1 }));
-      const commentIds = Array.from({ length: 10 }, (_, i) => ({ id: i + 1 }));
-
-      for (let i = 1; i <= 30; i++) {
-        storage.updateTestChecksum({ bucket: `projects[${i}]`, checksum: 1, count: 1 });
-      }
-      for (let i = 1; i <= 20; i++) {
-        storage.updateTestChecksum({ bucket: `tasks[${i}]`, checksum: 1, count: 1 });
-      }
-      for (let i = 1; i <= 10; i++) {
-        storage.updateTestChecksum({ bucket: `comments[${i}]`, checksum: 1, count: 1 });
-      }
-
+      let invokedParameterQueries = 0;
       await expect(
         state.buildNextCheckpointLine({
-          base: storage.makeCheckpoint(1n, (lookups) => {
-            const lookup = lookups[0];
-            const lookupName = lookup.values[0];
-            if (lookupName === 'projects') {
-              return projectIds;
-            } else if (lookupName === 'tasks') {
-              return taskIds;
-            } else {
-              return commentIds;
-            }
+          base: storage.makeCheckpoint(1n, () => {
+            invokedParameterQueries++;
+            return [{ '0': 'user' }];
           }),
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
         })
-      ).rejects.toThrow('Too many parameter query results: 60 (limit of 50)');
+      ).rejects.toThrow('Too many buckets derived from parameter queries: 60 (limit of 50)');
+      expect(invokedParameterQueries).toStrictEqual(3);
 
       // Verify error log includes breakdown
-      expect(errorMessages[0]).toContain('Parameter query results by definition:');
+      expect(errorMessages[0]).toContain('Dynamic buckets by definition:');
       expect(errorMessages[0]).toContain('projects: 30');
       expect(errorMessages[0]).toContain('tasks: 20');
       expect(errorMessages[0]).toContain('comments: 10');
@@ -995,12 +1094,20 @@ bucket_definitions:
     });
 
     test('limits breakdown to top 10 definitions', async () => {
-      // Create sync rules with 15 different definitions with dynamic parameters
-      let yamlDefinitions = 'bucket_definitions:\n';
+      // Create sync streams with 15 different definitions with dynamic parameters
+      let yamlDefinitions = `
+config:
+  edition: 3
+
+with:
+  param: SELECT id FROM users WHERE public_id = auth.user_id()
+
+streams:
+`;
       for (let i = 1; i <= 15; i++) {
         yamlDefinitions += `  def${i}:\n`;
-        yamlDefinitions += `    parameters: select id from def${i}_table where user_id = request.user_id()\n`;
-        yamlDefinitions += `    data: []\n`;
+        yamlDefinitions += `    auto_subscribe: true\n`;
+        yamlDefinitions += `    query: SELECT * FROM tbl WHERE a IN param AND b = auth.parameter('${i}')\n`;
       }
 
       const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
@@ -1027,28 +1134,25 @@ bucket_definitions:
 
       const state = new BucketChecksumState({
         syncContext: smallContext,
-        tokenPayload: new JwtPayload({ sub: 'u1' }),
+        tokenPayload: new JwtPayload({
+          sub: 'u1',
+          ...Object.fromEntries(Array.from({ length: 30 }, (_, i) => [i.toString(), BigInt(i)]))
+        }),
         syncRequest,
         syncRules: SYNC_RULES_MANY,
         bucketStorage: storage,
         logger: mockLogger as any
       });
 
-      // Each definition creates one bucket, total 15 buckets
-      for (let i = 1; i <= 15; i++) {
-        storage.updateTestChecksum({ bucket: `def${i}[${i}]`, checksum: 1, count: 1 });
-      }
-
       await expect(
         state.buildNextCheckpointLine({
           base: storage.makeCheckpoint(1n, (lookups) => {
-            // Return one result for each definition
-            return [{ id: 1 }];
+            return [{ '0': 'user' }];
           }),
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
         })
-      ).rejects.toThrow('Too many parameter query results: 15 (limit of 10)');
+      ).rejects.toThrow('Too many buckets derived from parameter queries: 15 (limit of 10)');
 
       // Verify only top 10 are shown
       const errorMessage = errorMessages[0];
@@ -1094,16 +1198,16 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
 
   makeCheckpoint(
     opId: InternalOpId,
-    parameters?: (lookups: ScopedParameterLookup[]) => SqliteJsonRow[]
+    parameters?: (lookups: ScopedParameterLookup[], limit: number) => SqliteJsonRow[]
   ): ReplicationCheckpoint {
     return {
       checkpoint: opId,
       lsn: String(opId),
-      getParameterSets: async (lookups: ScopedParameterLookup[]) => {
+      getParameterSets: async (lookups: ScopedParameterLookup[], limit) => {
         if (parameters == null) {
           throw new Error(`getParametersSets not defined for checkpoint ${opId}`);
         }
-        return parameters(lookups);
+        return parameters(lookups, limit);
       }
     };
   }

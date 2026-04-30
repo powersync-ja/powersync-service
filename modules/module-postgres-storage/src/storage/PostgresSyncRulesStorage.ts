@@ -9,6 +9,7 @@ import {
   internalToExternalOpId,
   LastValueSink,
   maxLsn,
+  ParameterSetLimitExceededError,
   PartialChecksum,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
@@ -396,7 +397,8 @@ export class PostgresSyncRulesStorage
 
   async getParameterSets(
     checkpoint: ReplicationCheckpoint,
-    lookups: sync_rules.ScopedParameterLookup[]
+    lookups: sync_rules.ScopedParameterLookup[],
+    limit: number
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
       SELECT DISTINCT
@@ -424,9 +426,14 @@ export class PostgresSyncRulesStorage
         source_table,
         source_key,
         id DESC
+      LIMIT
+        ${{ type: 'int4', value: limit + 1 }}
     `
       .decoded(pick(models.BucketParameters, ['bucket_parameters']))
       .rows();
+    if (rows.length > limit) {
+      throw new ParameterSetLimitExceededError(limit);
+    }
 
     const groupedParameters = rows.map((row) => {
       return JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow;
@@ -898,7 +905,7 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     public readonly lsn: string | null
   ) {}
 
-  getParameterSets(lookups: sync_rules.ScopedParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
-    return this.storage.getParameterSets(this, lookups);
+  getParameterSets(lookups: sync_rules.ScopedParameterLookup[], limit: number): Promise<sync_rules.SqliteJsonRow[]> {
+    return this.storage.getParameterSets(this, lookups, limit);
   }
 }
