@@ -183,7 +183,7 @@ export class PostgresSyncRulesStorage
     );
   }
 
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
     const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
@@ -323,7 +323,7 @@ export class PostgresSyncRulesStorage
       }
 
       return {
-        table: sourceTable,
+        tables: [sourceTable],
         dropTables: truncatedTables.map(
           (doc) =>
             new storage.SourceTable({
@@ -375,7 +375,8 @@ export class PostgresSyncRulesStorage
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
       markRecordUnavailable: options.markRecordUnavailable,
-      storageConfig: this.storageConfig
+      storageConfig: this.storageConfig,
+      resolveTables: (resolveOptions) => this.resolveTables(resolveOptions)
     });
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
     return writer;

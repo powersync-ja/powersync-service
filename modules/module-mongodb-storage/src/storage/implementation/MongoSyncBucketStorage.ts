@@ -206,7 +206,8 @@ export abstract class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       syncConfigId: state.syncConfigId,
-      tracer: options.tracer
+      tracer: options.tracer,
+      resolveTables: (resolveOptions: storage.ResolveTablesOptions) => this.resolveTables(resolveOptions)
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
@@ -227,13 +228,13 @@ export abstract class MongoSyncBucketStorage
 
   protected abstract augmentCreatedSourceTableDocument(
     createDoc: CommonSourceTableDocument,
-    options: storage.ResolveTableOptions,
+    options: storage.ResolveTablesOptions,
     candidateSourceTable: storage.SourceTable
   ): void;
 
   protected abstract initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void>;
 
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const { group_id, connection_id, connection_tag, entity_descriptor } = options;
 
     const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
@@ -243,7 +244,7 @@ export abstract class MongoSyncBucketStorage
       type: column.type,
       type_oid: column.typeId
     }));
-    let result: storage.ResolveTableResult | null = null;
+    let result: storage.ResolveTablesResult | null = null;
     let initializeSourceRecordsFor: bson.ObjectId | null = null;
 
     const baseId = this.sourceTableBaseId();
@@ -341,7 +342,7 @@ export abstract class MongoSyncBucketStorage
       );
 
       result = {
-        table: sourceTable,
+        tables: [sourceTable],
         dropTables: dropTables
       };
     });

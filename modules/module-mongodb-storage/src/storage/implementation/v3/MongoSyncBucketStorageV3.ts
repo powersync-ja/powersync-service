@@ -12,7 +12,7 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { MatchingSources, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -35,6 +35,7 @@ import {
   BucketParameterDocumentV3,
   loadBucketDataDocumentV3,
   ReplicationStreamDocumentV3,
+  SourceTableDocumentV3,
   SyncRuleConfigStateV3
 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
@@ -257,9 +258,183 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return {};
   }
 
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    if (options.matchingSources == null) {
+      return super.resolveTables(options);
+    }
+
+    const { group_id, connection_id, connection_tag, entity_descriptor, matchingSources } = options;
+    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      type_oid: column.typeId
+    }));
+
+    let result: storage.ResolveTablesResult | null = null;
+    const initializeSourceRecordsFor: bson.ObjectId[] = [];
+
+    await this.db.client.withSession(async (session) => {
+      const col = this.db.commonSourceTables(group_id);
+      const exactFilter: mongo.Filter<CommonSourceTableDocument> = {
+        connection_id,
+        schema_name: schema,
+        table_name: name,
+        replica_id_columns2: normalizedReplicaIdColumns
+      };
+      if (objectId != null) {
+        exactFilter.relation_id = objectId;
+      }
+
+      const exactDocs = (await col.find(exactFilter, { session }).toArray()) as SourceTableDocumentV3[];
+      const bucketSourceById = new Map(
+        matchingSources.bucketDataSources.map((source) => [this.mapping.bucketSourceId(source), source] as const)
+      );
+      const parameterLookupSourceById = new Map(
+        matchingSources.parameterLookupSources.map(
+          (source) => [this.mapping.parameterLookupId(source), source] as const
+        )
+      );
+      const desiredBucketIds = new Set(bucketSourceById.keys());
+      const desiredLookupIds = new Set(parameterLookupSourceById.keys());
+      const desiredHasMembership = desiredBucketIds.size > 0 || desiredLookupIds.size > 0;
+
+      const coveredBucketIds = new Set<string>();
+      const coveredLookupIds = new Set<string>();
+      const tables: storage.SourceTable[] = [];
+
+      for (const doc of exactDocs) {
+        const bucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => desiredBucketIds.has(id));
+        const parameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) => desiredLookupIds.has(id));
+        const coversDesiredMembership = bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0;
+        const coversEventOnlyTable =
+          !desiredHasMembership &&
+          doc.bucket_data_source_ids.length == 0 &&
+          doc.parameter_lookup_source_ids.length == 0;
+
+        for (const id of bucketDataSourceIds) {
+          coveredBucketIds.add(id);
+        }
+        for (const id of parameterLookupSourceIds) {
+          coveredLookupIds.add(id);
+        }
+
+        if (coversDesiredMembership || coversEventOnlyTable) {
+          tables.push(
+            this.sourceTableFromDocument(doc, connection_tag, replicaIdColumns, options, {
+              bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
+              parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
+            })
+          );
+        }
+      }
+
+      const uncoveredBucketIds = [...desiredBucketIds].filter((id) => !coveredBucketIds.has(id));
+      const uncoveredLookupIds = [...desiredLookupIds].filter((id) => !coveredLookupIds.has(id));
+
+      if (uncoveredBucketIds.length > 0 || uncoveredLookupIds.length > 0 || tables.length == 0) {
+        const sourceTable = new storage.SourceTable({
+          id: new bson.ObjectId(),
+          connectionTag: connection_tag,
+          objectId,
+          schema,
+          name,
+          replicaIdColumns,
+          snapshotComplete: false,
+          bucketDataSources: uncoveredBucketIds.map((id) => bucketSourceById.get(id)!),
+          parameterLookupSources: uncoveredLookupIds.map((id) => parameterLookupSourceById.get(id)!)
+        });
+        sourceTable.syncData = uncoveredBucketIds.length > 0;
+        sourceTable.syncParameters = uncoveredLookupIds.length > 0;
+        sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
+
+        const createDoc: SourceTableDocumentV3 = {
+          _id: sourceTable.id as bson.ObjectId,
+          connection_id,
+          relation_id: objectId,
+          schema_name: schema,
+          table_name: name,
+          replica_id_columns: null,
+          replica_id_columns2: normalizedReplicaIdColumns,
+          snapshot_done: false,
+          snapshot_status: undefined,
+          bucket_data_source_ids: uncoveredBucketIds,
+          parameter_lookup_source_ids: uncoveredLookupIds
+        };
+
+        await col.insertOne(createDoc, { session });
+        initializeSourceRecordsFor.push(createDoc._id);
+        tables.push(sourceTable);
+      }
+
+      const validIds = [...exactDocs.map((doc) => doc._id), ...initializeSourceRecordsFor];
+      const conflictFilter = [{ schema_name: schema, table_name: name }] as mongo.Document[];
+      if (objectId != null) {
+        conflictFilter.push({ relation_id: objectId });
+      }
+      const dropTables = await col
+        .find(
+          {
+            connection_id,
+            _id: { $nin: validIds },
+            $or: conflictFilter
+          },
+          { session }
+        )
+        .toArray();
+
+      result = {
+        tables,
+        dropTables: dropTables.map((doc) =>
+          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connection_tag, [], options)
+        )
+      };
+    });
+
+    for (const sourceTableId of initializeSourceRecordsFor) {
+      await this.initializeResolvedSourceRecords(sourceTableId);
+    }
+
+    return result!;
+  }
+
+  private sourceTableFromDocument(
+    doc: SourceTableDocumentV3,
+    connectionTag: string,
+    fallbackReplicaIdColumns: storage.ColumnDescriptor[],
+    options: storage.ResolveTablesOptions,
+    memberships?: MatchingSources
+  ): storage.SourceTable {
+    const table = new storage.SourceTable({
+      id: doc._id,
+      connectionTag,
+      objectId: doc.relation_id,
+      schema: doc.schema_name,
+      name: doc.table_name,
+      replicaIdColumns:
+        doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ??
+        fallbackReplicaIdColumns,
+      snapshotComplete: doc.snapshot_done ?? true,
+      bucketDataSources: memberships?.bucketDataSources ?? [],
+      parameterLookupSources: memberships?.parameterLookupSources ?? []
+    });
+    table.syncData = table.bucketDataSources?.length != null && table.bucketDataSources.length > 0;
+    table.syncParameters = table.parameterLookupSources?.length != null && table.parameterLookupSources.length > 0;
+    table.syncEvent = options.sync_rules.tableTriggersEvent(table);
+    table.snapshotStatus =
+      doc.snapshot_status == null
+        ? undefined
+        : {
+            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+            replicatedCount: doc.snapshot_status.replicated_count
+          };
+    return table;
+  }
+
   protected augmentCreatedSourceTableDocument(
     createDoc: CommonSourceTableDocument,
-    options: storage.ResolveTableOptions,
+    options: storage.ResolveTablesOptions,
     candidateSourceTable: storage.SourceTable
   ): void {
     const bucketDataSourceIds = options.sync_rules.definition.bucketDataSources
