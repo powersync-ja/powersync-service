@@ -29,6 +29,7 @@ import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { lsnToDate, parseConvexLsn, toConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
 import { extractProperties, toSqliteInputRow } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
+import { BinaryConvexSnapshotProgressCursor, decodeSnapshotProgressCursor } from './ConvexSnapshotProgresCursor.js';
 
 export interface ConvexStreamOptions {
   connections: ConvexConnectionManager;
@@ -278,6 +279,7 @@ export class ConvexStream {
       logger: this.logger,
       zeroLSN: ZERO_LSN,
       defaultSchema: this.defaultSchema,
+      // TODO(steven) check this
       storeCurrentData: false,
       skipExistingRows: true
     });
@@ -398,7 +400,7 @@ export class ConvexStream {
       latestTable = await batch.updateTableProgress(latestTable, {
         replicatedCount,
         totalEstimatedCount: -1,
-        lastKey: encodeSnapshotProgressCursor({
+        lastKey: BinaryConvexSnapshotProgressCursor.encode({
           cursor: pageCursor,
           finished: !page.hasMore
         })
@@ -660,68 +662,4 @@ function readTableName(change: ConvexRawDocument): string | null {
     return null;
   }
   return table;
-}
-
-interface ConvexSnapshotProgressCursor {
-  cursor: string | null;
-  finished: boolean;
-}
-
-const SNAPSHOT_PROGRESS_PREFIX = 'convex-snapshot-progress:';
-
-function encodeSnapshotProgressCursor(progress: ConvexSnapshotProgressCursor): Uint8Array | null {
-  if (!progress.finished && progress.cursor == null) {
-    return null;
-  }
-
-  if (!progress.finished) {
-    return Buffer.from(progress.cursor!, 'utf8');
-  }
-
-  return Buffer.from(`${SNAPSHOT_PROGRESS_PREFIX}${JSON.stringify(progress)}`, 'utf8');
-}
-
-function decodeSnapshotProgressCursor(value: Uint8Array | null | undefined): ConvexSnapshotProgressCursor {
-  if (value == null) {
-    return {
-      cursor: null,
-      finished: false
-    };
-  }
-
-  const serialized = Buffer.from(value).toString('utf8');
-  if (!serialized.startsWith(SNAPSHOT_PROGRESS_PREFIX)) {
-    return {
-      cursor: serialized,
-      finished: false
-    };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(serialized.slice(SNAPSHOT_PROGRESS_PREFIX.length));
-  } catch (error) {
-    throw new ReplicationAssertionError(
-      `Convex snapshot progress cursor is not valid JSON: ${error instanceof Error ? error.message : `${error}`}`
-    );
-  }
-
-  if (typeof parsed != 'object' || parsed == null || Array.isArray(parsed)) {
-    throw new ReplicationAssertionError('Convex snapshot progress cursor must decode to an object');
-  }
-
-  const parsedProgress = parsed as { cursor?: unknown; finished?: unknown };
-  const cursor = parsedProgress.cursor;
-  const finished = parsedProgress.finished;
-  if (cursor != null && typeof cursor != 'string') {
-    throw new ReplicationAssertionError('Convex snapshot progress cursor must contain a string cursor or null');
-  }
-  if (typeof finished != 'boolean') {
-    throw new ReplicationAssertionError('Convex snapshot progress cursor must contain a boolean finished flag');
-  }
-
-  return {
-    cursor: cursor ?? null,
-    finished
-  };
 }
