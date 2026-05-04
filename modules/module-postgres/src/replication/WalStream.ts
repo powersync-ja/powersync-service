@@ -826,7 +826,7 @@ WHERE  oid = $1::regclass`,
       sync_rules: this.sync_rules,
       matchingSources: null
     });
-    this.relationCache.updateAll(result.tables);
+    this.relationCache.updateAll(descriptor.objectId as number, result.tables);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -855,7 +855,7 @@ WHERE  oid = $1::regclass`,
         // After table snapshots, wait for replication to catch up.
         await sendKeepAlive(db);
         const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
-        this.relationCache.updateAll(tables);
+        this.relationCache.updateAll(descriptor.objectId as number, tables);
         return tables;
       } finally {
         await db.end();
@@ -903,7 +903,7 @@ WHERE  oid = $1::regclass`,
 
   private getTables(relationId: number): storage.SourceTable[] {
     const tables = this.relationCache.getAll(relationId);
-    if (tables.length == 0) {
+    if (tables == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
       throw new ReplicationAssertionError(`Missing relation cache for ${relationId}`);

@@ -8,6 +8,9 @@ export class RelationCache<T> {
     this.idFunction = idFunction;
   }
 
+  /**
+   * Update a single table in-place - use when the snapshot status of the table has changed.
+   */
   update(table: SourceTable) {
     const id = this.idFunction(table);
     const existing = this.cache.get(id) ?? [];
@@ -21,24 +24,20 @@ export class RelationCache<T> {
     }
   }
 
-  updateAll(tables: SourceTable[]) {
-    if (tables.length == 0) {
-      return;
-    }
-    const id = this.idFunction(tables[0]);
+  /**
+   * Set the full set of tables for a specific reference.
+   */
+  updateAll(ref: T, tables: SourceTable[]) {
+    const id = this.idFunction(ref);
     this.cache.set(id, tables);
   }
 
-  get(source: T | SourceTable): SourceTable | undefined {
-    return this.getAll(source)[0];
-  }
-
-  getAll(source: T | SourceTable): SourceTable[] {
+  getAll(source: T | SourceTable): SourceTable[] | undefined {
     const id = this.idFunction(source);
-    return this.cache.get(id) ?? [];
+    return this.cache.get(id);
   }
 
-  delete(source: T | SourceTable): boolean {
+  delete(source: T): boolean {
     const id = this.idFunction(source);
     return this.cache.delete(id);
   }
