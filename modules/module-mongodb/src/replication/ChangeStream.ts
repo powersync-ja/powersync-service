@@ -11,6 +11,7 @@ import {
 } from '@powersync/lib-services-framework';
 import {
   MetricsEngine,
+  PerformanceTracer,
   RelationCache,
   ReplicationLagTracker,
   SaveOperationTag,
@@ -20,6 +21,7 @@ import {
 } from '@powersync/service-core';
 import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
+import { performance } from 'node:perf_hooks';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
@@ -34,7 +36,6 @@ import {
 } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION, timestampToDate } from './replication-utils.js';
 import { DirectSourceRowConverter, SourceRowConverter } from './SourceRowConverter.js';
-
 export interface ChangeStreamOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
@@ -328,6 +329,7 @@ export class ChangeStream {
   async initialReplication(snapshotLsn: string | null) {
     const sourceTables = this.sync_rules.getSourceTables();
     await this.client.connect();
+    const tracer = new PerformanceTracer('MongoDB initial replication');
 
     const flushResult = await this.storage.startBatch(
       {
@@ -335,7 +337,8 @@ export class ChangeStream {
         zeroLSN: MongoLSN.ZERO.comparable,
         defaultSchema: this.defaultDb.databaseName,
         storeCurrentData: false,
-        skipExistingRows: true
+        skipExistingRows: true,
+        tracer
       },
       async (batch) => {
         if (snapshotLsn == null) {
@@ -510,7 +513,7 @@ export class ChangeStream {
       // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (let buffer of docBatch) {
-        const { row: record, replicaId: replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
+        const { row: record, replicaId: replicaId } = this.rawToSqliteRow(buffer);
 
         // This auto-flushes when the batch reaches its size limit
         await batch.save({
@@ -660,7 +663,7 @@ export class ChangeStream {
 
     this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
     if (change.operationType == 'insert') {
-      const { row: baseRecord, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument);
+      const { row: baseRecord, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument);
       return await batch.save({
         tag: SaveOperationTag.INSERT,
         sourceTable: table,
@@ -682,7 +685,7 @@ export class ChangeStream {
           beforeReplicaId: change.documentKey._id
         });
       }
-      const { row: after, replicaId: _replicaId } = this.sourceRowConverter.rawToSqliteRow(change.fullDocument!);
+      const { row: after, replicaId: _replicaId } = this.rawToSqliteRow(change.fullDocument!);
       return await batch.save({
         tag: SaveOperationTag.UPDATE,
         sourceTable: table,
@@ -756,6 +759,7 @@ export class ChangeStream {
     batchSize?: number;
     filters: { $match: any; multipleDatabases: boolean };
     signal?: AbortSignal;
+    tracer?: PerformanceTracer<'changestream'>;
   }): AsyncIterableIterator<ChangeStreamBatch> {
     const lastLsn = options.lsn ? MongoLSN.fromSerialized(options.lsn) : null;
     const startAfter = lastLsn?.timestamp;
@@ -813,8 +817,13 @@ export class ChangeStream {
       maxTimeMS: this.changeStreamTimeout,
 
       signal: options.signal,
-      logger: this.logger
+      logger: this.logger,
+      tracer: options.tracer
     });
+  }
+
+  private rawToSqliteRow(row: Buffer) {
+    return this.sourceRowConverter.rawToSqliteRow(row);
   }
 
   async streamChangesInternal() {
@@ -822,13 +831,15 @@ export class ChangeStream {
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
+    const tracer = new PerformanceTracer('MongoDB streaming replication');
     await this.storage.startBatch(
       {
         logger: this.logger,
         zeroLSN: MongoLSN.ZERO.comparable,
         defaultSchema: this.defaultDb.databaseName,
         // We get a complete postimage for every change, so we don't need to store the current data.
-        storeCurrentData: false
+        storeCurrentData: false,
+        tracer
       },
       async (batch) => {
         const { resumeFromLsn } = batch;
@@ -837,6 +848,7 @@ export class ChangeStream {
         }
         const lastLsn = MongoLSN.fromSerialized(resumeFromLsn);
         const startAfter = lastLsn?.timestamp;
+        let outerSpan = tracer.span('batch');
 
         // It is normal for this to be a minute or two old when there is a low volume
         // of ChangeStream events.
@@ -849,7 +861,8 @@ export class ChangeStream {
         const batchStream = this.rawChangeStreamBatches({
           lsn: resumeFromLsn,
           filters,
-          signal: this.abort_signal
+          signal: this.abort_signal,
+          tracer
         });
 
         // Always start with a checkpoint.
@@ -864,13 +877,14 @@ export class ChangeStream {
         let splitDocument: ProjectedChangeStreamDocument | null = null;
 
         let flexDbNameWorkaroundLogged = false;
-        let changesSinceLastCheckpoint = 0;
 
         let lastEmptyResume = performance.now();
         let lastTxnKey: string | null = null;
 
         for await (let eventBatch of batchStream) {
           const { events, resumeToken } = eventBatch;
+          using batchSpan = tracer.span('processing');
+
           bytesReplicatedMetric.add(eventBatch.byteSize);
           chunksReplicatedMetric.add(1);
           if (this.abort_signal.aborted) {
@@ -904,7 +918,6 @@ export class ChangeStream {
 
           this.touch();
 
-          const batchStart = Date.now();
           for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
             const rawChangeDocument = events[eventIndex];
             const originalChangeDocument = parseChangeDocument(rawChangeDocument);
@@ -1048,7 +1061,6 @@ export class ChangeStream {
 
               if (!checkpointBlocked) {
                 this.replicationLag.markCommitted();
-                changesSinceLastCheckpoint = 0;
               }
             } else if (
               changeDocument.operationType == 'insert' ||
@@ -1083,21 +1095,7 @@ export class ChangeStream {
                   transactionsReplicatedMetric.add(1);
                 }
 
-                const flushResult = await this.writeChange(batch, table, changeDocument);
-                changesSinceLastCheckpoint += 1;
-                if (flushResult != null && changesSinceLastCheckpoint >= 20_000) {
-                  // When we are catching up replication after an initial snapshot, there may be a very long delay
-                  // before we do a commit(). In that case, we need to periodically persist the resume LSN, so
-                  // we don't restart from scratch if we restart replication.
-                  // The same could apply if we need to catch up on replication after some downtime.
-                  const { comparable: lsn } = new MongoLSN({
-                    timestamp: changeDocument.clusterTime!,
-                    resume_token: changeDocument._id
-                  });
-                  this.logger.info(`Updating resume LSN to ${lsn} after ${changesSinceLastCheckpoint} changes`);
-                  await batch.setResumeLsn(lsn);
-                  changesSinceLastCheckpoint = 0;
-                }
+                await this.writeChange(batch, table, changeDocument);
               }
             } else if (changeDocument.operationType == 'drop') {
               const rel = getMongoRelation(changeDocument.ns);
@@ -1140,7 +1138,21 @@ export class ChangeStream {
             // TODO: We should consider making this standard behavior of flush().
             await batch.setResumeLsn(lsn);
           }
-          this.logger.info(`Processed batch of ${events.length} changes in ${Date.now() - batchStart}ms`);
+
+          batchSpan.end();
+          const durations = outerSpan.end();
+          const duration = batchSpan.endAt - batchSpan.startAt;
+
+          this.logger.info(
+            `Processed batch of ${events.length} changes / ${eventBatch.byteSize} bytes in ${duration}ms`,
+            {
+              count: events.length,
+              bytes: eventBatch.byteSize,
+              duration,
+              t: durations
+            }
+          );
+          outerSpan = tracer.span('batch');
         }
       }
     );
