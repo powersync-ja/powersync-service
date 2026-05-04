@@ -284,7 +284,7 @@ export class WalStream {
       const cresult = await getReplicationIdentityColumns(db, relid);
 
       const columnTypes = (JSON.parse(row.column_types) as string[]).map((e) => Number(e));
-      const table = await this.handleRelation({
+      const tables = await this.handleRelation({
         batch,
         descriptor: {
           name,
@@ -296,7 +296,7 @@ export class WalStream {
         referencedTypeIds: columnTypes
       });
 
-      result.push(table);
+      result.push(...tables);
     }
     return result;
   }
@@ -826,9 +826,7 @@ WHERE  oid = $1::regclass`,
       sync_rules: this.sync_rules,
       matchingSources: null
     });
-    for (const table of result.tables) {
-      this.relationCache.update(table);
-    }
+    this.relationCache.updateAll(result.tables);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -847,21 +845,24 @@ WHERE  oid = $1::regclass`,
       // We use a dedicated connection for this.
       const db = await this.connections.snapshotConnection();
       try {
-        let last: SourceTable = snapshotCandidates[0];
+        const snapshotDoneById = new Map<storage.SourceTableId, SourceTable>();
         for (const table of snapshotCandidates) {
           // Truncate this table, in case a previous snapshot was interrupted.
           await batch.truncate([table]);
-          last = await this.snapshotTableInTx(batch, db, table);
+          const doneTable = await this.snapshotTableInTx(batch, db, table);
+          snapshotDoneById.set(doneTable.id, doneTable);
         }
         // After table snapshots, wait for replication to catch up.
         await sendKeepAlive(db);
-        return last;
+        const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
+        this.relationCache.updateAll(tables);
+        return tables;
       } finally {
         await db.end();
       }
     }
 
-    return result.tables[0];
+    return result.tables;
   }
 
   /**
@@ -900,14 +901,14 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  private getTable(relationId: number): storage.SourceTable {
-    const table = this.relationCache.get(relationId);
-    if (table == null) {
+  private getTables(relationId: number): storage.SourceTable[] {
+    const tables = this.relationCache.getAll(relationId);
+    if (tables.length == 0) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
       throw new ReplicationAssertionError(`Missing relation cache for ${relationId}`);
     }
-    return table;
+    return tables;
   }
 
   private syncRulesRecord(row: SqliteInputRow): SqliteRow;
@@ -932,55 +933,70 @@ WHERE  oid = $1::regclass`,
       return null;
     }
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
-      const table = this.getTable(getRelId(msg.relation));
-      if (!table.syncAny) {
-        this.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
+      const tables = this.getTables(getRelId(msg.relation));
+      const tablesToReplicate = tables.filter((table) => table.syncAny);
+      if (tablesToReplicate.length == 0) {
+        this.logger.debug(`Relation ${getRelId(msg.relation)} not used in sync rules - skipping`);
         return null;
       }
 
       if (msg.tag == 'insert') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
-          tag: storage.SaveOperationTag.INSERT,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: undefined,
-          after: baseRecord,
-          afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.INSERT,
+              sourceTable: table,
+              before: undefined,
+              beforeReplicaId: undefined,
+              after: baseRecord,
+              afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
+            })) ?? flushResult;
+        }
+        return flushResult;
       } else if (msg.tag == 'update') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
         const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
-          tag: storage.SaveOperationTag.UPDATE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
-          after: after,
-          afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.UPDATE,
+              sourceTable: table,
+              before: before,
+              beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
+              after: after,
+              afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
+            })) ?? flushResult;
+        }
+        return flushResult;
       } else if (msg.tag == 'delete') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
 
-        return await batch.save({
-          tag: storage.SaveOperationTag.DELETE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
-          after: undefined,
-          afterReplicaId: undefined
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.DELETE,
+              sourceTable: table,
+              before: before,
+              beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
+              after: undefined,
+              afterReplicaId: undefined
+            })) ?? flushResult;
+        }
+        return flushResult;
       }
     } else if (msg.tag == 'truncate') {
       let tables: storage.SourceTable[] = [];
       for (let relation of msg.relations) {
-        const table = this.getTable(getRelId(relation));
-        tables.push(table);
+        tables.push(...this.getTables(getRelId(relation)));
       }
       return await batch.truncate(tables);
     }
