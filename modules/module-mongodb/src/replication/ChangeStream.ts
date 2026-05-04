@@ -554,7 +554,7 @@ export class ChangeStream {
     options: { snapshot: boolean }
   ): Promise<SourceTable[]> {
     const existing = this.relationCache.getAll(descriptor);
-    if (existing.length > 0) {
+    if (existing != null) {
       return existing;
     }
 
@@ -623,7 +623,7 @@ export class ChangeStream {
         connectionTag: this.connections.connectionTag
       })
     });
-    this.relationCache.updateAll(result.tables);
+    this.relationCache.updateAll(descriptor, result.tables);
 
     // Drop conflicting collections.
     // This is generally not expected for MongoDB source dbs, so we log an error.
@@ -650,8 +650,10 @@ export class ChangeStream {
       const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
       const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, no_checkpoint_before_lsn);
-      this.relationCache.updateAll(doneTables);
-      return doneTables;
+      const snapshotDoneById = new Map(doneTables.map((table) => [table.id, table]));
+      const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
+      this.relationCache.updateAll(descriptor, tables);
+      return tables;
     }
 
     return result.tables;
