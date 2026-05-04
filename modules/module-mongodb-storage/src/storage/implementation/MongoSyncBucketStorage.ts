@@ -192,7 +192,7 @@ export abstract class MongoSyncBucketStorage
 
     const state = await this.getWriterSyncState();
 
-    const batchOptions = {
+    const batchOptions: MongoBucketBatchOptions = {
       logger: options.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
@@ -205,7 +205,8 @@ export abstract class MongoSyncBucketStorage
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
-      syncConfigId: state.syncConfigId
+      syncConfigId: state.syncConfigId,
+      tracer: options.tracer
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));

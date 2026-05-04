@@ -146,6 +146,19 @@ export enum ErrorCode {
   PSYNC_S1110 = 'PSYNC_S1110',
 
   /**
+   * Error querying the source database.
+   */
+  PSYNC_S1120 = 'PSYNC_S1120',
+
+  /**
+   * Socket timeout while querying the source database.
+   *
+   * This can happen if Postgres takes too long to respond to a query, or if there is
+   * a network-level issue.
+   */
+  PSYNC_S1121 = 'PSYNC_S1121',
+
+  /**
    * Publication does not exist.
    *
    * Run: `CREATE PUBLICATION powersync FOR ALL TABLES` on the source database.

@@ -3,6 +3,7 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, SourceTable, bson } from '@powersync/service-core';
 import { PgChunk, PgConnection, PgType, PgTypeOid } from '@powersync/service-jpgwire';
 import { SqliteValue } from '@powersync/service-sync-rules';
+import { rquery, rstream } from './rquery.js';
 
 export interface SnapshotQuery {
   initialize(): Promise<void>;
@@ -36,11 +37,11 @@ export class SimpleSnapshotQuery implements SnapshotQuery {
   ) {}
 
   public async initialize(): Promise<void> {
-    await this.connection.query(`DECLARE snapshot_cursor CURSOR FOR SELECT * FROM ${this.table.qualifiedName}`);
+    await rquery(this.connection, `DECLARE snapshot_cursor CURSOR FOR SELECT * FROM ${this.table.qualifiedName}`);
   }
 
   public nextChunk(): AsyncIterableIterator<PgChunk> {
-    return this.connection.stream(`FETCH ${this.chunkSize} FROM snapshot_cursor`);
+    return rstream(this.connection, `FETCH ${this.chunkSize} FROM snapshot_cursor`);
   }
 }
 
@@ -120,7 +121,8 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
     let stream: AsyncIterableIterator<PgChunk>;
     const escapedKeyName = escapeIdentifier(this.key.name);
     if (this.lastKey == null) {
-      stream = this.connection.stream(
+      stream = rstream(
+        this.connection,
         `SELECT * FROM ${this.table.qualifiedName} ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`
       );
     } else {
@@ -128,7 +130,7 @@ export class ChunkedSnapshotQuery implements SnapshotQuery {
         throw new Error(`typeId required for primary key ${this.key.name}`);
       }
       const type = Number(this.key.typeId);
-      stream = this.connection.stream({
+      stream = rstream(this.connection, {
         statement: `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapedKeyName} > $1 ORDER BY ${escapedKeyName} LIMIT ${this.chunkSize}`,
         params: [{ value: this.lastKey, type }]
       });
@@ -200,7 +202,7 @@ export class IdSnapshotQuery implements SnapshotQuery {
     if (type == null) {
       throw new Error(`Cannot determine primary key array type for ${JSON.stringify(keyDefinition)}`);
     }
-    yield* this.connection.stream({
+    yield* rstream(this.connection, {
       statement: `SELECT * FROM ${this.table.qualifiedName} WHERE ${escapeIdentifier(keyDefinition.name)} = ANY($1)`,
       params: [
         {
