@@ -236,14 +236,16 @@ export class CDCStream {
     if (!table.objectId && typeof table.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
     }
-    const resolved = await this.storage.resolveTable({
+    const resolved = await batch.resolveTables({
       group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: table,
-      sync_rules: this.syncRules
+      sync_rules: this.syncRules,
+      matchingSources: null
     });
-    const resolvedTable = new MSSQLSourceTable(resolved.table);
+    const primaryTable = resolved.tables[0];
+    const resolvedTable = new MSSQLSourceTable(primaryTable);
 
     if (!captureInstance) {
       this.logger.warn(
@@ -261,15 +263,19 @@ export class CDCStream {
     // Snapshot if:
     // 1. The table is in the sync config and snapshot is requested, or not already done.
     // 2. AND the table is enabled for CDC with a valid capture instance.
-    const shouldSnapshot =
-      snapshot && !resolved.table.snapshotComplete && resolved.table.syncAny && resolvedTable.enabledForCDC();
+    const snapshotCandidates = resolved.tables.filter(
+      (candidate) => snapshot && !candidate.snapshotComplete && candidate.syncAny
+    );
+    const shouldSnapshot = snapshotCandidates.length > 0 && resolvedTable.enabledForCDC();
 
     if (shouldSnapshot) {
-      // Truncate this table in case a previous snapshot was interrupted.
-      await batch.truncate([resolved.table]);
+      // Truncate tables in case a previous snapshot was interrupted.
+      await batch.truncate(snapshotCandidates);
 
-      // Start the snapshot inside a transaction.
-      await this.snapshotTableInTx(batch, resolvedTable);
+      // Start the snapshot(s) inside a transaction.
+      for (const candidate of snapshotCandidates) {
+        await this.snapshotTableInTx(batch, new MSSQLSourceTable(candidate));
+      }
     }
 
     return resolvedTable;

@@ -818,14 +818,17 @@ WHERE  oid = $1::regclass`,
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
-    const result = await this.storage.resolveTable({
+    const result = await batch.resolveTables({
       group_id: this.group_id,
       connection_id: this.connection_id,
       connection_tag: this.connections.connectionTag,
       entity_descriptor: descriptor,
-      sync_rules: this.sync_rules
+      sync_rules: this.sync_rules,
+      matchingSources: null
     });
-    this.relationCache.update(result.table);
+    for (const table of result.tables) {
+      this.relationCache.update(table);
+    }
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -837,28 +840,28 @@ WHERE  oid = $1::regclass`,
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not already done, AND:
     // 3. The table is used in sync config.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
+    const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
 
-    if (shouldSnapshot) {
-      // Truncate this table, in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
-
+    if (snapshotCandidates.length > 0) {
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       const db = await this.connections.snapshotConnection();
       try {
-        const table = await this.snapshotTableInTx(batch, db, result.table);
-        // After the table snapshot, we wait for replication to catch up.
-        // To make sure there is actually something to replicate, we send a keepalive
-        // message.
+        let last: SourceTable = snapshotCandidates[0];
+        for (const table of snapshotCandidates) {
+          // Truncate this table, in case a previous snapshot was interrupted.
+          await batch.truncate([table]);
+          last = await this.snapshotTableInTx(batch, db, table);
+        }
+        // After table snapshots, wait for replication to catch up.
         await sendKeepAlive(db);
-        return table;
+        return last;
       } finally {
         await db.end();
       }
     }
 
-    return result.table;
+    return result.tables[0];
   }
 
   /**

@@ -25,6 +25,11 @@ import {
 import { SourceTableInterface } from './SourceTableInterface.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 
+export interface MatchingSources {
+  bucketDataSources: BucketDataSource[];
+  parameterLookupSources: ParameterIndexLookupCreator[];
+}
+
 /**
  * Hydrated sync config is sync config definitions along with persisted state. Currently, the persisted state
  * specifically affects bucket names.
@@ -82,6 +87,15 @@ export class HydratedSyncRules {
 
   tableSyncsParameters(table: SourceTableInterface): boolean {
     return this.definition.tableSyncsParameters(table);
+  }
+
+  getMatchingSources(table: SourceTableInterface): MatchingSources {
+    return {
+      bucketDataSources: this.definition.bucketDataSources.filter((source) => source.tableSyncsData(table)),
+      parameterLookupSources: this.definition.bucketParameterLookupSources.filter((source) =>
+        source.tableSyncsParameters(table)
+      )
+    };
   }
 
   applyRowContext<MaybeToast extends undefined = never>(

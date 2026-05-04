@@ -186,7 +186,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   protected augmentCreatedSourceTableDocument(
     _createDoc: CommonSourceTableDocument,
-    _options: storage.ResolveTableOptions,
+    _options: storage.ResolveTablesOptions,
     _candidateSourceTable: storage.SourceTable
   ): void {}
 

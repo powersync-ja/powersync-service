@@ -1,4 +1,4 @@
-import { DEFAULT_TAG } from '@powersync/service-sync-rules';
+import { BucketDataSource, DEFAULT_TAG, ParameterIndexLookupCreator } from '@powersync/service-sync-rules';
 import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
 import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
@@ -16,6 +16,8 @@ export interface SourceTableOptions {
   name: string;
   replicaIdColumns: ColumnDescriptor[];
   snapshotComplete: boolean;
+  bucketDataSources?: BucketDataSource[];
+  parameterLookupSources?: ParameterIndexLookupCreator[];
 }
 
 export interface TableSnapshotStatus {
@@ -90,6 +92,14 @@ export class SourceTable implements SourceEntityDescriptor {
     return this.options.replicaIdColumns;
   }
 
+  get bucketDataSources() {
+    return this.options.bucketDataSources;
+  }
+
+  get parameterLookupSources() {
+    return this.options.parameterLookupSources;
+  }
+
   /**
    *  Sanitized name of the entity in the format of "{schema}.{entity name}"
    *  Suitable for safe use in Postgres queries.
@@ -113,10 +123,13 @@ export class SourceTable implements SourceEntityDescriptor {
       schema: this.schema,
       name: this.name,
       replicaIdColumns: this.replicaIdColumns,
-      snapshotComplete: this.snapshotComplete
+      snapshotComplete: this.snapshotComplete,
+      bucketDataSources: this.bucketDataSources,
+      parameterLookupSources: this.parameterLookupSources
     });
     copy.syncData = this.syncData;
     copy.syncParameters = this.syncParameters;
+    copy.syncEvent = this.syncEvent;
     copy.snapshotStatus = this.snapshotStatus;
     return copy;
   }

@@ -56,6 +56,7 @@ export interface MongoBucketBatchOptions {
   skipExistingRows: boolean;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  resolveTables: (options: storage.ResolveTablesOptions) => Promise<storage.ResolveTablesResult>;
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
@@ -65,6 +66,7 @@ export abstract class MongoBucketBatch
   extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
+  protected readonly options: MongoBucketBatchOptions;
   protected logger: Logger;
 
   private readonly client: mongo.MongoClient;
@@ -117,6 +119,7 @@ export abstract class MongoBucketBatch
   constructor(options: MongoBucketBatchOptions) {
     super();
     this.logger = options.logger;
+    this.options = options;
     this.client = options.db.client;
     this.db = options.db;
     this.group_id = options.groupId;
@@ -144,6 +147,10 @@ export abstract class MongoBucketBatch
 
   get lastCheckpointLsn() {
     return this.last_checkpoint_lsn;
+  }
+
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    return this.options.resolveTables(options);
   }
 
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
@@ -472,10 +479,14 @@ export abstract class MongoBucketBatch
     if (afterId && after && utils.isCompleteRow(this.storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
-        const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
+        const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
           sourceTable
         });
+        const evaluated =
+          sourceTable.bucketDataSources == null
+            ? results
+            : results.filter((result) => sourceTable.bucketDataSources!.includes(result.source));
 
         for (let error of syncErrors) {
           container.reporter.captureMessage(
@@ -506,10 +517,11 @@ export abstract class MongoBucketBatch
 
       if (sourceTable.syncParameters) {
         // Parameters
-        const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
-          sourceTable,
-          after
-        );
+        const { results, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(sourceTable, after);
+        const paramEvaluated =
+          sourceTable.parameterLookupSources == null
+            ? results
+            : results.filter((result) => sourceTable.parameterLookupSources!.includes(result.lookup.source));
 
         for (let error of paramErrors) {
           container.reporter.captureMessage(

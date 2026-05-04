@@ -123,15 +123,18 @@ export class BinLogStream {
   }
 
   async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
-    const result = await this.storage.resolveTable({
+    const result = await batch.resolveTables({
       group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: entity,
-      sync_rules: this.syncRules
+      sync_rules: this.syncRules,
+      matchingSources: null
     });
-    // Since we create the objectId ourselves, this is always defined
-    this.tableCache.set(entity.objectId!, result.table);
+    for (const table of result.tables) {
+      // Since we create the objectId ourselves, this is always defined
+      this.tableCache.set(entity.objectId!, table);
+    }
 
     // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
     await batch.drop(result.dropTables);
@@ -140,11 +143,9 @@ export class BinLogStream {
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not done yet, AND:
     // 3. The table is used in sync config.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
-
-    if (shouldSnapshot) {
-      // Truncate this table in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
+    const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
+    if (snapshotCandidates.length > 0) {
+      await batch.truncate(snapshotCandidates);
 
       let gtid: common.ReplicatedGTID;
       // Start the snapshot inside a transaction.
@@ -157,7 +158,9 @@ export class BinLogStream {
         await promiseConnection.query('START TRANSACTION');
         try {
           gtid = await common.readExecutedGtid(promiseConnection);
-          await this.snapshotTable(connection as mysql.Connection, batch, result.table);
+          for (const table of snapshotCandidates) {
+            await this.snapshotTable(connection as mysql.Connection, batch, table);
+          }
           await promiseConnection.query('COMMIT');
         } catch (e) {
           await this.tryRollback(promiseConnection);
@@ -166,11 +169,12 @@ export class BinLogStream {
       } finally {
         connection.release();
       }
-      const [table] = await batch.markTableSnapshotDone([result.table], gtid.comparable);
+      const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, gtid.comparable);
+      const table = doneTables[doneTables.length - 1];
       return table;
     }
 
-    return result.table;
+    return result.tables[0];
   }
 
   async getQualifiedTableNames(

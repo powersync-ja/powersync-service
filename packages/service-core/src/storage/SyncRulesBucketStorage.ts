@@ -2,6 +2,7 @@ import { Logger, ObserverClient } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   HydratedSyncRules,
+  MatchingSources,
   ParameterLookupRows,
   ScopedParameterLookup
 } from '@powersync/service-sync-rules';
@@ -26,10 +27,7 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
   readonly logger: Logger;
 
-  /**
-   * Resolve a table, keeping track of it internally.
-   */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
+  resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
 
   /**
    * Create a new writer.
@@ -157,17 +155,18 @@ export interface SyncRuleStatus {
   snapshot_done: boolean;
   snapshot_lsn: string | null;
 }
-export interface ResolveTableOptions {
+export interface ResolveTablesOptions {
   group_id: number;
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
 
   sync_rules: HydratedSyncRules;
+  matchingSources: MatchingSources | null;
 }
 
-export interface ResolveTableResult {
-  table: SourceTable;
+export interface ResolveTablesResult {
+  tables: SourceTable[];
   dropTables: SourceTable[];
 }
 
