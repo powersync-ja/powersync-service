@@ -26,14 +26,14 @@
     "configure-hooks": "husky"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.27.8",
+    "@changesets/cli": "^2.31.0",
     "@pnpm/workspace.projects-reader": "^1000.0.43",
     "@types/node": "^22.16.2",
     "@vitest/coverage-v8": "catalog:",
     "@vitest/ui": "catalog:",
     "async": "^3.2.4",
     "bson": "^6.10.4",
-    "concurrently": "^8.2.2",
+    "concurrently": "^9.2.1",
     "fast-glob": "^3.3.3",
     "husky": "^9.1.7",
     "inquirer": "^9.2.7",
