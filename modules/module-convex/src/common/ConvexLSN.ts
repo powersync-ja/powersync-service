@@ -12,6 +12,13 @@ export function toConvexLsn(cursor: string | bigint): string {
   return asString;
 }
 
+/**
+ * Converts the decimal timestamp LSN to a JS Date.
+ */
+export function lsnToDate(cursor: string): Date {
+  return new Date(Number(BigInt(cursor) / 1_000_000n));
+}
+
 function assertValidConvexLsn(cursor: string) {
   if (cursor.length == 0) {
     throw new Error('Convex cursor cannot be empty');

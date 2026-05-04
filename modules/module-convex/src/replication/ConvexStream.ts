@@ -26,7 +26,7 @@ import {
   isCursorExpiredError
 } from '../client/ConvexApiClient.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
-import { parseConvexLsn, toConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
+import { lsnToDate, parseConvexLsn, toConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
 import { extractProperties, toSqliteInputRow } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 
@@ -124,6 +124,7 @@ export class ConvexStream {
       logger: this.logger,
       zeroLSN: ZERO_LSN,
       defaultSchema: this.defaultSchema,
+      // TODO(steven) check this
       storeCurrentData: false, //convex currently has a hard document limit of 1MB per document
       skipExistingRows: false
     });
@@ -158,6 +159,8 @@ export class ConvexStream {
       let sawCheckpointMarker = false;
       const snapshottedTablesInPage = new Set<string>();
 
+      let didMarkOldestUncommitedChange = false;
+
       for (const change of page.values) {
         if (this.abortSignal.aborted) {
           throw new ReplicationAbortedError('Replication interrupted');
@@ -186,10 +189,13 @@ export class ConvexStream {
          * This uses the current page's cursor as the timestamp since this is the closes timestamp
          * to the mutation.
          * We should only track the first op for a new transaction.
-         * TODO, the page.cursor wont change between ops here, but, maybe we
-         * should not call trackUncommitedChange many times here.
+         * Note that the document-deltas aren't filtered, so we only
+         * mark the start after this point - which means we will have an uncommited change.
          */
-        this.replicationLag.trackUncommittedChange(new Date(Number(BigInt(page.cursor) / 1_000_000n)));
+        if (!didMarkOldestUncommitedChange) {
+          this.replicationLag.trackUncommittedChange(lsnToDate(page.cursor));
+          didMarkOldestUncommitedChange = true;
+        }
 
         const changed = await this.writeChange(batch, table, change);
         if (!changed) {
@@ -200,29 +206,29 @@ export class ConvexStream {
       }
 
       if (changesInPage > 0) {
-        // TODO(steven) Should this be commiting at this point? If this is paged?
-        // Where are the transaction boundaries
         /**
-         * It looks like the document deltas api wont split transactions between pages,
+         * It looks like the document-deltas api won't split transactions between pages,
          * That means it should be safe to commit after each page.
          * Each page could contain many smaller transactions - that should also be fine.
          */
-        const didCommit = await batch.commit(pageLsn, {
+        const { checkpointBlocked } = await batch.commit(pageLsn, {
           createEmptyCheckpoints: false,
           oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
         });
 
-        if (!didCommit.checkpointBlocked) {
+        if (!checkpointBlocked) {
           this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
           this.replicationLag.markCommitted();
         }
       } else if (sawCheckpointMarker) {
+        /**
+         * This is only reached if the checkpoint marker was the only change observed in a page.
+         */
         const { checkpointBlocked } = await batch.keepalive(pageLsn);
         if (!checkpointBlocked) {
           this.replicationLag.clearUncommittedChange();
         }
         this.lastKeepaliveAt = Date.now();
-        // TODO(steven, should this time be configurable?)
       } else if (nextCursor != cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
         const { checkpointBlocked } = await batch.keepalive(pageLsn);
         if (!checkpointBlocked) {

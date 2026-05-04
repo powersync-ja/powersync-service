@@ -38,26 +38,4 @@ export class ConvexReplicator extends replication.AbstractReplicator<ConvexRepli
   async testConnection() {
     return await ConvexModule.testConnection(this.connectionFactory.connectionConfig);
   }
-
-  getReplicationLagMillis(): number | undefined {
-    const lag = super.getReplicationLagMillis();
-    if (lag != null) {
-      return lag;
-    }
-
-    // TODO fixme
-    // const content = await this.storage.getActiveSyncRulesContent();
-    // if (content == null) {
-    //   return undefined;
-    // }
-
-    // const checkpointTs = content.last_checkpoint_ts?.getTime() ?? 0;
-    // const keepaliveTs = content.last_keepalive_ts?.getTime() ?? 0;
-    // const latestTs = Math.max(checkpointTs, keepaliveTs);
-    // if (latestTs == 0) {
-    //   return undefined;
-    // }
-
-    // return Date.now() - latestTs;
-  }
 }
