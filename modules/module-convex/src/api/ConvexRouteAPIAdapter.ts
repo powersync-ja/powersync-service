@@ -7,8 +7,8 @@ import {
 } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
-import { toConvexLsn } from '../common/ConvexLSN.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
+import { toConvexLsn } from '../common/ConvexLSN.js';
 import { extractProperties, readConvexFieldType, toExpressionTypeFromConvexType } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from '../replication/ConvexConnectionManager.js';
 import * as types from '../types/types.js';
@@ -128,8 +128,9 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
 
   async createReplicationHead<T>(callback: ReplicationHeadCallback<T>): Promise<T> {
     const head = await this.connectionManager.client.getHeadCursor();
+    const result = await callback(toConvexLsn(head));
     await this.connectionManager.client.createWriteCheckpointMarker();
-    return await callback(toConvexLsn(head));
+    return result;
   }
 
   async getConnectionSchema(): Promise<service_types.DatabaseSchema[]> {

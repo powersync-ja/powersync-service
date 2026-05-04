@@ -158,9 +158,6 @@ export class ConvexStream {
       let sawCheckpointMarker = false;
       const snapshottedTablesInPage = new Set<string>();
 
-      // track the begin of a batch/"transaction?"
-      // TODO(steven) verify this for real
-      this.replicationLag.trackUncommittedChange(new Date(nextCursor));
       for (const change of page.values) {
         if (this.abortSignal.aborted) {
           throw new ReplicationAbortedError('Replication interrupted');
@@ -184,6 +181,16 @@ export class ConvexStream {
           continue;
         }
 
+        /**
+         * This tracks the begining of a new transaction which is not yet commited.
+         * This uses the current page's cursor as the timestamp since this is the closes timestamp
+         * to the mutation.
+         * We should only track the first op for a new transaction.
+         * TODO, the page.cursor wont change between ops here, but, maybe we
+         * should not call trackUncommitedChange many times here.
+         */
+        this.replicationLag.trackUncommittedChange(new Date(Number(BigInt(page.cursor) / 1_000_000n)));
+
         const changed = await this.writeChange(batch, table, change);
         if (!changed) {
           continue;
@@ -194,7 +201,12 @@ export class ConvexStream {
 
       if (changesInPage > 0) {
         // TODO(steven) Should this be commiting at this point? If this is paged?
-        // Where are the transactio boundaries
+        // Where are the transaction boundaries
+        /**
+         * It looks like the document deltas api wont split transactions between pages,
+         * That means it should be safe to commit after each page.
+         * Each page could contain many smaller transactions - that should also be fine.
+         */
         const didCommit = await batch.commit(pageLsn, {
           createEmptyCheckpoints: false,
           oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
@@ -205,10 +217,17 @@ export class ConvexStream {
           this.replicationLag.markCommitted();
         }
       } else if (sawCheckpointMarker) {
-        await batch.keepalive(pageLsn);
+        const { checkpointBlocked } = await batch.keepalive(pageLsn);
+        if (!checkpointBlocked) {
+          this.replicationLag.clearUncommittedChange();
+        }
         this.lastKeepaliveAt = Date.now();
+        // TODO(steven, should this time be configurable?)
       } else if (nextCursor != cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
-        await batch.keepalive(pageLsn);
+        const { checkpointBlocked } = await batch.keepalive(pageLsn);
+        if (!checkpointBlocked) {
+          this.replicationLag.clearUncommittedChange();
+        }
         this.replicationLag.markStarted();
         this.lastKeepaliveAt = Date.now();
       }
