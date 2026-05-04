@@ -4,6 +4,8 @@ This note looks at whether the Convex implementation needs to write to the
 `powersync_checkpoints` collection from
 `createWriteCheckpointMarker(options?: { signal?: AbortSignal }): Promise<void>`.
 
+TLDR: Yes, we need a `powersync_checkpoints` collection in the source database.
+
 ## Background
 
 Write checkpoints let a client wait until its own uploaded write has been
@@ -116,17 +118,6 @@ replicated before `/write-checkpoint2.json` ran, as long as the marker-driven
 checkpoint update is observed after the managed write checkpoint mapping exists.
 That is the event that makes the stored write checkpoint visible to sync.
 
-### Case 2.2: marker keeps idle systems moving
-
-The marker write also handles the idle-source case. Without it, an idle Convex
-deployment may keep returning the same delta cursor forever. With it, the marker
-adds a real Convex mutation, which bumps the delta stream and gives the
-replicator something to process immediately.
-
-Because marker-only pages trigger immediate keepalive, write checkpoint latency
-does not depend on the 60 second idle keepalive throttle and does not depend on
-an unrelated application write.
-
 ## Comparison to other sources
 
 This is the same role played by source-specific keepalive mechanisms elsewhere:
@@ -180,6 +171,68 @@ other writes after the managed checkpoint mapping is created. The marker is stil
 required because an idle Convex deployment may otherwise keep returning the same
 delta cursor, but the reason is different from a filtered Postgres slot that
 cannot observe some source LSNs at all.
+
+## Test results
+
+Several manual tests were run to check whether Convex can safely omit the
+`powersync_checkpoints` marker collection.
+
+### Test 1: direct write checkpoint on an idle source
+
+When `/write-checkpoint2.json` was called directly without any other client
+mutation:
+
+- without writing to `powersync_checkpoints`, the write checkpoint did not show
+  up immediately in the client logs or PowerSync service sync logs,
+- with the `powersync_checkpoints` marker write enabled, the write checkpoint did
+  show up immediately.
+
+This confirms the idle-source failure mode. A write checkpoint can be stored in
+PowerSync bucket storage, but without a later Convex delta there may be no sync
+checkpoint diff that exposes it to the connected client.
+
+### Test 2: replication lag
+
+When replication lag was introduced, the write checkpoint only appeared after
+replication caught up.
+
+This is the desired behavior. The client should not validate a write checkpoint
+until PowerSync has replicated to a source position at or beyond the head stored
+for that write checkpoint.
+
+### Test 3: transaction boundaries and unfiltered deltas
+
+Testing also indicates that `document_deltas` pages contain entire Convex
+transactions, or groups of smaller complete transactions. The current replicator
+commits after each page that contains changes, so the marker collection does not
+appear to be needed for transaction-boundary correctness.
+
+Testing also supports the expectation that Convex `document_deltas` is not
+filtered per table at the API level. PowerSync filters rows inside the
+replicator after receiving the delta page. This means Convex should not have the
+same source-side filtered-stream problem described above for Postgres table
+filters.
+
+### Test 4: delayed write checkpoint association
+
+Another test disabled the `powersync_checkpoints` marker write and added a
+2-second delay in the Convex API handler before creating the managed write
+checkpoint.
+
+In that setup, the client did not receive a checkpoint associated with the write
+checkpoint. The likely sequence is:
+
+1. the client mutation committed in Convex,
+2. the replicator saw the corresponding Convex cursor,
+3. PowerSync sent the sync checkpoint to the client before the managed write
+   checkpoint mapping existed,
+4. the API handler created the managed write checkpoint after the delay,
+5. no further Convex write occurred, so no later checkpoint diff was sent.
+
+This reproduces the key race. The source head can be correct and the data can be
+replicated, but the connected client can still miss the write checkpoint
+acknowledgement if the write checkpoint mapping is created after the relevant
+sync checkpoint has already been sent.
 
 ## Conclusion
 
