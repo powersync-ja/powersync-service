@@ -24,10 +24,12 @@ export function makeTestTable(
     options?.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
   return new storage.SourceTable({
     id: id,
-    connectionTag: storage.SourceTable.DEFAULT_TAG,
+    ref: {
+      connectionTag: storage.SourceTable.DEFAULT_TAG,
+      schema: 'public',
+      name
+    },
     objectId: relId,
-    schema: 'public',
-    name: name,
     replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
     snapshotComplete: true
   });
@@ -54,17 +56,16 @@ export async function resolveTestTable(
   const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;
   let didGenerateId = false;
 
-  const descriptor: storage.SourceEntityDescriptor = {
+  const source: storage.SourceEntityDescriptor = {
+    connectionTag: storage.SourceTable.DEFAULT_TAG,
     objectId: relId,
     schema: 'public',
-    name,
+    name: name,
     replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 }))
   };
   const resolved = await writer.resolveTables({
     connection_id: 1,
-    connection_tag: storage.SourceTable.DEFAULT_TAG,
-    entity_descriptor: descriptor,
-    matchingSources: null,
+    source,
     idGenerator: () => {
       if (didGenerateId) {
         throw new Error('idGenerator called multiple times - not supported in tests');
@@ -76,7 +77,7 @@ export async function resolveTestTable(
 
   const table = resolved.tables[0];
   if (table == null) {
-    throw new Error(`Failed to resolve test table ${descriptor.schema}.${descriptor.name}`);
+    throw new Error(`Failed to resolve test table ${source.schema}.${source.name}`);
   }
   return table;
 }

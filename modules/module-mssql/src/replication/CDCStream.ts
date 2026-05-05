@@ -34,7 +34,12 @@ import {
   getLatestReplicatedLSN,
   isIColumnMetadata
 } from '../utils/mssql.js';
-import { getReplicationIdentityColumns, getTablesFromPattern, ResolvedTable } from '../utils/schema.js';
+import {
+  getReplicationIdentityColumns,
+  getTablesFromPattern,
+  ResolvedTable,
+  SourceTableChangeRef
+} from '../utils/schema.js';
 import { CDCEventHandler, CDCPoller, SchemaChange, SchemaChangeType } from './CDCPoller.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 import { BatchedSnapshotQuery, MSSQLSnapshotQuery, SimpleSnapshotQuery } from './MSSQLSnapshotQuery.js';
@@ -213,6 +218,7 @@ export class CDCStream {
       const table = await this.processTable(
         batch,
         {
+          connectionTag: this.connectionTag,
           name: matchedTable.name,
           schema: matchedTable.schema,
           objectId: matchedTable.objectId,
@@ -238,9 +244,7 @@ export class CDCStream {
     }
     const resolved = await batch.resolveTables({
       connection_id: this.connectionId,
-      connection_tag: this.connectionTag,
-      entity_descriptor: table,
-      matchingSources: null
+      source: table
     });
     const primaryTable = resolved.tables[0];
     const resolvedTable = new MSSQLSourceTable(primaryTable);
@@ -277,6 +281,16 @@ export class CDCStream {
     }
 
     return resolvedTable;
+  }
+
+  private sourceRefFromTable(table: storage.SourceTable): SourceEntityDescriptor {
+    return {
+      connectionTag: table.ref.connectionTag,
+      schema: table.ref.schema,
+      name: table.ref.name,
+      objectId: table.objectId,
+      replicaIdColumns: table.replicaIdColumns
+    };
   }
 
   private async snapshotTableInTx(batch: storage.BucketStorageBatch, table: MSSQLSourceTable): Promise<void> {
@@ -477,7 +491,7 @@ export class CDCStream {
             for (const table of specificTablesToResnapshot!) {
               await batch.drop([table.sourceTable]);
               // Update table in the table cache
-              await this.processTable(batch, table.sourceTable, table.captureInstance, false);
+              await this.processTable(batch, this.sourceRefFromTable(table.sourceTable), table.captureInstance, false);
             }
             break;
           default:
@@ -749,7 +763,7 @@ export class CDCStream {
 
   private async handleCreateOrUpdateTable(
     batch: storage.BucketStorageBatch,
-    table: Omit<SourceEntityDescriptor, 'replicaIdColumns'>,
+    table: SourceTableChangeRef,
     captureInstance: CaptureInstance
   ): Promise<void> {
     const replicaIdColumns = await getReplicationIdentityColumns({
@@ -761,6 +775,7 @@ export class CDCStream {
     await this.processTable(
       batch,
       {
+        connectionTag: this.connectionTag,
         name: table.name,
         schema: table.schema,
         objectId: table.objectId,

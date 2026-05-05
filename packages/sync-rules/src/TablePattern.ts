@@ -1,5 +1,5 @@
 import { Equatable, StableHasher } from './compiler/equality.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 
 export const DEFAULT_TAG = 'default';
 
@@ -92,7 +92,7 @@ export class TablePattern extends ImplicitSchemaTablePattern {
     return this.tablePattern.substring(0, this.tablePattern.length - 1);
   }
 
-  matches(table: SourceTableInterface) {
+  matches(table: SourceTableRef) {
     if (this.connectionTag != table.connectionTag || this.schema != table.schema) {
       return false;
     }

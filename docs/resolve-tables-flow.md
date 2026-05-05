@@ -19,9 +19,15 @@ A `TablePattern` is a sync-rule selector:
 
 Think of it as: "which tables should we care about?"
 
+### SourceTableRef
+
+A `SourceTableRef` describes the table of a source row as replicated.
+
+We can do directy matching of `TablePattern.matches(SourceTableRef)`.
+
 ### SourceTable
 
-A `SourceTable` is a concrete tracked runtime table:
+A `SourceTable` is a concrete tracked runtime table with state:
 
 - It represents one resolved physical source table identity.
 - It carries replication identity metadata (replica-id columns).
@@ -29,6 +35,8 @@ A `SourceTable` is a concrete tracked runtime table:
 - It carries resolved sync participation flags (used for data, parameters, events).
 
 Think of it as: "this exact table instance is now being tracked and replicated."
+
+There may be multiple SourceTables per SourceTableRef.
 
 ## High-level flow
 

@@ -189,7 +189,7 @@ export class ChangeStream {
     for (let collection of collections) {
       const tables = await this.handleRelation(
         batch,
-        getMongoRelation({ db: schema, coll: collection.name }),
+        getMongoRelation({ db: schema, coll: collection.name }, this.connections.connectionTag),
         // This is done as part of the initial setup - snapshot is handled elsewhere
         { snapshot: false, collectionInfo: collection }
       );
@@ -614,12 +614,7 @@ export class ChangeStream {
     const snapshot = options.snapshot;
     const result = await batch.resolveTables({
       connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      matchingSources: this.sync_rules.getMatchingSources({
-        ...descriptor,
-        connectionTag: this.connections.connectionTag
-      })
+      source: descriptor
     });
     this.relationCache.updateAll(descriptor, result.tables);
 
@@ -1078,7 +1073,7 @@ export class ChangeStream {
                 waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
               }
 
-              const rel = getMongoRelation(changeDocument.ns);
+              const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
               const tables = await this.getRelations(batch, rel, {
                 // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
                 // for whatever reason, then we do need to snapshot it.
@@ -1107,7 +1102,7 @@ export class ChangeStream {
                 }
               }
             } else if (changeDocument.operationType == 'drop') {
-              const rel = getMongoRelation(changeDocument.ns);
+              const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
               const tables = await this.getRelations(batch, rel, {
                 // We're "dropping" this collection, so never snapshot it.
                 snapshot: false
@@ -1118,8 +1113,8 @@ export class ChangeStream {
                 this.relationCache.delete(rel);
               }
             } else if (changeDocument.operationType == 'rename') {
-              const relFrom = getMongoRelation(changeDocument.ns);
-              const relTo = getMongoRelation(changeDocument.to);
+              const relFrom = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
+              const relTo = getMongoRelation(changeDocument.to, this.connections.connectionTag);
               const tablesFrom = await this.getRelations(batch, relFrom, {
                 // We're "dropping" this collection, so never snapshot it.
                 snapshot: false

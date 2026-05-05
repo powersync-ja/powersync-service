@@ -2,7 +2,7 @@ import { SelectedColumn } from 'pgsql-ast-parser';
 import { idFromData } from './cast.js';
 import { SqlRuleError } from './errors.js';
 import { ColumnDefinition } from './ExpressionType.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { TablePattern } from './TablePattern.js';
 import {
@@ -23,7 +23,7 @@ export interface RowValueExtractor {
 }
 
 export interface EvaluateRowOptions {
-  table: SourceTableInterface;
+  table: SourceTableRef;
   row: SqliteRow;
   serializedBucketParameters: (params: QueryParameters) => string[];
 }
@@ -94,11 +94,11 @@ export class BaseSqlDataQuery {
     this.errors = options.errors ?? [];
   }
 
-  applies(table: SourceTableInterface) {
+  applies(table: SourceTableRef) {
     return this.sourceTable.matches(table);
   }
 
-  addSpecialParameters(table: SourceTableInterface, row: SqliteRow) {
+  addSpecialParameters(table: SourceTableRef, row: SqliteRow) {
     if (this.sourceTable.isWildcard) {
       return {
         ...row,

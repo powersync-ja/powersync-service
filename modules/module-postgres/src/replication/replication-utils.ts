@@ -278,17 +278,20 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
   for (const row of rows) {
     const tablePattern = tablePatterns[row.pattern_ord];
     const idColumns = JSON.parse(row.replication_id_json) as string[];
+    const ref: sync_rules.SourceTableRef = {
+      connectionTag,
+      schema: tablePattern.schema,
+      name: row.name
+    };
     const sourceTable = new storage.SourceTable({
       id: '',
-      connectionTag,
+      ref,
       objectId: row.relation_id ?? 0,
-      schema: tablePattern.schema,
-      name: row.name,
       replicaIdColumns: idColumns.map((name) => ({ name })),
       snapshotComplete: true
     });
-    const syncData = syncRules.tableSyncsData(sourceTable);
-    const syncParameters = syncRules.tableSyncsParameters(sourceTable);
+    const syncData = syncRules.tableSyncsData(ref);
+    const syncParameters = syncRules.tableSyncsParameters(ref);
 
     let errors: service_types.ReplicationError[];
     if (row.relation_id == null) {

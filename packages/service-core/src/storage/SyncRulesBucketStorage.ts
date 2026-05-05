@@ -2,7 +2,6 @@ import { Logger, ObserverClient } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   HydratedSyncRules,
-  MatchingSources,
   ParameterLookupRows,
   ScopedParameterLookup
 } from '@powersync/service-sync-rules';
@@ -158,10 +157,7 @@ export interface SyncRuleStatus {
 }
 export interface ResolveTablesOptions {
   connection_id: number;
-  connection_tag: string;
-  entity_descriptor: SourceEntityDescriptor;
-
-  matchingSources: MatchingSources | null;
+  source: SourceEntityDescriptor;
   /**
    * For tests only - custom id generator for stable ids.
    */

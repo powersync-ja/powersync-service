@@ -137,12 +137,15 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       if (tablePattern.isWildcard) {
         patternResult.tables = [];
         for (let collection of collections) {
+          const ref: sync_rules.SourceTableRef = {
+            connectionTag: this.connectionTag,
+            schema,
+            name: collection.name
+          };
           const sourceTable = new SourceTable({
             id: '', // not used
-            connectionTag: this.connectionTag,
+            ref,
             objectId: collection.name,
-            schema: schema,
-            name: collection.name,
             replicaIdColumns: [],
             snapshotComplete: true
           });
@@ -152,8 +155,8 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           } else {
             errors.push(...validatePostImages(schema, collection));
           }
-          const syncData = sqlSyncRules.tableSyncsData(sourceTable);
-          const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
+          const syncData = sqlSyncRules.tableSyncsData(ref);
+          const syncParameters = sqlSyncRules.tableSyncsParameters(ref);
           patternResult.tables.push({
             schema,
             name: collection.name,
@@ -164,18 +167,21 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           });
         }
       } else {
+        const ref: sync_rules.SourceTableRef = {
+          connectionTag: this.connectionTag,
+          schema,
+          name: tablePattern.name
+        };
         const sourceTable = new SourceTable({
           id: '', // not used
-          connectionTag: this.connectionTag,
+          ref,
           objectId: tablePattern.name,
-          schema: schema,
-          name: tablePattern.name,
           replicaIdColumns: [],
           snapshotComplete: true
         });
 
-        const syncData = sqlSyncRules.tableSyncsData(sourceTable);
-        const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
+        const syncData = sqlSyncRules.tableSyncsData(ref);
+        const syncParameters = sqlSyncRules.tableSyncsParameters(ref);
         const collection = collections[0];
 
         let errors: service_types.ReplicationError[] = [];

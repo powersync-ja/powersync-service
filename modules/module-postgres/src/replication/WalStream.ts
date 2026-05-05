@@ -287,11 +287,12 @@ export class WalStream {
       const tables = await this.handleRelation({
         batch,
         descriptor: {
-          name,
-          schema,
+          connectionTag: this.connections.connectionTag,
+          name: name,
+          schema: schema,
           objectId: relid,
           replicaIdColumns: cresult.replicationColumns
-        } as SourceEntityDescriptor,
+        },
         snapshot: false,
         referencedTypeIds: columnTypes
       });
@@ -820,9 +821,7 @@ WHERE  oid = $1::regclass`,
     }
     const result = await batch.resolveTables({
       connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      matchingSources: null
+      source: descriptor
     });
     this.relationCache.updateAll(descriptor.objectId as number, result.tables);
 
@@ -1149,7 +1148,7 @@ WHERE  oid = $1::regclass`,
             if (msg.tag == 'relation') {
               await this.handleRelation({
                 batch,
-                descriptor: getPgOutputRelation(msg),
+                descriptor: getPgOutputRelation(msg, this.connections.connectionTag),
                 snapshot: true,
                 referencedTypeIds: referencedColumnTypeIds(msg)
               });

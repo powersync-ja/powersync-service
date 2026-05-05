@@ -5,7 +5,7 @@ import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { RequestFunctionCall } from './request_functions.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
@@ -387,7 +387,7 @@ export interface EvaluateRowOptions extends TableRow {
  * A row associated with the table it's coming from.
  */
 export interface TableRow<R = SqliteRow> {
-  sourceTable: SourceTableInterface;
+  sourceTable: SourceTableRef;
   record: R;
 }
 

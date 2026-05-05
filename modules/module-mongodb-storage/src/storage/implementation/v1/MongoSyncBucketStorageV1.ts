@@ -18,6 +18,7 @@ import {
   HydratedSyncRules,
   ParameterLookupRows,
   ScopedParameterLookup,
+  SourceTableRef,
   SqliteJsonRow
 } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -192,7 +193,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected augmentCreatedSourceTableDocument(
     _createDoc: CommonSourceTableDocument,
     _options: storage.ResolveTablesOptions,
-    _candidateSourceTable: storage.SourceTable,
+    _ref: SourceTableRef,
     _syncRules: HydratedSyncRules
   ): void {}
 
