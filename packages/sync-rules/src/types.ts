@@ -372,7 +372,16 @@ export interface InputParameter {
   parametersToLookupValue(parameters: ParameterValueSet): SqliteValue;
 }
 
-export interface EvaluateRowOptions extends TableRow {}
+export interface EvaluateRowOptions extends TableRow {
+  /**
+   * Optional: List the specific sources to use.
+   *
+   * If not provided, uses all matching sources in the sync config.
+   *
+   * If provided, use only these sources.
+   */
+  bucketDataSources?: BucketDataSource[];
+}
 
 /**
  * A row associated with the table it's coming from.

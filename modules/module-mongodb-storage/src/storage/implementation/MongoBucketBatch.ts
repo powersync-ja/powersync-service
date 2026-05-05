@@ -481,16 +481,10 @@ export abstract class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable,
+          bucketDataSources: sourceTable.bucketDataSources
         });
-        const allowedBucketSourceIds =
-          sourceTable.bucketDataSources == null
-            ? null
-            : new Set(sourceTable.bucketDataSources.map((source) => this.mapping.bucketSourceId(source)));
-        const evaluated =
-          allowedBucketSourceIds == null
-            ? results
-            : results.filter((result) => allowedBucketSourceIds.has(this.mapping.bucketSourceId(result.source)));
+        const evaluated = results;
 
         for (let error of syncErrors) {
           container.reporter.captureMessage(
@@ -521,17 +515,11 @@ export abstract class MongoBucketBatch
 
       if (sourceTable.syncParameters) {
         // Parameters
-        const { results, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(sourceTable, after);
-        const allowedParameterLookupIds =
-          sourceTable.parameterLookupSources == null
-            ? null
-            : new Set(sourceTable.parameterLookupSources.map((source) => this.mapping.parameterLookupId(source)));
-        const paramEvaluated =
-          allowedParameterLookupIds == null
-            ? results
-            : results.filter((result) =>
-                allowedParameterLookupIds.has(this.mapping.parameterLookupId(result.lookup.source))
-              );
+        const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
+          sourceTable,
+          after,
+          { parameterLookupSources: sourceTable.parameterLookupSources }
+        );
 
         for (let error of paramErrors) {
           container.reporter.captureMessage(
