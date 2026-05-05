@@ -614,11 +614,9 @@ export class ChangeStream {
 
     const snapshot = options.snapshot;
     const result = await batch.resolveTables({
-      group_id: this.group_id,
       connection_id: this.connection_id,
       connection_tag: this.connections.connectionTag,
       entity_descriptor: descriptor,
-      sync_rules: this.sync_rules,
       matchingSources: this.sync_rules.getMatchingSources({
         ...descriptor,
         connectionTag: this.connections.connectionTag

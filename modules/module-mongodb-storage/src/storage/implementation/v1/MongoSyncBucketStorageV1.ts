@@ -13,7 +13,7 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -186,7 +186,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   protected augmentCreatedSourceTableDocument(
     _createDoc: CommonSourceTableDocument,
     _options: storage.ResolveTablesOptions,
-    _candidateSourceTable: storage.SourceTable
+    _candidateSourceTable: storage.SourceTable,
+    _syncRules: HydratedSyncRules
   ): void {}
 
   protected async initializeResolvedSourceRecords(_sourceTableId: bson.ObjectId): Promise<void> {}

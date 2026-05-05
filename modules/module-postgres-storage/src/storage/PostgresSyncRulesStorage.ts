@@ -26,6 +26,7 @@ import { BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
+import { postgresTableId } from './table-id.js';
 
 import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
@@ -183,8 +184,11 @@ export class PostgresSyncRulesStorage
     );
   }
 
-  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
+  async resolveTables(
+    options: storage.ResolveTablesOptions,
+    syncRules = this.getParsedSyncRules({ defaultSchema: options.entity_descriptor.schema })
+  ): Promise<storage.ResolveTablesResult> {
+    const { connection_id, connection_tag, entity_descriptor } = options;
 
     const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
 
@@ -203,7 +207,7 @@ export class PostgresSyncRulesStorage
           FROM
             source_tables
           WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
+            group_id = ${{ type: 'int4', value: this.group_id }}
             AND connection_id = ${{ type: 'int4', value: connection_id }}
             AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
             AND schema_name = ${{ type: 'varchar', value: schema }}
@@ -219,7 +223,7 @@ export class PostgresSyncRulesStorage
           FROM
             source_tables
           WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
+            group_id = ${{ type: 'int4', value: this.group_id }}
             AND connection_id = ${{ type: 'int4', value: connection_id }}
             AND schema_name = ${{ type: 'varchar', value: schema }}
             AND table_name = ${{ type: 'varchar', value: table }}
@@ -230,6 +234,7 @@ export class PostgresSyncRulesStorage
       }
 
       if (sourceTableRow == null) {
+        const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
         const row = await db.sql`
           INSERT INTO
             source_tables (
@@ -243,8 +248,8 @@ export class PostgresSyncRulesStorage
             )
           VALUES
             (
-              ${{ type: 'varchar', value: uuid.v4() }},
-              ${{ type: 'int4', value: group_id }},
+              ${{ type: 'varchar', value: id }},
+              ${{ type: 'int4', value: this.group_id }},
               ${{ type: 'int4', value: connection_id }},
               --- The objectId can be string | number | undefined, we store it as jsonb value
               ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
@@ -276,9 +281,9 @@ export class PostgresSyncRulesStorage
           lastKey: sourceTableRow!.snapshot_last_key
         };
       }
-      sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
+      sourceTable.syncEvent = syncRules.tableTriggersEvent(sourceTable);
+      sourceTable.syncData = syncRules.tableSyncsData(sourceTable);
+      sourceTable.syncParameters = syncRules.tableSyncsParameters(sourceTable);
 
       let truncatedTables: SourceTableDecoded[] = [];
       if (objectId != null) {
@@ -289,7 +294,7 @@ export class PostgresSyncRulesStorage
           FROM
             source_tables
           WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
+            group_id = ${{ type: 'int4', value: this.group_id }}
             AND connection_id = ${{ type: 'int4', value: connection_id }}
             AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
             AND (
@@ -310,7 +315,7 @@ export class PostgresSyncRulesStorage
           FROM
             source_tables
           WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
+            group_id = ${{ type: 'int4', value: this.group_id }}
             AND connection_id = ${{ type: 'int4', value: connection_id }}
             AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
             AND (
@@ -376,7 +381,7 @@ export class PostgresSyncRulesStorage
       batch_limits: this.options.batchLimits,
       markRecordUnavailable: options.markRecordUnavailable,
       storageConfig: this.storageConfig,
-      resolveTables: (resolveOptions) => this.resolveTables(resolveOptions)
+      resolveTables: (resolveOptions, syncRules) => this.resolveTables(resolveOptions, syncRules)
     });
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
     return writer;

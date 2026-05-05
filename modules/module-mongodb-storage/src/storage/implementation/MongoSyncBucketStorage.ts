@@ -207,7 +207,8 @@ export abstract class MongoSyncBucketStorage
       markRecordUnavailable: options.markRecordUnavailable,
       syncConfigId: state.syncConfigId,
       tracer: options.tracer,
-      resolveTables: (resolveOptions: storage.ResolveTablesOptions) => this.resolveTables(resolveOptions)
+      resolveTables: (resolveOptions: storage.ResolveTablesOptions, syncRules: HydratedSyncRules) =>
+        this.resolveTables(resolveOptions, syncRules)
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
@@ -229,13 +230,17 @@ export abstract class MongoSyncBucketStorage
   protected abstract augmentCreatedSourceTableDocument(
     createDoc: CommonSourceTableDocument,
     options: storage.ResolveTablesOptions,
-    candidateSourceTable: storage.SourceTable
+    candidateSourceTable: storage.SourceTable,
+    syncRules: HydratedSyncRules
   ): void;
 
   protected abstract initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void>;
 
-  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
+  async resolveTables(
+    options: storage.ResolveTablesOptions,
+    syncRules = this.getParsedSyncRules({ defaultSchema: options.entity_descriptor.schema })
+  ): Promise<storage.ResolveTablesResult> {
+    const { connection_id, connection_tag, entity_descriptor } = options;
 
     const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
 
@@ -249,7 +254,7 @@ export abstract class MongoSyncBucketStorage
 
     const baseId = this.sourceTableBaseId();
     await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(group_id);
+      const col = this.db.commonSourceTables(this.group_id);
       let filter: Partial<CommonSourceTableDocument> = {
         ...baseId,
         connection_id: connection_id,
@@ -263,8 +268,9 @@ export abstract class MongoSyncBucketStorage
       }
       let doc = await col.findOne(filter, { session });
       if (doc == null) {
+        const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
         const candidateSourceTable = new storage.SourceTable({
-          id: new bson.ObjectId(),
+          id,
           connectionTag: connection_tag,
           objectId: objectId,
           schema: schema,
@@ -273,7 +279,7 @@ export abstract class MongoSyncBucketStorage
           snapshotComplete: false
         });
         const createDoc: CommonSourceTableDocument = {
-          _id: candidateSourceTable.id as bson.ObjectId,
+          _id: id,
           ...(baseId as any),
           connection_id: connection_id,
           relation_id: objectId,
@@ -284,7 +290,7 @@ export abstract class MongoSyncBucketStorage
           snapshot_done: false,
           snapshot_status: undefined
         };
-        this.augmentCreatedSourceTableDocument(createDoc, options, candidateSourceTable);
+        this.augmentCreatedSourceTableDocument(createDoc, options, candidateSourceTable, syncRules);
         doc = createDoc;
 
         await col.insertOne(doc, { session });
@@ -299,9 +305,9 @@ export abstract class MongoSyncBucketStorage
         replicaIdColumns: replicaIdColumns,
         snapshotComplete: doc.snapshot_done ?? true
       });
-      sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
+      sourceTable.syncEvent = syncRules.tableTriggersEvent(sourceTable);
+      sourceTable.syncData = syncRules.tableSyncsData(sourceTable);
+      sourceTable.syncParameters = syncRules.tableSyncsParameters(sourceTable);
       sourceTable.snapshotStatus =
         doc.snapshot_status == null
           ? undefined

@@ -6,6 +6,7 @@ import {
   ScopedParameterLookup,
   SqliteJsonRow
 } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
@@ -155,13 +156,15 @@ export interface SyncRuleStatus {
   snapshot_lsn: string | null;
 }
 export interface ResolveTablesOptions {
-  group_id: number;
   connection_id: number;
   connection_tag: string;
   entity_descriptor: SourceEntityDescriptor;
 
-  sync_rules: HydratedSyncRules;
   matchingSources: MatchingSources | null;
+  /**
+   * For tests only - custom id generator for stable ids.
+   */
+  idGenerator?: () => string | bson.ObjectId;
 }
 
 export interface ResolveTablesResult {

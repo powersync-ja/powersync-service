@@ -237,11 +237,9 @@ export class CDCStream {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof table.objectId}`);
     }
     const resolved = await batch.resolveTables({
-      group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: table,
-      sync_rules: this.syncRules,
       matchingSources: null
     });
     const primaryTable = resolved.tables[0];
