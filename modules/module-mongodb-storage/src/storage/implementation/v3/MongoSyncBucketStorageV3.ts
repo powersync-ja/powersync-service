@@ -14,6 +14,7 @@ import {
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
+  HydratedSyncRules,
   MatchingSources,
   ParameterLookupRows,
   ScopedParameterLookup,
@@ -264,12 +265,15 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return {};
   }
 
-  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+  async resolveTables(
+    options: storage.ResolveTablesOptions,
+    syncRules = this.getParsedSyncRules({ defaultSchema: options.entity_descriptor.schema })
+  ): Promise<storage.ResolveTablesResult> {
     if (options.matchingSources == null) {
-      return super.resolveTables(options);
+      return super.resolveTables(options, syncRules);
     }
 
-    const { group_id, connection_id, connection_tag, entity_descriptor, matchingSources } = options;
+    const { connection_id, connection_tag, entity_descriptor, matchingSources } = options;
     const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
@@ -281,7 +285,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const initializeSourceRecordsFor: bson.ObjectId[] = [];
 
     await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(group_id);
+      const col = this.db.commonSourceTables(this.group_id);
       const exactFilter: mongo.Filter<CommonSourceTableDocument> = {
         connection_id,
         schema_name: schema,
@@ -327,7 +331,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
         if (coversDesiredMembership || coversEventOnlyTable) {
           tables.push(
-            this.sourceTableFromDocument(doc, connection_tag, replicaIdColumns, options, {
+            this.sourceTableFromDocument(doc, connection_tag, replicaIdColumns, syncRules, {
               bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
               parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
             })
@@ -339,8 +343,9 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       const uncoveredLookupIds = [...desiredLookupIds].filter((id) => !coveredLookupIds.has(id));
 
       if (uncoveredBucketIds.length > 0 || uncoveredLookupIds.length > 0 || tables.length == 0) {
+        const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
         const sourceTable = new storage.SourceTable({
-          id: new bson.ObjectId(),
+          id,
           connectionTag: connection_tag,
           objectId,
           schema,
@@ -352,10 +357,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         });
         sourceTable.syncData = uncoveredBucketIds.length > 0;
         sourceTable.syncParameters = uncoveredLookupIds.length > 0;
-        sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
+        sourceTable.syncEvent = syncRules.tableTriggersEvent(sourceTable);
 
         const createDoc: SourceTableDocumentV3 = {
-          _id: sourceTable.id as bson.ObjectId,
+          _id: id,
           connection_id,
           relation_id: objectId,
           schema_name: schema,
@@ -392,7 +397,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       result = {
         tables,
         dropTables: dropTables.map((doc) =>
-          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connection_tag, [], options)
+          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connection_tag, [], syncRules)
         )
       };
     });
@@ -408,7 +413,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     doc: SourceTableDocumentV3,
     connectionTag: string,
     fallbackReplicaIdColumns: storage.ColumnDescriptor[],
-    options: storage.ResolveTablesOptions,
+    syncRules: HydratedSyncRules,
     memberships?: MatchingSources
   ): storage.SourceTable {
     const table = new storage.SourceTable({
@@ -426,7 +431,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     });
     table.syncData = table.bucketDataSources?.length != null && table.bucketDataSources.length > 0;
     table.syncParameters = table.parameterLookupSources?.length != null && table.parameterLookupSources.length > 0;
-    table.syncEvent = options.sync_rules.tableTriggersEvent(table);
+    table.syncEvent = syncRules.tableTriggersEvent(table);
     table.snapshotStatus =
       doc.snapshot_status == null
         ? undefined
@@ -440,13 +445,14 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected augmentCreatedSourceTableDocument(
     createDoc: CommonSourceTableDocument,
-    options: storage.ResolveTablesOptions,
-    candidateSourceTable: storage.SourceTable
+    _options: storage.ResolveTablesOptions,
+    candidateSourceTable: storage.SourceTable,
+    syncRules: HydratedSyncRules
   ): void {
-    const bucketDataSourceIds = options.sync_rules.definition.bucketDataSources
+    const bucketDataSourceIds = syncRules.definition.bucketDataSources
       .filter((source) => source.tableSyncsData(candidateSourceTable))
       .map((source) => this.mapping.bucketSourceId(source));
-    const parameterLookupSourceIds = options.sync_rules.definition.bucketParameterLookupSources
+    const parameterLookupSourceIds = syncRules.definition.bucketParameterLookupSources
       .filter((source) => source.tableSyncsParameters(candidateSourceTable))
       .map((source) => this.mapping.parameterLookupId(source));
 

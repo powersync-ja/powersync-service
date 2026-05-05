@@ -56,7 +56,10 @@ export interface MongoBucketBatchOptions {
   skipExistingRows: boolean;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
-  resolveTables: (options: storage.ResolveTablesOptions) => Promise<storage.ResolveTablesResult>;
+  resolveTables: (
+    options: storage.ResolveTablesOptions,
+    syncRules: HydratedSyncRules
+  ) => Promise<storage.ResolveTablesResult>;
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
@@ -150,7 +153,7 @@ export abstract class MongoBucketBatch
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    return this.options.resolveTables(options);
+    return this.options.resolveTables(options, this.sync_rules);
   }
 
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;

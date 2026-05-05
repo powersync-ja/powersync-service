@@ -819,11 +819,9 @@ WHERE  oid = $1::regclass`,
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
     const result = await batch.resolveTables({
-      group_id: this.group_id,
       connection_id: this.connection_id,
       connection_tag: this.connections.connectionTag,
       entity_descriptor: descriptor,
-      sync_rules: this.sync_rules,
       matchingSources: null
     });
     this.relationCache.updateAll(descriptor.objectId as number, result.tables);

@@ -38,26 +38,47 @@ export function makeTestTable(
  * This prepares for it.
  */
 export async function resolveTestTable(
-  _writer: storage.BucketStorageBatch,
+  writer: storage.BucketStorageBatch,
   name: string,
   replicaIdColumns: string[] | undefined,
   options: { tableIdStrings: boolean },
   idIndex: number = 1
 ) {
+  void idIndex;
+  void options;
+
   const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  // Generate unique ids per test table (if idIndex is specified), without completely
-  // breaking all the existing tests.
+  // Semi-hardcoded id for tests, to get consistent output.
+  // If the same test uses multiple tables, pass idIndex to get different ids.
   const idString = '6544e3899293153fa7b383' + (30 + idIndex).toString().padStart(2, '0');
   const id = options.tableIdStrings == false ? new bson.ObjectId(idString) : idString;
-  return new storage.SourceTable({
-    id: id,
-    connectionTag: storage.SourceTable.DEFAULT_TAG,
+  let didGenerateId = false;
+
+  const descriptor: storage.SourceEntityDescriptor = {
     objectId: relId,
     schema: 'public',
-    name: name,
-    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
-    snapshotComplete: true
+    name,
+    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 }))
+  };
+  const resolved = await writer.resolveTables({
+    connection_id: 1,
+    connection_tag: storage.SourceTable.DEFAULT_TAG,
+    entity_descriptor: descriptor,
+    matchingSources: null,
+    idGenerator: () => {
+      if (didGenerateId) {
+        throw new Error('idGenerator called multiple times - not supported in tests');
+      }
+      didGenerateId = true;
+      return id;
+    }
   });
+
+  const table = resolved.tables[0];
+  if (table == null) {
+    throw new Error(`Failed to resolve test table ${descriptor.schema}.${descriptor.name}`);
+  }
+  return table;
 }
 
 export function getBatchData(

@@ -49,7 +49,10 @@ export interface PostgresBucketBatchOptions {
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   storageConfig: storage.StorageVersionConfig;
-  resolveTables: (options: storage.ResolveTablesOptions) => Promise<storage.ResolveTablesResult>;
+  resolveTables: (
+    options: storage.ResolveTablesOptions,
+    syncRules: sync_rules.HydratedSyncRules
+  ) => Promise<storage.ResolveTablesResult>;
 }
 
 /**
@@ -141,7 +144,7 @@ export class PostgresBucketBatch
   }
 
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    return this.options.resolveTables(options);
+    return this.options.resolveTables(options, this.sync_rules);
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {

@@ -124,11 +124,9 @@ export class BinLogStream {
 
   async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
     const result = await batch.resolveTables({
-      group_id: this.groupId,
       connection_id: this.connectionId,
       connection_tag: this.connectionTag,
       entity_descriptor: entity,
-      sync_rules: this.syncRules,
       matchingSources: null
     });
     for (const table of result.tables) {
