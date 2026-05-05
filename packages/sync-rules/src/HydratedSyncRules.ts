@@ -7,6 +7,7 @@ import {
   EvaluationError,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
+  HydrationState,
   isEvaluatedParameters,
   isEvaluatedRow,
   isEvaluationError,
@@ -43,6 +44,7 @@ export class HydratedSyncRules {
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
+  private readonly hydrationState: HydrationState;
 
   constructor(params: {
     definition: SyncConfig;
@@ -53,6 +55,7 @@ export class HydratedSyncRules {
     compatibility?: CompatibilityContext;
   }) {
     const hydrationState = params.createParams.hydrationState;
+    this.hydrationState = hydrationState;
 
     this.definition = params.definition;
     this.innerEvaluateRow = mergeDataSources(hydrationState, params.bucketDataSources).evaluateRow;
@@ -116,7 +119,14 @@ export class HydratedSyncRules {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
-    const rawResults: EvaluationResult[] = this.innerEvaluateRow(options);
+    let rawResults: EvaluationResult[];
+    if (options.bucketDataSources != null) {
+      // TODO: cache these?
+      const e = mergeDataSources(this.hydrationState, options.bucketDataSources);
+      rawResults = e.evaluateRow(options);
+    } else {
+      rawResults = this.innerEvaluateRow(options);
+    }
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
 
@@ -126,8 +136,12 @@ export class HydratedSyncRules {
   /**
    * Throws errors.
    */
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[] {
-    const { results, errors } = this.evaluateParameterRowWithErrors(table, row);
+  evaluateParameterRow(
+    table: SourceTableInterface,
+    row: SqliteRow,
+    options?: { parameterLookupSources?: ParameterIndexLookupCreator[] }
+  ): EvaluatedParameters[] {
+    const { results, errors } = this.evaluateParameterRowWithErrors(table, row, options);
     if (errors.length > 0) {
       throw new Error(errors[0].error);
     }
@@ -136,9 +150,17 @@ export class HydratedSyncRules {
 
   evaluateParameterRowWithErrors(
     table: SourceTableInterface,
-    row: SqliteRow
+    row: SqliteRow,
+    options?: { parameterLookupSources?: ParameterIndexLookupCreator[] }
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
-    const rawResults: EvaluatedParametersResult[] = this.innerEvaluateParameterRow(table, row);
+    let rawResults: EvaluatedParametersResult[];
+    if (options?.parameterLookupSources != null) {
+      // TODO: cache these?
+      const e = mergeParameterIndexLookupCreators(this.hydrationState, options.parameterLookupSources);
+      rawResults = e.evaluateParameterRow(table, row);
+    } else {
+      rawResults = this.innerEvaluateParameterRow(table, row);
+    }
     const results = rawResults.filter(isEvaluatedParameters) as EvaluatedParameters[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
     return { results, errors };
