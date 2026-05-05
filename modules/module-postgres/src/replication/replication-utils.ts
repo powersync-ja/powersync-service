@@ -35,7 +35,7 @@ export async function getPrimaryKeyColumns(
   return attrRows.rows.map((row) => {
     return {
       name: row.decodeWithoutCustomTypes(0) as string,
-      typeId: row.decodeWithoutCustomTypes(1) as number
+      typeId: Number(row.decodeWithoutCustomTypes(1)) // source type can be a bigint, so always cast it
     } satisfies storage.ColumnDescriptor;
   });
 }

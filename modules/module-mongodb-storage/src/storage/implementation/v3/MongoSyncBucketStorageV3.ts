@@ -3,6 +3,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
+  ColumnDescriptor,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -426,8 +427,9 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       },
       objectId: doc.relation_id,
       replicaIdColumns:
-        doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ??
-        fallbackReplicaIdColumns,
+        doc.replica_id_columns2?.map(
+          (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
+        ) ?? fallbackReplicaIdColumns,
       snapshotComplete: doc.snapshot_done ?? true,
       bucketDataSources: memberships?.bucketDataSources ?? [],
       parameterLookupSources: memberships?.parameterLookupSources ?? []

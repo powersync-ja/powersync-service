@@ -4,6 +4,7 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
+  ColumnDescriptor,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -343,11 +344,14 @@ export class PostgresSyncRulesStorage
               },
               objectId: doc.relation_id?.object_id ?? 0,
               replicaIdColumns:
-                doc.replica_id_columns?.map((c) => ({
-                  name: c.name,
-                  typeOid: c.typeId,
-                  type: c.type
-                })) ?? [],
+                doc.replica_id_columns?.map(
+                  (c) =>
+                    ({
+                      name: c.name,
+                      typeId: c.typeId,
+                      type: c.type
+                    }) satisfies ColumnDescriptor
+                ) ?? [],
               snapshotComplete: doc.snapshot_done ?? true
             })
         )
