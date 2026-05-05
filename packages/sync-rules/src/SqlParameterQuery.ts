@@ -23,7 +23,7 @@ import {
   UnscopedEvaluatedParameters,
   UnscopedEvaluatedParametersResult
 } from './index.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
@@ -343,7 +343,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     };
   }
 
-  tableSyncsParameters(table: SourceTableInterface): boolean {
+  tableSyncsParameters(table: SourceTableRef): boolean {
     return this.sourceTable.matches(table);
   }
 
@@ -367,7 +367,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
   /**
    * Given a replicated row, results an array of bucket parameter rows to persist.
    */
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
+  evaluateParameterRow(sourceTable: SourceTableRef, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
     if (!this.tableSyncsParameters(sourceTable)) {
       return [];
     }

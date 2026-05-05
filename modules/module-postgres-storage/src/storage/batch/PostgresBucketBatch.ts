@@ -908,7 +908,7 @@ export class PostgresBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable: sourceTable.ref
         });
 
         for (const error of syncErrors) {
@@ -947,7 +947,7 @@ export class PostgresBucketBatch
       if (sourceTable.syncParameters) {
         // Parameters
         const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
-          sourceTable,
+          sourceTable.ref,
           after
         );
 
@@ -1072,7 +1072,7 @@ export class PostgresBucketBatch
    */
   protected getTableEvents(table: storage.SourceTable): sync_rules.SqlEventDescriptor[] {
     return this.sync_rules.eventDescriptors.filter((evt) =>
-      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
     );
   }
 

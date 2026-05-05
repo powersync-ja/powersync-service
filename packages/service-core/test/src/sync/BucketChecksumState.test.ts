@@ -16,7 +16,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import {
   ParameterIndexLookupCreator,
   ScopedParameterLookup,
-  SourceTableInterface,
+  SourceTableRef,
   SqliteJsonRow,
   SqliteRow,
   SqlSyncRules,
@@ -38,10 +38,10 @@ describe('BucketChecksumState', () => {
     getSourceTables(): Set<TablePattern> {
       return new Set();
     },
-    evaluateParameterRow(_sourceTable: SourceTableInterface, _row: SqliteRow) {
+    evaluateParameterRow(_sourceTable: SourceTableRef, _row: SqliteRow) {
       return [];
     },
-    tableSyncsParameters(_table: SourceTableInterface): boolean {
+    tableSyncsParameters(_table: SourceTableRef): boolean {
       return false;
     }
   };

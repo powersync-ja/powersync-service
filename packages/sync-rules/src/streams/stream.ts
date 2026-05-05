@@ -10,7 +10,7 @@ import {
   ParameterIndexLookupCreator
 } from '../BucketSource.js';
 import { ColumnDefinition } from '../ExpressionType.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
+import { SourceTableRef } from '../SourceTableRef.js';
 import { TablePattern } from '../TablePattern.js';
 import { EvaluateRowOptions, SourceSchema, TableRow, UnscopedEvaluationResult } from '../types.js';
 import { StreamVariant } from './variant.js';
@@ -100,7 +100,7 @@ export class SyncStreamDataSource implements BucketDataSource {
     return new Set<TablePattern>([this.data.sourceTable]);
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     return this.data.applies(table);
   }
 

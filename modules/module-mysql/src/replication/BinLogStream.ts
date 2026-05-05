@@ -122,16 +122,14 @@ export class BinLogStream {
     return this.connections.databaseName;
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, entity: storage.SourceEntityDescriptor, snapshot: boolean) {
+  async handleRelation(batch: storage.BucketStorageBatch, source: storage.SourceEntityDescriptor, snapshot: boolean) {
     const result = await batch.resolveTables({
       connection_id: this.connectionId,
-      connection_tag: this.connectionTag,
-      entity_descriptor: entity,
-      matchingSources: null
+      source
     });
     for (const table of result.tables) {
       // Since we create the objectId ourselves, this is always defined
-      this.tableCache.set(entity.objectId!, table);
+      this.tableCache.set(source.objectId!, table);
     }
 
     // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
@@ -196,6 +194,7 @@ export class BinLogStream {
         {
           name: matchedTable,
           schema: tablePattern.schema,
+          connectionTag: this.connectionTag,
           objectId: createTableId(tablePattern.schema, matchedTable),
           replicaIdColumns: replicaIdColumns
         },
@@ -307,11 +306,11 @@ export class BinLogStream {
     batch: storage.BucketStorageBatch,
     table: storage.SourceTable
   ) {
-    this.logger.info(`Replicating ${qualifiedMySQLTable(table)}`);
+    this.logger.info(`Replicating ${qualifiedMySQLTable(table.ref)}`);
     // TODO count rows and log progress at certain batch sizes
 
     // MAX_EXECUTION_TIME(0) hint disables execution timeout for this query
-    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${qualifiedMySQLTable(table)}`);
+    const query = connection.query(`SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM ${qualifiedMySQLTable(table.ref)}`);
     const stream = query.stream();
 
     let columns: Map<string, ColumnDescriptor> | undefined = undefined;
@@ -558,6 +557,7 @@ export class BinLogStream {
       {
         name: tableName,
         schema: schema,
+        connectionTag: this.connectionTag,
         objectId: createTableId(schema, tableName),
         replicaIdColumns: replicaIdColumns
       },

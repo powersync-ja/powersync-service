@@ -186,11 +186,11 @@ export class PostgresSyncRulesStorage
 
   async resolveTables(
     options: storage.ResolveTablesOptions,
-    syncRules = this.getParsedSyncRules({ defaultSchema: options.entity_descriptor.schema })
+    syncRules = this.getParsedSyncRules({ defaultSchema: options.source.schema })
   ): Promise<storage.ResolveTablesResult> {
-    const { connection_id, connection_tag, entity_descriptor } = options;
+    const { connection_id, source } = options;
 
-    const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
+    const { schema: schema, name: table, objectId, replicaIdColumns, connectionTag } = source;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
@@ -267,10 +267,8 @@ export class PostgresSyncRulesStorage
 
       const sourceTable = new storage.SourceTable({
         id: sourceTableRow!.id,
-        connectionTag: connection_tag,
+        ref: source,
         objectId: objectId,
-        schema: schema,
-        name: table,
         replicaIdColumns: replicaIdColumns,
         snapshotComplete: sourceTableRow!.snapshot_done ?? true
       });
@@ -281,9 +279,9 @@ export class PostgresSyncRulesStorage
           lastKey: sourceTableRow!.snapshot_last_key
         };
       }
-      sourceTable.syncEvent = syncRules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = syncRules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = syncRules.tableSyncsParameters(sourceTable);
+      sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
+      sourceTable.syncData = syncRules.tableSyncsData(source);
+      sourceTable.syncParameters = syncRules.tableSyncsParameters(source);
 
       let truncatedTables: SourceTableDecoded[] = [];
       if (objectId != null) {
@@ -333,10 +331,12 @@ export class PostgresSyncRulesStorage
           (doc) =>
             new storage.SourceTable({
               id: doc.id,
-              connectionTag: connection_tag,
+              ref: {
+                connectionTag,
+                schema: doc.schema_name,
+                name: doc.table_name
+              },
               objectId: doc.relation_id?.object_id ?? 0,
-              schema: doc.schema_name,
-              name: doc.table_name,
               replicaIdColumns:
                 doc.replica_id_columns?.map((c) => ({
                   name: c.name,

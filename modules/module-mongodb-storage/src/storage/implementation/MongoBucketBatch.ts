@@ -485,7 +485,7 @@ export abstract class MongoBucketBatch
       if (sourceTable.syncData) {
         const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable,
+          sourceTable: sourceTable.ref,
           bucketDataSources: sourceTable.bucketDataSources
         });
         const evaluated = results;
@@ -520,7 +520,7 @@ export abstract class MongoBucketBatch
       if (sourceTable.syncParameters) {
         // Parameters
         const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
-          sourceTable,
+          sourceTable.ref,
           after,
           { parameterLookupSources: sourceTable.parameterLookupSources }
         );
@@ -870,7 +870,7 @@ export abstract class MongoBucketBatch
    */
   protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
     return this.sync_rules.eventDescriptors.filter((evt) =>
-      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
     );
   }
 }

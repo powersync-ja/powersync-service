@@ -1,5 +1,1 @@
-export interface SourceTableInterface {
-  readonly connectionTag: string;
-  readonly schema: string;
-  readonly name: string;
-}
+export { SourceTableRef as SourceRowTableInterface, SourceTableRef as SourceTableInterface } from './SourceTableRef.js';

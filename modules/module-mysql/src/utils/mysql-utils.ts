@@ -1,5 +1,5 @@
 import { logger } from '@powersync/lib-services-framework';
-import { SourceEntityDescriptor } from '@powersync/service-core';
+import { SourceTableRef } from '@powersync/service-sync-rules';
 import mysql from 'mysql2';
 import mysqlPromise from 'mysql2/promise';
 import { coerce, gte, satisfies } from 'semver';
@@ -101,10 +101,10 @@ export function satisfiesVersion(version: string, targetVersion: string): boolea
   return satisfies(coercedVersion!, targetVersion!, { loose: true });
 }
 
-export function qualifiedMySQLTable(table: SourceEntityDescriptor): string;
+export function qualifiedMySQLTable(table: SourceTableRef): string;
 export function qualifiedMySQLTable(table: string, schema: string): string;
 
-export function qualifiedMySQLTable(table: SourceEntityDescriptor | string, schema?: string): string {
+export function qualifiedMySQLTable(table: SourceTableRef | string, schema?: string): string {
   if (typeof table === 'object') {
     return `\`${table.schema.replaceAll('`', '``')}\`.\`${table.name.replaceAll('`', '``')}\``;
   } else if (schema) {

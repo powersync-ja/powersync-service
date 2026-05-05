@@ -5,7 +5,6 @@ import {
   Logger,
   ReplicationAssertionError
 } from '@powersync/lib-services-framework';
-import { SourceEntityDescriptor } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
 import sql from 'mssql';
 import timers from 'timers/promises';
@@ -15,7 +14,7 @@ import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { AdditionalConfig } from '../types/types.js';
 import { isDeadlockError } from '../utils/deadlock.js';
 import { CaptureInstanceDetails, getCaptureInstances, incrementLSN, toQualifiedTableName } from '../utils/mssql.js';
-import { tableExists } from '../utils/schema.js';
+import { SourceTableChangeRef, tableExists } from '../utils/schema.js';
 import { MSSQLConnectionManager } from './MSSQLConnectionManager.js';
 
 enum Operation {
@@ -43,7 +42,7 @@ export interface SchemaChange {
   /**
    *  Populated for new tables or renames, but only if the new table matches a sync rule source table.
    */
-  newTable?: Omit<SourceEntityDescriptor, 'replicaIdColumns'>;
+  newTable?: SourceTableChangeRef;
 
   newCaptureInstance?: CaptureInstance;
 }

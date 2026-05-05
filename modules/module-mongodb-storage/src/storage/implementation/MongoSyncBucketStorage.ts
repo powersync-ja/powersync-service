@@ -21,7 +21,7 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ScopedParameterLookup, SourceTableRef, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -230,7 +230,7 @@ export abstract class MongoSyncBucketStorage
   protected abstract augmentCreatedSourceTableDocument(
     createDoc: CommonSourceTableDocument,
     options: storage.ResolveTablesOptions,
-    candidateSourceTable: storage.SourceTable,
+    ref: SourceTableRef,
     syncRules: HydratedSyncRules
   ): void;
 
@@ -238,11 +238,11 @@ export abstract class MongoSyncBucketStorage
 
   async resolveTables(
     options: storage.ResolveTablesOptions,
-    syncRules = this.getParsedSyncRules({ defaultSchema: options.entity_descriptor.schema })
+    syncRules = this.getParsedSyncRules({ defaultSchema: options.source.schema })
   ): Promise<storage.ResolveTablesResult> {
-    const { connection_id, connection_tag, entity_descriptor } = options;
+    const { connection_id, source } = options;
 
-    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
+    const { schema: schema, name: name, objectId, replicaIdColumns, connectionTag } = source;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
@@ -269,15 +269,6 @@ export abstract class MongoSyncBucketStorage
       let doc = await col.findOne(filter, { session });
       if (doc == null) {
         const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
-        const candidateSourceTable = new storage.SourceTable({
-          id,
-          connectionTag: connection_tag,
-          objectId: objectId,
-          schema: schema,
-          name: name,
-          replicaIdColumns: replicaIdColumns,
-          snapshotComplete: false
-        });
         const createDoc: CommonSourceTableDocument = {
           _id: id,
           ...(baseId as any),
@@ -290,7 +281,7 @@ export abstract class MongoSyncBucketStorage
           snapshot_done: false,
           snapshot_status: undefined
         };
-        this.augmentCreatedSourceTableDocument(createDoc, options, candidateSourceTable, syncRules);
+        this.augmentCreatedSourceTableDocument(createDoc, options, source, syncRules);
         doc = createDoc;
 
         await col.insertOne(doc, { session });
@@ -298,16 +289,14 @@ export abstract class MongoSyncBucketStorage
       }
       const sourceTable = new storage.SourceTable({
         id: doc._id,
-        connectionTag: connection_tag,
+        ref: source,
         objectId: objectId,
-        schema: schema,
-        name: name,
         replicaIdColumns: replicaIdColumns,
         snapshotComplete: doc.snapshot_done ?? true
       });
-      sourceTable.syncEvent = syncRules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = syncRules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = syncRules.tableSyncsParameters(sourceTable);
+      sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
+      sourceTable.syncData = syncRules.tableSyncsData(source);
+      sourceTable.syncParameters = syncRules.tableSyncsParameters(source);
       sourceTable.snapshotStatus =
         doc.snapshot_status == null
           ? undefined
@@ -337,10 +326,12 @@ export abstract class MongoSyncBucketStorage
         (doc) =>
           new storage.SourceTable({
             id: doc._id,
-            connectionTag: connection_tag,
+            ref: {
+              connectionTag,
+              schema: doc.schema_name,
+              name: doc.table_name
+            },
             objectId: doc.relation_id,
-            schema: doc.schema_name,
-            name: doc.table_name,
             replicaIdColumns:
               doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
             snapshotComplete: doc.snapshot_done ?? true

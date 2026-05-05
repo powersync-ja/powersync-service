@@ -23,7 +23,7 @@ import {
   SqliteValue,
   SyncConfig
 } from './index.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 
 export interface MatchingSources {
@@ -80,19 +80,24 @@ export class HydratedSyncRules {
     return this.definition.getSourceTables();
   }
 
-  tableTriggersEvent(table: SourceTableInterface): boolean {
+  tableTriggersEvent(table: SourceTableRef): boolean {
     return this.definition.tableTriggersEvent(table);
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     return this.definition.tableSyncsData(table);
   }
 
-  tableSyncsParameters(table: SourceTableInterface): boolean {
+  tableSyncsParameters(table: SourceTableRef): boolean {
     return this.definition.tableSyncsParameters(table);
   }
 
-  getMatchingSources(table: SourceTableInterface): MatchingSources {
+  getMatchingSources(source: SourceTableRef): MatchingSources {
+    const table: SourceTableRef = {
+      connectionTag: source.connectionTag,
+      schema: source.schema,
+      name: source.name
+    };
     return {
       bucketDataSources: this.definition.bucketDataSources.filter((source) => source.tableSyncsData(table)),
       parameterLookupSources: this.definition.bucketParameterLookupSources.filter((source) =>
@@ -137,7 +142,7 @@ export class HydratedSyncRules {
    * Throws errors.
    */
   evaluateParameterRow(
-    table: SourceTableInterface,
+    table: SourceTableRef,
     row: SqliteRow,
     options?: { parameterLookupSources?: ParameterIndexLookupCreator[] }
   ): EvaluatedParameters[] {
@@ -149,7 +154,7 @@ export class HydratedSyncRules {
   }
 
   evaluateParameterRowWithErrors(
-    table: SourceTableInterface,
+    table: SourceTableRef,
     row: SqliteRow,
     options?: { parameterLookupSources?: ParameterIndexLookupCreator[] }
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {

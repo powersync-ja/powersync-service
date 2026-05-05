@@ -14,6 +14,7 @@ export * from './json_schema.js';
 export * from './request_functions.js';
 export * from './schema-generators/schema-generators.js';
 export * from './SourceTableInterface.js';
+export * from './SourceTableRef.js';
 export * from './sql_filters.js';
 export * from './sql_functions.js';
 export * from './sql_support.js';

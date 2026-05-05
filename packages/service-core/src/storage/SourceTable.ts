@@ -1,7 +1,12 @@
-import { BucketDataSource, DEFAULT_TAG, ParameterIndexLookupCreator } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  DEFAULT_TAG,
+  ParameterIndexLookupCreator,
+  SourceTableRef
+} from '@powersync/service-sync-rules';
 import { bson } from '../index.js';
 import * as util from '../util/util-index.js';
-import { ColumnDescriptor, SourceEntityDescriptor } from './SourceEntity.js';
+import { ColumnDescriptor } from './SourceEntity.js';
 
 /**
  * Format of the id depends on the bucket storage module. It should be consistent within the module.
@@ -10,10 +15,8 @@ export type SourceTableId = string | bson.ObjectId;
 
 export interface SourceTableOptions {
   id: SourceTableId;
-  connectionTag: string;
+  ref: SourceTableRef;
   objectId: number | string | undefined;
-  schema: string;
-  name: string;
   replicaIdColumns: ColumnDescriptor[];
   snapshotComplete: boolean;
   bucketDataSources?: BucketDataSource[];
@@ -26,7 +29,13 @@ export interface TableSnapshotStatus {
   lastKey: Uint8Array | null;
 }
 
-export class SourceTable implements SourceEntityDescriptor {
+/**
+ * Represents a resolved source table.
+ *
+ * There could be multiple of these for the same SourceTableRef.
+ * For that reason, we do not implement the SourceTableRef interface, to ensure that the two are not used interchangably.
+ */
+export class SourceTable {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
   /**
@@ -73,19 +82,19 @@ export class SourceTable implements SourceEntityDescriptor {
     return this.options.id;
   }
 
-  get connectionTag() {
-    return this.options.connectionTag;
-  }
-
   get objectId() {
     return this.options.objectId;
   }
 
   get schema() {
-    return this.options.schema;
+    return this.options.ref.schema;
   }
   get name() {
-    return this.options.name;
+    return this.options.ref.name;
+  }
+
+  get ref() {
+    return this.options.ref;
   }
 
   get replicaIdColumns() {
@@ -101,11 +110,11 @@ export class SourceTable implements SourceEntityDescriptor {
   }
 
   /**
-   *  Sanitized name of the entity in the format of "{schema}.{entity name}"
-   *  Suitable for safe use in Postgres queries.
+   * Sanitized name of the entity in the format of "{schema}.{entity name}".
+   * Suitable for safe use in Postgres queries.
    */
   get qualifiedName() {
-    return `${util.escapeIdentifier(this.schema)}.${util.escapeIdentifier(this.name)}`;
+    return util.qualifiedName(this.ref);
   }
 
   get syncAny() {
@@ -118,10 +127,8 @@ export class SourceTable implements SourceEntityDescriptor {
   clone() {
     const copy = new SourceTable({
       id: this.id,
-      connectionTag: this.connectionTag,
+      ref: this.options.ref,
       objectId: this.objectId,
-      schema: this.schema,
-      name: this.name,
       replicaIdColumns: this.replicaIdColumns,
       snapshotComplete: this.snapshotComplete,
       bucketDataSources: this.bucketDataSources,
