@@ -1,7 +1,7 @@
-import { setTimeout as delay } from 'timers/promises';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { NormalizedConvexConnectionConfig } from '../types/types.js';
+import { setTimeout as delay } from 'timers/promises';
 import { CONVEX_CHECKPOINT_TABLE } from '../common/ConvexCheckpoints.js';
+import { NormalizedConvexConnectionConfig } from '../types/types.js';
 
 const CONVEX_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -192,7 +192,7 @@ export class ConvexApiClient {
     extraHeaders?: Record<string, string>;
     includeJsonFormat?: boolean;
   }): Promise<Record<string, any>> {
-    const url = new URL(options.path, this.config.deploymentUrl);
+    const url = new URL(options.path, this.config.deployment_url);
     if (options.includeJsonFormat ?? true) {
       url.searchParams.set('format', 'json');
     }
@@ -222,7 +222,7 @@ export class ConvexApiClient {
       const response = await fetch(url, {
         method: options.method ?? 'GET',
         headers: {
-          Authorization: `Convex ${this.config.deployKey}`,
+          Authorization: `Convex ${this.config.deploy_key}`,
           Accept: 'application/json',
           ...(options.extraHeaders ?? {})
         },
@@ -286,7 +286,7 @@ export class ConvexApiClient {
       return;
     }
 
-    const hostname = new URL(this.config.deploymentUrl).hostname;
+    const hostname = new URL(this.config.deployment_url).hostname;
 
     await new Promise<void>((resolve, reject) => {
       this.config.lookup!(hostname, {}, (error) => {

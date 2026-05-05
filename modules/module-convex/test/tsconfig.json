@@ -1,8 +1,7 @@
 {
   "extends": "../../../tsconfig.tests.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "baseUrl": "./",
+    "rootDir": "..",
     "noEmit": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -10,10 +9,11 @@
     "paths": {
       "@/*": ["../../../packages/service-core/src/*"],
       "@module/*": ["../src/*"],
-      "@core-tests/*": ["../../../packages/service-core/test/src/*"]
+      "@core-tests/*": ["../../../packages/service-core/test/src/*"],
+      "@testing-convex/*": ["../convex/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "../convex/**/*.ts"],
   "references": [
     {
       "path": "../"

@@ -60,6 +60,8 @@ export class ConvexStream {
   private lastKeepaliveAt = 0;
   private lastTouchedAt = performance.now();
 
+  private initialSnapshotPromise: Promise<void> | null = null;
+
   constructor(private readonly options: ConvexStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
@@ -84,7 +86,7 @@ export class ConvexStream {
   }
 
   private get pollingIntervalMs() {
-    return this.connections.config.pollingIntervalMs;
+    return this.connections.config.polling_interval_ms;
   }
 
   get stopped() {
@@ -93,12 +95,27 @@ export class ConvexStream {
 
   async replicate() {
     try {
-      await this.initReplication();
+      this.initialSnapshotPromise = this.initReplication();
+      // This pattern/member is used for tests
+      await this.initialSnapshotPromise;
+
       await this.streamChanges();
     } catch (error) {
       await this.storage.reportError(error);
       throw error;
     }
+  }
+
+  /**
+   * After calling replicate(), call this to wait for the initial snapshot to complete.
+   *
+   * For tests only.
+   */
+  async waitForInitialSnapshot() {
+    if (this.initialSnapshotPromise == null) {
+      throw new ReplicationAssertionError(`Initial snapshot not started yet`);
+    }
+    return this.initialSnapshotPromise;
   }
 
   async initReplication() {

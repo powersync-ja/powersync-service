@@ -18,6 +18,19 @@ replication:
 
 1. Simplest is to run the convex demo in the self-host-demo [repo](https://github.com/powersync-ja/self-host-demo)
 
+# Development
+
+Run the `dev:convex` script to start a local Convex development instance.
+
+```bash
+# In the modules/module-convex folder
+pnpm run dev:convex
+
+# OR
+# From the repo root
+pnpm run -C modules/modules-convex dev:convex
+```
+
 # Technical notes
 
 The content below is written in an agents.md style describing the behavior of `module-convex`.

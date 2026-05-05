@@ -1,3 +1,10 @@
 import { serviceIntegrationTestConfig } from '../test_config';
 
-export default serviceIntegrationTestConfig(__dirname);
+const baseConfig = serviceIntegrationTestConfig(__dirname);
+baseConfig.resolve = {
+  ...baseConfig.resolve,
+  alias: {
+    ...baseConfig.resolve?.alias
+  }
+};
+export default baseConfig;

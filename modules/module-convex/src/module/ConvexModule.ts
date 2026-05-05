@@ -34,7 +34,7 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
     const connectionFactory = new ConvexConnectionManagerFactory(normalizedConfig);
 
     return new ConvexReplicator({
-      id: this.getDefaultId(normalizedConfig.deploymentUrl),
+      id: this.getDefaultId(normalizedConfig.deployment_url),
       syncRuleProvider,
       storageEngine: context.storageEngine,
       metricsEngine: context.metricsEngine,
@@ -69,7 +69,7 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
     }
 
     return {
-      connectionDescription: normalizedConfig.deploymentUrl
+      connectionDescription: normalizedConfig.deployment_url
     };
   }
 }

@@ -8,12 +8,13 @@ export const CONVEX_CONNECTION_TYPE = 'convex' as const;
 export interface NormalizedConvexConnectionConfig {
   id: string;
   tag: string;
+  type: typeof CONVEX_CONNECTION_TYPE;
 
-  deploymentUrl: string;
-  deployKey: string;
+  deployment_url: string;
+  deploy_key: string;
 
-  debugApi: boolean;
-  pollingIntervalMs: number;
+  debug_api: boolean;
+  polling_interval_ms: number;
 
   lookup?: LookupFunction;
 }
@@ -65,17 +66,18 @@ export function normalizeConnectionConfig(options: ConvexConnectionConfig): Norm
   return {
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
+    type: 'convex',
 
-    deploymentUrl: deploymentURL.toString().replace(/\/$/, ''),
-    deployKey: options.deploy_key,
+    deployment_url: deploymentURL.toString().replace(/\/$/, ''),
+    deploy_key: options.deploy_key,
 
-    debugApi: options.debug_api ?? false,
-    pollingIntervalMs: options.polling_interval_ms ?? 1_000,
+    debug_api: options.debug_api ?? false,
+    polling_interval_ms: options.polling_interval_ms ?? 1_000,
 
     lookup
   };
 }
 
 export function baseUri(config: ResolvedConvexConnectionConfig) {
-  return config.deploymentUrl;
+  return config.deployment_url;
 }
