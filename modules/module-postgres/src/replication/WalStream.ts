@@ -1087,7 +1087,13 @@ WHERE  oid = $1::regclass`,
 
     const markRecordUnavailable = (record: SaveUpdate) => {
       if (!IdSnapshotQuery.supports(record.sourceTable)) {
-        // If it's not supported, it's also safe to ignore
+        // We only have a targeted resnapshot implementation for tables supported by IdSnapshotQuery.
+        // For unsupported tables we cannot repair missing TOAST values here; leave the row unchanged
+        // and rely on a later full row update or a future full snapshot to correct it.
+        // FIXME: We should support resnapshot for any row.
+        this.logger.warn(
+          `Missing record for ${record.sourceTable.qualifiedName}: ${record.afterReplicaId} / ${record.after.id}`
+        );
         return;
       }
       let key: PrimaryKeyValue = {};
