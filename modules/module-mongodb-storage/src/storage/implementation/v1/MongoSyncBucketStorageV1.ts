@@ -221,15 +221,16 @@ export async function getParameterSetsV1(
             }
           },
           {
-            $limit: limit + 1
-          },
-          {
             $group: {
               _id: { key: '$key', lookup: '$lookup' },
               bucket_parameters: {
                 $first: '$bucket_parameters'
               }
             }
+          },
+          { $unwind: '$bucket_parameters' },
+          {
+            $limit: limit + 1
           }
         ],
         {
@@ -242,10 +243,8 @@ export async function getParameterSetsV1(
       .catch((e) => {
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
-    const groupedParameters = rows.map((row) => {
-      return row.bucket_parameters;
-    });
-    const results = groupedParameters.flat();
+
+    const results = rows.map((row) => row.bucket_parameters);
     if (results.length > limit) {
       throw new ParameterSetLimitExceededError(limit);
     }

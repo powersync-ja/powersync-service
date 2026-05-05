@@ -411,6 +411,7 @@ export class PostgresSyncRulesStorage
         bucket_parameters
       WHERE
         group_id = ${{ type: 'int4', value: this.group_id }}
+        AND bucket_parameters != '[]'
         AND lookup = ANY (
           SELECT
             decode((FILTER ->> 0)::text, 'hex') -- Decode the hex string to bytea
@@ -431,14 +432,20 @@ export class PostgresSyncRulesStorage
     `
       .decoded(pick(models.BucketParameters, ['bucket_parameters']))
       .rows();
-    if (rows.length > limit) {
+
+    const parameters = rows
+      .map((row) => {
+        return JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow[];
+      })
+      .flat();
+
+    if (parameters.length > limit) {
+      // Note that the LIMIT in the query allows more rows than parameters (because each row stores an array of
+      // parameter results). In most cases though, it is unlikely for that array to become very large and so the limit
+      // is good enough.
       throw new ParameterSetLimitExceededError(limit);
     }
-
-    const groupedParameters = rows.map((row) => {
-      return JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow;
-    });
-    return groupedParameters.flat();
+    return parameters;
   }
 
   async *getBucketDataBatch(

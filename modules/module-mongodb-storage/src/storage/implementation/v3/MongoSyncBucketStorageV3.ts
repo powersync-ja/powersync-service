@@ -239,9 +239,6 @@ export async function getParameterSetsV3(
               _id: -1
             }
           },
-          // This limit still allows returning too many rows because this filter might be put into a $unionWith, but
-          // at least the amount of rows we'd return isn't unbounded.
-          { $limit: limit + 1 },
           {
             $group: {
               _id: {
@@ -278,11 +275,13 @@ export async function getParameterSetsV3(
             pipeline: query.pipeline
           }
         };
-      })
+      }),
+      { $unwind: '$bucket_parameters' },
+      { $limit: limit + 1 }
     ];
 
     const rows = await firstQuery.collection
-      .aggregate<{ bucket_parameters: SqliteJsonRow[] }>(pipeline, {
+      .aggregate<{ bucket_parameters: SqliteJsonRow }>(pipeline, {
         session,
         readConcern: 'snapshot',
         maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
@@ -292,7 +291,7 @@ export async function getParameterSetsV3(
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
 
-    const expandedRows = rows.flatMap((row) => row.bucket_parameters);
+    const expandedRows = rows.map((row) => row.bucket_parameters);
     if (expandedRows.length > limit) {
       throw new ParameterSetLimitExceededError(limit);
     }
