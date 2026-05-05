@@ -401,32 +401,40 @@ export class PostgresSyncRulesStorage
     limit: number
   ): Promise<sync_rules.SqliteJsonRow[]> {
     const rows = await this.db.sql`
-      SELECT DISTINCT
-        ON (lookup, source_table, source_key) lookup,
-        source_table,
-        source_key,
-        id,
-        bucket_parameters
-      FROM
-        bucket_parameters
-      WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
-        AND bucket_parameters != '[]'
-        AND lookup = ANY (
-          SELECT
-            decode((FILTER ->> 0)::text, 'hex') -- Decode the hex string to bytea
+      WITH
+        rows AS (
+          SELECT DISTINCT
+            ON (lookup, source_table, source_key) lookup,
+            source_table,
+            source_key,
+            id,
+            bucket_parameters
           FROM
-            jsonb_array_elements(${{
+            bucket_parameters
+          WHERE
+            group_id = ${{ type: 'int4', value: this.group_id }}
+            AND lookup = ANY (
+              SELECT
+                decode((FILTER ->> 0)::text, 'hex') -- Decode the hex string to bytea
+              FROM
+                jsonb_array_elements(${{
         type: 'jsonb',
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
       }}) AS FILTER
+            )
+            AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
+          ORDER BY
+            lookup,
+            source_table,
+            source_key,
+            id DESC
         )
-        AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
-      ORDER BY
-        lookup,
-        source_table,
-        source_key,
-        id DESC
+      SELECT
+        bucket_parameters
+      FROM
+        rows
+      WHERE
+        bucket_parameters != '[]'
       LIMIT
         ${{ type: 'int4', value: limit + 1 }}
     `
@@ -441,8 +449,8 @@ export class PostgresSyncRulesStorage
 
     if (parameters.length > limit) {
       // Note that the LIMIT in the query allows more rows than parameters (because each row stores an array of
-      // parameter results). In most cases though, it is unlikely for that array to become very large and so the limit
-      // is good enough.
+      // parameter results). That array is very small though, and it doesn't allow fewer rows (due to the != []), so
+      // the SQL limit is good enough.
       throw new ParameterSetLimitExceededError(limit);
     }
     return parameters;
