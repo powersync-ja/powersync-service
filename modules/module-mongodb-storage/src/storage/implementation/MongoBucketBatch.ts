@@ -484,10 +484,14 @@ export abstract class MongoBucketBatch
           record: after,
           sourceTable
         });
-        const evaluated =
+        const allowedBucketSourceIds =
           sourceTable.bucketDataSources == null
+            ? null
+            : new Set(sourceTable.bucketDataSources.map((source) => this.mapping.bucketSourceId(source)));
+        const evaluated =
+          allowedBucketSourceIds == null
             ? results
-            : results.filter((result) => sourceTable.bucketDataSources!.includes(result.source));
+            : results.filter((result) => allowedBucketSourceIds.has(this.mapping.bucketSourceId(result.source)));
 
         for (let error of syncErrors) {
           container.reporter.captureMessage(
@@ -519,10 +523,16 @@ export abstract class MongoBucketBatch
       if (sourceTable.syncParameters) {
         // Parameters
         const { results, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(sourceTable, after);
-        const paramEvaluated =
+        const allowedParameterLookupIds =
           sourceTable.parameterLookupSources == null
+            ? null
+            : new Set(sourceTable.parameterLookupSources.map((source) => this.mapping.parameterLookupId(source)));
+        const paramEvaluated =
+          allowedParameterLookupIds == null
             ? results
-            : results.filter((result) => sourceTable.parameterLookupSources!.includes(result.lookup.source));
+            : results.filter((result) =>
+                allowedParameterLookupIds.has(this.mapping.parameterLookupId(result.lookup.source))
+              );
 
         for (let error of paramErrors) {
           container.reporter.captureMessage(
