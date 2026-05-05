@@ -831,4 +831,82 @@ streams:
       })
     ).rejects.toThrow('Too many parameter results (limit was 5)');
   });
+
+  test('sync streams store multiple parameter outputs for a single source row and lookup', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
+config:
+  edition: 3
+streams:
+  chat:
+    accept_potentially_dangerous_queries: true
+    query: |
+      SELECT users.*
+      FROM users
+      JOIN conversations
+      JOIN json_each(conversations.members) AS members
+      WHERE users.id = members.value
+        AND conversations.id = subscription.parameter('chat')
+    `)
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const conversationsTable = await test_utils.resolveTestTable(writer, 'conversations', ['id'], config);
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: conversationsTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'chat-1',
+        members: JSON.stringify(['user-1', 'user-2'])
+      },
+      afterReplicaId: test_utils.rid('chat-1')
+    });
+
+    await writer.commit('1/1');
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'unused' }), {});
+    const querier = sync_rules.getBucketParameterQuerier({
+      ...test_utils.querierOptions(parameters),
+      streams: {
+        chat: [
+          {
+            priorityOverride: null,
+            parameters: { chat: 'chat-1' },
+            opaque_id: 123
+          }
+        ]
+      }
+    }).querier;
+
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['chat-1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
+
+        expect(parameter_sets).toEqual([{ '0': 'user-1' }, { '0': 'user-2' }]);
+        return parameter_sets;
+      }
+    });
+
+    expect(buckets).toMatchObject([
+      {
+        bucket: expect.stringMatching(/chat.*\["user-1"\]$/),
+        definition: 'chat',
+        inclusion_reasons: [{ subscription: 123 }],
+        priority: 3
+      },
+      {
+        bucket: expect.stringMatching(/chat.*\["user-2"\]$/),
+        definition: 'chat',
+        inclusion_reasons: [{ subscription: 123 }],
+        priority: 3
+      }
+    ]);
+  });
 }
