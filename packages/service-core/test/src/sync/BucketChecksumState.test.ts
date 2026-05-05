@@ -1004,28 +1004,24 @@ streams:
       ]);
     });
 
-    test('throws error with breakdown when dynamic bucket limit is exceeded', async () => {
+    test('throws error with breakdown when bucket limit is exceeded', async () => {
       // These streams are designed to return buckets without consuming too many parameters (as exceeding that limit is
       // a different error).
-      // Note that we have to use different parameters for the streams to ensure they get put into distinct buckets.
       const SYNC_RULES_MULTI = SqlSyncRules.fromYaml(
         `
 config:
   edition: 3
 
-with:
-  param: SELECT id FROM users WHERE public_id = auth.user_id()
-
 streams:
   projects:
     auto_subscribe: true
-    query: SELECT id FROM projects WHERE p1 IN param AND p2 IN auth.parameter('a')
+    query: SELECT id FROM projects WHERE p IN auth.parameter('a')
   tasks:
     auto_subscribe: true
-    query: SELECT id FROM tasks WHERE p1 IN param AND p2 IN auth.parameter('b')
+    query: SELECT id FROM tasks WHERE p IN auth.parameter('b')
   comments:
     auto_subscribe: true
-    query: SELECT id FROM comments WHERE p1 IN param AND p2 IN auth.parameter('c')
+    query: SELECT id FROM comments WHERE p IN auth.parameter('c')
     `,
         { defaultSchema: 'public' }
       ).config.hydrate({ hydrationState: versionedHydrationState(4) });
@@ -1045,8 +1041,8 @@ streams:
       };
 
       const smallContext = new SyncContext({
-        maxBuckets: 100,
-        maxParameterQueryResults: 50,
+        maxBuckets: 50,
+        maxParameterQueryResults: 10,
         maxDataFetchConcurrency: 10
       });
 
@@ -1075,39 +1071,36 @@ streams:
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
         })
-      ).rejects.toThrow('Too many buckets derived from parameter queries: 60 (limit of 50)');
-      expect(invokedParameterQueries).toStrictEqual(3);
+      ).rejects.toThrow('Too many buckets: 60 (limit of 50');
+      expect(invokedParameterQueries).toStrictEqual(0);
 
       // Verify error log includes breakdown
-      expect(errorMessages[0]).toContain('Dynamic buckets by definition:');
+      expect(errorMessages[0]).toContain('Buckets by definition:');
       expect(errorMessages[0]).toContain('projects: 30');
       expect(errorMessages[0]).toContain('tasks: 20');
       expect(errorMessages[0]).toContain('comments: 10');
 
       expect(errorData[0].checkpoint).toEqual(1n);
-      expect(errorData[0].parameter_query_results).toBe(60);
-      expect(errorData[0].parameter_query_results_by_definition).toEqual({
+      expect(errorData[0].buckets).toBe(60);
+      expect(errorData[0].buckets_by_definition).toEqual({
         projects: 30,
         tasks: 20,
         comments: 10
       });
     });
 
-    test('limits breakdown to top 10 definitions', async () => {
+    test('limits bucket breakdown to top 10 definitions', async () => {
       // Create sync streams with 15 different definitions with dynamic parameters
       let yamlDefinitions = `
 config:
   edition: 3
-
-with:
-  param: SELECT id FROM users WHERE public_id = auth.user_id()
 
 streams:
 `;
       for (let i = 1; i <= 15; i++) {
         yamlDefinitions += `  def${i}:\n`;
         yamlDefinitions += `    auto_subscribe: true\n`;
-        yamlDefinitions += `    query: SELECT * FROM tbl WHERE a IN param AND b = auth.parameter('${i}')\n`;
+        yamlDefinitions += `    query: SELECT * FROM tbl WHERE b = auth.parameter('${i}')\n`;
       }
 
       const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
@@ -1127,7 +1120,7 @@ streams:
       };
 
       const smallContext = new SyncContext({
-        maxBuckets: 100,
+        maxBuckets: 10,
         maxParameterQueryResults: 10,
         maxDataFetchConcurrency: 10
       });
@@ -1152,7 +1145,7 @@ streams:
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
         })
-      ).rejects.toThrow('Too many buckets derived from parameter queries: 15 (limit of 10)');
+      ).rejects.toThrow('Too many buckets: 15 (limit of 10)');
 
       // Verify only top 10 are shown
       const errorMessage = errorMessages[0];

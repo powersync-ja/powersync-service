@@ -119,16 +119,38 @@ export class BucketChecksumState {
     const storage = this.bucketStorage;
 
     const update = await this.parameterState.getCheckpointUpdate(next);
-    const { buckets: allBuckets, updatedBuckets, dynamicBucketsByDefinition } = update;
+    const { buckets: allBuckets, updatedBuckets, usedParameterResults } = update;
 
     /** Set of all buckets in this checkpoint. */
     const bucketDescriptionMap = new Map(allBuckets.map((b) => [b.bucket, b]));
 
     if (bucketDescriptionMap.size > this.context.maxBuckets) {
-      throw new ServiceError(
+      const error = new ServiceError(
         ErrorCode.PSYNC_S2305,
         `Too many buckets: ${bucketDescriptionMap.size} (limit of ${this.context.maxBuckets})`
       );
+
+      let errorMessage = error.message;
+      const logData: any = {
+        checkpoint: next.base.checkpoint,
+        user_id: this.parameterState.syncParams.userId,
+        buckets: allBuckets.length
+      };
+
+      // Count buckets per definition.
+      const bucketsByDefinition = new Map<string, number>();
+      for (const bucket of bucketDescriptionMap.values()) {
+        const definition = bucket.definition;
+        const count = bucketsByDefinition.get(definition) ?? 0;
+        bucketsByDefinition.set(definition, count + 1);
+      }
+
+      const breakdown = formatBucketDefinitionBreakdown(bucketsByDefinition);
+      errorMessage += breakdown.message;
+      logData.buckets_by_definition = breakdown.countsByDefinition;
+
+      this.logger.error(errorMessage, logData);
+      throw error;
     }
 
     let checksumMap: util.ChecksumMap;
@@ -212,13 +234,10 @@ export class BucketChecksumState {
       });
 
       deferredLog = () => {
-        const totalParamResults = computeTotalParamResults(dynamicBucketsByDefinition);
         let message = `Updated checkpoint: ${base.checkpoint} | `;
         message += `write: ${writeCheckpoint} | `;
         message += `buckets: ${allBuckets.length} | `;
-        if (totalParamResults !== undefined) {
-          message += `param_results: ${totalParamResults} | `;
-        }
+        message += `param_results: ${usedParameterResults} | `;
         message += `updated: ${limitedBuckets(diff.updatedBuckets, 20)} | `;
         message += `removed: ${limitedBuckets(diff.removedBuckets, 20)}`;
         logCheckpoint(
@@ -231,7 +250,7 @@ export class BucketChecksumState {
             updated: diff.updatedBuckets.length,
             removed: diff.removedBuckets.length
           },
-          totalParamResults
+          usedParameterResults
         );
       };
 
@@ -245,12 +264,9 @@ export class BucketChecksumState {
       } satisfies util.StreamingSyncCheckpointDiff;
     } else {
       deferredLog = () => {
-        const totalParamResults = computeTotalParamResults(dynamicBucketsByDefinition);
         let message = `New checkpoint: ${base.checkpoint} | write: ${writeCheckpoint} | `;
         message += `buckets: ${allBuckets.length}`;
-        if (totalParamResults !== undefined) {
-          message += ` | param_results: ${totalParamResults}`;
-        }
+        message += ` | param_results: ${usedParameterResults}`;
         message += ` ${limitedBuckets(allBuckets, 20)}`;
         logCheckpoint(
           this.logger,
@@ -260,7 +276,7 @@ export class BucketChecksumState {
             user_id: userIdForLogs,
             buckets: allBuckets.length
           },
-          totalParamResults
+          usedParameterResults
         );
       };
       bucketsToFetch = allBuckets;
@@ -393,14 +409,8 @@ export interface CheckpointUpdate {
    */
   updatedBuckets: Set<string> | typeof INVALIDATE_ALL_BUCKETS;
 
-  /**
-   * Number of dynamic buckets (derived from parameter query results) per sync stream definition (before deduplication).
-   *
-   * Note that this doesn't directly map to parameter lookups: Unlike with bucket definitions, where one parameter
-   * lookup was guaranteed to return one bucket instantiation, Sync Streams both support multiple lookups in a single
-   * stream and lookups that are re-used between multiple streams.
-   */
-  dynamicBucketsByDefinition?: Map<string, number>;
+  /** The amount of rows fetched from parameters indexes. */
+  usedParameterResults: number;
 }
 
 export class BucketParameterState {
@@ -503,18 +513,6 @@ export class BucketParameterState {
   }
 
   async getCheckpointUpdate(checkpoint: storage.StorageCheckpointUpdate): Promise<CheckpointUpdate> {
-    // We have three limits to check:
-    //
-    //   1. Parameter query results: To avoid overloading the service, all Sync Streams / bucket definitions for the
-    //      current connection have a maximum amount of parameters they're allowed to fetch from bucket storage.
-    //      An `ParameterSetLimitExceededError` error is thrown when this limit is exceeded.
-    //   2. If we were able to fetch all parameter results, we apply the same limit to the amount of buckets returned.
-    //      This is mostly relevant for Sync Streams, where the amount of parameter queries is not strictly related to
-    //      the amount of buckets returned.
-    //   3. Finally, note that the buckets here can contain duplicates in some cases (e.g. if two Sync Stream
-    //      subscriptions have parameters that resolve to the same bucket). `buildNextCheckpointLine` will de-duplicate
-    //      buckets and check that against an independent limit.
-
     const querier = this.querier;
     let update: CheckpointUpdate;
     if (querier.hasDynamicBuckets) {
@@ -522,7 +520,8 @@ export class BucketParameterState {
         update = await this.getCheckpointUpdateDynamic(checkpoint);
       } catch (e: unknown) {
         if (e instanceof ParameterSetLimitExceededError) {
-          // Limit 1 exceeded.
+          // Too many parameter results, create a breakdown of which streams are responsible for the most queries and
+          // then abort.
           const error = new ServiceError(
             ErrorCode.PSYNC_S2305,
             `Too many parameter query results (limit of ${this.context.maxParameterQueryResults})`
@@ -535,7 +534,7 @@ export class BucketParameterState {
           };
 
           if (e.breakdown) {
-            const breakdown = formatParameterQueryBreakdown(this.context.maxParameterQueryResults, e.breakdown);
+            const breakdown = formatParameterQueryBreakdown(e.breakdown);
             if (breakdown) {
               errorMessage += breakdown.message;
               logData.parameterResults = breakdown.largestResults;
@@ -552,30 +551,6 @@ export class BucketParameterState {
       update = await this.getCheckpointUpdateStatic(checkpoint);
     }
 
-    if (update.buckets.length > this.context.maxParameterQueryResults) {
-      // Limit 2 exceeded. This limit applies _before_ we get the unique set
-      const error = new ServiceError(
-        ErrorCode.PSYNC_S2305,
-        `Too many buckets derived from parameter queries: ${update.buckets.length} (limit of ${this.context.maxParameterQueryResults})`
-      );
-
-      let errorMessage = error.message;
-      const logData: any = {
-        checkpoint: checkpoint.base.checkpoint,
-        user_id: this.syncParams.userId,
-        parameter_query_results: update.buckets.length
-      };
-
-      if (update.dynamicBucketsByDefinition && update.dynamicBucketsByDefinition.size > 0) {
-        const breakdown = formatDynamicBucketBreakdown(update.dynamicBucketsByDefinition);
-        errorMessage += breakdown.message;
-        logData.parameter_query_results_by_definition = breakdown.countsByDefinition;
-      }
-
-      this.logger.error(errorMessage, logData);
-
-      throw error;
-    }
     return update;
   }
 
@@ -589,14 +564,16 @@ export class BucketParameterState {
     if (update.invalidateDataBuckets) {
       return {
         buckets: staticBuckets,
-        updatedBuckets: INVALIDATE_ALL_BUCKETS
+        updatedBuckets: INVALIDATE_ALL_BUCKETS,
+        usedParameterResults: 0
       };
     }
 
     const updatedBuckets = new Set<string>(getIntersection(this.staticBuckets, update.updatedDataBuckets));
     return {
       buckets: staticBuckets,
-      updatedBuckets
+      updatedBuckets,
+      usedParameterResults: 0
     };
   }
 
@@ -628,7 +605,7 @@ export class BucketParameterState {
     }
 
     let dynamicBuckets: ResolvedBucket[];
-    let dynamicBucketsByDefinition: Map<string, number> | undefined;
+    let usedParameterResults = 0;
     if (hasParameterChange || this.cachedDynamicBuckets == null || this.cachedDynamicBucketSet == null) {
       const recordedLookups = new Set<string>();
       const parameterLimit = this.context.maxParameterQueryResults;
@@ -650,6 +627,7 @@ export class BucketParameterState {
             const rows = await checkpoint.base.getParameterSets(lookups, remainingBudget);
             lookupLog.push({ definition, resultsOrLimit: rows.length, didExceedLimit: false });
             remainingBudget -= rows.length;
+            usedParameterResults += rows.length;
             return rows;
           } catch (e: unknown) {
             if (e instanceof ParameterSetLimitExceededError) {
@@ -661,13 +639,6 @@ export class BucketParameterState {
           }
         }
       });
-
-      // Count dynamic buckets per definition (before deduplication)
-      dynamicBucketsByDefinition = new Map();
-      for (const bucket of dynamicBuckets) {
-        const count = dynamicBucketsByDefinition.get(bucket.definition) ?? 0;
-        dynamicBucketsByDefinition.set(bucket.definition, count + 1);
-      }
 
       this.cachedDynamicBuckets = dynamicBuckets;
       this.cachedDynamicBucketSet = new Set<string>(dynamicBuckets.map((b) => b.bucket));
@@ -692,13 +663,13 @@ export class BucketParameterState {
         buckets: allBuckets,
         // We cannot track individual bucket updates for dynamic lookups yet
         updatedBuckets: INVALIDATE_ALL_BUCKETS,
-        dynamicBucketsByDefinition
+        usedParameterResults
       };
     } else {
       return {
         buckets: allBuckets,
         updatedBuckets: updatedBuckets,
-        dynamicBucketsByDefinition
+        usedParameterResults
       };
     }
   }
@@ -733,18 +704,6 @@ export interface CheckpointLine {
 export type BucketChecksumStateStorage = Pick<storage.SyncRulesBucketStorage, 'getChecksums'>;
 
 /**
- * Compute the total number of parameter query results across all definitions.
- */
-function computeTotalParamResults(
-  parameterQueryResultsByDefinition: Map<string, number> | undefined
-): number | undefined {
-  if (!parameterQueryResultsByDefinition) {
-    return undefined;
-  }
-  return Array.from(parameterQueryResultsByDefinition.values()).reduce((sum, count) => sum + count, 0);
-}
-
-/**
  * Log a checkpoint message, enriching it with parameter query result counts if available.
  *
  * @param logger The logger instance to use
@@ -770,15 +729,15 @@ function logCheckpoint(
  * Sorts definitions by count (descending), includes the top 10, and returns both the
  * formatted message string and the counts record suitable for structured log data.
  */
-function formatDynamicBucketBreakdown(parameterQueryResultsByDefinition: Map<string, number>): {
+function formatBucketDefinitionBreakdown(bucketsByDefinition: Map<string, number>): {
   message: string;
   countsByDefinition: Record<string, number>;
 } {
   // Sort definitions by count (descending) and take top 10
-  const allSorted = Array.from(parameterQueryResultsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
+  const allSorted = Array.from(bucketsByDefinition.entries()).sort((a, b) => b[1] - a[1]);
   const sortedDefinitions = allSorted.slice(0, 10);
 
-  let message = '\nDynamic buckets by definition:';
+  let message = '\Buckets by definition:';
   const countsByDefinition: Record<string, number> = {};
   for (const [definition, count] of sortedDefinitions) {
     message += `\n  ${definition}: ${count}`;
@@ -794,7 +753,7 @@ function formatDynamicBucketBreakdown(parameterQueryResultsByDefinition: Map<str
   return { message, countsByDefinition };
 }
 
-function formatParameterQueryBreakdown(limit: number, log: storage.ParameterQueryInvocationLog[]) {
+function formatParameterQueryBreakdown(log: storage.ParameterQueryInvocationLog[]) {
   if (log.length == 0) {
     return;
   }
@@ -813,7 +772,7 @@ function formatParameterQueryBreakdown(limit: number, log: storage.ParameterQuer
   }
 
   if (largestResults.length < log.length) {
-    message += `\n ... and ${largestResults.length - log.length} more invocations`;
+    message += `\n ... and ${log.length - largestResults.length} more invocations`;
   }
 
   message += `\n ${failure.definition} exceeded the remaining limit of ${failure.resultsOrLimit} available results.`;
