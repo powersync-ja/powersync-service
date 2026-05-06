@@ -154,7 +154,7 @@ export abstract class MongoCompactor {
     return { buckets: count };
   }
 
-  protected async *dirtyBucketBatchesForCollection<TCollectionBucketState extends BucketStateDocumentBase>(
+  public async *dirtyBucketBatchesForCollection<TCollectionBucketState extends BucketStateDocumentBase>(
     collection: mongo.Collection<TCollectionBucketState>,
     lastId: TCollectionBucketState['_id'],
     maxId: TCollectionBucketState['_id'],
@@ -239,7 +239,7 @@ export abstract class MongoCompactor {
     }
   }
 
-  protected async dirtyBucketBatchForChecksumsForCollection<TBucketState extends BucketStateDocumentBase>(
+  public async dirtyBucketBatchForChecksumsForCollection<TBucketState extends BucketStateDocumentBase>(
     collection: mongo.Collection<TBucketState>,
     filter: mongo.Filter<TBucketState>,
     getDefinitionId: (state: mongo.WithId<TBucketState>) => BucketDefinitionId | null

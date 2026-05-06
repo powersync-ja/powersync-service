@@ -6,6 +6,12 @@ import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import {
+  computeChecksumsForBuckets,
+  dirtyBucketBatchForChecksums,
+  dirtyBucketBatches,
+  writeBucketStateUpdates
+} from '../bucket-operations/compaction-scaffolding.js';
 import { chunkBucketData } from '../bucket-operations/chunking.js';
 import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { cacheKey } from '../OperationBatch.js';
@@ -27,52 +33,37 @@ export class MongoCompactorV5 extends MongoCompactor {
     minBucketChanges: number;
     minChangeRatio: number;
   }): AsyncGenerator<DirtyBucket[]> {
-    if (options.minBucketChanges <= 0) {
-      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
-    }
-    // Same scan strategy as V1, but with the V5 bucket_state key shape.
-    yield* this.dirtyBucketBatchesForCollection(
+    yield* dirtyBucketBatches(
+      this,
       this.db.bucketStateV5(this.group_id),
-      { d: new mongo.MinKey() as any, b: new mongo.MinKey() as any },
-      { d: new mongo.MaxKey() as any, b: new mongo.MaxKey() as any },
       options,
       (bucketState) => (bucketState as BucketStateDocumentV5)._id.d
     );
   }
 
   public async dirtyBucketBatchForChecksums(options: { minBucketChanges: number }): Promise<DirtyBucket[]> {
-    if (options.minBucketChanges <= 0) {
-      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
-    }
-    return this.dirtyBucketBatchForChecksumsForCollection(
+    return dirtyBucketBatchForChecksums(
+      this,
       this.db.bucketStateV5(this.group_id),
-      {
-        'estimate_since_compact.count': { $gte: options.minBucketChanges }
-      },
+      options,
       (bucketState) => (bucketState as BucketStateDocumentV5)._id.d
     );
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
-    await this.db
-      .bucketStateV5(this.group_id)
-      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV5>[], { ordered: false });
+    await writeBucketStateUpdates(
+      this.db.bucketStateV5(this.group_id),
+      this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV5>[]
+    );
   }
 
   protected async computeChecksumsForBuckets(
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
-    return this.storage.checksums.computePartialChecksumsDirectByDefinition(
-      buckets.map(({ bucket, definitionId }) => {
-        if (definitionId == null) {
-          throw new ServiceAssertionError(`Missing definitionId for V5 bucket checksum update on bucket ${bucket}`);
-        }
-        return {
-          bucket,
-          definitionId,
-          end: this.maxOpId
-        };
-      })
+    return computeChecksumsForBuckets(
+      (batch) => this.storage.checksums.computePartialChecksumsDirectByDefinition(batch),
+      this.maxOpId,
+      buckets
     );
   }
 

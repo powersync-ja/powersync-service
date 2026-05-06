@@ -1,0 +1,73 @@
+import { mongo } from '@powersync/lib-service-mongodb';
+import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import { storage } from '@powersync/service-core';
+import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BucketStateDocumentBase } from '../models.js';
+import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+
+export async function* dirtyBucketBatches<TBucketState extends BucketStateDocumentBase>(
+  compactor: MongoCompactor,
+  collection: mongo.Collection<TBucketState>,
+  options: {
+    minBucketChanges: number;
+    minChangeRatio: number;
+  },
+  getDefinitionId: (state: TBucketState) => BucketDefinitionId | null
+): AsyncGenerator<DirtyBucket[]> {
+  if (options.minBucketChanges <= 0) {
+    throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+  }
+  yield* compactor.dirtyBucketBatchesForCollection(
+    collection,
+    { d: new mongo.MinKey() as any, b: new mongo.MinKey() as any } as TBucketState['_id'],
+    { d: new mongo.MaxKey() as any, b: new mongo.MaxKey() as any } as TBucketState['_id'],
+    options,
+    getDefinitionId
+  );
+}
+
+export async function dirtyBucketBatchForChecksums<TBucketState extends BucketStateDocumentBase>(
+  compactor: MongoCompactor,
+  collection: mongo.Collection<TBucketState>,
+  options: { minBucketChanges: number },
+  getDefinitionId: (state: mongo.WithId<TBucketState>) => BucketDefinitionId | null
+): Promise<DirtyBucket[]> {
+  if (options.minBucketChanges <= 0) {
+    throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+  }
+  return compactor.dirtyBucketBatchForChecksumsForCollection(
+    collection,
+    {
+      'estimate_since_compact.count': { $gte: options.minBucketChanges }
+    } as unknown as mongo.Filter<TBucketState>,
+    getDefinitionId
+  );
+}
+
+export async function writeBucketStateUpdates<TBucketState extends BucketStateDocumentBase>(
+  collection: mongo.Collection<TBucketState>,
+  updates: mongo.AnyBulkWriteOperation<TBucketState>[]
+): Promise<void> {
+  await collection.bulkWrite(updates, { ordered: false });
+}
+
+export async function computeChecksumsForBuckets(
+  computeChecksums: (
+    batch: { bucket: string; definitionId: BucketDefinitionId; end: bigint }[]
+  ) => Promise<storage.PartialChecksumMap>,
+  maxOpId: bigint,
+  buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
+): Promise<storage.PartialChecksumMap> {
+  return computeChecksums(
+    buckets.map(({ bucket, definitionId }) => {
+      if (definitionId == null) {
+        throw new ServiceAssertionError(`Missing definitionId for bucket checksum update on bucket ${bucket}`);
+      }
+      return {
+        bucket,
+        definitionId,
+        end: maxOpId
+      };
+    })
+  );
+}
