@@ -78,7 +78,8 @@ export abstract class MongoSyncBucketStorage
     protected readonly sync_rules: MongoPersistedSyncRulesContent,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
-    options: MongoSyncBucketStorageOptions
+    options: MongoSyncBucketStorageOptions,
+    protected _versionCallbacks?: any
   ) {
     super();
     this.db = factory.db.versioned(sync_rules.getStorageConfig());
