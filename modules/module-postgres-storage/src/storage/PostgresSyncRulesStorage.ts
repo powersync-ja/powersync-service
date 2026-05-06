@@ -4,7 +4,6 @@ import {
   BucketChecksum,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
-  ColumnDescriptor,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -23,17 +22,14 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
-import * as uuid from 'uuid';
 import { BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
-import { postgresTableId } from './table-id.js';
 
 import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
-import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -186,181 +182,6 @@ export class PostgresSyncRulesStorage
     );
   }
 
-  async resolveTables(
-    options: storage.ResolveTablesOptions,
-    syncRules = this.getParsedSyncRules({ defaultSchema: options.source.schema })
-  ): Promise<storage.ResolveTablesResult> {
-    const { connection_id, source } = options;
-
-    const { schema: schema, name: table, objectId, replicaIdColumns, connectionTag } = source;
-
-    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      // The PGWire returns this as a BigInt. We want to store this as JSONB
-      type_oid: typeof column.typeId !== 'undefined' ? Number(column.typeId) : column.typeId
-    }));
-    return this.db.transaction(async (db) => {
-      let sourceTableRow: SourceTableDecoded | null;
-      if (objectId != null) {
-        sourceTableRow = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      } else {
-        sourceTableRow = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      }
-
-      if (sourceTableRow == null) {
-        const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
-        const row = await db.sql`
-          INSERT INTO
-            source_tables (
-              id,
-              group_id,
-              connection_id,
-              relation_id,
-              schema_name,
-              table_name,
-              replica_id_columns
-            )
-          VALUES
-            (
-              ${{ type: 'varchar', value: id }},
-              ${{ type: 'int4', value: this.group_id }},
-              ${{ type: 'int4', value: connection_id }},
-              --- The objectId can be string | number | undefined, we store it as jsonb value
-              ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
-              ${{ type: 'varchar', value: schema }},
-              ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-            )
-          RETURNING
-            *
-        `
-          .decoded(models.SourceTable)
-          .first();
-        sourceTableRow = row;
-      }
-
-      const sourceTable = new storage.SourceTable({
-        id: sourceTableRow!.id,
-        ref: source,
-        objectId: objectId,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true,
-        ...syncRules.getMatchingSources(source)
-      });
-      if (!sourceTable.snapshotComplete) {
-        sourceTable.snapshotStatus = {
-          totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
-          replicatedCount: Number(sourceTableRow!.snapshot_replicated_count ?? 0n),
-          lastKey: sourceTableRow!.snapshot_last_key
-        };
-      }
-      sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
-      sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
-      sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-
-      let truncatedTables: SourceTableDecoded[] = [];
-      if (objectId != null) {
-        // relation_id present - check for renamed tables
-        truncatedTables = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-            AND (
-              relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-              OR (
-                schema_name = ${{ type: 'varchar', value: schema }}
-                AND table_name = ${{ type: 'varchar', value: table }}
-              )
-            )
-        `
-          .decoded(models.SourceTable)
-          .rows();
-      } else {
-        // relation_id not present - only check for changed replica_id_columns
-        truncatedTables = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-            AND (
-              schema_name = ${{ type: 'varchar', value: schema }}
-              AND table_name = ${{ type: 'varchar', value: table }}
-            )
-        `
-          .decoded(models.SourceTable)
-          .rows();
-      }
-
-      return {
-        tables: [sourceTable],
-        dropTables: truncatedTables.map((doc) => {
-          const ref = {
-            connectionTag,
-            schema: doc.schema_name,
-            name: doc.table_name
-          };
-          const dropTable = new storage.SourceTable({
-            id: doc.id,
-            ref,
-            objectId: doc.relation_id?.object_id ?? 0,
-            replicaIdColumns:
-              doc.replica_id_columns?.map(
-                (c) =>
-                  ({
-                    name: c.name,
-                    typeId: c.typeId,
-                    type: c.type
-                  }) satisfies ColumnDescriptor
-              ) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true,
-            ...syncRules.getMatchingSources(ref)
-          });
-          dropTable.syncEvent = syncRules.tableTriggersEvent(ref);
-          dropTable.syncData = dropTable.bucketDataSources.length > 0;
-          dropTable.syncParameters = dropTable.parameterLookupSources.length > 0;
-          return dropTable;
-        })
-      };
-    });
-  }
-
   async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {
     const syncRules = await this.db.sql`
       SELECT
@@ -391,8 +212,7 @@ export class PostgresSyncRulesStorage
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
       markRecordUnavailable: options.markRecordUnavailable,
-      storageConfig: this.storageConfig,
-      resolveTables: (resolveOptions, syncRules) => this.resolveTables(resolveOptions, syncRules)
+      storageConfig: this.storageConfig
     });
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
     return writer;

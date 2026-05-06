@@ -3,7 +3,6 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   CheckpointChanges,
-  ColumnDescriptor,
   GetCheckpointChangesOptions,
   InternalOpId,
   internalToExternalOpId,
@@ -14,13 +13,7 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import {
-  HydratedSyncRules,
-  MatchingSources,
-  ScopedParameterLookup,
-  SourceTableRef,
-  SqliteJsonRow
-} from '@powersync/service-sync-rules';
+import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -28,7 +21,6 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { CommonSourceTableDocument } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
@@ -43,7 +35,6 @@ import {
   BucketParameterDocumentV3,
   loadBucketDataDocumentV3,
   ReplicationStreamDocumentV3,
-  SourceTableDocumentV3,
   SyncRuleConfigStateV3
 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
@@ -52,10 +43,6 @@ import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-
-function sameStringArray(left: string[], right: string[]) {
-  return left.length == right.length && left.every((value, index) => value == right[index]);
-}
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // Declare types to be more specific
@@ -264,258 +251,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         arrayFilters: this.syncConfigArrayFilters()
       }
     );
-  }
-
-  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
-    return {};
-  }
-
-  async resolveTables(
-    options: storage.ResolveTablesOptions & { syncRules: HydratedSyncRules }
-  ): Promise<storage.ResolveTablesResult> {
-    const ref = options.source;
-    const syncRules = options.syncRules;
-    const matchingSources = syncRules.getMatchingSources(ref);
-
-    const { connection_id, source } = options;
-    const { schema: schema, name: name, objectId, replicaIdColumns, connectionTag } = source;
-    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      type_oid: column.typeId
-    }));
-
-    let result: storage.ResolveTablesResult | null = null;
-    const initializeSourceRecordsFor: bson.ObjectId[] = [];
-
-    await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(this.group_id);
-      const exactFilter: mongo.Filter<CommonSourceTableDocument> = {
-        connection_id,
-        schema_name: schema,
-        table_name: name,
-        replica_id_columns2: normalizedReplicaIdColumns
-      };
-      if (objectId != null) {
-        exactFilter.relation_id = objectId;
-      }
-
-      const exactDocs = (await col.find(exactFilter, { session }).toArray()) as SourceTableDocumentV3[];
-      const bucketSourceById = new Map(
-        matchingSources.bucketDataSources.map((source) => [this.mapping.bucketSourceId(source), source] as const)
-      );
-      const parameterLookupSourceById = new Map(
-        matchingSources.parameterLookupSources.map(
-          (source) => [this.mapping.parameterLookupId(source), source] as const
-        )
-      );
-      const desiredBucketIds = new Set(bucketSourceById.keys());
-      const desiredLookupIds = new Set(parameterLookupSourceById.keys());
-      const desiredHasMembership = desiredBucketIds.size > 0 || desiredLookupIds.size > 0;
-      const triggersEvent = syncRules.tableTriggersEvent(ref);
-
-      const coveredBucketIds = new Set<string>();
-      const coveredLookupIds = new Set<string>();
-      const retainedDocIds: bson.ObjectId[] = [];
-      const tables: storage.SourceTable[] = [];
-      let retainedEventOnlyTable = false;
-
-      for (const doc of exactDocs) {
-        const bucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => desiredBucketIds.has(id));
-        const parameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) => desiredLookupIds.has(id));
-        const coversDesiredMembership: boolean = bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0;
-        const coversEventOnlyTable: boolean = !desiredHasMembership && triggersEvent && !retainedEventOnlyTable;
-
-        for (const id of bucketDataSourceIds) {
-          coveredBucketIds.add(id);
-        }
-        for (const id of parameterLookupSourceIds) {
-          coveredLookupIds.add(id);
-        }
-
-        if (
-          !sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
-          !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds)
-        ) {
-          await col.updateOne(
-            { _id: doc._id },
-            {
-              $set: {
-                bucket_data_source_ids: bucketDataSourceIds,
-                parameter_lookup_source_ids: parameterLookupSourceIds
-              }
-            },
-            { session }
-          );
-        }
-
-        if (coversDesiredMembership || coversEventOnlyTable) {
-          if (coversEventOnlyTable) {
-            retainedEventOnlyTable = true;
-          }
-          retainedDocIds.push(doc._id);
-          tables.push(
-            this.sourceTableFromDocument(
-              {
-                ...doc,
-                bucket_data_source_ids: bucketDataSourceIds,
-                parameter_lookup_source_ids: parameterLookupSourceIds
-              },
-              connectionTag,
-              syncRules,
-              {
-                bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
-                parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
-              }
-            )
-          );
-        }
-      }
-
-      const uncoveredBucketIds = [...desiredBucketIds].filter((id) => !coveredBucketIds.has(id));
-      const uncoveredLookupIds = [...desiredLookupIds].filter((id) => !coveredLookupIds.has(id));
-
-      if (uncoveredBucketIds.length > 0 || uncoveredLookupIds.length > 0 || (triggersEvent && tables.length == 0)) {
-        const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
-        const sourceTable = new storage.SourceTable({
-          id,
-          ref,
-          objectId,
-          replicaIdColumns,
-          snapshotComplete: false,
-          bucketDataSources: uncoveredBucketIds.map((id) => bucketSourceById.get(id)!),
-          parameterLookupSources: uncoveredLookupIds.map((id) => parameterLookupSourceById.get(id)!)
-        });
-        sourceTable.syncData = uncoveredBucketIds.length > 0;
-        sourceTable.syncParameters = uncoveredLookupIds.length > 0;
-        sourceTable.syncEvent = triggersEvent;
-
-        const createDoc: SourceTableDocumentV3 = {
-          _id: id,
-          connection_id,
-          relation_id: objectId,
-          schema_name: schema,
-          table_name: name,
-          replica_id_columns: null,
-          replica_id_columns2: normalizedReplicaIdColumns,
-          snapshot_done: false,
-          snapshot_status: undefined,
-          bucket_data_source_ids: uncoveredBucketIds,
-          parameter_lookup_source_ids: uncoveredLookupIds
-        };
-
-        await col.insertOne(createDoc, { session });
-        initializeSourceRecordsFor.push(createDoc._id);
-        retainedDocIds.push(createDoc._id);
-        tables.push(sourceTable);
-      }
-
-      const validIds = retainedDocIds;
-      const conflictFilter = [{ schema_name: schema, table_name: name }] as mongo.Document[];
-      if (objectId != null) {
-        conflictFilter.push({ relation_id: objectId });
-      }
-      const dropTables = await col
-        .find(
-          {
-            connection_id,
-            _id: { $nin: validIds },
-            $or: conflictFilter
-          },
-          { session }
-        )
-        .toArray();
-
-      result = {
-        tables,
-        dropTables: dropTables.map((doc) =>
-          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connectionTag, syncRules)
-        )
-      };
-    });
-
-    for (const sourceTableId of initializeSourceRecordsFor) {
-      await this.initializeResolvedSourceRecords(sourceTableId);
-    }
-
-    return result!;
-  }
-
-  private sourceTableFromDocument(
-    doc: SourceTableDocumentV3,
-    connectionTag: string,
-    syncRules: HydratedSyncRules,
-    memberships?: MatchingSources
-  ): storage.SourceTable {
-    const resolvedMemberships = memberships ?? this.sourceTableMembershipsFromDocument(doc, syncRules);
-    const table = new storage.SourceTable({
-      id: doc._id,
-      ref: {
-        connectionTag,
-        schema: doc.schema_name,
-        name: doc.table_name
-      },
-      objectId: doc.relation_id,
-      replicaIdColumns: doc.replica_id_columns2!.map(
-        (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-      ),
-      snapshotComplete: doc.snapshot_done ?? true,
-      bucketDataSources: resolvedMemberships.bucketDataSources,
-      parameterLookupSources: resolvedMemberships.parameterLookupSources
-    });
-    table.syncData = table.bucketDataSources?.length != null && table.bucketDataSources.length > 0;
-    table.syncParameters = table.parameterLookupSources?.length != null && table.parameterLookupSources.length > 0;
-    table.syncEvent = syncRules.tableTriggersEvent(table.ref);
-    table.snapshotStatus =
-      doc.snapshot_status == null
-        ? undefined
-        : {
-            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-            replicatedCount: doc.snapshot_status.replicated_count
-          };
-    return table;
-  }
-
-  private sourceTableMembershipsFromDocument(
-    doc: SourceTableDocumentV3,
-    syncRules: HydratedSyncRules
-  ): MatchingSources {
-    const bucketDataSourceIds = new Set(doc.bucket_data_source_ids);
-    const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
-
-    // TODO: Should we rather do a looking by id from mapping directly?
-    return {
-      bucketDataSources: syncRules.definition.bucketDataSources.filter((source) =>
-        bucketDataSourceIds.has(this.mapping.bucketSourceId(source))
-      ),
-      parameterLookupSources: syncRules.definition.bucketParameterLookupSources.filter((source) =>
-        parameterLookupSourceIds.has(this.mapping.parameterLookupId(source))
-      )
-    };
-  }
-
-  protected augmentCreatedSourceTableDocument(
-    createDoc: CommonSourceTableDocument,
-    _options: storage.ResolveTablesOptions,
-    ref: SourceTableRef,
-    syncRules: HydratedSyncRules
-  ): void {
-    const bucketDataSourceIds = syncRules.definition.bucketDataSources
-      .filter((source) => source.tableSyncsData(ref))
-      .map((source) => this.mapping.bucketSourceId(source));
-    const parameterLookupSourceIds = syncRules.definition.bucketParameterLookupSources
-      .filter((source) => source.tableSyncsParameters(ref))
-      .map((source) => this.mapping.parameterLookupId(source));
-
-    Object.assign(createDoc, {
-      bucket_data_source_ids: bucketDataSourceIds,
-      parameter_lookup_source_ids: parameterLookupSourceIds
-    });
-  }
-
-  protected async initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void> {
-    await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
   }
 
   protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {

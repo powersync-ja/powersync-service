@@ -14,7 +14,7 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { HydratedSyncRules, ScopedParameterLookup, SourceTableRef, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -22,7 +22,7 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { CommonSourceTableDocument, SourceKey } from '../models.js';
+import { SourceKey } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
@@ -179,19 +179,6 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   ): MongoParameterCompactor {
     return new MongoParameterCompactorV1(this.db, this.group_id, checkpoint, options);
   }
-
-  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
-    return { group_id: this.group_id };
-  }
-
-  protected augmentCreatedSourceTableDocument(
-    _createDoc: CommonSourceTableDocument,
-    _options: storage.ResolveTablesOptions,
-    _ref: SourceTableRef,
-    _syncRules: HydratedSyncRules
-  ): void {}
-
-  protected async initializeResolvedSourceRecords(_sourceTableId: bson.ObjectId): Promise<void> {}
 
   protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1> {
     return {
