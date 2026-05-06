@@ -12,12 +12,15 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import { mapOpEntry, setSessionSnapshotTime } from '../../../utils/util.js';
+import { getBucketDataBatchShared } from '../bucket-operations/read-operations.js';
+import { V5FormatAdapter } from '../document-formats/v5-format.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
+import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
 import { CommonSourceTableDocument } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
@@ -25,7 +28,7 @@ import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
-import { BucketDataDocumentV5, BucketParameterDocumentV5, loadBucketDataDocumentV5 } from './models.js';
+import { BucketDataDocumentV5, BucketParameterDocumentV5 } from './models.js';
 import { MongoBucketBatchV5 } from './MongoBucketBatchV5.js';
 import { MongoChecksumsV5 } from './MongoChecksumsV5.js';
 import { MongoCompactorV5 } from './MongoCompactorV5.js';
@@ -334,41 +337,35 @@ export async function* getBucketDataBatchV5(
       }
     }));
 
-    const cursor = ctx.db.bucketDataV5(ctx.group_id, definitionId).find(
-      {
-        $or: filters
-      },
-      {
-        session: undefined,
-        sort: { _id: 1 },
-        raw: true,
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      }
-    ) as unknown as mongo.FindCursor<Buffer>;
+    const minStart = Array.from(bucketMap.values()).reduce((min, val) => (val < min ? val : min));
 
-    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
-      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
+    const { data, hasMore: batchHasMore, documentOpCounts, documentSizes } = await getBucketDataBatchShared({
+      collection: ctx.db.bucketDataV5(ctx.group_id, definitionId) as unknown as mongo.Collection<BucketDataDocumentGeneric>,
+      formatAdapter: new V5FormatAdapter(),
+      filter: { $or: filters } as any,
+      context: { replicationStreamId: ctx.group_id, definitionId },
+      bucketMap,
+      startOpId: minStart,
+      endOpId: end,
+      limit: remainingLimit
     });
+
+    if (data.length == 0) {
+      continue;
+    }
+
+    remainingLimit -= data.length;
 
     let chunkSizeBytes = 0;
     let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
-    let limitReached = false;
+    let opIndex = 0;
 
-    doc_loop: for (let rawData of data) {
-      const doc = bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV5;
-      for (const row of loadBucketDataDocumentV5({ replicationStreamId: ctx.group_id, definitionId }, doc)) {
+    for (let docIndex = 0; docIndex < documentOpCounts.length; docIndex++) {
+      const opCount = documentOpCounts[docIndex];
+      for (let i = 0; i < opCount; i++) {
+        const row = data[opIndex++];
         const bucket = row.bucketKey.bucket;
-        const startOpId = bucketMap.get(bucket);
-        if (startOpId == null) {
-          throw new Error(`data for unexpected bucket: ${bucket}`);
-        }
-        if (row.o <= startOpId) {
-          continue;
-        }
-        if (row.o > end) {
-          continue;
-        }
 
         if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
           let start: ProtocolOpId | undefined = undefined;
@@ -386,6 +383,10 @@ export async function* getBucketDataBatchV5(
           }
 
           if (start == null) {
+            const startOpId = bucketMap.get(bucket);
+            if (startOpId == null) {
+              throw new Error(`data for unexpected bucket: ${bucket}`);
+            }
             start = internalToExternalOpId(startOpId);
           }
           currentChunk = {
@@ -404,23 +405,17 @@ export async function* getBucketDataBatchV5(
 
         currentChunk.data.push(entry);
         currentChunk.next_after = entry.op_id;
-
-        remainingLimit--;
-        if (remainingLimit <= 0) {
-          limitReached = true;
-          break doc_loop;
-        }
       }
-      chunkSizeBytes += rawData.byteLength;
+      chunkSizeBytes += documentSizes[docIndex];
     }
 
     if (currentChunk != null) {
       const yieldChunk = currentChunk;
-      yieldChunk.has_more = limitReached || batchHasMore;
+      yieldChunk.has_more = batchHasMore || (remainingLimit <= 0 && hasLaterDefinitionGroups);
       yield { chunkData: yieldChunk, targetOp: targetOp };
     }
 
-    if (limitReached || batchHasMore) {
+    if (batchHasMore || remainingLimit <= 0) {
       return;
     }
   }

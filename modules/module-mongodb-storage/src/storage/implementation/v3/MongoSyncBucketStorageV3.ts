@@ -12,12 +12,15 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
+import { mapOpEntry, setSessionSnapshotTime } from '../../../utils/util.js';
+import { getBucketDataBatchShared } from '../bucket-operations/read-operations.js';
+import { V3FormatAdapter } from '../document-formats/v3-format.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
+import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
 import { CommonSourceTableDocument } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
@@ -25,7 +28,7 @@ import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
-import { BucketDataDocumentV3, BucketParameterDocumentV3, loadBucketDataDocumentV3 } from './models.js';
+import { BucketDataDocumentV3, BucketParameterDocumentV3 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
@@ -334,26 +337,19 @@ export async function* getBucketDataBatchV3(
       }
     }));
 
-    const cursor = ctx.db.bucketDataV3(ctx.group_id, definitionId).find(
-      {
-        $or: filters
-      },
-      {
-        session: undefined,
-        sort: { _id: 1 },
-        limit: remainingLimit,
-        batchSize: remainingLimit + 1,
-        raw: true,
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      }
-    ) as unknown as mongo.FindCursor<Buffer>;
+    const minStart = Array.from(bucketMap.values()).reduce((min, val) => (val < min ? val : min));
 
-    let { data, hasMore: batchHasMore } = await readSingleBatch(cursor).catch((e) => {
-      throw lib_mongo.mapQueryError(e, 'while reading bucket data');
+    const { data, hasMore: batchHasMore, documentOpCounts, documentSizes } = await getBucketDataBatchShared({
+      collection: ctx.db.bucketDataV3(ctx.group_id, definitionId) as unknown as mongo.Collection<BucketDataDocumentGeneric>,
+      formatAdapter: new V3FormatAdapter(),
+      filter: { $or: filters } as any,
+      context: { replicationStreamId: ctx.group_id, definitionId },
+      bucketMap,
+      startOpId: minStart,
+      endOpId: end,
+      limit: remainingLimit
     });
-    if (data.length == remainingLimit) {
-      batchHasMore = true;
-    }
+
     if (data.length == 0) {
       continue;
     }
@@ -363,53 +359,54 @@ export async function* getBucketDataBatchV3(
     let chunkSizeBytes = 0;
     let currentChunk: utils.SyncBucketData | null = null;
     let targetOp: InternalOpId | null = null;
+    let opIndex = 0;
 
-    for (let rawData of data) {
-      const row = loadBucketDataDocumentV3(
-        { replicationStreamId: ctx.group_id, definitionId },
-        bson.deserialize(rawData, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS) as BucketDataDocumentV3
-      );
-      const bucket = row.bucketKey.bucket;
+    for (let docIndex = 0; docIndex < documentOpCounts.length; docIndex++) {
+      const opCount = documentOpCounts[docIndex];
+      for (let i = 0; i < opCount; i++) {
+        const row = data[opIndex++];
+        const bucket = row.bucketKey.bucket;
 
-      if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
-        let start: ProtocolOpId | undefined = undefined;
-        if (currentChunk != null) {
-          if (currentChunk.bucket == bucket) {
-            currentChunk.has_more = true;
-            start = currentChunk.next_after;
+        if (currentChunk == null || currentChunk.bucket != bucket || chunkSizeBytes >= chunkSizeLimitBytes) {
+          let start: ProtocolOpId | undefined = undefined;
+          if (currentChunk != null) {
+            if (currentChunk.bucket == bucket) {
+              currentChunk.has_more = true;
+              start = currentChunk.next_after;
+            }
+
+            const yieldChunk = currentChunk;
+            currentChunk = null;
+            chunkSizeBytes = 0;
+            yield { chunkData: yieldChunk, targetOp: targetOp };
+            targetOp = null;
           }
 
-          const yieldChunk = currentChunk;
-          currentChunk = null;
-          chunkSizeBytes = 0;
-          yield { chunkData: yieldChunk, targetOp: targetOp };
-          targetOp = null;
-        }
-
-        if (start == null) {
-          const startOpId = bucketMap.get(bucket);
-          if (startOpId == null) {
-            throw new Error(`data for unexpected bucket: ${bucket}`);
+          if (start == null) {
+            const startOpId = bucketMap.get(bucket);
+            if (startOpId == null) {
+              throw new Error(`data for unexpected bucket: ${bucket}`);
+            }
+            start = internalToExternalOpId(startOpId);
           }
-          start = internalToExternalOpId(startOpId);
+          currentChunk = {
+            bucket,
+            after: start,
+            has_more: false,
+            data: [],
+            next_after: start
+          };
         }
-        currentChunk = {
-          bucket,
-          after: start,
-          has_more: false,
-          data: [],
-          next_after: start
-        };
-      }
 
-      const entry = mapOpEntry(row);
-      if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
-        targetOp = row.target_op;
-      }
+        const entry = mapOpEntry(row);
+        if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
+          targetOp = row.target_op;
+        }
 
-      currentChunk.data.push(entry);
-      currentChunk.next_after = entry.op_id;
-      chunkSizeBytes += rawData.byteLength;
+        currentChunk.data.push(entry);
+        currentChunk.next_after = entry.op_id;
+      }
+      chunkSizeBytes += documentSizes[docIndex];
     }
 
     if (currentChunk != null) {
