@@ -1,12 +1,4 @@
-import { deserializeParameterLookup } from '@powersync/service-core';
-import { ScopedParameterLookup, SqliteJsonValue } from '@powersync/service-sync-rules';
-import * as bson from 'bson';
-import { ParameterIndexId } from '../BucketDefinitionMapping.js';
-
-export function serializeParameterLookupV5(lookup: ScopedParameterLookup): bson.Binary {
-  return new bson.Binary(bson.serialize({ l: lookup.values.slice(2) }));
-}
-
-export function deserializeParameterLookupV5(lookup: bson.Binary, indexId: ParameterIndexId): SqliteJsonValue[] {
-  return [indexId, '', ...deserializeParameterLookup(lookup)];
-}
+export {
+  serializeParameterLookup as serializeParameterLookupV5,
+  deserializeParameterLookup as deserializeParameterLookupV5
+} from '../document-formats/parameter-lookup.js';

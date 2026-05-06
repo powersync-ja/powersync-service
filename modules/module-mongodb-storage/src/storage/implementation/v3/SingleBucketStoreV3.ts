@@ -7,11 +7,12 @@ import {
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
 import { BucketDataProperties } from '../models.js';
+import { BucketDataKeyV3, V3FormatAdapter } from '../document-formats/v3-format.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { BucketDataDocumentV3, BucketDataKeyV3, loadBucketDataDocumentV3, serializeBucketDataV3 } from './models.js';
 
 export class SingleBucketStoreV3 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
+  private format = new V3FormatAdapter();
 
   constructor(
     private db: VersionedPowerSyncMongoV3,
@@ -47,22 +48,16 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return serializeBucketDataV3({ bucketKey: this.key, ...source }) as BucketDataDocumentGeneric;
+    return this.format.toPersistedDocument(this.key, source);
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    return loadBucketDataDocumentV3(this.key, doc as BucketDataDocumentV3);
+    return this.format.fromPersistedDocument(this.key, doc);
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    const document = doc as Pick<BucketDataDocumentV3, '_id' | T>;
-    const { _id, ...rest } = document;
-    return {
-      bucketKey: this.key,
-      o: _id.o,
-      ...rest
-    } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
+    return this.format.fromPartialPersistedDocument(this.key, doc);
   }
 }

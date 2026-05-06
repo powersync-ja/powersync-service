@@ -7,11 +7,12 @@ import {
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
 import { BucketDataProperties } from '../models.js';
+import { BucketDataKeyV5, V5FormatAdapter } from '../document-formats/v5-format.js';
 import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
-import { BucketDataDocumentV5, BucketDataKeyV5, loadBucketDataDocumentV5, serializeBucketDataV5 } from './models.js';
 
 export class SingleBucketStoreV5 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
+  private format = new V5FormatAdapter();
 
   constructor(
     private db: VersionedPowerSyncMongoV5,
@@ -47,37 +48,16 @@ export class SingleBucketStoreV5 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return serializeBucketDataV5(this.key.bucket, [
-      { bucketKey: this.key, ...source }
-    ]) as unknown as BucketDataDocumentGeneric;
+    return this.format.toPersistedDocument(this.key, source);
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    const generator = loadBucketDataDocumentV5(this.key, doc as unknown as BucketDataDocumentV5);
-    const first = generator.next();
-    if (first.done) {
-      throw new Error('Empty ops array in BucketDataDocumentV5');
-    }
-    return first.value;
+    return this.format.fromPersistedDocument(this.key, doc);
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    const document = doc as unknown as Pick<BucketDataDocumentV5, '_id' | 'ops'>;
-    const op = document.ops?.[0];
-    if (op == null) {
-      // Fallback for partial documents without ops array
-      const { _id, ...rest } = doc as any;
-      return {
-        bucketKey: this.key,
-        o: _id.o,
-        ...rest
-      } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
-    }
-    return {
-      bucketKey: this.key,
-      ...op
-    } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
+    return this.format.fromPartialPersistedDocument(this.key, doc);
   }
 }
