@@ -1,11 +1,11 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId, storage } from '@powersync/service-core';
 import * as bson from 'bson';
+import { readSingleBatch } from '../../../utils/util.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
 import { BucketDataFormatAdapter } from '../document-formats/format-interface.js';
-import { readSingleBatch } from '../../../utils/util.js';
-import * as lib_mongo from '@powersync/lib-service-mongodb';
 
 export interface BucketDataBatchResult {
   data: BucketDataDoc[];
@@ -15,18 +15,16 @@ export interface BucketDataBatchResult {
   documentSizes: number[];
 }
 
-export async function getBucketDataBatchShared(
-  options: {
-    collection: mongo.Collection<BucketDataDocumentGeneric>;
-    formatAdapter: BucketDataFormatAdapter;
-    filter: mongo.Filter<BucketDataDocumentGeneric>;
-    context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>;
-    bucketMap: Map<string, InternalOpId>;
-    startOpId: InternalOpId;
-    endOpId: InternalOpId;
-    limit: number;
-  }
-): Promise<BucketDataBatchResult> {
+export async function getBucketDataBatchShared(options: {
+  collection: mongo.Collection<BucketDataDocumentGeneric>;
+  formatAdapter: BucketDataFormatAdapter;
+  filter: mongo.Filter<BucketDataDocumentGeneric>;
+  context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>;
+  bucketMap: Map<string, InternalOpId>;
+  startOpId: InternalOpId;
+  endOpId: InternalOpId;
+  limit: number;
+}): Promise<BucketDataBatchResult> {
   const { collection, formatAdapter, filter, context, bucketMap, startOpId, endOpId, limit } = options;
 
   const { filter: rangeFilter, cursorOptions } = formatAdapter.buildBucketDataQuery({

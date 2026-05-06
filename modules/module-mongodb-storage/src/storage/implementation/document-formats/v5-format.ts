@@ -146,17 +146,11 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
     yield* loadBucketDataDocumentV5(context, rawDoc as BucketDataDocumentV5);
   }
 
-  toPersistedDocument(
-    bucketKey: BucketKey,
-    source: Omit<BucketDataDoc, 'bucketKey'>
-  ): BucketDataDocumentGeneric {
+  toPersistedDocument(bucketKey: BucketKey, source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
     return serializeBucketDataV5(bucketKey.bucket, [{ bucketKey, ...source }]) as unknown as BucketDataDocumentGeneric;
   }
 
-  fromPersistedDocument(
-    bucketKey: BucketKey,
-    doc: BucketDataDocumentGeneric
-  ): BucketDataDoc {
+  fromPersistedDocument(bucketKey: BucketKey, doc: BucketDataDocumentGeneric): BucketDataDoc {
     const generator = loadBucketDataDocumentV5(bucketKey, doc as unknown as BucketDataDocumentV5);
     const first = generator.next();
     if (first.done) {
@@ -186,11 +180,7 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
     } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
   }
 
-  buildBucketDataQuery(options: {
-    startOpId?: InternalOpId;
-    endOpId: InternalOpId;
-    remainingLimit: number;
-  }): {
+  buildBucketDataQuery(options: { startOpId?: InternalOpId; endOpId: InternalOpId; remainingLimit: number }): {
     filter: mongo.Filter<BucketDataDocumentGeneric>;
     cursorOptions: { limit?: number; batchSize?: number };
   } {

@@ -8,6 +8,12 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
+import {
+  computePartialChecksumsInternal,
+  fetchPreStates,
+  normalizeBatch
+} from '../bucket-operations/checksum-aggregation.js';
+import { createBucketFilter } from '../bucket-operations/query-builders.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { BucketDataDocumentBase } from '../models.js';
 import {
@@ -18,12 +24,6 @@ import {
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
-import { createBucketFilter } from '../bucket-operations/query-builders.js';
-import {
-  computePartialChecksumsInternal,
-  fetchPreStates,
-  normalizeBatch
-} from '../bucket-operations/checksum-aggregation.js';
 import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
 export class MongoChecksumsV5 extends MongoChecksums {

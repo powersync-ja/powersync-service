@@ -12,12 +12,12 @@ import {
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
-import { createBucketFilter } from '../bucket-operations/query-builders.js';
 import {
   computePartialChecksumsInternal,
   fetchPreStates,
   normalizeBatch
 } from '../bucket-operations/checksum-aggregation.js';
+import { createBucketFilter } from '../bucket-operations/query-builders.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {

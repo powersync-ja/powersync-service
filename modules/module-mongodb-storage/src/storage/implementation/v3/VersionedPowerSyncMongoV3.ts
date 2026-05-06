@@ -1,7 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
-import { CommonSourceTableDocument } from '../models.js';
 import { PowerSyncMongo } from '../db.js';
 import {
   BucketDataDocumentV3,
@@ -17,18 +16,21 @@ export class VersionedPowerSyncMongoV3 extends VersionedPowerSyncMongo {
   }
 
   sourceRecordsV3(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV3> {
-    return this.sourceRecords(replicationStreamId, sourceTableId);
+    return this.sourceRecords<CurrentDataDocumentV3>(replicationStreamId, sourceTableId);
   }
 
   listSourceRecordCollectionsV3(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV3>[]> {
-    return this.listSourceRecordCollections(replicationStreamId);
+    return this.listSourceRecordCollections<CurrentDataDocumentV3>(replicationStreamId);
   }
 
   bucketStateV3(replicationStreamId: number): mongo.Collection<BucketStateDocumentV3> {
     return this.bucketState<BucketStateDocumentV3>(replicationStreamId);
   }
 
-  parameterIndexV3(replicationStreamId: number, indexId: ParameterIndexId): mongo.Collection<BucketParameterDocumentV3> {
+  parameterIndexV3(
+    replicationStreamId: number,
+    indexId: ParameterIndexId
+  ): mongo.Collection<BucketParameterDocumentV3> {
     return this.parameterIndex<BucketParameterDocumentV3>(replicationStreamId, indexId);
   }
 

@@ -64,17 +64,11 @@ export class V3FormatAdapter implements BucketDataFormatAdapter {
     yield loadBucketDataDocumentV3(context, rawDoc as BucketDataDocumentV3);
   }
 
-  toPersistedDocument(
-    bucketKey: BucketKey,
-    source: Omit<BucketDataDoc, 'bucketKey'>
-  ): BucketDataDocumentGeneric {
+  toPersistedDocument(bucketKey: BucketKey, source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
     return serializeBucketDataV3({ bucketKey, ...source }) as unknown as BucketDataDocumentGeneric;
   }
 
-  fromPersistedDocument(
-    bucketKey: BucketKey,
-    doc: BucketDataDocumentGeneric
-  ): BucketDataDoc {
+  fromPersistedDocument(bucketKey: BucketKey, doc: BucketDataDocumentGeneric): BucketDataDoc {
     return loadBucketDataDocumentV3(bucketKey, doc as unknown as BucketDataDocumentV3);
   }
 
@@ -91,11 +85,7 @@ export class V3FormatAdapter implements BucketDataFormatAdapter {
     } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
   }
 
-  buildBucketDataQuery(options: {
-    startOpId?: InternalOpId;
-    endOpId: InternalOpId;
-    remainingLimit: number;
-  }): {
+  buildBucketDataQuery(options: { startOpId?: InternalOpId; endOpId: InternalOpId; remainingLimit: number }): {
     filter: mongo.Filter<BucketDataDocumentGeneric>;
     cursorOptions: { limit?: number; batchSize?: number };
   } {

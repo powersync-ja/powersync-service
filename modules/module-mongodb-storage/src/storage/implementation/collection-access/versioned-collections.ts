@@ -21,13 +21,18 @@ export class VersionedPowerSyncMongo extends BaseVersionedPowerSyncMongo {
     super(upstream, storageConfig);
   }
 
-  sourceRecords(replicationStreamId: number, sourceTableId: mongo.ObjectId) {
+  sourceRecords<T extends mongo.Document = mongo.Document>(
+    replicationStreamId: number,
+    sourceTableId: mongo.ObjectId
+  ): mongo.Collection<T> {
     const collectionName = this.sourceRecordsCollectionName(replicationStreamId, sourceTableId);
-    return this.db.collection(collectionName);
+    return this.db.collection<T>(collectionName);
   }
 
-  async listSourceRecordCollections(replicationStreamId: number) {
-    return this.listCollectionsByPrefix(`source_records_${replicationStreamId}_`);
+  async listSourceRecordCollections<T extends mongo.Document = mongo.Document>(
+    replicationStreamId: number
+  ): Promise<mongo.Collection<T>[]> {
+    return this.listCollectionsByPrefix<T>(`source_records_${replicationStreamId}_`);
   }
 
   async initializeSourceRecordsCollection(replicationStreamId: number, sourceTableId: mongo.ObjectId) {

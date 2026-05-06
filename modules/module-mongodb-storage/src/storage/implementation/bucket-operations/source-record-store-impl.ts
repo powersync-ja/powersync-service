@@ -6,9 +6,9 @@ import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules
 import * as bson from 'bson';
 import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
 import { serializeParameterLookup } from '../document-formats/parameter-lookup.js';
 import { cacheKey } from '../OperationBatch.js';
-import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
 
 export class SourceRecordStoreImpl implements SourceRecordStore {
   constructor(
@@ -65,7 +65,10 @@ export class SourceRecordStoreImpl implements SourceRecordStore {
       const filter = {
         _id: { $in: replicaIds as any[] }
       } as unknown as mongo.Filter<any>;
-      const sizeCursor: mongo.AggregationCursor<any & { size: number }> = this.getCollection(this.groupId, sourceTableId).aggregate(
+      const sizeCursor: mongo.AggregationCursor<any & { size: number }> = this.getCollection(
+        this.groupId,
+        sourceTableId
+      ).aggregate(
         [
           {
             $match: filter

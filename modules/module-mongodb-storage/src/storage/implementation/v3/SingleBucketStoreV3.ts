@@ -6,8 +6,8 @@ import {
   BucketDataDocumentGenericId,
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
-import { BucketDataProperties } from '../models.js';
 import { BucketDataKeyV3, V3FormatAdapter } from '../document-formats/v3-format.js';
+import { BucketDataProperties } from '../models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class SingleBucketStoreV3 implements SingleBucketStore {

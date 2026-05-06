@@ -30,19 +30,13 @@ export interface BucketDataFormatAdapter {
    * V3: returns the document directly.
    * V5: wraps in ops[] array.
    */
-  toPersistedDocument(
-    bucketKey: BucketKey,
-    source: Omit<BucketDataDoc, 'bucketKey'>
-  ): BucketDataDocumentGeneric;
+  toPersistedDocument(bucketKey: BucketKey, source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric;
 
   /**
    * Convert a persisted document back to a single in-memory op.
    * Used by SingleBucketStore when we know the document represents exactly one op.
    */
-  fromPersistedDocument(
-    bucketKey: BucketKey,
-    doc: BucketDataDocumentGeneric
-  ): BucketDataDoc;
+  fromPersistedDocument(bucketKey: BucketKey, doc: BucketDataDocumentGeneric): BucketDataDoc;
 
   /**
    * Convert a partial persisted document (e.g., from aggregation pipeline) to partial in-memory.
@@ -57,11 +51,7 @@ export interface BucketDataFormatAdapter {
    * V3: uses limit on cursor.
    * V5: no limit, reads all matching documents.
    */
-  buildBucketDataQuery(options: {
-    startOpId?: InternalOpId;
-    endOpId: InternalOpId;
-    remainingLimit: number;
-  }): {
+  buildBucketDataQuery(options: { startOpId?: InternalOpId; endOpId: InternalOpId; remainingLimit: number }): {
     filter: mongo.Filter<BucketDataDocumentGeneric>;
     cursorOptions: { limit?: number; batchSize?: number };
   };

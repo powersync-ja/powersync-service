@@ -3,21 +3,11 @@ import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoParameterCompactorV3 extends MongoParameterCompactor {
-  constructor(
-    db: VersionedPowerSyncMongoV3,
-    group_id: number,
-    checkpoint: any,
-    options: any
-  ) {
-    super(
-      db,
-      group_id,
-      checkpoint,
-      options,
-      () =>
-        db
-          .listParameterIndexCollectionsV3(group_id)
-          .then((collections) => collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>))
+  constructor(db: VersionedPowerSyncMongoV3, group_id: number, checkpoint: any, options: any) {
+    super(db, group_id, checkpoint, options, () =>
+      db
+        .listParameterIndexCollectionsV3(group_id)
+        .then((collections) => collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>))
     );
   }
 

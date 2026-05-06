@@ -1,8 +1,8 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { BucketDataFormatAdapter } from '../document-formats/format-interface.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
+import { BucketDataFormatAdapter } from '../document-formats/format-interface.js';
 
 export async function flushBucketDataShared(
   options: {
@@ -32,7 +32,7 @@ export async function flushBucketDataShared(
     const inserts: mongo.AnyBulkWriteOperation<any>[] = [];
     for (const [bucket, ops] of operationsByBucket.entries()) {
       const serialized = options.formatAdapter.serializeForBulkWrite(bucket, ops);
-      inserts.push(...serialized as mongo.AnyBulkWriteOperation<any>[]);
+      inserts.push(...(serialized as mongo.AnyBulkWriteOperation<any>[]));
     }
 
     if (inserts.length > 0) {

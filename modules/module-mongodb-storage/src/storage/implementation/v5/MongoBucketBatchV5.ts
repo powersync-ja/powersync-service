@@ -11,7 +11,8 @@ export class MongoBucketBatchV5 extends MongoBucketBatch {
   constructor(options: MongoBucketBatchOptions) {
     super({
       ...options,
-      listSourceRecordCollections: (groupId) => (options.db as VersionedPowerSyncMongoV5).listSourceRecordCollectionsV5(groupId)
+      listSourceRecordCollections: (groupId) =>
+        (options.db as VersionedPowerSyncMongoV5).listSourceRecordCollectionsV5(groupId)
     });
   }
 

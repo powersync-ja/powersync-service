@@ -122,9 +122,5 @@ export async function computePartialChecksumsInternal(
   ) => Promise<PartialChecksumMap>
 ): Promise<PartialChecksumMap> {
   const normalized = normalizeBatch(batch, mapping);
-  return computePartialChecksumsDirectByDefinition(
-    normalized,
-    getBucketData,
-    computePartialChecksumsForCollection
-  );
+  return computePartialChecksumsDirectByDefinition(normalized, getBucketData, computePartialChecksumsForCollection);
 }

@@ -1,4 +1,4 @@
 export {
-  serializeParameterLookup as serializeParameterLookupV3,
-  deserializeParameterLookup as deserializeParameterLookupV3
+  deserializeParameterLookup as deserializeParameterLookupV3,
+  serializeParameterLookup as serializeParameterLookupV3
 } from '../document-formats/parameter-lookup.js';

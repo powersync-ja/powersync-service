@@ -1,10 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { SingleBucketStore } from '../common/SingleBucketStore.js';
-import { BucketStateDocumentBase } from '../models.js';
-import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import {
   computeChecksumsForBuckets,
   dirtyBucketBatchForChecksums,
@@ -12,6 +8,10 @@ import {
   writeBucketStateUpdates
 } from '../bucket-operations/compaction-scaffolding.js';
 import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
+import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { SingleBucketStore } from '../common/SingleBucketStore.js';
+import { BucketStateDocumentBase } from '../models.js';
+import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { BucketStateDocumentV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
@@ -92,6 +92,10 @@ export class MongoCompactorV3 extends MongoCompactor {
       return null;
     }
 
-    return new SingleBucketStoreV3(this.db, { bucket, definitionId: resolvedDefinitionId, replicationStreamId: this.group_id });
+    return new SingleBucketStoreV3(this.db, {
+      bucket,
+      definitionId: resolvedDefinitionId,
+      replicationStreamId: this.group_id
+    });
   }
 }

@@ -1,17 +1,16 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { ServiceAssertionError } from '@powersync/lib-services-framework';
+import * as bson from 'bson';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { FetchPartialBucketChecksumByBucket } from '../MongoChecksums.js';
-import * as bson from 'bson';
 
 /**
  * Creates a MongoDB filter for bucket data queries based on bucket name and op id range.
  * Used by both V3 and V5 storage implementations for computing checksums.
  */
-export function createBucketFilter<TRequest extends Pick<FetchPartialBucketChecksumByBucket, 'bucket' | 'start' | 'end'>>(
-  request: TRequest
-) {
+export function createBucketFilter<
+  TRequest extends Pick<FetchPartialBucketChecksumByBucket, 'bucket' | 'start' | 'end'>
+>(request: TRequest) {
   return {
     _id: {
       $gt: {
@@ -62,7 +61,7 @@ export interface BucketStateLookup {
 /**
  * Builds the context parameters for bucket data operations.
  * This helper extracts the common logic from V3 and V5 implementations.
- * 
+ *
  * @returns The resolved definitionId, or null if not found
  */
 export async function resolveBucketDefinitionId(

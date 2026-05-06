@@ -1,19 +1,19 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
+import { chunkBucketData } from '../bucket-operations/chunking.js';
+import {
+  computeChecksumsForBuckets,
+  dirtyBucketBatches,
+  dirtyBucketBatchForChecksums,
+  writeBucketStateUpdates
+} from '../bucket-operations/compaction-scaffolding.js';
+import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import {
-  computeChecksumsForBuckets,
-  dirtyBucketBatchForChecksums,
-  dirtyBucketBatches,
-  writeBucketStateUpdates
-} from '../bucket-operations/compaction-scaffolding.js';
-import { chunkBucketData } from '../bucket-operations/chunking.js';
-import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
   BucketDataDocumentV5,
@@ -100,7 +100,11 @@ export class MongoCompactorV5 extends MongoCompactor {
       return null;
     }
 
-    return new SingleBucketStoreV5(this.db, { bucket, definitionId: resolvedDefinitionId, replicationStreamId: this.group_id });
+    return new SingleBucketStoreV5(this.db, {
+      bucket,
+      definitionId: resolvedDefinitionId,
+      replicationStreamId: this.group_id
+    });
   }
 
   protected override async compactSingleBucket(bucket: string, definitionId: BucketDefinitionId | null = null) {
