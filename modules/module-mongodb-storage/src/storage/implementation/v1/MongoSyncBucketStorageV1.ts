@@ -8,6 +8,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
   utils
@@ -201,9 +202,10 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
-    lookups: ScopedParameterLookup[]
+    lookups: ScopedParameterLookup[],
+    limit: number
   ): Promise<SqliteJsonRow[]> {
-    return getParameterSetsV1(this.versionContext, checkpoint, lookups);
+    return getParameterSetsV1(this.versionContext, checkpoint, lookups, limit);
   }
 
   protected getBucketDataBatchImpl(
@@ -300,7 +302,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
 export async function getParameterSetsV1(
   ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
-  lookups: ScopedParameterLookup[]
+  lookups: ScopedParameterLookup[],
+  limit: number
 ): Promise<SqliteJsonRow[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
@@ -329,6 +332,10 @@ export async function getParameterSetsV1(
                 $first: '$bucket_parameters'
               }
             }
+          },
+          { $unwind: '$bucket_parameters' },
+          {
+            $limit: limit + 1
           }
         ],
         {
@@ -341,10 +348,12 @@ export async function getParameterSetsV1(
       .catch((e) => {
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
-    const groupedParameters = rows.map((row) => {
-      return row.bucket_parameters;
-    });
-    return groupedParameters.flat();
+
+    const results = rows.map((row) => row.bucket_parameters);
+    if (results.length > limit) {
+      throw new ParameterSetLimitExceededError(limit);
+    }
+    return results;
   });
 }
 
