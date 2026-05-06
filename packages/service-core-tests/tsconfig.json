@@ -17,6 +17,9 @@
     },
     {
       "path": "../service-core"
+    },
+    {
+      "path": "../../libs/lib-services"
     }
   ]
 }
