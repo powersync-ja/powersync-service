@@ -271,9 +271,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   ): Promise<storage.ResolveTablesResult> {
     const ref = options.source;
     const matchingSources = syncRules.getMatchingSources(ref);
-    if (matchingSources.bucketDataSources.length == 0 && matchingSources.parameterLookupSources.length == 0) {
-      return super.resolveTables(options, syncRules);
-    }
 
     const { connection_id, source } = options;
     const { schema: schema, name: name, objectId, replicaIdColumns, connectionTag } = source;
@@ -333,7 +330,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
         if (coversDesiredMembership || coversEventOnlyTable) {
           tables.push(
-            this.sourceTableFromDocument(doc, connectionTag, replicaIdColumns, syncRules, {
+            this.sourceTableFromDocument(doc, connectionTag, syncRules, {
               bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
               parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
             })
@@ -397,7 +394,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       result = {
         tables,
         dropTables: dropTables.map((doc) =>
-          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connectionTag, [], syncRules)
+          this.sourceTableFromDocument(doc as SourceTableDocumentV3, connectionTag, syncRules)
         )
       };
     });
@@ -412,10 +409,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   private sourceTableFromDocument(
     doc: SourceTableDocumentV3,
     connectionTag: string,
-    fallbackReplicaIdColumns: storage.ColumnDescriptor[],
     syncRules: HydratedSyncRules,
     memberships?: MatchingSources
   ): storage.SourceTable {
+    const resolvedMemberships = memberships ?? this.sourceTableMembershipsFromDocument(doc, syncRules);
     const table = new storage.SourceTable({
       id: doc._id,
       ref: {
@@ -424,13 +421,12 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         name: doc.table_name
       },
       objectId: doc.relation_id,
-      replicaIdColumns:
-        doc.replica_id_columns2?.map(
-          (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-        ) ?? fallbackReplicaIdColumns,
+      replicaIdColumns: doc.replica_id_columns2!.map(
+        (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
+      ),
       snapshotComplete: doc.snapshot_done ?? true,
-      bucketDataSources: memberships?.bucketDataSources ?? [],
-      parameterLookupSources: memberships?.parameterLookupSources ?? []
+      bucketDataSources: resolvedMemberships.bucketDataSources,
+      parameterLookupSources: resolvedMemberships.parameterLookupSources
     });
     table.syncData = table.bucketDataSources?.length != null && table.bucketDataSources.length > 0;
     table.syncParameters = table.parameterLookupSources?.length != null && table.parameterLookupSources.length > 0;
@@ -444,6 +440,24 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
             replicatedCount: doc.snapshot_status.replicated_count
           };
     return table;
+  }
+
+  private sourceTableMembershipsFromDocument(
+    doc: SourceTableDocumentV3,
+    syncRules: HydratedSyncRules
+  ): MatchingSources {
+    const bucketDataSourceIds = new Set(doc.bucket_data_source_ids);
+    const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
+
+    // TODO: Should we rather do a looking by id from mapping directly?
+    return {
+      bucketDataSources: syncRules.definition.bucketDataSources.filter((source) =>
+        bucketDataSourceIds.has(this.mapping.bucketSourceId(source))
+      ),
+      parameterLookupSources: syncRules.definition.bucketParameterLookupSources.filter((source) =>
+        parameterLookupSourceIds.has(this.mapping.parameterLookupId(source))
+      )
+    };
   }
 
   protected augmentCreatedSourceTableDocument(

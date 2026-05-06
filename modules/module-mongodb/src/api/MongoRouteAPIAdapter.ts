@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { api, ParseSyncRulesOptions, ReplicationHeadCallback, SourceTable } from '@powersync/service-core';
+import { api, ParseSyncRulesOptions, ReplicationHeadCallback } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
@@ -142,13 +142,6 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
             schema,
             name: collection.name
           };
-          const sourceTable = new SourceTable({
-            id: '', // not used
-            ref,
-            objectId: collection.name,
-            replicaIdColumns: [],
-            snapshotComplete: true
-          });
           let errors: service_types.ReplicationError[] = [];
           if (collection.type == 'view') {
             errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} is a view` });
@@ -172,13 +165,6 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           schema,
           name: tablePattern.name
         };
-        const sourceTable = new SourceTable({
-          id: '', // not used
-          ref,
-          objectId: tablePattern.name,
-          replicaIdColumns: [],
-          snapshotComplete: true
-        });
 
         const syncData = sqlSyncRules.tableSyncsData(ref);
         const syncParameters = sqlSyncRules.tableSyncsParameters(ref);

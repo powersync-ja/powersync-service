@@ -31,7 +31,9 @@ export function makeTestTable(
     },
     objectId: relId,
     replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
-    snapshotComplete: true
+    snapshotComplete: true,
+    bucketDataSources: [],
+    parameterLookupSources: []
   });
 }
 /**
