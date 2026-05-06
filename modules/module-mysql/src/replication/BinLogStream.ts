@@ -73,7 +73,7 @@ export class BinLogStream {
 
   private readonly logger: Logger;
 
-  private tableCache = new Map<string | number, storage.SourceTable>();
+  private tableCache = new Map<string | number, storage.SourceTable[]>();
 
   private replicationLag = new ReplicationLagTracker();
 
@@ -122,15 +122,17 @@ export class BinLogStream {
     return this.connections.databaseName;
   }
 
-  async handleRelation(batch: storage.BucketStorageBatch, source: storage.SourceEntityDescriptor, snapshot: boolean) {
+  async handleRelation(
+    batch: storage.BucketStorageBatch,
+    source: storage.SourceEntityDescriptor,
+    snapshot: boolean
+  ): Promise<storage.SourceTable[]> {
     const result = await batch.resolveTables({
       connection_id: this.connectionId,
       source
     });
-    for (const table of result.tables) {
-      // Since we create the objectId ourselves, this is always defined
-      this.tableCache.set(source.objectId!, table);
-    }
+    // Since we create the objectId ourselves, this is always defined.
+    this.tableCache.set(source.objectId!, result.tables);
 
     // Drop conflicting tables. In the MySQL case with ObjectIds created from the table name, renames cannot be detected by the storage.
     await batch.drop(result.dropTables);
@@ -166,11 +168,13 @@ export class BinLogStream {
         connection.release();
       }
       const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, gtid.comparable);
-      const table = doneTables[doneTables.length - 1];
-      return table;
+      const doneTablesById = new Map(doneTables.map((table) => [table.id, table]));
+      const tables = result.tables.map((table) => doneTablesById.get(table.id) ?? table);
+      this.tableCache.set(source.objectId!, tables);
+      return tables;
     }
 
-    return result.tables[0];
+    return result.tables;
   }
 
   async getQualifiedTableNames(
@@ -189,7 +193,7 @@ export class BinLogStream {
     for (const matchedTable of matchedTables) {
       const replicaIdColumns = await this.getReplicaIdColumns(matchedTable, tablePattern.schema);
 
-      const table = await this.handleRelation(
+      const resolvedTables = await this.handleRelation(
         batch,
         {
           name: matchedTable,
@@ -201,7 +205,7 @@ export class BinLogStream {
         false
       );
 
-      tables.push(table);
+      tables.push(...resolvedTables);
     }
     return tables;
   }
@@ -391,14 +395,14 @@ export class BinLogStream {
     }
   }
 
-  private getTable(tableId: string): storage.SourceTable {
-    const table = this.tableCache.get(tableId);
-    if (table == null) {
+  private getTables(tableId: string): storage.SourceTable[] {
+    const tables = this.tableCache.get(tableId);
+    if (tables == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
       throw new ReplicationAssertionError(`Missing relation cache for ${tableId}`);
     }
-    return table;
+    return tables;
   }
 
   async streamChanges() {
@@ -499,10 +503,10 @@ export class BinLogStream {
     if (change.type === SchemaChangeType.RENAME_TABLE) {
       const fromTableId = createTableId(change.schema, change.table);
 
-      const fromTable = this.tableCache.get(fromTableId);
+      const fromTables = this.tableCache.get(fromTableId);
       // Old table needs to be cleaned up
-      if (fromTable) {
-        await batch.drop([fromTable]);
+      if (fromTables) {
+        await batch.drop(fromTables);
         this.tableCache.delete(fromTableId);
       }
       // The new table matched a table in the sync config
@@ -512,7 +516,7 @@ export class BinLogStream {
     } else {
       const tableId = createTableId(change.schema, change.table);
 
-      const table = this.getTable(tableId);
+      const tables = this.getTables(tableId);
 
       switch (change.type) {
         case SchemaChangeType.ALTER_TABLE_COLUMN:
@@ -521,10 +525,10 @@ export class BinLogStream {
           await this.handleCreateOrUpdateTable(batch, change.table, change.schema);
           break;
         case SchemaChangeType.TRUNCATE_TABLE:
-          await batch.truncate([table]);
+          await batch.truncate(tables);
           break;
         case SchemaChangeType.DROP_TABLE:
-          await batch.drop([table]);
+          await batch.drop(tables);
           this.tableCache.delete(tableId);
           break;
         default:
@@ -550,7 +554,7 @@ export class BinLogStream {
     batch: storage.BucketStorageBatch,
     tableName: string,
     schema: string
-  ): Promise<SourceTable> {
+  ): Promise<SourceTable[]> {
     const replicaIdColumns = await this.getReplicaIdColumns(tableName, schema);
     return await this.handleRelation(
       batch,
@@ -577,23 +581,25 @@ export class BinLogStream {
     const columns = common.toColumnDescriptors(msg.tableEntry);
     const tableId = createTableId(msg.tableEntry.parentSchema, msg.tableEntry.tableName);
 
-    let table = this.tableCache.get(tableId);
-    if (table == null) {
+    let tables = this.tableCache.get(tableId);
+    if (tables == null) {
       // This is an insert for a new table that matches a table in the sync config
       // We need to create the table in the storage and cache it.
-      table = await this.handleCreateOrUpdateTable(batch, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
+      tables = await this.handleCreateOrUpdateTable(batch, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
     }
 
     for (const [index, row] of msg.rows.entries()) {
-      await this.writeChange(batch, {
-        type: msg.type,
-        database: msg.tableEntry.parentSchema,
-        sourceTable: table!,
-        table: msg.tableEntry.tableName,
-        columns: columns,
-        row: row,
-        previous_row: msg.rows_before?.[index]
-      });
+      for (const table of tables.filter((table) => table.syncAny)) {
+        await this.writeChange(batch, {
+          type: msg.type,
+          database: msg.tableEntry.parentSchema,
+          sourceTable: table,
+          table: msg.tableEntry.tableName,
+          columns: columns,
+          row: row,
+          previous_row: msg.rows_before?.[index]
+        });
+      }
     }
     return null;
   }
