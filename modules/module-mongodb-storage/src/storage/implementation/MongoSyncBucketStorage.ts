@@ -215,8 +215,7 @@ export abstract class MongoSyncBucketStorage
       markRecordUnavailable: options.markRecordUnavailable,
       syncConfigId: state.syncConfigId,
       tracer: options.tracer,
-      resolveTables: (resolveOptions: storage.ResolveTablesOptions, syncRules: HydratedSyncRules) =>
-        this.resolveTables(resolveOptions, syncRules)
+      resolveTables: this.resolveTables.bind(this)
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
@@ -245,10 +244,9 @@ export abstract class MongoSyncBucketStorage
   protected abstract initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void>;
 
   async resolveTables(
-    options: storage.ResolveTablesOptions,
-    syncRules = this.getParsedSyncRules({ defaultSchema: options.source.schema })
+    options: storage.ResolveTablesOptions & { syncRules: HydratedSyncRules }
   ): Promise<storage.ResolveTablesResult> {
-    const { connection_id, source } = options;
+    const { connection_id, source, syncRules } = options;
 
     const { schema: schema, name: name, objectId, replicaIdColumns, connectionTag } = source;
 

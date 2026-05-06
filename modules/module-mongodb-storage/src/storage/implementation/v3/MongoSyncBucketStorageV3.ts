@@ -54,6 +54,10 @@ import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { deserializeParameterLookupV3, serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
+function sameStringArray(left: string[], right: string[]) {
+  return left.length == right.length && left.every((value, index) => value == right[index]);
+}
+
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   // Declare types to be more specific
   declare readonly db: VersionedPowerSyncMongoV3;
@@ -268,10 +272,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   async resolveTables(
-    options: storage.ResolveTablesOptions,
-    syncRules = this.getParsedSyncRules({ defaultSchema: options.source.schema })
+    options: storage.ResolveTablesOptions & { syncRules: HydratedSyncRules }
   ): Promise<storage.ResolveTablesResult> {
     const ref = options.source;
+    const syncRules = options.syncRules;
     const matchingSources = syncRules.getMatchingSources(ref);
 
     const { connection_id, source } = options;
@@ -309,19 +313,19 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       const desiredBucketIds = new Set(bucketSourceById.keys());
       const desiredLookupIds = new Set(parameterLookupSourceById.keys());
       const desiredHasMembership = desiredBucketIds.size > 0 || desiredLookupIds.size > 0;
+      const triggersEvent = syncRules.tableTriggersEvent(ref);
 
       const coveredBucketIds = new Set<string>();
       const coveredLookupIds = new Set<string>();
+      const retainedDocIds: bson.ObjectId[] = [];
       const tables: storage.SourceTable[] = [];
+      let retainedEventOnlyTable = false;
 
       for (const doc of exactDocs) {
         const bucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => desiredBucketIds.has(id));
         const parameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) => desiredLookupIds.has(id));
-        const coversDesiredMembership = bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0;
-        const coversEventOnlyTable =
-          !desiredHasMembership &&
-          doc.bucket_data_source_ids.length == 0 &&
-          doc.parameter_lookup_source_ids.length == 0;
+        const coversDesiredMembership: boolean = bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0;
+        const coversEventOnlyTable: boolean = !desiredHasMembership && triggersEvent && !retainedEventOnlyTable;
 
         for (const id of bucketDataSourceIds) {
           coveredBucketIds.add(id);
@@ -330,12 +334,41 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
           coveredLookupIds.add(id);
         }
 
+        if (
+          !sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
+          !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds)
+        ) {
+          await col.updateOne(
+            { _id: doc._id },
+            {
+              $set: {
+                bucket_data_source_ids: bucketDataSourceIds,
+                parameter_lookup_source_ids: parameterLookupSourceIds
+              }
+            },
+            { session }
+          );
+        }
+
         if (coversDesiredMembership || coversEventOnlyTable) {
+          if (coversEventOnlyTable) {
+            retainedEventOnlyTable = true;
+          }
+          retainedDocIds.push(doc._id);
           tables.push(
-            this.sourceTableFromDocument(doc, connectionTag, syncRules, {
-              bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
-              parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
-            })
+            this.sourceTableFromDocument(
+              {
+                ...doc,
+                bucket_data_source_ids: bucketDataSourceIds,
+                parameter_lookup_source_ids: parameterLookupSourceIds
+              },
+              connectionTag,
+              syncRules,
+              {
+                bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
+                parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
+              }
+            )
           );
         }
       }
@@ -343,7 +376,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       const uncoveredBucketIds = [...desiredBucketIds].filter((id) => !coveredBucketIds.has(id));
       const uncoveredLookupIds = [...desiredLookupIds].filter((id) => !coveredLookupIds.has(id));
 
-      if (uncoveredBucketIds.length > 0 || uncoveredLookupIds.length > 0 || tables.length == 0) {
+      if (uncoveredBucketIds.length > 0 || uncoveredLookupIds.length > 0 || (triggersEvent && tables.length == 0)) {
         const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
         const sourceTable = new storage.SourceTable({
           id,
@@ -356,7 +389,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         });
         sourceTable.syncData = uncoveredBucketIds.length > 0;
         sourceTable.syncParameters = uncoveredLookupIds.length > 0;
-        sourceTable.syncEvent = syncRules.tableTriggersEvent(ref);
+        sourceTable.syncEvent = triggersEvent;
 
         const createDoc: SourceTableDocumentV3 = {
           _id: id,
@@ -374,10 +407,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
         await col.insertOne(createDoc, { session });
         initializeSourceRecordsFor.push(createDoc._id);
+        retainedDocIds.push(createDoc._id);
         tables.push(sourceTable);
       }
 
-      const validIds = [...exactDocs.map((doc) => doc._id), ...initializeSourceRecordsFor];
+      const validIds = retainedDocIds;
       const conflictFilter = [{ schema_name: schema, table_name: name }] as mongo.Document[];
       if (objectId != null) {
         conflictFilter.push({ relation_id: objectId });

@@ -162,6 +162,10 @@ export interface ResolveTablesOptions {
    * For tests only - custom id generator for stable ids.
    */
   idGenerator?: () => string | bson.ObjectId;
+  /**
+   * For tests only - override the sync rules used.
+   */
+  syncRules?: HydratedSyncRules;
 }
 
 export interface ResolveTablesResult {
