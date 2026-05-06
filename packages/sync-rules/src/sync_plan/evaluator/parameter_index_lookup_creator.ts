@@ -13,15 +13,12 @@ import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
   readonly defaultLookupScope: ParameterLookupScope;
   private readonly evaluator: ScalarExpressionEvaluator;
-  private readonly sourceTable: TablePattern;
+  readonly sourceTable: TablePattern;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
   private readonly numberOfOutputs: number;
   private readonly numberOfParameters: number;
 
-  constructor(
-    private readonly source: plan.StreamParameterIndexLookupCreator,
-    { engine, defaultSchema }: StreamEvaluationContext
-  ) {
+  constructor(source: plan.StreamParameterIndexLookupCreator, { engine, defaultSchema }: StreamEvaluationContext) {
     this.defaultLookupScope = {
       ...source.defaultLookupScope,
       source: this
