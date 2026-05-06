@@ -300,11 +300,12 @@ export abstract class MongoSyncBucketStorage
         ref: source,
         objectId: objectId,
         replicaIdColumns: replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true
+        snapshotComplete: doc.snapshot_done ?? true,
+        ...syncRules.getMatchingSources(source)
       });
       sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
-      sourceTable.syncData = syncRules.tableSyncsData(source);
-      sourceTable.syncParameters = syncRules.tableSyncsParameters(source);
+      sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
+      sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
       sourceTable.snapshotStatus =
         doc.snapshot_status == null
           ? undefined
@@ -330,23 +331,28 @@ export abstract class MongoSyncBucketStorage
           { session }
         )
         .toArray();
-      dropTables = truncate.map(
-        (doc) =>
-          new storage.SourceTable({
-            id: doc._id,
-            ref: {
-              connectionTag,
-              schema: doc.schema_name,
-              name: doc.table_name
-            },
-            objectId: doc.relation_id,
-            replicaIdColumns:
-              doc.replica_id_columns2?.map(
-                (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-              ) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true
-          })
-      );
+      dropTables = truncate.map((doc) => {
+        const ref = {
+          connectionTag,
+          schema: doc.schema_name,
+          name: doc.table_name
+        };
+        const dropTable = new storage.SourceTable({
+          id: doc._id,
+          ref,
+          objectId: doc.relation_id,
+          replicaIdColumns:
+            doc.replica_id_columns2?.map(
+              (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
+            ) ?? [],
+          snapshotComplete: doc.snapshot_done ?? true,
+          ...syncRules.getMatchingSources(ref)
+        });
+        dropTable.syncEvent = syncRules.tableTriggersEvent(ref);
+        dropTable.syncData = dropTable.bucketDataSources.length > 0;
+        dropTable.syncParameters = dropTable.parameterLookupSources.length > 0;
+        return dropTable;
+      });
 
       result = {
         tables: [sourceTable],

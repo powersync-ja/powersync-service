@@ -276,7 +276,8 @@ export class PostgresSyncRulesStorage
         ref: source,
         objectId: objectId,
         replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true
+        snapshotComplete: sourceTableRow!.snapshot_done ?? true,
+        ...syncRules.getMatchingSources(source)
       });
       if (!sourceTable.snapshotComplete) {
         sourceTable.snapshotStatus = {
@@ -286,8 +287,8 @@ export class PostgresSyncRulesStorage
         };
       }
       sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
-      sourceTable.syncData = syncRules.tableSyncsData(source);
-      sourceTable.syncParameters = syncRules.tableSyncsParameters(source);
+      sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
+      sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
 
       let truncatedTables: SourceTableDecoded[] = [];
       if (objectId != null) {
@@ -333,28 +334,33 @@ export class PostgresSyncRulesStorage
 
       return {
         tables: [sourceTable],
-        dropTables: truncatedTables.map(
-          (doc) =>
-            new storage.SourceTable({
-              id: doc.id,
-              ref: {
-                connectionTag,
-                schema: doc.schema_name,
-                name: doc.table_name
-              },
-              objectId: doc.relation_id?.object_id ?? 0,
-              replicaIdColumns:
-                doc.replica_id_columns?.map(
-                  (c) =>
-                    ({
-                      name: c.name,
-                      typeId: c.typeId,
-                      type: c.type
-                    }) satisfies ColumnDescriptor
-                ) ?? [],
-              snapshotComplete: doc.snapshot_done ?? true
-            })
-        )
+        dropTables: truncatedTables.map((doc) => {
+          const ref = {
+            connectionTag,
+            schema: doc.schema_name,
+            name: doc.table_name
+          };
+          const dropTable = new storage.SourceTable({
+            id: doc.id,
+            ref,
+            objectId: doc.relation_id?.object_id ?? 0,
+            replicaIdColumns:
+              doc.replica_id_columns?.map(
+                (c) =>
+                  ({
+                    name: c.name,
+                    typeId: c.typeId,
+                    type: c.type
+                  }) satisfies ColumnDescriptor
+              ) ?? [],
+            snapshotComplete: doc.snapshot_done ?? true,
+            ...syncRules.getMatchingSources(ref)
+          });
+          dropTable.syncEvent = syncRules.tableTriggersEvent(ref);
+          dropTable.syncData = dropTable.bucketDataSources.length > 0;
+          dropTable.syncParameters = dropTable.parameterLookupSources.length > 0;
+          return dropTable;
+        })
       };
     });
   }

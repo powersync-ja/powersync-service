@@ -19,8 +19,8 @@ export interface SourceTableOptions {
   objectId: number | string | undefined;
   replicaIdColumns: ColumnDescriptor[];
   snapshotComplete: boolean;
-  bucketDataSources?: BucketDataSource[];
-  parameterLookupSources?: ParameterIndexLookupCreator[];
+  bucketDataSources: BucketDataSource[];
+  parameterLookupSources: ParameterIndexLookupCreator[];
 }
 
 export interface TableSnapshotStatus {
