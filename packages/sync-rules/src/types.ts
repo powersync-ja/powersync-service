@@ -376,7 +376,7 @@ export interface EvaluateRowOptions extends TableRow {
   /**
    * Optional: List the specific sources to use.
    *
-   * If not provided, uses all matching sources in the sync config.
+   * If not provided, uses all matching sources in the sync config. This path is primarily intended for tests.
    *
    * If provided, use only these sources.
    */

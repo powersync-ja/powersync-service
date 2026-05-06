@@ -908,7 +908,8 @@ export class PostgresBucketBatch
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable: sourceTable.ref
+          sourceTable: sourceTable.ref,
+          bucketDataSources: sourceTable.bucketDataSources
         });
 
         for (const error of syncErrors) {
@@ -948,7 +949,8 @@ export class PostgresBucketBatch
         // Parameters
         const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
           sourceTable.ref,
-          after
+          after,
+          { parameterLookupSources: sourceTable.parameterLookupSources }
         );
 
         for (let error of paramErrors) {
