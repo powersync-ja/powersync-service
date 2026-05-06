@@ -68,18 +68,18 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
       const inputInstantiation = this.evaluatorInputs.map((input) => row[input.column]);
 
       // In almost all cases, lookups generate at most one output with exactly one bucket parameter. This is the case
-      // for all lookups without a table-valued function, e.g. `SELECT * FROM foo, bar ON foo.x = bar.x AND bar.x y = auth.user_id()`
-      // which generates a lookup from `bar.y` to `bar.x`. However, it's also possible for:
+      // for all lookups without a table-valued function, e.g. `SELECT foo.* FROM foo, bar ON foo.x = bar.x AND
+      // bar.y = auth.user_id()` which generates a lookup from `bar.y` to `bar.x`. However, it's also possible for:
       //
       //  - a single row with one partition value to generate multiple outputs, which would yield a lookup with multiple
       //    entries in bucketParameters.
-      //  - a single row to generate multiple partition vlaues, which would yield multiple lookup entries.
+      //  - a single row to generate multiple partition values, which would yield multiple lookup entries.
       //  - a combination of those two, if multiple table-valued functions are used in the parameter result set.
       const lookups: PendingLookup[] = [];
 
       function resolveLookup(entries: SqliteParameterValue[]) {
         // The lookups array could be a hash map, but since we don't expect rows to generate many lookups, a hash map
-        // would likely be more expensive.
+        // would likely be more expensive than this linear search.
         for (const existing of lookups) {
           if (parametersEqual(existing.partitionValues, entries)) {
             return existing;
