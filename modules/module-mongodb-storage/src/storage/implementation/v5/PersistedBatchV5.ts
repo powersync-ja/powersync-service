@@ -4,7 +4,7 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
-import { chunkBucketData } from '../bucket-operations/chunking.js';
+import { flushBucketDataShared } from '../bucket-operations/batch-write.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
@@ -13,13 +13,13 @@ import {
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
+import { V5FormatAdapter } from '../document-formats/v5-format.js';
 import { SourceTableKey } from '../models.js';
 import {
   BucketDataDocumentV5,
   BucketParameterDocumentV5,
   BucketStateDocumentV5,
   CurrentDataDocumentV5,
-  serializeBucketDataV5,
   SourceTableDocumentV5,
   taggedBucketParameterDocumentToV5
 } from './models.js';
@@ -194,40 +194,16 @@ export class PersistedBatchV5 extends PersistedBatch {
   }
 
   protected async flushBucketData(session: mongo.ClientSession) {
-    const operationsByDefinition = new Map<BucketDefinitionId, typeof this.bucketData>();
-    for (const document of this.bucketData) {
-      const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
-      existing.push(document);
-      operationsByDefinition.set(document.bucketKey.definitionId, existing);
-    }
-
-    for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      const operationsByBucket = new Map<string, typeof documents>();
-      for (const document of documents) {
-        const existing = operationsByBucket.get(document.bucketKey.bucket) ?? [];
-        existing.push(document);
-        operationsByBucket.set(document.bucketKey.bucket, existing);
-      }
-
-      const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV5>[] = [];
-      for (const [bucket, ops] of operationsByBucket.entries()) {
-        const chunks = chunkBucketData(ops);
-        for (const chunk of chunks) {
-          inserts.push({
-            insertOne: {
-              document: serializeBucketDataV5(bucket, chunk)
-            }
-          });
-        }
-      }
-
-      if (inserts.length > 0) {
-        await this.db.bucketDataV5(this.group_id, definitionId).bulkWrite(inserts, {
-          session,
-          ordered: false
-        });
-      }
-    }
+    await flushBucketDataShared(
+      {
+        db: this.db,
+        groupId: this.group_id,
+        bucketData: this.bucketData,
+        formatAdapter: new V5FormatAdapter(),
+        getCollection: (groupId, definitionId) => this.db.bucketDataV5(groupId, definitionId)
+      },
+      session
+    );
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {

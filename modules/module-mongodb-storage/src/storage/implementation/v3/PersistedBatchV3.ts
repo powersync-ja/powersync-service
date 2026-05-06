@@ -4,6 +4,7 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
+import { flushBucketDataShared } from '../bucket-operations/batch-write.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import {
   BucketStateUpdate,
@@ -11,12 +12,12 @@ import {
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
+import { V3FormatAdapter } from '../document-formats/v3-format.js';
 import { SourceTableKey } from '../models.js';
 import {
   BucketParameterDocumentV3,
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
-  serializeBucketDataV3,
   SourceTableDocumentV3,
   taggedBucketParameterDocumentToV3
 } from './models.js';
@@ -191,26 +192,16 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   protected async flushBucketData(session: mongo.ClientSession) {
-    const operationsByDefinition = new Map<BucketDefinitionId, typeof this.bucketData>();
-    for (const document of this.bucketData) {
-      const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
-      existing.push(document);
-      operationsByDefinition.set(document.bucketKey.definitionId, existing);
-    }
-
-    for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      await this.db.bucketDataV3(this.group_id, definitionId).bulkWrite(
-        documents.map((document) => ({
-          insertOne: {
-            document: serializeBucketDataV3(document)
-          }
-        })),
-        {
-          session,
-          ordered: false
-        }
-      );
-    }
+    await flushBucketDataShared(
+      {
+        db: this.db,
+        groupId: this.group_id,
+        bucketData: this.bucketData,
+        formatAdapter: new V3FormatAdapter(),
+        getCollection: (groupId, definitionId) => this.db.bucketDataV3(groupId, definitionId)
+      },
+      session
+    );
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {
