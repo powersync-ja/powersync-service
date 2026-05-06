@@ -13,6 +13,11 @@ import {
   MongoChecksums
 } from '../MongoChecksums.js';
 import { createBucketFilter } from '../bucket-operations/query-builders.js';
+import {
+  computePartialChecksumsInternal,
+  fetchPreStates,
+  normalizeBatch
+} from '../bucket-operations/checksum-aggregation.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
@@ -22,15 +27,6 @@ export class MongoChecksumsV3 extends MongoChecksums {
   constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
     super(db, group_id, options);
     this.mapping = options.mapping!;
-  }
-
-  private normalizeBatch(batch: FetchPartialBucketChecksum[]): FetchPartialBucketChecksumV3[] {
-    return batch.map((request) => ({
-      bucket: request.bucket,
-      definitionId: this.mapping.bucketSourceId(request.source),
-      start: request.start,
-      end: request.end
-    }));
   }
 
   async computePartialChecksumsDirectByDefinition(batch: FetchPartialBucketChecksumV3[]): Promise<PartialChecksumMap> {
@@ -62,46 +58,15 @@ export class MongoChecksumsV3 extends MongoChecksums {
   protected async fetchPreStates(
     batch: FetchPartialBucketChecksum[]
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
-    const preFilters = this.normalizeBatch(batch)
-      .filter((request) => request.start == null)
-      .map((request) => ({
-        _id: {
-          d: request.definitionId,
-          b: request.bucket
-        },
-        'compacted_state.op_id': { $exists: true, $lte: request.end }
-      }));
-
-    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
-    if (preFilters.length == 0) {
-      return preStates;
-    }
-
-    const states = await this.db
-      .bucketStateV3(this.group_id)
-      .find({
-        $or: preFilters
-      })
-      .toArray();
-
-    for (const state of states) {
-      const compactedState = state.compacted_state!;
-      preStates.set(state._id.b, {
-        opId: compactedState.op_id,
-        checksum: {
-          bucket: state._id.b,
-          checksum: Number(compactedState.checksum),
-          count: compactedState.count
-        }
-      });
-    }
-
-    return preStates;
+    return fetchPreStates(normalizeBatch(batch, this.mapping), this.db.bucketStateV3(this.group_id));
   }
 
   protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
-    return this.computePartialChecksumsDirectByDefinition(this.normalizeBatch(batch));
+    return computePartialChecksumsInternal(
+      batch,
+      this.mapping,
+      (definitionId) => this.db.bucketDataV3(this.group_id, definitionId),
+      (batch, collection, createFilter) => this.computePartialChecksumsForCollection(batch, collection, createFilter)
+    );
   }
 }
-
-
