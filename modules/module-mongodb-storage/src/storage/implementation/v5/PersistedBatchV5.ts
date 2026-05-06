@@ -4,6 +4,7 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
+import { chunkBucketData } from '../bucket-operations/chunking.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
@@ -210,7 +211,7 @@ export class PersistedBatchV5 extends PersistedBatch {
 
       const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV5>[] = [];
       for (const [bucket, ops] of operationsByBucket.entries()) {
-        const chunks = this.chunkBucketData(ops);
+        const chunks = chunkBucketData(ops);
         for (const chunk of chunks) {
           inserts.push({
             insertOne: {
@@ -227,32 +228,6 @@ export class PersistedBatchV5 extends PersistedBatch {
         });
       }
     }
-  }
-
-  private chunkBucketData(operations: BucketDataDoc[]): BucketDataDoc[][] {
-    const chunks: BucketDataDoc[][] = [];
-    let currentChunk: BucketDataDoc[] = [];
-    let currentSize = 0;
-    const maxDocSize = 1024 * 1024; // 1MB threshold
-
-    for (const op of operations) {
-      const opSize = op.data?.length ?? 0;
-
-      if (currentSize + opSize > maxDocSize && currentChunk.length > 0) {
-        chunks.push(currentChunk);
-        currentChunk = [];
-        currentSize = 0;
-      }
-
-      currentChunk.push(op);
-      currentSize += opSize;
-    }
-
-    if (currentChunk.length > 0) {
-      chunks.push(currentChunk);
-    }
-
-    return chunks;
   }
 
   protected async flushBucketParameters(session: mongo.ClientSession) {

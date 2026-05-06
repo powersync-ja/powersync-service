@@ -6,6 +6,7 @@ import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { chunkBucketData } from '../bucket-operations/chunking.js';
 import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
@@ -197,7 +198,7 @@ export class MongoCompactorV5 extends MongoCompactor {
     this.signal?.throwIfAborted();
 
     // 4. Re-chunk surviving operations by 1MB data-size threshold.
-    const chunks = this.chunkBucketData(survivingOps);
+    const chunks = chunkBucketData(survivingOps);
     const newDocs = chunks.map((chunk) => serializeBucketDataV5(bucket, chunk));
 
     // 5. Replace old documents with new chunked documents in a transaction.
@@ -245,32 +246,6 @@ export class MongoCompactorV5 extends MongoCompactor {
     logger.info(
       `Compacted bucket ${bucket}: ${allOps.length} ops → ${survivingOps.length} ops in ${newDocs.length} documents`
     );
-  }
-
-  private chunkBucketData(operations: BucketDataDoc[]): BucketDataDoc[][] {
-    const chunks: BucketDataDoc[][] = [];
-    let currentChunk: BucketDataDoc[] = [];
-    let currentSize = 0;
-    const maxDocSize = 1024 * 1024; // 1MB threshold
-
-    for (const op of operations) {
-      const opSize = op.data?.length ?? 0;
-
-      if (currentSize + opSize > maxDocSize && currentChunk.length > 0) {
-        chunks.push(currentChunk);
-        currentChunk = [];
-        currentSize = 0;
-      }
-
-      currentChunk.push(op);
-      currentSize += opSize;
-    }
-
-    if (currentChunk.length > 0) {
-      chunks.push(currentChunk);
-    }
-
-    return chunks;
   }
 
   private async flushBucketStateUpdatesOnly() {
