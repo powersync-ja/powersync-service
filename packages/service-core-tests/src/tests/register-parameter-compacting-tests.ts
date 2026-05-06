@@ -44,7 +44,7 @@ bucket_definitions:
     const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
-    const parameters1 = await checkpoint1.getParameterSets([lookup]);
+    const parameters1 = await checkpoint1.getParameterSets([lookup], 1000);
     expect(parameters1).toEqual([{ id: 't1' }]);
 
     await writer.save({
@@ -70,15 +70,15 @@ bucket_definitions:
     });
     await writer.commit('1/2');
     const checkpoint2 = await bucketStorage.getCheckpoint();
-    const parameters2 = await checkpoint2.getParameterSets([lookup]);
+    const parameters2 = await checkpoint2.getParameterSets([lookup], 1000);
     expect(parameters2).toEqual([]);
 
     const statsBefore = await bucketStorage.factory.getStorageMetrics();
     await bucketStorage.compact({ compactParameterData: true });
 
     // Check consistency
-    const parameters1b = await checkpoint1.getParameterSets([lookup]);
-    const parameters2b = await checkpoint2.getParameterSets([lookup]);
+    const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);
+    const parameters2b = await checkpoint2.getParameterSets([lookup], 1000);
     expect(parameters1b).toEqual([{ id: 't1' }]);
     expect(parameters2b).toEqual([]);
 
@@ -150,14 +150,14 @@ bucket_definitions:
       const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['u1']);
 
       const checkpoint1 = await bucketStorage.getCheckpoint();
-      const parameters1 = await checkpoint1.getParameterSets([lookup]);
+      const parameters1 = await checkpoint1.getParameterSets([lookup], 1000);
       expect(parameters1).toEqual([]);
 
       const statsBefore = await bucketStorage.factory.getStorageMetrics();
       await bucketStorage.compact({ compactParameterData: true, compactParameterCacheLimit: cacheLimit });
 
       // Check consistency
-      const parameters1b = await checkpoint1.getParameterSets([lookup]);
+      const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);
       expect(parameters1b).toEqual([]);
 
       // Check storage size

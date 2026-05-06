@@ -8,6 +8,7 @@ import {
   InternalOpId,
   internalToExternalOpId,
   maxLsn,
+  ParameterSetLimitExceededError,
   ProtocolOpId,
   storage,
   utils
@@ -527,9 +528,10 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
-    lookups: ScopedParameterLookup[]
+    lookups: ScopedParameterLookup[],
+    limit: number
   ): Promise<SqliteJsonRow[]> {
-    return getParameterSetsV3(this.versionContext, checkpoint, lookups);
+    return getParameterSetsV3(this.versionContext, checkpoint, lookups, limit);
   }
 
   protected getBucketDataBatchImpl(
@@ -598,7 +600,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 export async function getParameterSetsV3(
   ctx: MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3>,
   checkpoint: MongoSyncBucketStorageCheckpoint,
-  lookups: ScopedParameterLookup[]
+  lookups: ScopedParameterLookup[],
+  limit: number
 ): Promise<SqliteJsonRow[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
@@ -612,6 +615,7 @@ export async function getParameterSetsV3(
       const indexId = lookup.indexId;
       const collection = ctx.db.parameterIndexV3(ctx.group_id, indexId);
       const lookupFilter = serializeParameterLookupV3(lookup);
+
       return {
         collection,
         pipeline: [
@@ -663,11 +667,13 @@ export async function getParameterSetsV3(
             pipeline: query.pipeline
           }
         };
-      })
+      }),
+      { $unwind: '$bucket_parameters' },
+      { $limit: limit + 1 }
     ];
 
     const rows = await firstQuery.collection
-      .aggregate<{ bucket_parameters: SqliteJsonRow[] }>(pipeline, {
+      .aggregate<{ bucket_parameters: SqliteJsonRow }>(pipeline, {
         session,
         readConcern: 'snapshot',
         maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
@@ -677,7 +683,12 @@ export async function getParameterSetsV3(
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
 
-    return rows.flatMap((row) => row.bucket_parameters);
+    const expandedRows = rows.map((row) => row.bucket_parameters);
+    if (expandedRows.length > limit) {
+      throw new ParameterSetLimitExceededError(limit);
+    }
+
+    return expandedRows;
   });
 }
 
