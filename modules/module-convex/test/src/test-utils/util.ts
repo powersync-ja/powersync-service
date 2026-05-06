@@ -78,13 +78,16 @@ export async function clearTestDb(connection: TestConvexConnection) {
 
   // Delete all lists
   let deletedCount = 0;
+  console.info(`Clearing Convex DB`);
   do {
     deletedCount = await client.mutation(api.lists.deleteBatch, {});
+    console.info(`Cleared ${deletedCount} lists`);
   } while (deletedCount > 0);
 
   deletedCount = 0;
   do {
     deletedCount = await client.mutation(api.todos.deleteBatch, {});
+    console.info(`Cleared ${deletedCount} todos`);
   } while (deletedCount > 0);
 }
 

@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as benchmark from "../benchmark.js";
 import type * as lists from "../lists.js";
 import type * as powersync_checkpoints from "../powersync_checkpoints.js";
 import type * as todos from "../todos.js";
@@ -20,6 +21,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  benchmark: typeof benchmark;
   lists: typeof lists;
   powersync_checkpoints: typeof powersync_checkpoints;
   todos: typeof todos;
