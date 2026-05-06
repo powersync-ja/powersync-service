@@ -6,7 +6,7 @@ import {
 } from './BucketParameterQuerier.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupScope } from './HydrationState.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import {
@@ -80,10 +80,7 @@ export interface HydratedBucketSource extends BucketParameterQuerierSource {
 }
 
 export type ScopedEvaluateRow = (options: EvaluateRowOptions) => EvaluationResult[];
-export type ScopedEvaluateParameterRow = (
-  sourceTable: SourceTableInterface,
-  row: SqliteRow
-) => EvaluatedParametersResult[];
+export type ScopedEvaluateParameterRow = (sourceTable: SourceTableRef, row: SqliteRow) => EvaluatedParametersResult[];
 
 /**
  * Encodes a static definition of a bucket source, as parsed from sync rules or stream definitions.
@@ -105,7 +102,7 @@ export interface BucketDataSource {
   readonly bucketParameters: string[];
 
   getSourceTables(): Set<TablePattern>;
-  tableSyncsData(table: SourceTableInterface): boolean;
+  tableSyncsData(table: SourceTableRef): boolean;
 
   /**
    * Given a row as it appears in a table that affects sync data, return buckets, logical table names and transformed
@@ -146,10 +143,10 @@ export interface ParameterIndexLookupCreator {
    * The returned {@link UnscopedParameterLookup} can be referenced by {@link pushBucketParameterQueriers} to allow the storage
    * system to find buckets.
    */
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[];
+  evaluateParameterRow(sourceTable: SourceTableRef, row: SqliteRow): UnscopedEvaluatedParametersResult[];
 
   /** Whether the table possibly affects the buckets resolved by this source. */
-  tableSyncsParameters(table: SourceTableInterface): boolean;
+  tableSyncsParameters(table: SourceTableRef): boolean;
 }
 
 export interface DebugMergedSource extends HydratedBucketSource {
@@ -190,7 +187,7 @@ export function hydrateEvaluateParameterRow(
   source: ParameterIndexLookupCreator
 ): ScopedEvaluateParameterRow {
   const scope = hydrationState.getParameterIndexLookupScope(source);
-  return (sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] => {
+  return (sourceTable: SourceTableRef, row: SqliteRow): EvaluatedParametersResult[] => {
     return source.evaluateParameterRow(sourceTable, row).map((result) => {
       if (isEvaluationError(result)) {
         return result;
@@ -221,7 +218,7 @@ export function mergeParameterIndexLookupCreators(
 ): { evaluateParameterRow: ScopedEvaluateParameterRow } {
   const withScope = sources.map((source) => hydrateEvaluateParameterRow(hydrationState, source));
   return {
-    evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): EvaluatedParametersResult[] {
+    evaluateParameterRow(sourceTable: SourceTableRef, row: SqliteRow): EvaluatedParametersResult[] {
       return withScope.flatMap((source) => source(sourceTable, row));
     }
   };

@@ -284,19 +284,20 @@ export class WalStream {
       const cresult = await getReplicationIdentityColumns(db, relid);
 
       const columnTypes = (JSON.parse(row.column_types) as string[]).map((e) => Number(e));
-      const table = await this.handleRelation({
+      const tables = await this.handleRelation({
         batch,
         descriptor: {
-          name,
-          schema,
+          connectionTag: this.connections.connectionTag,
+          name: name,
+          schema: schema,
           objectId: relid,
           replicaIdColumns: cresult.replicationColumns
-        } as SourceEntityDescriptor,
+        },
         snapshot: false,
         referencedTypeIds: columnTypes
       });
 
-      result.push(table);
+      result.push(...tables);
     }
     return result;
   }
@@ -818,14 +819,11 @@ WHERE  oid = $1::regclass`,
     if (!descriptor.objectId && typeof descriptor.objectId != 'number') {
       throw new ReplicationAssertionError(`objectId expected, got ${typeof descriptor.objectId}`);
     }
-    const result = await this.storage.resolveTable({
-      group_id: this.group_id,
+    const result = await batch.resolveTables({
       connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      sync_rules: this.sync_rules
+      source: descriptor
     });
-    this.relationCache.update(result.table);
+    this.relationCache.updateAll(descriptor.objectId as number, result.tables);
 
     // Drop conflicting tables. This includes for example renamed tables.
     await batch.drop(result.dropTables);
@@ -837,28 +835,31 @@ WHERE  oid = $1::regclass`,
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not already done, AND:
     // 3. The table is used in sync rules.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
+    const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
 
-    if (shouldSnapshot) {
-      // Truncate this table, in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
-
+    if (snapshotCandidates.length > 0) {
       // Start the snapshot inside a transaction.
       // We use a dedicated connection for this.
       const db = await this.connections.snapshotConnection();
       try {
-        const table = await this.snapshotTableInTx(batch, db, result.table);
-        // After the table snapshot, we wait for replication to catch up.
-        // To make sure there is actually something to replicate, we send a keepalive
-        // message.
+        const snapshotDoneById = new Map<storage.SourceTableId, SourceTable>();
+        for (const table of snapshotCandidates) {
+          // Truncate this table, in case a previous snapshot was interrupted.
+          await batch.truncate([table]);
+          const doneTable = await this.snapshotTableInTx(batch, db, table);
+          snapshotDoneById.set(doneTable.id, doneTable);
+        }
+        // After table snapshots, wait for replication to catch up.
         await sendKeepAlive(db);
-        return table;
+        const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
+        this.relationCache.updateAll(descriptor.objectId as number, tables);
+        return tables;
       } finally {
         await db.end();
       }
     }
 
-    return result.table;
+    return result.tables;
   }
 
   /**
@@ -897,14 +898,14 @@ WHERE  oid = $1::regclass`,
     }
   }
 
-  private getTable(relationId: number): storage.SourceTable {
-    const table = this.relationCache.get(relationId);
-    if (table == null) {
+  private getTables(relationId: number): storage.SourceTable[] {
+    const tables = this.relationCache.getAll(relationId);
+    if (tables == null) {
       // We should always receive a replication message before the relation is used.
       // If we can't find it, it's a bug.
       throw new ReplicationAssertionError(`Missing relation cache for ${relationId}`);
     }
-    return table;
+    return tables;
   }
 
   private syncRulesRecord(row: SqliteInputRow): SqliteRow;
@@ -929,55 +930,70 @@ WHERE  oid = $1::regclass`,
       return null;
     }
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
-      const table = this.getTable(getRelId(msg.relation));
-      if (!table.syncAny) {
-        this.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
+      const tables = this.getTables(getRelId(msg.relation));
+      const tablesToReplicate = tables.filter((table) => table.syncAny);
+      if (tablesToReplicate.length == 0) {
+        this.logger.debug(`Relation ${getRelId(msg.relation)} not used in sync rules - skipping`);
         return null;
       }
 
       if (msg.tag == 'insert') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const baseRecord = this.syncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
-          tag: storage.SaveOperationTag.INSERT,
-          sourceTable: table,
-          before: undefined,
-          beforeReplicaId: undefined,
-          after: baseRecord,
-          afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.INSERT,
+              sourceTable: table,
+              before: undefined,
+              beforeReplicaId: undefined,
+              after: baseRecord,
+              afterReplicaId: getUuidReplicaIdentityBson(baseRecord, table.replicaIdColumns)
+            })) ?? flushResult;
+        }
+        return flushResult;
       } else if (msg.tag == 'update') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         // "before" may be null if the replica id columns are unchanged
         // It's fine to treat that the same as an insert.
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg));
         const after = this.toastableSyncRulesRecord(this.connections.types.constructAfterRecord(msg));
-        return await batch.save({
-          tag: storage.SaveOperationTag.UPDATE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
-          after: after,
-          afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.UPDATE,
+              sourceTable: table,
+              before: before,
+              beforeReplicaId: before ? getUuidReplicaIdentityBson(before, table.replicaIdColumns) : undefined,
+              after: after,
+              afterReplicaId: getUuidReplicaIdentityBson(after, table.replicaIdColumns)
+            })) ?? flushResult;
+        }
+        return flushResult;
       } else if (msg.tag == 'delete') {
         this.metrics.getCounter(ReplicationMetric.ROWS_REPLICATED).add(1);
         const before = this.syncRulesRecord(this.connections.types.constructBeforeRecord(msg)!);
 
-        return await batch.save({
-          tag: storage.SaveOperationTag.DELETE,
-          sourceTable: table,
-          before: before,
-          beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
-          after: undefined,
-          afterReplicaId: undefined
-        });
+        let flushResult: storage.FlushedResult | null = null;
+        for (const table of tablesToReplicate) {
+          flushResult =
+            (await batch.save({
+              tag: storage.SaveOperationTag.DELETE,
+              sourceTable: table,
+              before: before,
+              beforeReplicaId: getUuidReplicaIdentityBson(before, table.replicaIdColumns),
+              after: undefined,
+              afterReplicaId: undefined
+            })) ?? flushResult;
+        }
+        return flushResult;
       }
     } else if (msg.tag == 'truncate') {
       let tables: storage.SourceTable[] = [];
       for (let relation of msg.relations) {
-        const table = this.getTable(getRelId(relation));
-        tables.push(table);
+        tables.push(...this.getTables(getRelId(relation)));
       }
       return await batch.truncate(tables);
     }
@@ -1071,7 +1087,13 @@ WHERE  oid = $1::regclass`,
 
     const markRecordUnavailable = (record: SaveUpdate) => {
       if (!IdSnapshotQuery.supports(record.sourceTable)) {
-        // If it's not supported, it's also safe to ignore
+        // We only have a targeted resnapshot implementation for tables supported by IdSnapshotQuery.
+        // For unsupported tables we cannot repair missing TOAST values here; leave the row unchanged
+        // and rely on a later full row update or a future full snapshot to correct it.
+        // FIXME: We should support resnapshot for any row.
+        this.logger.warn(
+          `Missing record for ${record.sourceTable.qualifiedName}: ${record.afterReplicaId} / ${record.after.id}`
+        );
         return;
       }
       let key: PrimaryKeyValue = {};
@@ -1132,7 +1154,7 @@ WHERE  oid = $1::regclass`,
             if (msg.tag == 'relation') {
               await this.handleRelation({
                 batch,
-                descriptor: getPgOutputRelation(msg),
+                descriptor: getPgOutputRelation(msg, this.connections.connectionTag),
                 snapshot: true,
                 referencedTypeIds: referencedColumnTypeIds(msg)
               });

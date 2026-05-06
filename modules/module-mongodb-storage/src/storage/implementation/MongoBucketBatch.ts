@@ -66,12 +66,13 @@ export abstract class MongoBucketBatch
   extends BaseObserver<storage.BucketBatchStorageListener>
   implements storage.BucketStorageBatch
 {
+  protected readonly options: MongoBucketBatchOptions;
   protected logger: Logger;
 
   private readonly client: mongo.MongoClient;
   public readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
-  private readonly sync_rules: HydratedSyncRules;
+  protected readonly sync_rules: HydratedSyncRules;
 
   protected readonly group_id: number;
 
@@ -117,6 +118,7 @@ export abstract class MongoBucketBatch
 
   constructor(options: MongoBucketBatchOptions) {
     super();
+    this.options = options;
     this.logger = options.logger ?? defaultLogger;
     this.client = options.db.client;
     this.db = options.db;
@@ -146,6 +148,8 @@ export abstract class MongoBucketBatch
   get lastCheckpointLsn() {
     return this.last_checkpoint_lsn;
   }
+
+  abstract resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult>;
 
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
 
@@ -473,10 +477,12 @@ export abstract class MongoBucketBatch
     if (afterId && after && utils.isCompleteRow(this.storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
-        const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
+        const { results, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
           record: after,
-          sourceTable
+          sourceTable: sourceTable.ref,
+          bucketDataSources: sourceTable.bucketDataSources
         });
+        const evaluated = results;
 
         for (let error of syncErrors) {
           container.reporter.captureMessage(
@@ -508,8 +514,9 @@ export abstract class MongoBucketBatch
       if (sourceTable.syncParameters) {
         // Parameters
         const { results: paramEvaluated, errors: paramErrors } = this.sync_rules.evaluateParameterRowWithErrors(
-          sourceTable,
-          after
+          sourceTable.ref,
+          after,
+          { parameterLookupSources: sourceTable.parameterLookupSources }
         );
 
         for (let error of paramErrors) {
@@ -857,7 +864,7 @@ export abstract class MongoBucketBatch
    */
   protected getTableEvents(table: storage.SourceTable): SqlEventDescriptor[] {
     return this.sync_rules.eventDescriptors.filter((evt) =>
-      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
+      [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table.ref))
     );
   }
 }

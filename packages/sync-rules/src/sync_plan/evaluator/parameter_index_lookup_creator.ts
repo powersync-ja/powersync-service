@@ -1,7 +1,7 @@
 import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { ParameterLookupScope } from '../../HydrationState.js';
-import { SourceTableInterface } from '../../SourceTableInterface.js';
+import { SourceTableRef } from '../../SourceTableRef.js';
 import { TablePattern } from '../../TablePattern.js';
 import { SqliteJsonValue, SqliteRow, UnscopedEvaluatedParametersResult } from '../../types.js';
 import { ScalarExpressionEvaluator } from '../engine/scalar_expression_engine.js';
@@ -47,7 +47,7 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     return set;
   }
 
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
+  evaluateParameterRow(sourceTable: SourceTableRef, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
     const results: UnscopedEvaluatedParametersResult[] = [];
     if (!this.sourceTable.matches(sourceTable)) {
       return results;
@@ -78,7 +78,7 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     return results;
   }
 
-  tableSyncsParameters(table: SourceTableInterface): boolean {
+  tableSyncsParameters(table: SourceTableRef): boolean {
     return this.sourceTable.matches(table);
   }
 }

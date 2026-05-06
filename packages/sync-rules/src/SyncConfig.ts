@@ -3,7 +3,7 @@ import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { HydratedSyncRules } from './HydratedSyncRules.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
 import { applyRowContext } from './utils.js';
@@ -101,15 +101,15 @@ export abstract class SyncConfig {
     return [...eventTables.values()];
   }
 
-  tableTriggersEvent(table: SourceTableInterface): boolean {
+  tableTriggersEvent(table: SourceTableRef): boolean {
     return this.eventDescriptors.some((bucket) => bucket.tableTriggersEvent(table));
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     return this.bucketDataSources.some((b) => b.tableSyncsData(table));
   }
 
-  tableSyncsParameters(table: SourceTableInterface): boolean {
+  tableSyncsParameters(table: SourceTableRef): boolean {
     return this.bucketParameterLookupSources.some((b) => b.tableSyncsParameters(table));
   }
 

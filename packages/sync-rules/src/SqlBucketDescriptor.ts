@@ -8,7 +8,7 @@ import {
 } from './BucketSource.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { IdSequence } from './IdSequence.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { SqlDataQuery } from './SqlDataQuery.js';
 import { SqlParameterQuery } from './SqlParameterQuery.js';
 import { GetQuerierOptions, SyncRulesOptions } from './SqlSyncRules.js';
@@ -198,7 +198,7 @@ export class BucketDefinitionDataSource implements BucketDataSource {
     return result;
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     for (let query of this.descriptor.dataQueries) {
       if (query.applies(table)) {
         return true;

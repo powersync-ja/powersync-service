@@ -1,5 +1,5 @@
 import { logger } from '@powersync/lib-services-framework';
-import { DEFAULT_TAG, SourceTableInterface, SyncConfigWithErrors } from '@powersync/service-sync-rules';
+import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
 import * as storage from '../storage/storage-index.js';
@@ -116,7 +116,7 @@ export async function getSyncRulesStatus(
           errors: [{ level: 'fatal', message: 'connection failed', ts: now }]
         };
       } else {
-        const source: SourceTableInterface = {
+        const source: SourceTableRef = {
           connectionTag: tag,
           schema: pattern.schema,
           name: pattern.tablePattern

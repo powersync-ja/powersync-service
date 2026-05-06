@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 import * as lib_postgres from '@powersync/lib-service-postgres';
 import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
-import { PatternResult, storage } from '@powersync/service-core';
+import { PatternResult, qualifiedName, storage } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { ReplicationIdentity } from './PgRelation.js';
@@ -35,7 +35,7 @@ export async function getPrimaryKeyColumns(
   return attrRows.rows.map((row) => {
     return {
       name: row.decodeWithoutCustomTypes(0) as string,
-      typeId: row.decodeWithoutCustomTypes(1) as number
+      typeId: Number(row.decodeWithoutCustomTypes(1)) // source type can be a bigint, so always cast it
     } satisfies storage.ColumnDescriptor;
   });
 }
@@ -278,27 +278,23 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
   for (const row of rows) {
     const tablePattern = tablePatterns[row.pattern_ord];
     const idColumns = JSON.parse(row.replication_id_json) as string[];
-    const sourceTable = new storage.SourceTable({
-      id: '',
+    const ref: sync_rules.SourceTableRef = {
       connectionTag,
-      objectId: row.relation_id ?? 0,
       schema: tablePattern.schema,
-      name: row.name,
-      replicaIdColumns: idColumns.map((name) => ({ name })),
-      snapshotComplete: true
-    });
-    const syncData = syncRules.tableSyncsData(sourceTable);
-    const syncParameters = syncRules.tableSyncsParameters(sourceTable);
+      name: row.name
+    };
+    const syncData = syncRules.tableSyncsData(ref);
+    const syncParameters = syncRules.tableSyncsParameters(ref);
 
     let errors: service_types.ReplicationError[];
     if (row.relation_id == null) {
-      errors = [{ level: 'warning', message: `Table ${sourceTable.qualifiedName} not found.` }];
+      errors = [{ level: 'warning', message: `Table ${qualifiedName(ref)} not found.` }];
     } else {
       const idColumnsError =
         idColumns.length == 0 && row.replication_identity != 'nothing'
           ? {
               level: 'fatal' as const,
-              message: `No replication id found for ${sourceTable.qualifiedName}. Replica identity: ${row.replication_identity}.${row.replication_identity == 'default' ? ' Configure a primary key on the table.' : ''}`
+              message: `No replication id found for ${qualifiedName(ref)}. Replica identity: ${row.replication_identity}.${row.replication_identity == 'default' ? ' Configure a primary key on the table.' : ''}`
             }
           : null;
       const selectError = row.select_error == null ? null : { level: 'fatal' as const, message: row.select_error };
@@ -306,7 +302,7 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
         row.in_publication === false
           ? {
               level: 'fatal' as const,
-              message: `Table ${sourceTable.qualifiedName} is not part of publication '${publicationName}'. Run: \`ALTER PUBLICATION ${publicationName} ADD TABLE ${sourceTable.qualifiedName}\`.`
+              message: `Table ${qualifiedName(ref)} is not part of publication '${publicationName}'. Run: \`ALTER PUBLICATION ${publicationName} ADD TABLE ${qualifiedName(ref)}\`.`
             }
           : null;
       const rlsError =
