@@ -23,7 +23,8 @@ export abstract class MongoParameterCompactor {
     protected readonly db: VersionedPowerSyncMongo,
     protected readonly group_id: number,
     protected readonly checkpoint: InternalOpId,
-    protected readonly options: CompactOptions
+    protected readonly options: CompactOptions,
+    protected readonly getCollectionsCb?: () => Promise<mongo.Collection<mongo.Document>[]>
   ) {}
 
   async compact() {
@@ -33,7 +34,13 @@ export abstract class MongoParameterCompactor {
     }
   }
 
-  protected abstract getCollections(): Promise<mongo.Collection<mongo.Document>[]>;
+  protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
+    if (this.getCollectionsCb == null) {
+      throw new Error('getCollections callback not provided');
+    }
+    const collections = await this.getCollectionsCb();
+    return collections.map((collection) => collection as unknown as mongo.Collection<mongo.Document>);
+  }
 
   protected abstract collectionFilter(): mongo.Document;
 

@@ -3,11 +3,22 @@ import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
 export class MongoParameterCompactorV5 extends MongoParameterCompactor {
-  declare protected readonly db: VersionedPowerSyncMongoV5;
-
-  protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
-    const collections = await this.db.listParameterIndexCollectionsV5(this.group_id);
-    return collections.map((collection) => collection.collection as unknown as mongo.Collection<mongo.Document>);
+  constructor(
+    db: VersionedPowerSyncMongoV5,
+    group_id: number,
+    checkpoint: any,
+    options: any
+  ) {
+    super(
+      db,
+      group_id,
+      checkpoint,
+      options,
+      () =>
+        db
+          .listParameterIndexCollectionsV5(group_id)
+          .then((collections) => collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>))
+    );
   }
 
   protected collectionFilter(): mongo.Document {

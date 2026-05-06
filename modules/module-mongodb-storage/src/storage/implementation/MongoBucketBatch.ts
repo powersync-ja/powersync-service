@@ -1,3 +1,4 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -60,6 +61,8 @@ export interface MongoBucketBatchOptions {
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
   logger?: Logger;
+
+  listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 }
 
 export abstract class MongoBucketBatch
@@ -84,6 +87,7 @@ export abstract class MongoBucketBatch
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private clearedError = false;
+  private listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 
   /**
    * Last LSN received associated with a checkpoint.
@@ -130,6 +134,7 @@ export abstract class MongoBucketBatch
     this.mapping = options.mapping;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
+    this.listSourceRecordCollections = options.listSourceRecordCollections;
     this.batch = new OperationBatch();
 
     this.persisted_op = options.keepaliveOp ?? null;
@@ -150,7 +155,28 @@ export abstract class MongoBucketBatch
 
   protected abstract get sourceRecordStore(): SourceRecordStore;
 
-  protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
+  protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
+    if (this.listSourceRecordCollections == null) {
+      return;
+    }
+    const collections = await this.listSourceRecordCollections(this.group_id);
+    const tableIds = new Set(sourceTables.map((t) => mongoTableId(t.id).toHexString()));
+    for (const collection of collections) {
+      const name = collection.collectionName;
+      const prefix = `source_records_${this.group_id}_`;
+      if (name.startsWith(prefix)) {
+        const tableId = name.slice(prefix.length);
+        if (tableIds.has(tableId)) {
+          await collection.drop().catch((error) => {
+            if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+              return;
+            }
+            throw error;
+          });
+        }
+      }
+    }
+  }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;
