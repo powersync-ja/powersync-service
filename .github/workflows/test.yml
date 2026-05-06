@@ -258,6 +258,63 @@ jobs:
       - name: Test Replication
         run: pnpm --filter='./modules/module-mongodb' test
 
+  run-convex-replication-tests:
+    name: Convex Replication Test
+    runs-on: ubuntu-latest
+    needs: run-core-tests
+    env:
+      CONVEX_DEPLOYMENT: anonymous:anonymous-module-convex
+      CONVEX_URL: http://127.0.0.1:3210
+      CONVEX_SITE_URL: http://127.0.0.1:3211
+      PG_STORAGE_TEST_URL: postgres://postgres:postgres@localhost:5431/powersync_storage_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Start MongoDB
+        uses: ./.github/actions/start-mongodb
+
+      - name: Start PostgreSQL (Storage)
+        uses: ./.github/actions/start-postgres-storage
+
+      - name: Setup Node and build
+        uses: ./.github/actions/setup-node-build
+
+      - name: Start Convex
+        working-directory: modules/module-convex
+        run: |
+          # Start the local Convex backend in the background so the next test step can use it.
+          pnpm run dev:convex > convex-dev.log 2>&1 &
+
+          # Wait until Convex has generated its local admin key and the schema API is responding.
+          timeout 120 bash -c '
+            until node --input-type=module -e '"'"'
+              import fs from "node:fs";
+              const config = JSON.parse(fs.readFileSync(".convex/local/default/config.json", "utf8"));
+              const response = await fetch("http://127.0.0.1:3210/api/json_schemas?format=json", {
+                headers: { Authorization: `Convex ${config.adminKey}` }
+              });
+              if (!response.ok) process.exit(1);
+            '"'"'; do
+              sleep 2
+            done
+          '
+
+      - name: Test Replication
+        run: pnpm --filter='./modules/module-convex' test
+
+      - name: Print Convex logs
+        if: failure()
+        working-directory: modules/module-convex
+        run: cat convex-dev.log
+
   run-mongodb-storage-tests:
     name: MongoDB Storage Test
     runs-on: ubuntu-latest

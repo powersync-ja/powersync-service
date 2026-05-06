@@ -18,9 +18,9 @@ replication:
 
 1. Simplest is to run the convex demo in the self-host-demo [repo](https://github.com/powersync-ja/self-host-demo)
 
-# Development
+## Development
 
-Run the `dev:convex` script to start a local Convex development instance.
+Run the `dev:convex` script to start the local Convex development backend used by the module tests.
 
 ```bash
 # In the modules/module-convex folder
@@ -28,10 +28,30 @@ pnpm run dev:convex
 
 # OR
 # From the repo root
-pnpm run -C modules/modules-convex dev:convex
+pnpm run -C modules/module-convex dev:convex
 ```
 
-# Technical notes
+The local backend listens on `http://127.0.0.1:3210` by default. The integration tests read the local deploy key from
+`modules/module-convex/.convex/local/default/config.json`, which is created by `dev:convex`.
+
+To run the Convex module tests locally:
+
+```bash
+# Terminal 1
+pnpm run -C modules/module-convex dev:convex
+
+# Terminal 2, from the repo root
+pnpm --filter='./modules/module-convex' test
+```
+
+Some integration tests are gated behind `CI=true` or `SLOW_TESTS=true`. To run them locally, keep `dev:convex` running
+and start the required storage backends (MongoDB and Postgres storage), then run:
+
+```bash
+CI=true pnpm --filter='./modules/module-convex' test
+```
+
+## Technical notes
 
 The content below is written in an agents.md style describing the behavior of `module-convex`.
 

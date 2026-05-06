@@ -61,6 +61,10 @@ The service can be started using the public Docker image. See the image [notes](
 
   - MySQL replication module.
 
+- [modules/module-convex](./modules/module-convex/README.md)
+
+  - Convex replication module. See the module README for local integration testing with the `dev:convex` backend.
+
 - [modules/module-postgres](./modules/module-postgres/README.md)
 
   - Postgres replication module.
