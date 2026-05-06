@@ -425,74 +425,81 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     // We're also using the default hydration state for them all.
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(fullRulesYaml, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const fullRules = hydratedRulesFor(fullRulesYaml);
     const dataOnlyRules = hydratedRulesFor(dataOnlyRulesYaml);
     const parameterOnlyRules = hydratedRulesFor(parameterOnlyRulesYaml);
     const eventOnlyRules = hydratedRulesFor(eventOnlyRulesYaml);
     const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
+    const dataOnlyTableId = new bson.ObjectId('6544e3899293153fa7b38348');
+    const addedParameterTableId = new bson.ObjectId('6544e3899293153fa7b38349');
+    const removedDataTableId = new bson.ObjectId('6544e3899293153fa7b3834a');
 
-    const dataOnly = await bucketStorage.resolveTables(
-      {
-        connection_id: 1,
-        source,
-        idGenerator: objectIdGenerator('6544e3899293153fa7b38348')
-      },
-      dataOnlyRules
-    );
-    expect(dataOnly.tables).toHaveLength(1);
+    const dataOnly = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => dataOnlyTableId,
+      syncRules: dataOnlyRules
+    });
+    expect(dataOnly.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
+    expect(dataOnly.dropTables.map((table) => table.id)).toEqual([]);
     expect(dataOnly.tables[0].bucketDataSources).toHaveLength(1);
     expect(dataOnly.tables[0].parameterLookupSources).toHaveLength(0);
 
-    const addedParameter = await bucketStorage.resolveTables(
-      {
-        connection_id: 1,
-        source,
-        idGenerator: objectIdGenerator('6544e3899293153fa7b38349')
-      },
-      fullRules
-    );
-    expect(addedParameter.tables).toHaveLength(2);
-    expect(addedParameter.dropTables).toHaveLength(0);
+    const addedParameter = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => addedParameterTableId,
+      syncRules: fullRules
+    });
+    // Adding a definition always creates a new SourceTable
+    expect(addedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId, addedParameterTableId]);
     expect(addedParameter.tables.map((table) => table.bucketDataSources.length).sort()).toEqual([0, 1]);
     expect(addedParameter.tables.map((table) => table.parameterLookupSources.length).sort()).toEqual([0, 1]);
+    expect(addedParameter.dropTables.map((table) => table.id)).toEqual([]);
 
-    const removedParameter = await bucketStorage.resolveTables(
-      {
-        connection_id: 1,
-        source,
-        idGenerator: () => {
-          throw new Error('data-only resolve should reuse existing v3 source table');
-        }
+    const removedParameter = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => {
+        throw new Error('data-only resolve should reuse existing v3 source table');
       },
-      dataOnlyRules
-    );
-    expect(removedParameter.tables).toHaveLength(1);
+      syncRules: dataOnlyRules
+    });
+    expect(removedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
+    // Now this sourceTable is unused & dropped
+    expect(removedParameter.dropTables.map((table) => table.id)).toEqual([addedParameterTableId]);
     expect(removedParameter.tables[0].bucketDataSources).toHaveLength(1);
     expect(removedParameter.tables[0].parameterLookupSources).toHaveLength(0);
+    await writer.drop(removedParameter.dropTables);
 
-    const removedData = await bucketStorage.resolveTables(
-      {
-        connection_id: 1,
-        source,
-        idGenerator: () => {
-          throw new Error('parameter-only resolve should reuse existing v3 source table');
-        }
-      },
-      parameterOnlyRules
-    );
-    expect(removedData.tables).toHaveLength(1);
+    const removedData = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => removedDataTableId,
+      syncRules: parameterOnlyRules
+    });
+
+    // This goes from dataOnlyRules -> parameterOnlyRules, which adds one definition and removes another.
+    // This generates a new SourceTable again, and removes all others.
+    expect(removedData.tables.map((table) => table.id)).toEqual([removedDataTableId]);
+    expect(removedData.dropTables.map((table) => table.id)).toEqual([dataOnlyTableId]);
     expect(removedData.tables[0].bucketDataSources).toHaveLength(0);
     expect(removedData.tables[0].parameterLookupSources).toHaveLength(1);
+    await writer.drop(removedData.dropTables);
 
-    const eventOnly = await bucketStorage.resolveTables(
-      {
-        connection_id: 1,
-        source,
-        idGenerator: objectIdGenerator('6544e3899293153fa7b3834a')
+    const eventOnly = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => {
+        throw new Error('resolve should reuse existing v3 source table');
       },
-      eventOnlyRules
-    );
-    expect(eventOnly.tables).toHaveLength(1);
+      syncRules: eventOnlyRules
+    });
+
+    // Event-only table can re-use any existing table.
+    expect(eventOnly.tables.map((table) => table.id)).toEqual([removedDataTableId]);
+    expect(eventOnly.dropTables.map((table) => table.id)).toEqual([]);
     expect(eventOnly.tables[0].bucketDataSources).toHaveLength(0);
     expect(eventOnly.tables[0].parameterLookupSources).toHaveLength(0);
     expect(eventOnly.tables[0].syncData).toBe(false);
