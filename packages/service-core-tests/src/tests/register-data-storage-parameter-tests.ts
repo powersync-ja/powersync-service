@@ -840,73 +840,123 @@ config:
   edition: 3
 streams:
   chat:
-    accept_potentially_dangerous_queries: true
+    auto_subscribe: true
     query: |
-      SELECT users.*
-      FROM users
-      JOIN conversations
-      JOIN json_each(conversations.members) AS members
-      WHERE users.id = members.value
-        AND conversations.id = subscription.parameter('chat')
+      SELECT a.*
+      FROM a, b, json_each(b.x) x, json_each(b.y) y
+      WHERE a.x = x.value AND y.value = auth.user_id()
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const conversationsTable = await test_utils.resolveTestTable(writer, 'conversations', ['id'], config);
+    const tableB = await test_utils.resolveTestTable(writer, 'b', ['id'], config);
+    const firstState = {
+      id: 'id0',
+      x: JSON.stringify(['x1', 'x2']),
+      y: JSON.stringify(['y1', 'y2'])
+    };
+    const secondState = {
+      id: 'id0',
+      x: JSON.stringify(['x2']),
+      y: JSON.stringify(['y1', 'y2'])
+    };
+    const thirdState = {
+      id: 'id0',
+      x: JSON.stringify(['x2']),
+      y: JSON.stringify(['y2'])
+    };
+    const replicaId = test_utils.rid('id0');
+
     await writer.markAllSnapshotDone('1/1');
     await writer.save({
-      sourceTable: conversationsTable,
+      sourceTable: tableB,
       tag: storage.SaveOperationTag.INSERT,
-      after: {
-        id: 'chat-1',
-        members: JSON.stringify(['user-1', 'user-2'])
-      },
-      afterReplicaId: test_utils.rid('chat-1')
+      after: firstState,
+      afterReplicaId: replicaId
     });
 
     await writer.commit('1/1');
 
-    const checkpoint = await bucketStorage.getCheckpoint();
-    const parameters = new RequestParameters(new JwtPayload({ sub: 'unused' }), {});
+    let checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'y1' }), {});
     const querier = sync_rules.getBucketParameterQuerier({
-      ...test_utils.querierOptions(parameters),
-      streams: {
-        chat: [
-          {
-            priorityOverride: null,
-            parameters: { chat: 'chat-1' },
-            opaque_id: 123
-          }
-        ]
-      }
+      ...test_utils.querierOptions(parameters)
     }).querier;
 
-    const buckets = await querier.queryDynamicBucketDescriptions({
+    let buckets = await querier.queryDynamicBucketDescriptions({
       async getParameterSets(lookups) {
-        expect(lookups.map((l) => l.indexKey)).toEqual([['chat-1']]);
+        expect(lookups.map((l) => l.indexKey)).toEqual([['y1']]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
 
-        expect(parameter_sets).toEqual([{ '0': 'user-1' }, { '0': 'user-2' }]);
+        expect(parameter_sets).toEqual([{ '0': 'x1' }, { '0': 'x2' }]);
         return parameter_sets;
       }
     });
 
     expect(buckets).toMatchObject([
       {
-        bucket: expect.stringMatching(/chat.*\["user-1"\]$/),
+        bucket: expect.stringMatching(/chat.*\["x1"\]$/),
         definition: 'chat',
-        inclusion_reasons: [{ subscription: 123 }],
+        inclusion_reasons: ['default'],
         priority: 3
       },
       {
-        bucket: expect.stringMatching(/chat.*\["user-2"\]$/),
+        bucket: expect.stringMatching(/chat.*\["x2"\]$/),
         definition: 'chat',
-        inclusion_reasons: [{ subscription: 123 }],
+        inclusion_reasons: ['default'],
         priority: 3
       }
     ]);
+
+    // Make the x2 bucket inaccessible
+    await writer.save({
+      sourceTable: tableB,
+      tag: storage.SaveOperationTag.UPDATE,
+      before: firstState,
+      after: secondState,
+      beforeReplicaId: replicaId,
+      afterReplicaId: replicaId
+    });
+    await writer.commit('1/2');
+
+    checkpoint = await bucketStorage.getCheckpoint();
+    buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['y1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
+
+        expect(parameter_sets).toEqual([{ '0': 'x2' }]);
+        return parameter_sets;
+      }
+    });
+    expect(buckets.map((bkt) => bkt.bucket)).toStrictEqual([expect.stringContaining('x2')]);
+
+    // Second update, remove user from inputs
+    await writer.save({
+      sourceTable: tableB,
+      tag: storage.SaveOperationTag.UPDATE,
+      before: secondState,
+      after: thirdState,
+      beforeReplicaId: replicaId,
+      afterReplicaId: replicaId
+    });
+    await writer.commit('1/3');
+
+    checkpoint = await bucketStorage.getCheckpoint();
+    buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['y1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
+
+        expect(parameter_sets).toHaveLength(0);
+        return parameter_sets;
+      }
+    });
+    expect(buckets).toHaveLength(0);
   });
 }
