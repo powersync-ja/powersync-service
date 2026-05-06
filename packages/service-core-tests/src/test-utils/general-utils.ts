@@ -14,32 +14,8 @@ export const BATCH_OPTIONS: storage.CreateWriterOptions = {
   storeCurrentData: true
 };
 
-export function makeTestTable(
-  name: string,
-  replicaIdColumns?: string[] | undefined,
-  options?: { tableIdStrings: boolean }
-) {
-  const relId = utils.hashData('table', name, (replicaIdColumns ?? ['id']).join(','));
-  const id =
-    options?.tableIdStrings == false ? new bson.ObjectId('6544e3899293153fa7b38331') : '6544e3899293153fa7b38331';
-  return new storage.SourceTable({
-    id: id,
-    ref: {
-      connectionTag: storage.SourceTable.DEFAULT_TAG,
-      schema: 'public',
-      name
-    },
-    objectId: relId,
-    replicaIdColumns: (replicaIdColumns ?? ['id']).map((column) => ({ name: column, type: 'VARCHAR', typeId: 25 })),
-    snapshotComplete: true,
-    bucketDataSources: [],
-    parameterLookupSources: []
-  });
-}
 /**
- * With incremental reprocessing, we need actual test tables, resolved via the writer.
- *
- * This prepares for it.
+ * With newer storage versions, we need actual test tables, resolved via the writer.
  */
 export async function resolveTestTable(
   writer: storage.BucketStorageBatch,
