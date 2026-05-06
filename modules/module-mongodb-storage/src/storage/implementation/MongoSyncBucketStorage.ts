@@ -11,7 +11,6 @@ import {
   BroadcastIterable,
   CHECKPOINT_INVALIDATE_ALL,
   CheckpointChanges,
-  ColumnDescriptor,
   GetCheckpointChangesOptions,
   InternalOpId,
   mergeAsyncIterables,
@@ -22,12 +21,7 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import {
-  HydratedSyncRules,
-  ParameterLookupRows,
-  ScopedParameterLookup,
-  SourceTableRef
-} from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -35,7 +29,7 @@ import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import { CommonSourceTableDocument, StorageConfig } from './models.js';
+import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
@@ -214,8 +208,7 @@ export abstract class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       syncConfigId: state.syncConfigId,
-      tracer: options.tracer,
-      resolveTables: this.resolveTables.bind(this)
+      tracer: options.tracer
     };
     const writer = this.createWriterImpl(batchOptions);
     this.iterateListeners((cb) => cb.batchStarted?.(writer));
@@ -230,137 +223,6 @@ export abstract class MongoSyncBucketStorage
     await callback(writer);
     await writer.flush();
     return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
-  }
-
-  protected abstract sourceTableBaseId(): Partial<CommonSourceTableDocument>;
-
-  protected abstract augmentCreatedSourceTableDocument(
-    createDoc: CommonSourceTableDocument,
-    options: storage.ResolveTablesOptions,
-    ref: SourceTableRef,
-    syncRules: HydratedSyncRules
-  ): void;
-
-  protected abstract initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void>;
-
-  async resolveTables(
-    options: storage.ResolveTablesOptions & { syncRules: HydratedSyncRules }
-  ): Promise<storage.ResolveTablesResult> {
-    const { connection_id, source, syncRules } = options;
-
-    const { schema: schema, name: name, objectId, replicaIdColumns, connectionTag } = source;
-
-    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      type_oid: column.typeId
-    }));
-    let result: storage.ResolveTablesResult | null = null;
-    let initializeSourceRecordsFor: bson.ObjectId | null = null;
-
-    const baseId = this.sourceTableBaseId();
-    await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(this.group_id);
-      let filter: Partial<CommonSourceTableDocument> = {
-        ...baseId,
-        connection_id: connection_id,
-        schema_name: schema,
-        table_name: name,
-        replica_id_columns2: normalizedReplicaIdColumns
-      };
-
-      if (objectId != null) {
-        filter.relation_id = objectId;
-      }
-      let doc = await col.findOne(filter, { session });
-      if (doc == null) {
-        const id = options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId();
-        const createDoc: CommonSourceTableDocument = {
-          _id: id,
-          ...(baseId as any),
-          connection_id: connection_id,
-          relation_id: objectId,
-          schema_name: schema,
-          table_name: name,
-          replica_id_columns: null,
-          replica_id_columns2: normalizedReplicaIdColumns,
-          snapshot_done: false,
-          snapshot_status: undefined
-        };
-        this.augmentCreatedSourceTableDocument(createDoc, options, source, syncRules);
-        doc = createDoc;
-
-        await col.insertOne(doc, { session });
-        initializeSourceRecordsFor = doc._id;
-      }
-      const sourceTable = new storage.SourceTable({
-        id: doc._id,
-        ref: source,
-        objectId: objectId,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true,
-        ...syncRules.getMatchingSources(source)
-      });
-      sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
-      sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
-      sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-      sourceTable.snapshotStatus =
-        doc.snapshot_status == null
-          ? undefined
-          : {
-              lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-              totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-              replicatedCount: doc.snapshot_status.replicated_count
-            };
-
-      let dropTables: storage.SourceTable[] = [];
-      let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
-      if (objectId != null) {
-        truncateFilter.push({ relation_id: objectId });
-      }
-      const truncate = await col
-        .find(
-          {
-            ...baseId,
-            connection_id: connection_id,
-            _id: { $ne: doc._id },
-            $or: truncateFilter
-          },
-          { session }
-        )
-        .toArray();
-      dropTables = truncate.map((doc) => {
-        const ref = {
-          connectionTag,
-          schema: doc.schema_name,
-          name: doc.table_name
-        };
-        const dropTable = new storage.SourceTable({
-          id: doc._id,
-          ref,
-          objectId: doc.relation_id,
-          replicaIdColumns:
-            doc.replica_id_columns2?.map(
-              (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
-            ) ?? [],
-          snapshotComplete: doc.snapshot_done ?? true,
-          ...syncRules.getMatchingSources(ref)
-        });
-        dropTable.syncEvent = syncRules.tableTriggersEvent(ref);
-        dropTable.syncData = dropTable.bucketDataSources.length > 0;
-        dropTable.syncParameters = dropTable.parameterLookupSources.length > 0;
-        return dropTable;
-      });
-
-      result = {
-        tables: [sourceTable],
-        dropTables: dropTables
-      };
-    });
-    if (initializeSourceRecordsFor != null) {
-      await this.initializeResolvedSourceRecords(initializeSourceRecordsFor);
-    }
-    return result!;
   }
 
   protected abstract getParameterSetsImpl(

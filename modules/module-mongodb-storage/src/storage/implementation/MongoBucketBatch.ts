@@ -56,9 +56,6 @@ export interface MongoBucketBatchOptions {
   skipExistingRows: boolean;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
-  resolveTables: (
-    options: storage.ResolveTablesOptions & { syncRules: HydratedSyncRules }
-  ) => Promise<storage.ResolveTablesResult>;
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
@@ -74,7 +71,7 @@ export abstract class MongoBucketBatch
   private readonly client: mongo.MongoClient;
   public readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
-  private readonly sync_rules: HydratedSyncRules;
+  protected readonly sync_rules: HydratedSyncRules;
 
   protected readonly group_id: number;
 
@@ -151,9 +148,7 @@ export abstract class MongoBucketBatch
     return this.last_checkpoint_lsn;
   }
 
-  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
-    return this.options.resolveTables({ ...options, syncRules: options.syncRules ?? this.sync_rules });
-  }
+  abstract resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult>;
 
   protected abstract createPersistedBatch(writtenSize: number): PersistedBatch;
 

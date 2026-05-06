@@ -27,8 +27,6 @@ export interface SyncRulesBucketStorage
   readonly factory: BucketStorageFactory;
   readonly logger: Logger;
 
-  resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
-
   /**
    * Create a new writer.
    *
