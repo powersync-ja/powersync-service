@@ -5,6 +5,7 @@ import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { BucketStateDocumentV3 } from './models.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
@@ -74,34 +75,32 @@ export class MongoCompactorV3 extends MongoCompactor {
     if (definitionId == null) {
       throw new ServiceAssertionError(`Missing definitionId for V3 bucket state filter on bucket ${bucket}`);
     }
-    return {
-      _id: {
-        d: definitionId,
-        b: bucket
-      }
-    };
+    return bucketStateFilter(bucket, definitionId);
   }
 
   protected async getBucketDataContext(
     bucket: string,
     definitionId: BucketDefinitionId | null
   ): Promise<SingleBucketStore | null> {
-    if (definitionId == null) {
-      // Not the _most_ efficient approach, but this is not used often
-      const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();
-      if (allDefinitionIds.length == 0) {
-        return null;
+    const resolvedDefinitionId = await resolveBucketDefinitionId(
+      {
+        bucket,
+        definitionId,
+        allDefinitionIds: this.storage.mapping.allBucketDefinitionIds(),
+        groupId: this.group_id
+      },
+      async (potentialIds) => {
+        const bucketState = await this.db.bucketStateV3(this.group_id).findOne({
+          _id: { $in: potentialIds }
+        });
+        return bucketState ? { definitionId: bucketState._id.d } : null;
       }
-      const potentialIds = allDefinitionIds.map((definitionId) => ({ d: definitionId, b: bucket }));
-      const bucketState = await this.db.bucketStateV3(this.group_id).findOne({
-        _id: { $in: potentialIds }
-      });
-      if (bucketState == null) {
-        return null;
-      }
-      definitionId = bucketState._id.d;
+    );
+
+    if (resolvedDefinitionId == null) {
+      return null;
     }
 
-    return new SingleBucketStoreV3(this.db, { bucket, definitionId, replicationStreamId: this.group_id });
+    return new SingleBucketStoreV3(this.db, { bucket, definitionId: resolvedDefinitionId, replicationStreamId: this.group_id });
   }
 }

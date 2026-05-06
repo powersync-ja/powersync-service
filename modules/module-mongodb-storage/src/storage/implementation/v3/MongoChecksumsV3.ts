@@ -1,5 +1,4 @@
 import {
-  bson,
   BucketChecksum,
   FetchPartialBucketChecksum,
   InternalOpId,
@@ -13,6 +12,7 @@ import {
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
+import { createBucketFilter } from '../bucket-operations/query-builders.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
@@ -47,7 +47,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
         this.db.bucketDataV3(this.group_id, definitionId),
-        createV3BucketFilter
+        createBucketFilter
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -104,17 +104,4 @@ export class MongoChecksumsV3 extends MongoChecksums {
   }
 }
 
-function createV3BucketFilter(request: Pick<FetchPartialBucketChecksumV3, 'bucket' | 'start' | 'end'>) {
-  return {
-    _id: {
-      $gt: {
-        b: request.bucket,
-        o: request.start ?? new bson.MinKey()
-      },
-      $lte: {
-        b: request.bucket,
-        o: request.end
-      }
-    }
-  };
-}
+

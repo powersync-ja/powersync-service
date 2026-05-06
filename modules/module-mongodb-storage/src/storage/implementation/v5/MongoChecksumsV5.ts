@@ -18,6 +18,7 @@ import {
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
+import { createBucketFilter } from '../bucket-operations/query-builders.js';
 import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
 export class MongoChecksumsV5 extends MongoChecksums {
@@ -54,7 +55,7 @@ export class MongoChecksumsV5 extends MongoChecksums {
         this.db.bucketDataV5(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<
           import('../models.js').BucketDataDocumentBase
         >,
-        createV5BucketFilter
+        createBucketFilter
       );
       for (const checksum of groupResults.values()) {
         results.set(checksum.bucket, checksum);
@@ -263,17 +264,4 @@ export class MongoChecksumsV5 extends MongoChecksums {
   }
 }
 
-function createV5BucketFilter(request: Pick<FetchPartialBucketChecksumV5, 'bucket' | 'start' | 'end'>) {
-  return {
-    _id: {
-      $gt: {
-        b: request.bucket,
-        o: request.start ?? new bson.MinKey()
-      },
-      $lte: {
-        b: request.bucket,
-        o: request.end
-      }
-    }
-  };
-}
+
