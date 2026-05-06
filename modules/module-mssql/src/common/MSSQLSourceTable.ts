@@ -14,10 +14,29 @@ export class MSSQLSourceTable {
    */
   public captureInstance: CaptureInstance | null = null;
 
-  constructor(public sourceTable: SourceTable) {}
+  public sourceTables: SourceTable[];
+
+  constructor(sourceTables: SourceTable | SourceTable[]) {
+    this.sourceTables = Array.isArray(sourceTables) ? sourceTables : [sourceTables];
+  }
+
+  /**
+   * Primary SourceTable used for physical table metadata.
+   */
+  get sourceTable(): SourceTable {
+    return this.sourceTables[0];
+  }
 
   updateSourceTable(updated: SourceTable): void {
-    this.sourceTable = updated;
+    const index = this.sourceTables.findIndex((table) => table.id == updated.id);
+    if (index == -1) {
+      throw new ServiceAssertionError(`No SourceTable found for table: ${updated.id}`);
+    }
+    this.sourceTables[index] = updated;
+  }
+
+  getReplicatedSourceTables(): SourceTable[] {
+    return this.sourceTables.filter((sourceTable) => sourceTable.syncAny);
   }
 
   enabledForCDC(): boolean {
