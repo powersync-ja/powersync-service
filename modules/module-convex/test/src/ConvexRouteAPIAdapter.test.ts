@@ -1,8 +1,8 @@
-import { ExpressionType, SqlSyncRules } from '@powersync/service-sync-rules';
-import { describe, expect, it, vi } from 'vitest';
 import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
 import { toConvexLsn } from '@module/common/ConvexLSN.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
+import { ExpressionType, SqlSyncRules } from '@powersync/service-sync-rules';
+import { describe, expect, it, vi } from 'vitest';
 
 const HEAD_CURSOR = '1772817606884944123';
 

@@ -11,10 +11,11 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "build:tests": "tsc -b test/tsconfig.json",
+    "build:tests": "pnpm build:convex && tsc -b test/tsconfig.json",
+    "build:convex": "convex codegen",
     "clean": "rm -rf ./dist && tsc -b --clean",
     "test": "vitest",
-    "dev:convex": "pnpm exec convex dev"
+    "dev:convex": "convex dev"
   },
   "exports": {
     ".": {

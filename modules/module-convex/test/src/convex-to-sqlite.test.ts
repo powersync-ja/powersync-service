@@ -1,4 +1,9 @@
 import {
+  readConvexFieldType,
+  toExpressionTypeFromConvexType,
+  toSqliteInputRow
+} from '@module/common/convex-to-sqlite.js';
+import {
   applyRowContext,
   CompatibilityContext,
   CompatibilityEdition,
@@ -6,11 +11,6 @@ import {
   isJsonValue
 } from '@powersync/service-sync-rules';
 import { describe, expect, it } from 'vitest';
-import {
-  readConvexFieldType,
-  toExpressionTypeFromConvexType,
-  toSqliteInputRow
-} from '@module/common/convex-to-sqlite.js';
 
 const context = new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS });
 

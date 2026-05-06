@@ -1,11 +1,11 @@
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import {
-  DatabaseInputValue,
   DatabaseInputRow,
+  DatabaseInputValue,
   ExpressionType,
   SqliteInputRow,
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { ConvexRawDocument } from '../client/ConvexApiClient.js';
 
 /**

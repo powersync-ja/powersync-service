@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { isConvexCheckpointTable } from '@module/common/ConvexCheckpoints.js';
+import { describe, expect, it } from 'vitest';
 
 describe('ConvexCheckpoints', () => {
   it('recognizes the checkpoint table name', () => {

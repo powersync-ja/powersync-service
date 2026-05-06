@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { parseConvexLsn, toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
+import { describe, expect, it } from 'vitest';
 
 describe('Convex cursor LSN helpers', () => {
   it('validates and round-trips the numeric cursor', () => {

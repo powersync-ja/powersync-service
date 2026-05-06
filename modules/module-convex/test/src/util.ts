@@ -1,4 +1,3 @@
-import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
@@ -10,11 +9,12 @@ import {
   updateSyncRulesFromYaml
 } from '@powersync/service-core';
 import { METRICS_HELPER, test_utils } from '@powersync/service-core-tests';
+import * as mongo_storage from '@powersync/service-module-mongodb-storage';
 
+import { ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { ConvexConnectionManager } from '@module/replication/ConvexConnectionManager.js';
 import { ConvexStream, ConvexStreamOptions } from '@module/replication/ConvexStream.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
-import { ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { env } from './env.js';
 
 export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoTestStorageFactoryGenerator({

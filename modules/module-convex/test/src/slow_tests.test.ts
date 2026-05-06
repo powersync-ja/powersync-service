@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
-import { ConvexStreamTestContext, INITIALIZED_MONGO_STORAGE_FACTORY, makeConvexConnectionManager } from './util.js';
 import { env } from './env.js';
+import { ConvexStreamTestContext, INITIALIZED_MONGO_STORAGE_FACTORY, makeConvexConnectionManager } from './util.js';
 
 describe.runIf(env.SLOW_TESTS && !!env.CONVEX_DEPLOY_KEY)('convex slow tests', { timeout: 120_000 }, function () {
   test('connects to Convex and lists table schemas', async () => {

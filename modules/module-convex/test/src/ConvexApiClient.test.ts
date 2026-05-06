@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConvexApiClient } from '@module/client/ConvexApiClient.js';
 import { CONVEX_CHECKPOINT_TABLE } from '@module/common/ConvexCheckpoints.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const baseConfig = normalizeConnectionConfig({
   type: 'convex',

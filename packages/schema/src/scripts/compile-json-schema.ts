@@ -1,6 +1,6 @@
+import { ConvexConnectionConfig } from '@powersync/service-module-convex/types';
 import { MongoStorageConfig } from '@powersync/service-module-mongodb-storage/types';
 import { MongoConnectionConfig } from '@powersync/service-module-mongodb/types';
-import { ConvexConnectionConfig } from '@powersync/service-module-convex/types';
 import { MSSQLConnectionConfig } from '@powersync/service-module-mssql/types';
 import { MySQLConnectionConfig } from '@powersync/service-module-mysql/types';
 import { PostgresStorageConfig } from '@powersync/service-module-postgres-storage/types';
