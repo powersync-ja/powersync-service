@@ -48,7 +48,9 @@ function objectIdGenerator(id: string) {
 function hydratedRulesFor(syncRules: storage.PersistedSyncRulesContent, yaml: string, storageVersion: number) {
   const parsed = updateSyncRulesFromYaml(yaml, { storageVersion }).config.parsed;
   expect(parsed.errors).toEqual([]);
-  return parsed.config.hydrate({ hydrationState: syncRules.parsed(test_utils.PARSE_OPTIONS).hydrationState });
+  return parsed.config.hydrate({
+    hydrationState: syncRules.parsed(test_utils.PARSE_OPTIONS).hydrationState
+  });
 }
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
@@ -392,6 +394,8 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const dataOnlyRulesYaml = `
     bucket_definitions:
       by_owner:
+        parameters:
+          - SELECT token_parameters.owner_id as owner_id
         data:
           - SELECT id, owner_id FROM memberships WHERE owner_id = bucket.owner_id
     `;
@@ -400,6 +404,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       by_owner:
         parameters:
           - SELECT owner_id FROM memberships WHERE id = token_parameters.test_id
+        data: []
     `;
     const eventOnlyRulesYaml = `
     bucket_definitions:
