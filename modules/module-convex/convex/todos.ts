@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server.js';
 import schema from './schema.js';
 import { findListByUuid } from './utils/collections.js';
 
-const BATCH_SIZE = 4000;
+const BATCH_SIZE = 2000;
 
 export const get = query({
   args: {},

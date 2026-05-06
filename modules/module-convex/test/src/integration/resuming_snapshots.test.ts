@@ -1,21 +1,18 @@
-import { METRICS_HELPER } from '@powersync/service-core-tests';
-import { ReplicationMetric } from '@powersync/service-types';
 import { randomUUID } from 'node:crypto';
-import * as timers from 'node:timers/promises';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { env } from '../env.js';
 import { ConvexStreamTestContext } from '../test-utils/ConvexStreamTestContext.js';
 import { describeWithStorage, StorageVersionTestContext } from '../test-utils/util.js';
 
 describe.skipIf(!(env.CI || env.SLOW_TESTS))('batch replication', function () {
   describeWithStorage({ timeout: 240_000 }, function ({ factory, storageVersion }) {
-    test('resuming initial replication (1)', async () => {
-      // Stop early - likely to not include deleted row in first replication attempt.
-      await testResumingReplication(factory, storageVersion, 2000);
-    });
-    test('resuming initial replication (2)', async () => {
-      // Stop late - likely to include deleted row in first replication attempt.
-      await testResumingReplication(factory, storageVersion, 8000);
+    test('resuming initial replication', async () => {
+      // The initial replication will be split into
+      // 1 - The first 1001 list records
+      // 2 - A batch of 1000 todo records
+      // 3 - Another 1000 batch of todo records
+      // We interupt the todos after batch 2 (in the middle of 3)
+      await testResumingReplication(factory, storageVersion, 2500);
     });
   });
 });
@@ -44,7 +41,7 @@ async function testResumingReplication(
       global:
         data:
           - SELECT uuid as id, * FROM lists
-          - SELECT uuid as id, * FROM todos`);
+          - SELECT uuid as id, * FROM todos `);
 
   const { backend } = context;
 
@@ -52,114 +49,100 @@ async function testResumingReplication(
   // Max number of mutations is batch size supported is 8192
   // Maximum number of reads is 4096 in a single mutation
   await backend.client.mutation(backend.api.lists.createBatch, {
-    lists: Array.from({ length: 2_000 }).map((_, index) => ({
+    lists: Array.from({ length: 1_000 }).map((_, index) => ({
       uuid: randomUUID(),
       name: `list-${index}`
     }))
   });
+
+  // create a single row to track deleted items
+  const deletableListId = randomUUID();
+  await backend.client.mutation(backend.api.lists.createBatch, {
+    lists: [
+      {
+        uuid: deletableListId,
+        name: 'parent'
+      }
+    ]
+  });
+  // create a single one with a tracked uuid for relationships
+  const relationalListId = randomUUID();
+  await backend.client.mutation(backend.api.lists.createBatch, {
+    lists: [
+      {
+        uuid: relationalListId,
+        name: 'parent'
+      }
+    ]
+  });
   await backend.client.mutation(backend.api.todos.createBatch, {
     todos: Array.from({ length: 2_000 }).map((_, index) => ({
       uuid: randomUUID(),
-      list_uuid: randomUUID(),
-      description: `list-${index}`
+      list_uuid: relationalListId,
+      description: `todo-${index}`
+    }))
+  });
+  // twice in order to get many todos (see limits above)
+  await backend.client.mutation(backend.api.todos.createBatch, {
+    todos: Array.from({ length: 2_000 }).map((_, index) => ({
+      uuid: randomUUID(),
+      list_uuid: relationalListId,
+      description: `todo-${index}`
     }))
   });
 
-  const p = context.replicateSnapshot();
-
-  let done = false;
-
-  const startRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
-  try {
-    (async () => {
-      while (!done) {
-        const count =
-          ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
-
-        if (count >= stopAfter) {
-          break;
-        }
-        await timers.setTimeout(1);
+  let stopped = new Promise<void>((resolve) => {
+    context.storage!.registerListener({
+      batchStarted: (batch) => {
+        //register a pre-emptive spy in order to halt writes
+        const original = batch.save;
+        let savedCount = 0;
+        vi.spyOn(batch, 'save').mockImplementation(async (param) => {
+          if (savedCount >= stopAfter) {
+            // This interrupts initial replication
+            // don't await this since awaiting will cause a deadlock
+            context.dispose();
+            resolve();
+            throw new Error('Stopping now');
+          }
+          savedCount++;
+          return original.call(batch, param);
+        });
       }
-      // This interrupts initial replication
-      await context.dispose();
-    })();
-    // This confirms that initial replication was interrupted
-    await expect(p).rejects.toThrowError();
-    done = true;
-  } finally {
-    done = true;
-  }
+    });
+  });
 
-  // // Bypass the usual "clear db on factory open" step.
-  // await using context2 = await ConvexStreamTestContext.open(factory, {
-  //   doNotClear: true,
-  //   storageVersion
-  // });
+  const replicationError = context.replicateSnapshot().catch((error) => error);
 
-  // // This delete should be using one of the ids already replicated
-  // const {
-  //   rows: [delete1]
-  // } = await context2.pool.query(`DELETE FROM test_data2 WHERE id = (SELECT id FROM test_data2 LIMIT 1) RETURNING id`);
-  // // This update should also be using one of the ids already replicated
-  // const {
-  //   rows: [delete2]
-  // } = await context2.pool.query(
-  //   `UPDATE test_data2 SET description = 'update1' WHERE id = (SELECT id FROM test_data2 LIMIT 1) RETURNING id`
-  // );
-  // const {
-  //   rows: [delete3]
-  // } = await context2.pool.query(`INSERT INTO test_data2(description) SELECT 'insert1' RETURNING id`);
+  await stopped;
+  await replicationError;
 
-  // await context2.loadNextSyncRules();
-  // await context2.replicateSnapshot();
+  // Add delete a row which has already been replicated
+  await backend.client.mutation(backend.api.lists.deleteItem, {
+    uuid: deletableListId
+  });
 
-  // const data = await context2.getBucketData('global[]', undefined, {});
+  await using context2 = await ConvexStreamTestContext.open(factory, {
+    doNotClear: true,
+    storageVersion
+  });
 
-  // const deletedRowOps = data.filter(
-  //   (row) => row.object_type == 'test_data2' && row.object_id === String(delete1.decodeWithoutCustomTypes(0))
-  // );
-  // const updatedRowOps = data.filter(
-  //   (row) => row.object_type == 'test_data2' && row.object_id === String(delete2.decodeWithoutCustomTypes(0))
-  // );
-  // const insertedRowOps = data.filter(
-  //   (row) => row.object_type == 'test_data2' && row.object_id === String(delete3.decodeWithoutCustomTypes(0))
-  // );
+  // Spy on the list-snapshot endpoint
+  const snapshotSpy = vi.spyOn(context2.connectionManager.client, 'listSnapshot');
 
-  // if (deletedRowOps.length != 0) {
-  //   // The deleted row was part of the first replication batch,
-  //   // so it is removed by streaming replication.
-  //   expect(deletedRowOps.length).toEqual(2);
-  //   expect(deletedRowOps[1].op).toEqual('REMOVE');
-  // } else {
-  //   // The deleted row was not part of the first replication batch,
-  //   // so it's not in the resulting ops at all.
-  // }
+  await context2.loadNextSyncRules();
+  await context2.replicateSnapshot();
 
-  // expect(updatedRowOps.length).toBeGreaterThanOrEqual(2);
-  // // description for the first op could be 'foo' or 'update1'.
-  // // We only test the final version.
-  // expect(JSON.parse(updatedRowOps[updatedRowOps.length - 1].data as string).description).toEqual('update1');
+  // The second replication should have called list snapshot for the todos table, at a specific cursor value (resuming)
+  expect(snapshotSpy).called;
+  const firstCall = snapshotSpy.mock.calls[0];
+  expect(firstCall).toBeDefined();
+  expect(firstCall[0].tableName).eq('todos');
+  expect(firstCall[0].cursor).toBeDefined(); //it resumed within the table
 
-  // expect(insertedRowOps.length).toBeGreaterThanOrEqual(1);
-  // expect(JSON.parse(insertedRowOps[0].data as string).description).toEqual('insert1');
-  // expect(JSON.parse(insertedRowOps[insertedRowOps.length - 1].data as string).description).toEqual('insert1');
-
-  // // 1000 of test_data1 during first replication attempt.
-  // // N >= 1000 of test_data2 during first replication attempt.
-  // // 10000 - N - 1 + 1 of test_data2 during second replication attempt.
-  // // An additional update during streaming replication (2x total for this row).
-  // // An additional insert during streaming replication (2x total for this row).
-  // // If the deleted row was part of the first replication batch, it's removed by streaming replication.
-  // // This adds 2 ops.
-  // // We expect this to be 11002 for stopAfter: 2000, and 11004 for stopAfter: 8000.
-  // // However, this is not deterministic.
-  // const expectedCount = 11000 - 2 + insertedRowOps.length + updatedRowOps.length + deletedRowOps.length;
-  // expect(data.length).toEqual(expectedCount);
-
-  // const replicatedCount =
-  //   ((await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0) - startRowCount;
-
-  // // With resumable replication, there should be no need to re-replicate anything.
-  // expect(replicatedCount).toBeGreaterThanOrEqual(expectedCount);
+  // Check the final bucket data
+  const data = await context2.getBucketData('global[]', undefined, {});
+  expect(data.length).eq(5003); // Puts: 1000 + 1 + 1 + 2000 + 2000, REMOVE: 1
+  expect(data.filter((item) => item.op == 'PUT').length).eq(5002);
+  expect(data.filter((item) => item.op == 'REMOVE').length).eq(1);
 }

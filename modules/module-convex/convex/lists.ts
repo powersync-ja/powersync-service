@@ -1,13 +1,27 @@
 import { v } from 'convex/values';
 import { mutation, query } from './_generated/server.js';
 import schema from './schema.js';
+import { findListByUuid } from './utils/collections.js';
 
-const BATCH_SIZE = 4000;
+const BATCH_SIZE = 2000;
 
 export const get = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query('lists').collect();
+  }
+});
+
+export const deleteItem = mutation({
+  args: {
+    uuid: v.string()
+  },
+  handler: async ({ db }, { uuid }) => {
+    const found = await findListByUuid({ db: db, uuid });
+    if (!found) {
+      throw new Error('Not found');
+    }
+    await db.delete('lists', found._id);
   }
 });
 

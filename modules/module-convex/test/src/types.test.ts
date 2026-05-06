@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
 import { CONVEX_CONNECTION_TYPE, normalizeConnectionConfig } from '@module/types/types.js';
+import { describe, expect, it } from 'vitest';
 
 describe('Convex connection config', () => {
   it('normalizes defaults', () => {
@@ -11,8 +11,8 @@ describe('Convex connection config', () => {
 
     expect(config.id).toBe('default');
     expect(config.tag).toBe('default');
-    expect(config.pollingIntervalMs).toBe(1000);
-    expect(config.deploymentUrl).toBe('https://example.convex.cloud');
+    expect(config.polling_interval_ms).toBe(1000);
+    expect(config.deployment_url).toBe('https://example.convex.cloud');
   });
 
   it('throws for invalid URL', () => {

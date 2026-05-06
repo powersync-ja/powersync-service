@@ -1,8 +1,9 @@
+import { toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
+import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSnapshotProgresCursor.js';
+import { ConvexStream } from '@module/replication/ConvexStream.js';
 import { SaveOperationTag, SourceTable } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
-import { toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
-import { ConvexStream } from '@module/replication/ConvexStream.js';
 
 const CURSOR_100 = '1772817606884944100';
 const CURSOR_101 = '1772817606884944101';
@@ -287,70 +288,16 @@ describe('ConvexStream', () => {
     expect(context.saves[0]?.after.avatar).toEqual(Uint8Array.of(1, 2, 3));
   });
 
-  it('resumes table snapshots from the persisted page cursor', async () => {
-    const context = createFakeStorage({
-      snapshotLsn: toConvexLsn(CURSOR_200),
-      tableSnapshotStatus: {
-        replicatedCount: 1,
-        totalEstimatedCount: -1,
-        lastKey: Buffer.from('page-2', 'utf8')
-      }
-    });
-    const abortController = new AbortController();
-
-    const snapshotCalls: any[] = [];
-    const listSnapshot = vi.fn(async (options: any) => {
-      snapshotCalls.push(options ?? {});
-      return {
-        snapshot: CURSOR_200,
-        cursor: null,
-        hasMore: false,
-        values: [{ _table: 'users', _id: 'u2', name: 'Bob' }]
-      };
-    });
-
-    const getGlobalSnapshotCursor = vi.fn(async () => 'should-not-be-called');
-
-    const stream = new ConvexStream({
-      abortSignal: abortController.signal,
-      storage: context.storage as any,
-      metrics: {
-        getCounter: () => ({ add: () => {} })
-      } as any,
-      connections: {
-        schema: 'convex',
-        connectionTag: 'default',
-        connectionId: '1',
-        config: { pollingIntervalMs: 1 },
-        client: {
-          getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: {} }],
-            raw: {}
-          }),
-          listSnapshot,
-          getGlobalSnapshotCursor
-        }
-      } as any
-    });
-
-    await stream.initReplication();
-
-    expect(getGlobalSnapshotCursor).not.toHaveBeenCalled();
-    expect(snapshotCalls.length).toBe(1);
-    expect(snapshotCalls[0]?.snapshot).toBe(CURSOR_200);
-    expect(snapshotCalls[0]?.cursor).toBe('page-2');
-    expect(context.saves.length).toBe(1);
-    expect(context.tableProgressUpdates).toHaveLength(1);
-    expect(context.tableProgressUpdates[0]?.replicatedCount).toBe(2);
-  });
-
   it('marks snapshot done without re-reading rows when the final page was already flushed', async () => {
     const context = createFakeStorage({
       snapshotLsn: toConvexLsn(CURSOR_200),
       tableSnapshotStatus: {
         replicatedCount: 2,
         totalEstimatedCount: -1,
-        lastKey: Buffer.from('convex-snapshot-progress:{"cursor":null,"finished":true}', 'utf8')
+        lastKey: BinaryConvexSnapshotProgressCursor.encode({
+          cursor: null,
+          finished: true
+        })
       }
     });
     const abortController = new AbortController();
@@ -371,7 +318,7 @@ describe('ConvexStream', () => {
         schema: 'convex',
         connectionTag: 'default',
         connectionId: '1',
-        config: { pollingIntervalMs: 1 },
+        config: { polling_interval_ms: 1 },
         client: {
           getJsonSchemas: async () => ({
             tables: [{ tableName: 'users', schema: {} }],

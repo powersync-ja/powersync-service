@@ -1,5 +1,5 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import bson from 'bson';
+import * as bson from 'bson';
 import * as t from 'ts-codec';
 
 export const ConvexSnapshotProgressCursor = t.object({
@@ -34,7 +34,7 @@ export function decodeSnapshotProgressCursor(value: Uint8Array | null | undefine
     return BinaryConvexSnapshotProgressCursor.decode(value);
   } catch (error) {
     throw new ReplicationAssertionError(
-      `Convex snapshot progress cursor is not valid JSON: ${error instanceof Error ? error.message : `${error}`}`
+      `Convex snapshot progress cursor is not valid BSON: ${error instanceof Error ? error.message : `${error}`}`
     );
   }
 }
