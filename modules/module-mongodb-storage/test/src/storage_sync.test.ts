@@ -1,6 +1,6 @@
 import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
-import { RequestParameters } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
@@ -42,15 +42,20 @@ function sourceDescriptor(
 }
 
 function objectIdGenerator(id: string) {
-  return () => new bson.ObjectId(id);
+  let used = false;
+  return () => {
+    if (used) {
+      throw new Error(`Can only generate a single id using ${id}`);
+    }
+    used = true;
+    return new bson.ObjectId(id);
+  };
 }
 
-function hydratedRulesFor(syncRules: storage.PersistedSyncRulesContent, yaml: string, storageVersion: number) {
-  const parsed = updateSyncRulesFromYaml(yaml, { storageVersion }).config.parsed;
+function hydratedRulesFor(yaml: string) {
+  const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
   expect(parsed.errors).toEqual([]);
-  return parsed.config.hydrate({
-    hydrationState: syncRules.parsed(test_utils.PARSE_OPTIONS).hydrationState
-  });
+  return parsed.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
 }
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
@@ -383,6 +388,12 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
   );
 
   test.runIf(storageVersion >= 3)('resolveTables handles v3 source membership additions and removals', async () => {
+    // Tests the behavior of resolveTables when bucket data sources and parameter index creators are added or removed.
+    // These are not end-to-end tests yet, since we don't have a full incremental reprocessing implementation.
+    // This just tests the specific resolveTables behavior.
+
+    // The same tests should work with sync streams, but legacy bucket_definitions make it easy
+    // to see the distinction between the parameter index queries and the data sources.
     const fullRulesYaml = `
     bucket_definitions:
       by_owner:
@@ -407,10 +418,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
         data: []
     `;
     const eventOnlyRulesYaml = `
-    bucket_definitions:
-      unrelated:
-        data:
-          - SELECT id FROM unrelated
+    bucket_definitions: {}
 
     event_definitions:
       write_checkpoints:
@@ -419,12 +427,15 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     `;
 
     await using factory = await storageConfig.factory();
+    // This does not quite match what actual API usage would look like.
+    // Here we're persisting one sync config, then resolving tables with others.
+    // We're also using the default hydration state for them all.
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(fullRulesYaml, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
-    const fullRules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
-    const dataOnlyRules = hydratedRulesFor(syncRules, dataOnlyRulesYaml, storageVersion);
-    const parameterOnlyRules = hydratedRulesFor(syncRules, parameterOnlyRulesYaml, storageVersion);
-    const eventOnlyRules = hydratedRulesFor(syncRules, eventOnlyRulesYaml, storageVersion);
+    const fullRules = hydratedRulesFor(fullRulesYaml);
+    const dataOnlyRules = hydratedRulesFor(dataOnlyRulesYaml);
+    const parameterOnlyRules = hydratedRulesFor(parameterOnlyRulesYaml);
+    const eventOnlyRules = hydratedRulesFor(eventOnlyRulesYaml);
     const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
 
     const dataOnly = await bucketStorage.resolveTables(
