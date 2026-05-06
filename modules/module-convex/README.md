@@ -107,7 +107,7 @@ The content below is written in an agents.md style describing the behavior of `m
 
 - Convex `json_schemas` does not provide a schema change token or revision cursor that can be checkpointed.
 - Current behavior uses `json_schemas` for discovery/debug, but does not continuously diff source schema versions.
-- Operational caveat: if Convex schema changes (tables or columns), developers must review and redeploy Sync Streams manually.
+- Schema changes are not automatically supported at this point. If Convex schema changes (tables or columns), developers must review and redeploy Sync Streams rules manually so PowerSync re-resolves the schema and re-replicates affected streams.
 - Future improvement: cache a canonicalized `json_schemas` hash, poll periodically, and raise diagnostics when schema drift is detected.
 
 ## 7) Datatype Mapping
