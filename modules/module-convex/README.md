@@ -150,6 +150,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - On an idle system, multiple successive calls to `/api/document_deltas` will return the same cursor value i.e. the cursor is not wall clock based.
 
 - **Mutation Transaction Atomicity in** `document_deltas`
+
   - The `cursor` in `/api/document_deltas` is a Convex commit **timestamp** (`i64`), not a per-operation counter.
   - Every Convex mutation is an ACID transaction that commits with a single timestamp; all writes within that mutation share the same `_ts` value in the delta stream.
   - Therefore, the cursor advances **once per mutation**, not once per individual CRUD operation inside it.
@@ -159,3 +160,12 @@ The content below is written in an agents.md style describing the behavior of `m
   - `TRANSACTIONS_REPLICATED` is counted from distinct `_ts` values among replicated changes, not from `document_deltas` pages. A single page can contain multiple Convex mutations, so a committed page may increase the transaction metric by more than one.
   - The stream relies on Convex returning `document_deltas` in mutation order by `_ts`. Row order within the same `_ts` is not significant: those rows belong to the same Convex mutation and are committed atomically.
   - The stream asserts that observed `_ts` values are non-decreasing across pages. Equal `_ts` values are allowed because they represent rows from the same Convex mutation.
+
+- **Replication metrics**
+  - Implemented:
+    - `ROWS_REPLICATED`: incremented for each row written from snapshots and deltas.
+    - `TRANSACTIONS_REPLICATED`: incremented by the number of distinct Convex `_ts` mutation timestamps replicated from `document_deltas`.
+  - Not implemented yet:
+    - `DATA_REPLICATED_BYTES`: Convex does not currently report source bytes replicated into PowerSync. This would need explicit accounting in the Convex replication/client path.
+    - `CHUNKS_REPLICATED`: Convex does not currently report replication chunks.
+  - Bucket storage size gauges (`REPLICATION_SIZE_BYTES`, `OPERATION_SIZE_BYTES`, `PARAMETER_SIZE_BYTES`) are reported by the configured bucket storage backend, not by this replication module.
