@@ -156,3 +156,6 @@ The content below is written in an agents.md style describing the behavior of `m
   - Example: a mutation that deletes 5 documents and updates 3 produces 8 entries in `document_deltas`, all with identical `_ts`.
   - The Convex backend enforces this by never splitting a page mid-timestamp: when the row limit is reached mid-transaction, the page extends until all rows at that `_ts` are included before stopping.
   - Consequence for replication: all writes from a single mutation always appear in the same `document_deltas` page and are committed to bucket storage atomically as one batch.
+  - `TRANSACTIONS_REPLICATED` is counted from distinct `_ts` values among replicated changes, not from `document_deltas` pages. A single page can contain multiple Convex mutations, so a committed page may increase the transaction metric by more than one.
+  - The stream relies on Convex returning `document_deltas` in mutation order by `_ts`. Row order within the same `_ts` is not significant: those rows belong to the same Convex mutation and are committed atomically.
+  - The stream asserts that observed `_ts` values are non-decreasing across pages. Equal `_ts` values are allowed because they represent rows from the same Convex mutation.

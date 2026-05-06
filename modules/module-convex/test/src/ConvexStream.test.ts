@@ -3,6 +3,7 @@ import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSn
 import { ConvexStream } from '@module/replication/ConvexStream.js';
 import { SaveOperationTag, SourceTable } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
+import { ReplicationMetric } from '@powersync/service-types';
 import { describe, expect, it, vi } from 'vitest';
 
 const CURSOR_100 = '1772817606884944100';
@@ -382,6 +383,69 @@ describe('ConvexStream', () => {
 
     let calls = 0;
     const deltaCalls: any[] = [];
+    const transactionCounts: number[] = [];
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: (metric: string) => ({
+          add: (value: number) => {
+            if (metric == ReplicationMetric.TRANSACTIONS_REPLICATED) {
+              transactionCounts.push(value);
+            }
+          }
+        })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas: async () => ({
+            tables: [{ tableName: 'users', schema: {} }],
+            raw: {}
+          }),
+          documentDeltas: async (options: any) => {
+            calls += 1;
+            deltaCalls.push(options ?? {});
+            setTimeout(() => abortController.abort(), 0);
+            return {
+              cursor: CURSOR_102,
+              hasMore: false,
+              values: [
+                { _table: 'users', _id: 'u1', _ts: BigInt(CURSOR_101), name: 'Updated' },
+                { _table: 'users', _id: 'u2', _ts: BigInt(CURSOR_101), _deleted: true },
+                { _table: 'users', _id: 'u3', _ts: BigInt(CURSOR_102), name: 'Second transaction' }
+              ]
+            };
+          }
+        }
+      } as any
+    });
+
+    await stream.streamChanges();
+
+    expect(calls).toBeGreaterThan(0);
+    expect(context.saves.length).toBe(3);
+    expect(context.saves[0]?.tag).toBe(SaveOperationTag.UPDATE);
+    expect(context.saves[1]?.tag).toBe(SaveOperationTag.DELETE);
+    expect(context.saves[2]?.tag).toBe(SaveOperationTag.UPDATE);
+    expect(context.commits.at(-1)).toBe(toConvexLsn(CURSOR_102));
+    expect(deltaCalls[0]?.tableName).toBeUndefined();
+    expect(transactionCounts).toEqual([2]);
+  });
+
+  it('fails when document_deltas returns decreasing transaction timestamps', async () => {
+    // This should never happen in practice.
+    // We assert that _ts is increasing in ConvexStream
+    // This test just verifies the assertion would catch an issue if it ever happened for some reason.
+    const context = createFakeStorage({
+      snapshotDone: true,
+      resumeFromLsn: toConvexLsn(CURSOR_100)
+    });
+    const abortController = new AbortController();
 
     const stream = new ConvexStream({
       abortSignal: abortController.signal,
@@ -399,31 +463,19 @@ describe('ConvexStream', () => {
             tables: [{ tableName: 'users', schema: {} }],
             raw: {}
           }),
-          documentDeltas: async (options: any) => {
-            calls += 1;
-            deltaCalls.push(options ?? {});
-            setTimeout(() => abortController.abort(), 0);
-            return {
-              cursor: CURSOR_101,
-              hasMore: false,
-              values: [
-                { _table: 'users', _id: 'u1', name: 'Updated' },
-                { _table: 'users', _id: 'u2', _deleted: true }
-              ]
-            };
-          }
+          documentDeltas: async () => ({
+            cursor: CURSOR_102,
+            hasMore: false,
+            values: [
+              { _table: 'users', _id: 'u1', _ts: BigInt(CURSOR_102), name: 'Later' },
+              { _table: 'users', _id: 'u2', _ts: BigInt(CURSOR_101), name: 'Earlier' }
+            ]
+          })
         }
       } as any
     });
 
-    await stream.streamChanges();
-
-    expect(calls).toBeGreaterThan(0);
-    expect(context.saves.length).toBe(2);
-    expect(context.saves[0]?.tag).toBe(SaveOperationTag.UPDATE);
-    expect(context.saves[1]?.tag).toBe(SaveOperationTag.DELETE);
-    expect(context.commits.at(-1)).toBe(toConvexLsn(CURSOR_101));
-    expect(deltaCalls[0]?.tableName).toBeUndefined();
+    await expect(stream.streamChanges()).rejects.toThrow(/out-of-order _ts values/);
   });
 
   it('refreshes metadata before snapshotting a newly discovered wildcard-matched table inline', async () => {

@@ -25,6 +25,20 @@ export const deleteItem = mutation({
   }
 });
 
+export const updateName = mutation({
+  args: {
+    uuid: v.string(),
+    name: v.string()
+  },
+  handler: async ({ db }, { uuid, name }) => {
+    const found = await findListByUuid({ db, uuid });
+    if (!found) {
+      throw new Error('Not found');
+    }
+    await db.patch(found._id, { name });
+  }
+});
+
 /**
  * Deletes a batch of items.
  * Convex limits the number of ops in a mutation/transaction to 16_000.
@@ -56,5 +70,53 @@ export const createBatch = mutation({
       ids.push(id);
     }
     return ids;
+  }
+});
+
+/**
+ * A test mutation which creates and updates multiple lists multiple times.
+ * This is used to ensure the order of ops is safely replicated.
+ */
+export const testUpdateMultipleTimes = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const listCount = 5;
+    const createdListIds = [];
+    for (let i = 0; i < listCount; i++) {
+      const id = await ctx.db.insert('lists', {
+        name: `list-${i}`,
+        uuid: 'fake-uuid'
+      });
+      createdListIds.push(id);
+    }
+
+    // Update all the lists
+    for (let i = 0; i < listCount; i++) {
+      await ctx.db.patch('lists', createdListIds[i]!, {
+        name: `list-${i}-a`,
+        uuid: createdListIds[i]! // keep this for later
+      });
+    }
+
+    // Do a second update, but operate on the items in reverse order
+    for (let i = listCount - 1; i >= 0; i--) {
+      await ctx.db.patch('lists', createdListIds[i]!, {
+        name: `list-${i}-a-b`
+      });
+    }
+
+    for (let i = 0; i < listCount; i++) {
+      await ctx.db.patch('lists', createdListIds[i]!, {
+        name: `list-${i}-a-b-c`
+      });
+    }
+
+    // delete a random list
+    const [deleteId] = createdListIds.splice(Math.floor(Math.random() * createdListIds.length), 1);
+    await ctx.db.delete('lists', deleteId);
+
+    return {
+      listIds: createdListIds
+    };
   }
 });

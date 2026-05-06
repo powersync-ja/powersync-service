@@ -12,6 +12,10 @@ export interface ConvexRawDocument {
   [key: string]: any;
 }
 
+export interface ConvexDocumentDelta extends ConvexRawDocument {
+  _ts: bigint;
+}
+
 export interface ConvexTableSchema {
   tableName: string;
   schema: Record<string, any>;
@@ -44,7 +48,7 @@ export interface ConvexDocumentDeltasOptions {
 export interface ConvexDocumentDeltasResult {
   cursor: string;
   hasMore: boolean;
-  values: ConvexRawDocument[];
+  values: ConvexDocumentDelta[];
 }
 
 export class ConvexApiError extends Error {
@@ -115,7 +119,7 @@ export class ConvexApiClient {
     return {
       cursor: stringifyCursor(payload.cursor),
       hasMore: parseHasMore(payload),
-      values: parseValues(payload)
+      values: parseValues(payload) as ConvexDocumentDelta[]
     };
   }
 

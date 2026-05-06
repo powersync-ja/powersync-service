@@ -156,6 +156,7 @@ export class ConvexStream {
     await this.resolveAllSourceTables(batch);
 
     let cursor = parseConvexLsn(resumeFromLsn);
+    let lastTransactionTimestamp: bigint | null = null;
 
     while (!this.abortSignal.aborted) {
       const page = await this.connections.client
@@ -174,11 +175,18 @@ export class ConvexStream {
       const pageLsn = toConvexLsn(nextCursor);
 
       let changesInPage = 0;
+      const transactionTimestampsInPage = new Set<string>();
       let sawCheckpointMarker = false;
       const snapshottedTablesInPage = new Set<string>();
 
       let didMarkOldestUncommitedChange = false;
 
+      /**
+       * Convex returns document_deltas in mutation order by _ts (corresponding to mutation/transaction).
+       * The row order inside each transaction is out-of-order.
+       * It looks like Convex squashes multiple mutations on rows before storing deltas.
+       * We currently don't sort values by their `_creationTime` value.
+       */
       for (const change of page.values) {
         if (this.abortSignal.aborted) {
           throw new ReplicationAbortedError('Replication interrupted');
@@ -193,6 +201,14 @@ export class ConvexStream {
           sawCheckpointMarker = true;
           continue;
         }
+
+        const transactionTimestamp = change._ts;
+        if (lastTransactionTimestamp != null && transactionTimestamp < lastTransactionTimestamp) {
+          throw new ReplicationAssertionError(
+            `Convex document_deltas returned out-of-order _ts values: ${transactionTimestamp} after ${lastTransactionTimestamp}`
+          );
+        }
+        lastTransactionTimestamp = transactionTimestamp;
 
         const table = await this.getOrResolveTable(batch, tableName, nextCursor, snapshottedTablesInPage);
         if (table == null || !table.syncAny) {
@@ -220,7 +236,11 @@ export class ConvexStream {
           continue;
         }
 
+        // Convex assigns one _ts commit timestamp to every write in a mutation.
+        // document_deltas may return multiple mutations in one page, so transaction
+        // metrics are counted by distinct _ts values, not by delta pages.
         changesInPage += 1;
+        transactionTimestampsInPage.add(transactionTimestamp.toString());
       }
 
       if (changesInPage > 0) {
@@ -234,8 +254,8 @@ export class ConvexStream {
           oldestUncommittedChange: this.replicationLag.oldestUncommittedChange
         });
 
+        this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(transactionTimestampsInPage.size);
         if (!checkpointBlocked) {
-          this.metrics.getCounter(ReplicationMetric.TRANSACTIONS_REPLICATED).add(1);
           this.replicationLag.markCommitted();
         }
       } else if (sawCheckpointMarker) {
