@@ -2,10 +2,11 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
+import { MongoSyncBucketStorageCallbacks } from '../common/MongoSyncBucketStorageCallbacks.js';
 import { V3FormatAdapter } from '../document-formats/v3-format.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageBaseCallbacks } from '../MongoSyncBucketStorageBase.js';
+import { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
@@ -24,7 +25,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     options: MongoSyncBucketStorageOptions
   ) {
     const db = factory.db.versioned(sync_rules.getStorageConfig()) as VersionedPowerSyncMongoV3;
-    const callbacks: MongoSyncBucketStorageBaseCallbacks = {
+    const callbacks: MongoSyncBucketStorageCallbacks = {
       bucketData: (gid, defId) => db.bucketDataV3(gid, defId),
       parameterIndex: (gid, idxId) => db.parameterIndexV3(gid, idxId),
       bucketState: (gid) => db.bucketStateV3(gid),

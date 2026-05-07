@@ -28,6 +28,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { MongoSyncBucketStorageCallbacks } from './common/MongoSyncBucketStorageCallbacks.js';
 import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { CommonSourceTableDocument, StorageConfig } from './models.js';
@@ -79,7 +80,7 @@ export abstract class AbstractMongoSyncBucketStorage
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions,
-    protected _versionCallbacks?: any
+    protected _versionCallbacks?: MongoSyncBucketStorageCallbacks
   ) {
     super();
     this.db = factory.db.versioned(sync_rules.getStorageConfig());

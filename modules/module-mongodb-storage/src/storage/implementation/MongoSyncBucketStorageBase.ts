@@ -1,5 +1,4 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -11,51 +10,19 @@ import {
   getParameterBucketChangesShared,
   getParameterSetsShared
 } from './bucket-operations/storage-operations.js';
-import { BucketDefinitionId, BucketDefinitionMapping, ParameterIndexId } from './BucketDefinitionMapping.js';
+import { MongoSyncBucketStorageCallbacks } from './common/MongoSyncBucketStorageCallbacks.js';
 import { MongoSyncBucketStorageCheckpoint } from './common/MongoSyncBucketStorageContext.js';
-import { VersionedPowerSyncMongo } from './db.js';
-import { BucketDataFormatAdapter } from './document-formats/format-interface.js';
 import { deserializeParameterLookup, serializeParameterLookup } from './document-formats/parameter-lookup.js';
-import { CommonSourceTableDocument, StorageConfig } from './models.js';
+import { CommonSourceTableDocument } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
-import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
+import { MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 
-export interface MongoSyncBucketStorageBaseCallbacks {
-  bucketData: (groupId: number, definitionId: BucketDefinitionId) => mongo.Collection<any>;
-  parameterIndex: (groupId: number, indexId: ParameterIndexId) => mongo.Collection<any>;
-  bucketState: (groupId: number) => mongo.Collection<any>;
-  sourceTables: (groupId: number) => mongo.Collection<any>;
-  listBucketDataCollections: (groupId: number) => Promise<mongo.Collection<any>[]>;
-  listParameterIndexCollections: (
-    groupId: number
-  ) => Promise<{ collection: mongo.Collection<any>; indexId: ParameterIndexId }[]>;
-  listSourceRecordCollections: (groupId: number) => Promise<mongo.Collection<any>[]>;
-  createChecksums: (
-    db: VersionedPowerSyncMongo,
-    groupId: number,
-    options: MongoChecksumOptions & { storageConfig?: StorageConfig; mapping: BucketDefinitionMapping }
-  ) => MongoChecksums;
-  createCompactor: (
-    storage: MongoSyncBucketStorage,
-    db: VersionedPowerSyncMongo,
-    options: MongoCompactOptions
-  ) => MongoCompactor;
-  createParameterCompactor: (
-    db: VersionedPowerSyncMongo,
-    groupId: number,
-    checkpoint: InternalOpId,
-    options: storage.CompactOptions
-  ) => MongoParameterCompactor;
-  createWriter: (batchOptions: MongoBucketBatchOptions) => storage.BucketStorageBatch;
-  formatAdapter: BucketDataFormatAdapter;
-}
-
 export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
-  protected get callbacks(): MongoSyncBucketStorageBaseCallbacks {
-    return this._versionCallbacks as MongoSyncBucketStorageBaseCallbacks;
+  protected get callbacks(): MongoSyncBucketStorageCallbacks {
+    return this._versionCallbacks as MongoSyncBucketStorageCallbacks;
   }
 
   constructor(
@@ -65,7 +32,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
     slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions,
-    callbacks: MongoSyncBucketStorageBaseCallbacks
+    callbacks: MongoSyncBucketStorageCallbacks
   ) {
     super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options, callbacks);
   }
