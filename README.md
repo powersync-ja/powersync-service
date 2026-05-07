@@ -32,7 +32,7 @@ The service can be started using the public Docker image. See the image [notes](
 
 - [packages/sync-rules](./packages/sync-rules/README.md)
 
-  - Library containing logic for PowerSync sync streams or sync rules
+  - Library containing logic for PowerSync sync config (sync streams or sync rules)
 
 - [packages/types](./packages/types/)
   - Type definitions for the PowerSync Service

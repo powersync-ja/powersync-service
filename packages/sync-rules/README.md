@@ -6,12 +6,12 @@ This is not intended to be used directly by users of PowerSync. If you are inter
 
 # Overview
 
-A core design constraint is that sync config define two operations:
+A core design constraint is that the sync config defines two operations:
 
 1. Given a data row, compute a list of buckets that it belongs to.
 2. Given an authenticated user, return a list of buckets for the user.
 
-This implementation of sync config use SQL queries to declaratively define those operations using familiar SQL operations.
+This implementation of sync config uses SQL queries to declaratively define those operations using familiar SQL operations.
 
 We define (1) using data queries, and (2) using parameter queries.
 

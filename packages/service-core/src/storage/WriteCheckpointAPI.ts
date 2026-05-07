@@ -21,7 +21,7 @@ export interface BaseWriteCheckpointIdentifier {
 
 export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
   /**
-   * Replication stream which were active when this checkpoint was created.
+   * Replication stream which was active when this checkpoint was created.
    */
   sync_rules_id: number;
 }

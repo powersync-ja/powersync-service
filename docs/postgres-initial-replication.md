@@ -1,6 +1,6 @@
 # Postgres: Initial replication
 
-Initial replication is the process of getting existing data from the source database and process it with sync config, when deploying a sync config change. After initial replication, we switch to streaming replication.
+Initial replication is the process of getting existing data from the source database and processing it with the sync config, when deploying a sync config change. After initial replication, we switch to streaming replication.
 
 Once initial replication completed and streaming replication has caught up, the bucket data is in a consistent state and ready to be downloaded.
 

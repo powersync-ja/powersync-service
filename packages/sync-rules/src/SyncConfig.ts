@@ -26,7 +26,7 @@ export abstract class SyncConfig {
   eventDescriptors: SqlEventDescriptor[] = [];
 
   /**
-   * The (YAML-based) source contents from which these sync config have been derived.
+   * The (YAML-based) source contents from which this sync config has been derived.
    */
   content: string;
 
@@ -35,7 +35,7 @@ export abstract class SyncConfig {
   }
 
   /**
-   * Hydrate the sync config definitions with persisted state into runnable sync config.
+   * Hydrate these sync config definitions with persisted state into runnable sync config.
    *
    * Note: versionedBucketIds is not checked here: It is set at a higher level based
    * on the storage version of the replication stream, and used in hydrationState.

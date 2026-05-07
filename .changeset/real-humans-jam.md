@@ -14,4 +14,4 @@
 '@powersync/service-types': patch
 ---
 
-Improve consistency if logs and error messages
+Improve consistency of logs and error messages

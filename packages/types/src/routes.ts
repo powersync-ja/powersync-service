@@ -39,7 +39,7 @@ export const DiagnosticsResponse = t.object({
   connections: t.array(ConnectionStatus),
 
   /**
-   * Present if there are fully-deployed sync config.
+   * Present if there is a fully deployed sync config.
    *
    * Sync-config-level errors are listed here.
    */
