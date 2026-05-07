@@ -1,3 +1,4 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage, SyncRuleState } from '@powersync/service-core';
 import * as bson from 'bson';
@@ -44,8 +45,8 @@ abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncR
     );
   }
 
-  async lock() {
-    const lock = await MongoSyncRulesLock.createLock(this.db.versioned(this.getStorageConfig()), this);
+  async lock(session?: mongo.ClientSession) {
+    const lock = await MongoSyncRulesLock.createLock(this.db.versioned(this.getStorageConfig()), this, session);
     this.current_lock = lock;
     return lock;
   }

@@ -230,7 +230,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContentV3(this.db, doc, syncConfigDoc);
       if (options.lock) {
-        const lock = await rules.lock();
+        // The lock is persisted on rules.current_lock
+        await rules.lock(session);
       }
     });
 
@@ -304,7 +305,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       await this.db.notifyCheckpoint();
       rules = new MongoPersistedSyncRulesContentV1(this.db, doc);
       if (options.lock) {
-        const lock = await rules.lock();
+        // The lock is persisted on rules.current_lock
+        await rules.lock(session);
       }
     });
 

@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 
+import { mongo } from '@powersync/lib-service-mongodb';
 import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { VersionedPowerSyncMongo } from './db.js';
@@ -11,9 +12,13 @@ import { VersionedPowerSyncMongo } from './db.js';
 export class MongoSyncRulesLock implements storage.ReplicationLock {
   private readonly refreshInterval: NodeJS.Timeout;
 
+  /**
+   * @param session optional session to create the lock within another transaction
+   */
   static async createLock(
     db: VersionedPowerSyncMongo,
-    sync_rules: storage.PersistedSyncRulesContent
+    sync_rules: storage.PersistedSyncRulesContent,
+    session?: mongo.ClientSession
   ): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');
     const doc = await db.sync_rules.findOneAndUpdate(
@@ -28,13 +33,14 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
       },
       {
         projection: { lock: 1 },
-        returnDocument: 'before'
+        returnDocument: 'before',
+        session
       }
     );
 
     if (doc == null) {
       // Query the existing lock to get the expiration time (best effort - it may have been released in the meantime).
-      const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 } });
+      const heldLock = await db.sync_rules.findOne({ _id: sync_rules.id }, { projection: { lock: 1 }, session });
       if (heldLock?.lock?.expires_at) {
         throw new ServiceError(
           ErrorCode.PSYNC_S1003,

@@ -257,6 +257,17 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     );
   });
 
+  test('can lock newly-created sync rules', async () => {
+    await using factory = await storageConfig.factory();
+
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion, lock: true })
+    );
+
+    expect(syncRules.current_lock?.sync_rules_id).toBe(syncRules.id);
+    await syncRules.current_lock?.release();
+  });
+
   test.runIf(storageVersion < 3)('uses a single current_data collection for v1 source records', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
