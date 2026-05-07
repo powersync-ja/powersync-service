@@ -4,10 +4,10 @@ import { VersionedPowerSyncMongo } from '../collection-access/versioned-collecti
 import { PowerSyncMongo } from '../db.js';
 import {
   BucketDataDocumentV5,
-  BucketParameterDocumentV5,
-  BucketStateDocumentV5,
-  CurrentDataDocumentV5,
-  SourceTableDocumentV5
+  BucketParameterDocument,
+  BucketStateDocument,
+  CurrentDataDocument,
+  SourceTableDocument
 } from './models.js';
 
 export class VersionedPowerSyncMongoV5 extends VersionedPowerSyncMongo {
@@ -15,27 +15,24 @@ export class VersionedPowerSyncMongoV5 extends VersionedPowerSyncMongo {
     super(upstream, storageConfig, 'V5');
   }
 
-  sourceRecordsV5(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocumentV5> {
-    return this.sourceRecords<CurrentDataDocumentV5>(replicationStreamId, sourceTableId);
+  sourceRecordsV5(replicationStreamId: number, sourceTableId: mongo.ObjectId): mongo.Collection<CurrentDataDocument> {
+    return this.sourceRecords<CurrentDataDocument>(replicationStreamId, sourceTableId);
   }
 
-  listSourceRecordCollectionsV5(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocumentV5>[]> {
-    return this.listSourceRecordCollections<CurrentDataDocumentV5>(replicationStreamId);
+  listSourceRecordCollectionsV5(replicationStreamId: number): Promise<mongo.Collection<CurrentDataDocument>[]> {
+    return this.listSourceRecordCollections<CurrentDataDocument>(replicationStreamId);
   }
 
-  bucketStateV5(replicationStreamId: number): mongo.Collection<BucketStateDocumentV5> {
-    return this.bucketState<BucketStateDocumentV5>(replicationStreamId);
+  bucketStateV5(replicationStreamId: number): mongo.Collection<BucketStateDocument> {
+    return this.bucketState<BucketStateDocument>(replicationStreamId);
   }
 
-  parameterIndexV5(
-    replicationStreamId: number,
-    indexId: ParameterIndexId
-  ): mongo.Collection<BucketParameterDocumentV5> {
-    return this.parameterIndex<BucketParameterDocumentV5>(replicationStreamId, indexId);
+  parameterIndexV5(replicationStreamId: number, indexId: ParameterIndexId): mongo.Collection<BucketParameterDocument> {
+    return this.parameterIndex<BucketParameterDocument>(replicationStreamId, indexId);
   }
 
-  sourceTablesV5(replicationStreamId: number): mongo.Collection<SourceTableDocumentV5> {
-    return this.sourceTables<SourceTableDocumentV5>(replicationStreamId);
+  sourceTablesV5(replicationStreamId: number): mongo.Collection<SourceTableDocument> {
+    return this.sourceTables<SourceTableDocument>(replicationStreamId);
   }
 
   bucketDataV5(replicationStreamId: number, definitionId: BucketDefinitionId): mongo.Collection<BucketDataDocumentV5> {
@@ -48,9 +45,9 @@ export class VersionedPowerSyncMongoV5 extends VersionedPowerSyncMongo {
 
   listParameterIndexCollectionsV5(
     replicationStreamId: number
-  ): Promise<{ collection: mongo.Collection<BucketParameterDocumentV5>; indexId: ParameterIndexId }[]> {
+  ): Promise<{ collection: mongo.Collection<BucketParameterDocument>; indexId: ParameterIndexId }[]> {
     return this.listParameterIndexCollections(replicationStreamId) as unknown as Promise<
-      { collection: mongo.Collection<BucketParameterDocumentV5>; indexId: ParameterIndexId }[]
+      { collection: mongo.Collection<BucketParameterDocument>; indexId: ParameterIndexId }[]
     >;
   }
 }

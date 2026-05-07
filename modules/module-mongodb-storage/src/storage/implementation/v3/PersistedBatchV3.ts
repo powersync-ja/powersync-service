@@ -5,14 +5,14 @@ import { flushBucketDataShared } from '../bucket-operations/batch-write.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { PersistedBatchShared } from '../common/PersistedBatchShared.js';
 import { V3FormatAdapter } from '../document-formats/v3-format.js';
-import { BucketParameterDocumentV3, taggedBucketParameterDocumentToV3 } from './models.js';
+import { BucketParameterDocument, taggedBucketParameterDocumentToTagged } from './models.js';
 import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatchShared {
   declare protected readonly db: VersionedPowerSyncMongoV3;
 
-  protected parameterIndex(indexId: string): mongo.Collection<BucketParameterDocumentV3> {
+  protected parameterIndex(indexId: string): mongo.Collection<BucketParameterDocument> {
     return this.db.parameterIndexV3(this.group_id, indexId);
   }
 
@@ -33,7 +33,7 @@ export class PersistedBatchV3 extends PersistedBatchShared {
   }
 
   protected taggedBucketParameterDocumentToTagged(doc: any): any {
-    return taggedBucketParameterDocumentToV3(doc);
+    return taggedBucketParameterDocumentToTagged(doc);
   }
 
   protected checkDefinitionId(definitionId: BucketDefinitionId | null): BucketDefinitionId {

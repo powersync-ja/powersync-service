@@ -4,11 +4,11 @@ import { RequestParameters } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
+import { CurrentBucket } from '../../src/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
-import { CurrentBucketV3 } from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
@@ -209,7 +209,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const db = (bucketStorage as AbstractMongoSyncBucketStorage).db as VersionedPowerSyncMongoV3;
     const currentDataCollections = await db.listSourceRecordCollectionsV3(syncRules.id);
     const currentData = await currentDataCollections[0]?.findOne({});
-    const firstBucket: CurrentBucketV3 | undefined = currentData?.buckets[0] as CurrentBucketV3 | undefined;
+    const firstBucket: CurrentBucket | undefined = currentData?.buckets[0] as CurrentBucket | undefined;
     expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
 
     const bucketCollections = await mongoFactory.db.db

@@ -12,7 +12,7 @@ import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
-import { BucketStateDocumentV3 } from './models.js';
+import { BucketStateDocument } from './models.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
@@ -29,7 +29,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       this,
       this.db.bucketStateV3(this.group_id),
       options,
-      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
+      (bucketState) => (bucketState as BucketStateDocument)._id.d
     );
   }
 
@@ -38,14 +38,14 @@ export class MongoCompactorV3 extends MongoCompactor {
       this,
       this.db.bucketStateV3(this.group_id),
       options,
-      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
+      (bucketState) => (bucketState as BucketStateDocument)._id.d
     );
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
     await this.db
       .bucketStateV3(this.group_id)
-      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], {
+      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocument>[], {
         ordered: false
       });
   }

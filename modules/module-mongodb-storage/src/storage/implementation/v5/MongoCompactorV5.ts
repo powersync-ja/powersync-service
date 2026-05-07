@@ -17,7 +17,7 @@ import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
   BucketDataDocumentV5,
-  BucketStateDocumentV5,
+  BucketStateDocument,
   loadBucketDataDocumentV5,
   serializeBucketDataV5
 } from './models.js';
@@ -37,7 +37,7 @@ export class MongoCompactorV5 extends MongoCompactor {
       this,
       this.db.bucketStateV5(this.group_id),
       options,
-      (bucketState) => (bucketState as BucketStateDocumentV5)._id.d
+      (bucketState) => (bucketState as BucketStateDocument)._id.d
     );
   }
 
@@ -46,14 +46,14 @@ export class MongoCompactorV5 extends MongoCompactor {
       this,
       this.db.bucketStateV5(this.group_id),
       options,
-      (bucketState) => (bucketState as BucketStateDocumentV5)._id.d
+      (bucketState) => (bucketState as BucketStateDocument)._id.d
     );
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
     await this.db
       .bucketStateV5(this.group_id)
-      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV5>[], {
+      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocument>[], {
         ordered: false
       });
   }
