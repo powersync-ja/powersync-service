@@ -4,8 +4,7 @@ import { storage } from '@powersync/service-core';
 import {
   computeChecksumsForBuckets,
   dirtyBucketBatchForChecksums,
-  dirtyBucketBatches,
-  writeBucketStateUpdates
+  dirtyBucketBatches
 } from '../bucket-operations/compaction-scaffolding.js';
 import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
@@ -44,10 +43,11 @@ export class MongoCompactorV3 extends MongoCompactor {
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
-    await writeBucketStateUpdates(
-      this.db.bucketStateV3(this.group_id),
-      this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[]
-    );
+    await this.db
+      .bucketStateV3(this.group_id)
+      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], {
+        ordered: false
+      });
   }
 
   protected async computeChecksumsForBuckets(

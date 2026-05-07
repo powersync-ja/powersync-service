@@ -5,8 +5,7 @@ import { chunkBucketData } from '../bucket-operations/chunking.js';
 import {
   computeChecksumsForBuckets,
   dirtyBucketBatches,
-  dirtyBucketBatchForChecksums,
-  writeBucketStateUpdates
+  dirtyBucketBatchForChecksums
 } from '../bucket-operations/compaction-scaffolding.js';
 import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
@@ -52,10 +51,11 @@ export class MongoCompactorV5 extends MongoCompactor {
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
-    await writeBucketStateUpdates(
-      this.db.bucketStateV5(this.group_id),
-      this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV5>[]
-    );
+    await this.db
+      .bucketStateV5(this.group_id)
+      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV5>[], {
+        ordered: false
+      });
   }
 
   protected async computeChecksumsForBuckets(

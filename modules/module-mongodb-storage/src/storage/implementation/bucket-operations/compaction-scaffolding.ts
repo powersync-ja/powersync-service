@@ -44,13 +44,6 @@ export async function dirtyBucketBatchForChecksums<TBucketState extends BucketSt
   );
 }
 
-export async function writeBucketStateUpdates<TBucketState extends BucketStateDocumentBase>(
-  collection: mongo.Collection<TBucketState>,
-  updates: mongo.AnyBulkWriteOperation<TBucketState>[]
-): Promise<void> {
-  await collection.bulkWrite(updates, { ordered: false });
-}
-
 export async function computeChecksumsForBuckets(
   computeChecksums: (
     batch: { bucket: string; definitionId: BucketDefinitionId; end: bigint }[]
