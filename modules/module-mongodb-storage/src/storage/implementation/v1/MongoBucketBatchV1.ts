@@ -163,7 +163,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     if (checkpointState.checkpointBlocked) {
       if (Date.now() - this.lastWaitingLogThottled > 5_000) {
         this.logger.info(
-          `Waiting before creating checkpoint, currently at ${lsn} / ${preUpdateDocument.keepalive_op}. Current state: ${JSON.stringify(
+          `Waiting before creating checkpoint, currently at ${lsn} / ${checkpointState.newKeepaliveOp}. Current state: ${JSON.stringify(
             {
               snapshot_done: preUpdateDocument.snapshot_done,
               last_checkpoint_lsn: preUpdateDocument.last_checkpoint_lsn,
