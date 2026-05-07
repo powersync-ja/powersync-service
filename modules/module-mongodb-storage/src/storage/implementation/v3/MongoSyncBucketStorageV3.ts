@@ -1,13 +1,14 @@
+import { mongo } from '@powersync/lib-service-mongodb';
 import { storage } from '@powersync/service-core';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
 import { V3FormatAdapter } from '../document-formats/v3-format.js';
+import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageBaseCallbacks } from '../MongoSyncBucketStorageBase.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
-import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
@@ -34,7 +35,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       createChecksums: (d, gid, opts) => new MongoChecksumsV3(d as VersionedPowerSyncMongoV3, gid, opts),
       createCompactor: (storage, d, opts) => new MongoCompactorV3(storage, d as VersionedPowerSyncMongoV3, opts),
       createParameterCompactor: (d, gid, checkpoint, opts) =>
-        new MongoParameterCompactorV3(d as VersionedPowerSyncMongoV3, gid, checkpoint, opts),
+        new MongoParameterCompactor(d as VersionedPowerSyncMongoV3, gid, checkpoint, opts, () =>
+          (d as VersionedPowerSyncMongoV3)
+            .listParameterIndexCollectionsV3(gid)
+            .then((collections) => collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>))
+        ),
       createWriter: (batchOptions) => new MongoBucketBatchV3(batchOptions),
       formatAdapter: new V3FormatAdapter()
     };

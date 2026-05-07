@@ -18,7 +18,7 @@ type ParameterCompactionReadDocument = {
  *
  * For background, see the `/docs/parameters-lookups.md` file.
  */
-export abstract class MongoParameterCompactor {
+export class MongoParameterCompactor {
   constructor(
     protected readonly db: VersionedPowerSyncMongo,
     protected readonly group_id: number,
@@ -42,9 +42,17 @@ export abstract class MongoParameterCompactor {
     return collections.map((collection) => collection as unknown as mongo.Collection<mongo.Document>);
   }
 
-  protected abstract collectionFilter(): mongo.Document;
+  protected collectionFilter(): mongo.Document {
+    return {};
+  }
 
-  protected abstract deleteFilter(doc: mongo.Document): mongo.Document;
+  protected deleteFilter(doc: mongo.Document): mongo.Document {
+    return {
+      lookup: doc.lookup,
+      _id: { $lte: doc._id },
+      key: doc.key
+    };
+  }
 
   protected async compactCollection(collection: mongo.Collection<mongo.Document>) {
     // This is the currently-active checkpoint.
