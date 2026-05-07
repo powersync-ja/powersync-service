@@ -56,6 +56,42 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     // No-op
   }
 
+  /**
+   * Update pipeline to update replication stream status, covering all storage versions.
+   *
+   * Roughly equivalent to:
+   *   $set: {
+   *     state: state,
+   *     'sync_configs.$[].state': state
+   *   }
+   *
+   * The difference is that this also handles v1 storage cases, where `sync_configs` is not present.
+   */
+  private syncRuleStateUpdatePipeline(state: storage.SyncRuleState): mongo.Document[] {
+    return [
+      {
+        $set: {
+          state,
+          sync_configs: {
+            $cond: [
+              { $isArray: '$sync_configs' },
+              {
+                $map: {
+                  input: '$sync_configs',
+                  as: 'config',
+                  in: {
+                    $mergeObjects: ['$$config', { state }]
+                  }
+                }
+              },
+              '$$REMOVE'
+            ]
+          }
+        }
+      }
+    ];
+  }
+
   getInstance(syncRules: storage.PersistedSyncRulesContent, options?: GetIntanceOptions): MongoSyncBucketStorage {
     let { id, slot_name } = syncRules;
     if ((typeof id as any) == 'bigint') {
@@ -117,13 +153,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           _id: next.id,
           state: storage.SyncRuleState.PROCESSING
         },
-        {
-          $set: {
-            state: storage.SyncRuleState.STOP,
-            // v3 nested state
-            'sync_configs.$[].state': storage.SyncRuleState.STOP
-          }
-        }
+        this.syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP)
       );
       await this.db.notifyCheckpoint();
     } else if (next == null && active?.id == sync_rules_group_id) {
@@ -139,12 +169,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           _id: active.id,
           state: storage.SyncRuleState.ACTIVE
         },
-        {
-          $set: {
-            state: storage.SyncRuleState.ERRORED,
-            'sync_configs.$[].state': storage.SyncRuleState.ERRORED
-          }
-        }
+        this.syncRuleStateUpdatePipeline(storage.SyncRuleState.ERRORED)
       );
       await this.db.notifyCheckpoint();
     } else if (next != null && active?.id == sync_rules_group_id) {
@@ -155,12 +180,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           _id: active.id,
           state: storage.SyncRuleState.ACTIVE
         },
-        {
-          $set: {
-            state: storage.SyncRuleState.ERRORED,
-            'sync_configs.$[].state': storage.SyncRuleState.ERRORED
-          }
-        }
+        this.syncRuleStateUpdatePipeline(storage.SyncRuleState.ERRORED)
       );
       await this.db.notifyCheckpoint();
     }
@@ -182,7 +202,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.$[].state': storage.SyncRuleState.STOP } },
+        this.syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
         { session }
       );
 
@@ -273,7 +293,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP, 'sync_configs.$[].state': storage.SyncRuleState.STOP } },
+        this.syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
         { session }
       );
 
