@@ -5,6 +5,7 @@ import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { syncRuleStateUpdatePipeline } from '../SyncRuleStateUpdate.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
@@ -241,15 +242,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         await this.db.sync_rules.updateMany(
           {
             _id: { $ne: this.group_id },
-            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] },
-            sync_configs: { $exists: true }
+            state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
           },
-          {
-            $set: {
-              state: storage.SyncRuleState.STOP,
-              'sync_configs.$[].state': storage.SyncRuleState.STOP
-            }
-          },
+          syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
           { session }
         );
         activated = true;
