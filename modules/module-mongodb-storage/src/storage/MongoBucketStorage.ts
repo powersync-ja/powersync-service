@@ -8,7 +8,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 
 import { generateSlotName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
-import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
+import type { AbstractMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
@@ -27,7 +27,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
 
-  private activeStorageCache: MongoSyncBucketStorage | undefined;
+  private activeStorageCache: AbstractMongoSyncBucketStorage | undefined;
 
   public readonly db: PowerSyncMongo;
 
@@ -49,7 +49,10 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     // No-op
   }
 
-  getInstance(syncRules: storage.PersistedSyncRulesContent, options?: GetIntanceOptions): MongoSyncBucketStorage {
+  getInstance(
+    syncRules: storage.PersistedSyncRulesContent,
+    options?: GetIntanceOptions
+  ): AbstractMongoSyncBucketStorage {
     let { id, slot_name } = syncRules;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
@@ -274,7 +277,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     });
   }
 
-  async getActiveStorage(): Promise<MongoSyncBucketStorage | null> {
+  async getActiveStorage(): Promise<AbstractMongoSyncBucketStorage | null> {
     const content = await this.getActiveSyncRulesContent();
     if (content == null) {
       return null;

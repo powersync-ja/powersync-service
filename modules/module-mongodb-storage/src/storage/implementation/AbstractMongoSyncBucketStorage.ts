@@ -59,7 +59,7 @@ interface InternalCheckpointChanges extends CheckpointChanges {
  */
 const CHECKPOINT_TIMEOUT_MS = 60_000;
 
-export abstract class MongoSyncBucketStorage
+export abstract class AbstractMongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
@@ -767,10 +767,10 @@ export abstract class MongoSyncBucketStorage
 }
 
 class MongoReplicationCheckpoint implements ReplicationCheckpoint {
-  #storage: MongoSyncBucketStorage;
+  #storage: AbstractMongoSyncBucketStorage;
 
   constructor(
-    storage: MongoSyncBucketStorage,
+    storage: AbstractMongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
     public snapshotTime: mongo.Timestamp

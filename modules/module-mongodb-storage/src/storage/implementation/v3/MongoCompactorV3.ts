@@ -12,14 +12,15 @@ import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
 import { BucketStateDocumentV3 } from './models.js';
-import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
+import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoCompactorV3 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV3;
-  declare protected readonly storage: MongoSyncBucketStorageV3;
+  declare protected readonly storage: MongoSyncBucketStorage;
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -53,7 +54,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
     return computeChecksumsForBuckets(
-      (batch) => this.storage.checksums.computePartialChecksumsDirectByDefinition(batch),
+      (batch) => (this.storage.checksums as MongoChecksumsV3).computePartialChecksumsDirectByDefinition(batch),
       this.maxOpId,
       buckets
     );

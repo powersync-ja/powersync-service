@@ -9,12 +9,12 @@ import {
   utils
 } from '@powersync/service-core';
 
+import type { AbstractMongoSyncBucketStorage } from './AbstractMongoSyncBucketStorage.js';
 import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 import { BucketDataDoc, BucketKey } from './common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from './common/SingleBucketStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { BucketStateDocumentBase } from './models.js';
-import type { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 
 interface CurrentBucketState {
@@ -87,7 +87,7 @@ export abstract class MongoCompactor {
   protected readonly group_id: number;
 
   constructor(
-    protected readonly storage: MongoSyncBucketStorage,
+    protected readonly storage: AbstractMongoSyncBucketStorage,
     protected readonly db: VersionedPowerSyncMongo,
     options: MongoCompactOptions
   ) {

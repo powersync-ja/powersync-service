@@ -15,6 +15,7 @@ import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-ru
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
+import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
 import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
@@ -25,7 +26,6 @@ import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import { BucketDataDocumentV1, BucketDataKeyV1, BucketStateDocument, loadBucketDataDocumentV1 } from './models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
@@ -33,7 +33,7 @@ import { MongoCompactorV1 } from './MongoCompactorV1.js';
 import { MongoParameterCompactorV1 } from './MongoParameterCompactorV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
-export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
+export class MongoSyncBucketStorageV1 extends AbstractMongoSyncBucketStorage {
   // Declare types to be more specific
   declare readonly db: VersionedPowerSyncMongoV1;
   declare readonly checksums: MongoChecksumsV1;

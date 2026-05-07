@@ -1,19 +1,16 @@
 import { storage } from '@powersync/service-core';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import {
-  MongoSyncBucketStorageBase,
-  MongoSyncBucketStorageBaseCallbacks
-} from '../MongoSyncBucketStorageBase.js';
-import { MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
+import { MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
 import { V3FormatAdapter } from '../document-formats/v3-format.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageBaseCallbacks } from '../MongoSyncBucketStorageBase.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
 import { MongoParameterCompactorV3 } from './MongoParameterCompactorV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
-export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorageBase {
+export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   declare readonly db: VersionedPowerSyncMongoV3;
   declare readonly checksums: MongoChecksumsV3;
 

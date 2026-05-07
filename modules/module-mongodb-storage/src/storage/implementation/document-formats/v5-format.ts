@@ -1,9 +1,9 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
+import { chunkBucketData } from '../bucket-operations/chunking.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
 import { BucketDataKey, BucketDataProperties, OpType } from '../models.js';
-import { chunkBucketData } from '../bucket-operations/chunking.js';
 import { BucketDataFormatAdapter } from './format-interface.js';
 
 export type BucketDataKeyV5 = BucketDataKey;

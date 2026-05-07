@@ -14,6 +14,7 @@ import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
   BucketDataDocumentV5,
@@ -21,13 +22,13 @@ import {
   loadBucketDataDocumentV5,
   serializeBucketDataV5
 } from './models.js';
-import type { MongoSyncBucketStorageV5 } from './MongoSyncBucketStorageV5.js';
+import { MongoChecksumsV5 } from './MongoChecksumsV5.js';
 import { SingleBucketStoreV5 } from './SingleBucketStoreV5.js';
 import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
 export class MongoCompactorV5 extends MongoCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV5;
-  declare protected readonly storage: MongoSyncBucketStorageV5;
+  declare protected readonly storage: MongoSyncBucketStorage;
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -61,7 +62,7 @@ export class MongoCompactorV5 extends MongoCompactor {
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
     return computeChecksumsForBuckets(
-      (batch) => this.storage.checksums.computePartialChecksumsDirectByDefinition(batch),
+      (batch) => (this.storage.checksums as MongoChecksumsV5).computePartialChecksumsDirectByDefinition(batch),
       this.maxOpId,
       buckets
     );
