@@ -6,7 +6,7 @@ import { MongoSyncBucketStorageCallbacks } from '../common/MongoSyncBucketStorag
 import { V3FormatAdapter } from '../document-formats/v3-format.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
+import { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';

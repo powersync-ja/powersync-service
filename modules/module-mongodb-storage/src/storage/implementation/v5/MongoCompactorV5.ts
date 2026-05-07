@@ -13,7 +13,7 @@ import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
+import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
 import { cacheKey } from '../OperationBatch.js';
 import {
   BucketDataDocumentV5,

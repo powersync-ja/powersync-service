@@ -11,7 +11,7 @@ import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorageBase.js';
+import type { MongoSyncBucketStorage } from '../MongoSyncBucketStorage.js';
 import { BucketStateDocument } from './models.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
