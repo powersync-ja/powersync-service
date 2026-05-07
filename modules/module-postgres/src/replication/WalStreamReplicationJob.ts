@@ -1,4 +1,4 @@
-import { container, logger } from '@powersync/lib-services-framework';
+import { container } from '@powersync/lib-services-framework';
 import { MissingReplicationSlotError, shouldRetryReplication } from './MissingReplicationSlotError.js';
 import { PgManager } from './PgManager.js';
 import { sendKeepAlive, WalStream } from './WalStream.js';
@@ -18,7 +18,7 @@ export class WalStreamReplicationJob extends replication.AbstractReplicationJob 
 
   constructor(options: WalStreamReplicationJobOptions) {
     super(options);
-    this.logger = logger.child({ prefix: `[${this.slotName}] ` });
+    this.logger = options.storage.logger;
     this.connectionFactory = options.connectionFactory;
   }
 

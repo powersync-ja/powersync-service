@@ -1,17 +1,17 @@
 # powersync-sync-rules
 
-A library containing logic for PowerSync sync rules.
+A library containing logic for PowerSync sync config.
 
 This is not intended to be used directly by users of PowerSync. If you are interested in the internals, read on.
 
 # Overview
 
-A core design constraint is that sync rules define two operations:
+A core design constraint is that sync config define two operations:
 
 1. Given a data row, compute a list of buckets that it belongs to.
 2. Given an authenticated user, return a list of buckets for the user.
 
-This implementation of sync rules use SQL queries to declaratively define those operations using familiar SQL operations.
+This implementation of sync config use SQL queries to declaratively define those operations using familiar SQL operations.
 
 We define (1) using data queries, and (2) using parameter queries.
 

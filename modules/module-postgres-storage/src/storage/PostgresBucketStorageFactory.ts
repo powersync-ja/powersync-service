@@ -256,10 +256,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     const next = await this.getNextSyncRulesContent();
     const active = await this.getActiveSyncRulesContent();
 
-    // In both the below cases, we create a new sync rules instance.
+    // In both the below cases, we create a new replication stream.
     // The current one will continue serving sync requests until the next one has finished processing.
     if (next != null && next.id == sync_rules_group_id) {
-      // We need to redo the "next" sync rules
+      // We need to redo the "next" replication stream
 
       await this.updateSyncRules(next.asUpdateOptions());
       // Pro-actively stop replicating
@@ -272,7 +272,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
           AND state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
       `.execute();
     } else if (next == null && active?.id == sync_rules_group_id) {
-      // Slot removed for "active" sync rules, while there is no "next" one.
+      // Slot removed for "active" replication stream, while there is no "next" one.
       await this.updateSyncRules(active.asUpdateOptions());
 
       // Pro-actively stop replicating, but still serve clients with existing data
@@ -285,7 +285,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
       `.execute();
     } else if (next != null && active?.id == sync_rules_group_id) {
-      // Already have "next" sync rules - don't update any.
+      // Already have "next" replication stream - don't update any.
 
       // Pro-actively stop replicating, but still serve clients with existing data
       await this.db.sql`

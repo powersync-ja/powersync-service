@@ -63,7 +63,7 @@ export function createPool(config: types.NormalizedMySQLConnectionConfig, option
 }
 
 /**
- *  Return a random server id for a given sync rule id.
+ *  Return a random server id for a given replication stream id.
  *  Expected format is: <syncRuleId>00<random number>
  *  The max value for server id in MySQL is 2^32 - 1.
  *  We use the GTID format to keep track of our position in the binlog, no state is kept by the MySQL server, therefore

@@ -64,7 +64,9 @@ export class PostgresWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     switch (this.writeCheckpointMode) {
       case storage.WriteCheckpointMode.CUSTOM:
         if (false == 'sync_rules_id' in filters) {
-          throw new framework.errors.ValidationError(`Sync rules ID is required for custom Write Checkpoint filtering`);
+          throw new framework.errors.ValidationError(
+            `Sync config ID is required for custom Write Checkpoint filtering`
+          );
         }
         return this.lastCustomWriteCheckpoint(filters as storage.CustomWriteCheckpointFilters);
       case storage.WriteCheckpointMode.MANAGED:

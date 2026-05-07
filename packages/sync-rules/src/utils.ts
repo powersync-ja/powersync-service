@@ -198,7 +198,7 @@ function filterJsonData(data: any, context: CompatibilityContext, depth = 0): an
 }
 
 /**
- * Map database row to SqliteRow for use in sync rules.
+ * Map database row to SqliteRow for use in sync config.
  */
 export function toSyncRulesRow(row: DatabaseInputRow): SqliteInputRow {
   let record: SqliteInputRow = {};

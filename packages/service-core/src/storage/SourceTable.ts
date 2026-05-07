@@ -28,7 +28,7 @@ export class SourceTable implements SourceEntityDescriptor {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
   /**
-   * True if the table is used in sync rules for data queries.
+   * True if the table is used in sync config for data queries.
    *
    * This value is resolved externally, and cached here.
    *
@@ -37,7 +37,7 @@ export class SourceTable implements SourceEntityDescriptor {
   public syncData = true;
 
   /**
-   * True if the table is used in sync rules for data queries.
+   * True if the table is used in sync config for data queries.
    *
    * This value is resolved externally, and cached here.
    *
@@ -46,7 +46,7 @@ export class SourceTable implements SourceEntityDescriptor {
   public syncParameters = true;
 
   /**
-   * True if the table is used in sync rules for events.
+   * True if the table is used in sync config for events.
    *
    * This value is resolved externally, and cached here.
    *

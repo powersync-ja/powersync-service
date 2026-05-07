@@ -39,18 +39,18 @@ export const DiagnosticsResponse = t.object({
   connections: t.array(ConnectionStatus),
 
   /**
-   * Present if there are fully-deployed sync rules.
+   * Present if there are fully-deployed sync config.
    *
-   * Sync-rule-level errors are listed here.
+   * Sync-config-level errors are listed here.
    */
   active_sync_rules: SyncRulesStatus.optional(),
 
   /**
-   * Present if there are sync rules in the process of being deployed / initial replication.
+   * Present if there is sync config in the process of being deployed / initial replication.
    *
-   * Once initial replication is done, this will  be placed in `active_sync_rules`.
+   * Once initial replication is done, this will be placed in `active_sync_rules`.
    *
-   * Sync-rule-level errors are listed here.
+   * Sync-config-level errors are listed here.
    */
   deploying_sync_rules: SyncRulesStatus.optional()
 });

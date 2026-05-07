@@ -496,7 +496,7 @@ bucket_definitions:
     // The field appears twice in the ChangeStream event, so the total size
     // is > 16MB.
 
-    // We don't actually have this description field in the sync rules,
+    // We don't actually have this description field in the sync config,
     // That causes other issues, not relevant for this specific test.
     const largeDescription = crypto.randomBytes(12000000 / 2).toString('hex');
 
@@ -525,7 +525,7 @@ bucket_definitions:
     });
   });
 
-  test('collection not in sync rules', async () => {
+  test('collection not in sync config', async () => {
     await using context = await openContext();
     const { db } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);

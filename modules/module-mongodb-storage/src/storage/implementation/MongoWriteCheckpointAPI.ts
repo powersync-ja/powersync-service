@@ -56,7 +56,7 @@ export class MongoWriteCheckpointAPI implements storage.WriteCheckpointAPI {
     switch (this.writeCheckpointMode) {
       case storage.WriteCheckpointMode.CUSTOM:
         if (false == 'sync_rules_id' in filters) {
-          throw new framework.ServiceAssertionError(`Sync rules ID is required for custom Write Checkpoint filtering`);
+          throw new framework.ServiceAssertionError(`Sync config ID is required for custom Write Checkpoint filtering`);
         }
         return this.lastCustomWriteCheckpoint(filters);
       case storage.WriteCheckpointMode.MANAGED:

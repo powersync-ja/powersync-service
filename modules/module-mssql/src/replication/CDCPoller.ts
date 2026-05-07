@@ -41,7 +41,7 @@ export interface SchemaChange {
    */
   table?: MSSQLSourceTable;
   /**
-   *  Populated for new tables or renames, but only if the new table matches a sync rule source table.
+   *  Populated for new tables or renames, but only if the new table matches a sync config source table.
    */
   newTable?: Omit<SourceEntityDescriptor, 'replicaIdColumns'>;
 
@@ -61,9 +61,9 @@ export const DEFAULT_SCHEMA_CHECK_INTERVAL_MS = 60_000;
 export interface CDCPollerOptions {
   connectionManager: MSSQLConnectionManager;
   eventHandler: CDCEventHandler;
-  /** CDC enabled source tables from the sync rules to replicate */
+  /** CDC enabled source tables from the sync config to replicate */
   getReplicatedTables: () => MSSQLSourceTable[];
-  /** All table patterns from the sync rules. Can contain tables that need to be replicated
+  /** All table patterns from the sync config. Can contain tables that need to be replicated
    *  but do not yet have CDC enabled
    */
   sourceTables: TablePattern[];
@@ -336,7 +336,7 @@ export class CDCPoller {
     const newTables = this.checkForNewTables();
     for (const table of newTables) {
       this.logger.info(
-        `New table ${toQualifiedTableName(table.sourceTable.schema, table.sourceTable.name)} matching the sync rules has been created. Handling schema change...`
+        `New table ${toQualifiedTableName(table.sourceTable.schema, table.sourceTable.name)} matching the sync config has been created. Handling schema change...`
       );
       schemaChanges.push({
         type: SchemaChangeType.TABLE_CREATE,
@@ -422,7 +422,7 @@ export class CDCPoller {
     for (const [objectId, captureInstanceDetails] of this.captureInstances.entries()) {
       // If a source table is not in the replicated tables array, but a capture instance exists for it, it is potentially a new table to replicate.
       if (!this.replicatedTables.some((table) => table.objectId === objectId)) {
-        // Check if the new table matches any of the sync rules source tables.
+        // Check if the new table matches any of the sync config source tables.
         if (
           this.tableMatchesSyncRules(captureInstanceDetails.sourceTable.schema, captureInstanceDetails.sourceTable.name)
         ) {

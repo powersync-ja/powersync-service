@@ -58,6 +58,7 @@ export class PostgresSyncRulesStorage
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
   public readonly storageConfig: StorageVersionConfig;
+  public readonly logger: framework.Logger;
 
   private sharedIterator = new BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
@@ -80,6 +81,7 @@ export class PostgresSyncRulesStorage
     this.factory = options.factory;
     this.storageConfig = options.sync_rules.getStorageConfig();
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
+    this.logger = options.sync_rules.logger;
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -109,8 +111,8 @@ export class PostgresSyncRulesStorage
   getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
-     * Check if the cached sync rules, if present, had the same options.
-     * Parse sync rules if the options are different or if there is no cached value.
+     * Check if the cached sync config, if present, had the same options.
+     * Parse sync config if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
       this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
@@ -140,11 +142,12 @@ export class PostgresSyncRulesStorage
 
     return new PostgresCompactor(this.db, this.group_id, {
       ...options,
-      maxOpId
+      maxOpId,
+      logger: this.logger
     }).compact();
   }
 
-  async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
+  async populatePersistentChecksumCache(_options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     // no-op - checksum cache is not implemented for Postgres yet
     return { buckets: 0 };
   }
@@ -364,7 +367,7 @@ export class PostgresSyncRulesStorage
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
 
     const writer = new PostgresBucketBatch({
-      logger: options.logger ?? framework.logger,
+      logger: options.logger ?? this.logger,
       db: this.db,
       sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
       group_id: this.group_id,
@@ -670,7 +673,7 @@ export class PostgresSyncRulesStorage
       .first();
 
     if (syncRulesRow == null) {
-      throw new Error('Cannot find sync rules status');
+      throw new Error('Cannot find replication stream status');
     }
 
     return {
@@ -863,7 +866,7 @@ export class PostgresSyncRulesStorage
 
     if (doc == null) {
       // Abort the connections - clients will have to retry later.
-      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active sync rules available');
+      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
     }
 
     const sink = new LastValueSink<string>(undefined);
@@ -890,7 +893,7 @@ export class PostgresSyncRulesStorage
         continue;
       }
       if (Number(notification.active_checkpoint.id) != doc.id) {
-        // Active sync rules changed - abort and restart the stream
+        // Active replication stream changed - abort and restart the stream
         break;
       }
 

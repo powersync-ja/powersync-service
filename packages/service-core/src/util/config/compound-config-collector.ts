@@ -26,7 +26,7 @@ export type CompoundConfigCollectorOptions = {
    */
   configCollectors: ConfigCollector[];
   /**
-   * Collectors for PowerSync sync rules content.
+   * Collectors for PowerSync sync config content.
    * The configuration from first collector to provide a configuration
    * is used. The order of the collectors specifies precedence
    */
@@ -236,11 +236,11 @@ export class CompoundConfigCollector {
           return config;
         }
         logger.debug(
-          `Could not collect sync rules with ${collector.name} method. Moving on to next method if available.`
+          `Could not collect sync config with ${collector.name} method. Moving on to next method if available.`
         );
       } catch (ex) {
         // An error in a collector is a hard stop
-        throw new Error(`Could not collect sync rules using ${collector.name} method. Caught exception: ${ex}`);
+        throw new Error(`Could not collect sync config using ${collector.name} method. Caught exception: ${ex}`);
       }
     }
     return {

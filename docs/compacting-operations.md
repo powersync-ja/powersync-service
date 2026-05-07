@@ -6,7 +6,7 @@ By default, each change in the source database becomes a new operation in the ev
 
 ## Previous Workaround
 
-A workaround is to deploy a sync rules change, which re-creates all buckets from scratch, containing only the latest version of each row. This reduces the size of buckets for new clients performing a sync from scratch, but requires existing clients to completely re-sync the buckets.
+A workaround is to deploy a sync config change, which re-creates all buckets from scratch, containing only the latest version of each row. This reduces the size of buckets for new clients performing a sync from scratch, but requires existing clients to completely re-sync the buckets.
 
 # Compacting Processes
 

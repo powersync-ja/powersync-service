@@ -1,7 +1,7 @@
 export enum WriteCheckpointMode {
   /**
    * Raw mappings of `user_id` to `write_checkpoint`s should
-   * be supplied for each set of sync rules.
+   * be supplied for each replication stream.
    */
   CUSTOM = 'custom',
   /**
@@ -21,7 +21,7 @@ export interface BaseWriteCheckpointIdentifier {
 
 export interface CustomWriteCheckpointFilters extends BaseWriteCheckpointIdentifier {
   /**
-   * Sync rules which were active when this checkpoint was created.
+   * Replication stream which were active when this checkpoint was created.
    */
   sync_rules_id: number;
 }
@@ -35,7 +35,7 @@ export interface BatchedCustomWriteCheckpointOptions extends BaseWriteCheckpoint
 
 export interface CustomWriteCheckpointOptions extends BatchedCustomWriteCheckpointOptions {
   /**
-   * Sync rules which were active when this checkpoint was created.
+   * Replication stream which was active when this checkpoint was created.
    */
   sync_rules_id: number;
 }
@@ -63,8 +63,8 @@ export interface BaseWriteCheckpointAPI {
 
 /**
  * Write Checkpoint API to be used in conjunction with a {@link SyncRulesBucketStorage}.
- * This storage corresponds with a set of sync rules. These APIs don't require specifying a
- * sync rules id.
+ * This storage corresponds with a replication stream. These APIs don't require specifying a
+ * replication stream id.
  */
 export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
   lastWriteCheckpoint(filters: SyncStorageLastWriteCheckpointFilters): Promise<bigint | null>;
@@ -72,7 +72,7 @@ export interface SyncStorageWriteCheckpointAPI extends BaseWriteCheckpointAPI {
 
 /**
  * Write Checkpoint API which is interfaced directly with the storage layer. This requires
- * sync rules identifiers for custom write checkpoints.
+ * replication stream identifiers for custom write checkpoints.
  */
 export interface WriteCheckpointAPI extends BaseWriteCheckpointAPI {
   lastWriteCheckpoint(filters: LastWriteCheckpointFilters): Promise<bigint | null>;
