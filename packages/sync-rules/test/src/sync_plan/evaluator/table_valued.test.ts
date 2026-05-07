@@ -59,12 +59,7 @@ streams:
         bucketParameters: [
           {
             '0': 'user'
-          }
-        ]
-      },
-      {
-        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
-        bucketParameters: [
+          },
           {
             '0': 'another'
           }

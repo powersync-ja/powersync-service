@@ -831,4 +831,132 @@ streams:
       })
     ).rejects.toThrow('Too many parameter results (limit was 5)');
   });
+
+  test('sync streams store multiple parameter outputs for a single source row and lookup', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
+config:
+  edition: 3
+streams:
+  chat:
+    auto_subscribe: true
+    query: |
+      SELECT a.*
+      FROM a, b, json_each(b.x) x, json_each(b.y) y
+      WHERE a.x = x.value AND y.value = auth.user_id()
+    `)
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const tableB = await test_utils.resolveTestTable(writer, 'b', ['id'], config);
+    const firstState = {
+      id: 'id0',
+      x: JSON.stringify(['x1', 'x2']),
+      y: JSON.stringify(['y1', 'y2'])
+    };
+    const secondState = {
+      id: 'id0',
+      x: JSON.stringify(['x2']),
+      y: JSON.stringify(['y1', 'y2'])
+    };
+    const thirdState = {
+      id: 'id0',
+      x: JSON.stringify(['x2']),
+      y: JSON.stringify(['y2'])
+    };
+    const replicaId = test_utils.rid('id0');
+
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: tableB,
+      tag: storage.SaveOperationTag.INSERT,
+      after: firstState,
+      afterReplicaId: replicaId
+    });
+
+    await writer.commit('1/1');
+
+    let checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'y1' }), {});
+    const querier = sync_rules.getBucketParameterQuerier({
+      ...test_utils.querierOptions(parameters)
+    }).querier;
+
+    let buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['y1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
+
+        expect(parameter_sets).toEqual([{ '0': 'x1' }, { '0': 'x2' }]);
+        return parameter_sets;
+      }
+    });
+
+    expect(buckets).toMatchObject([
+      {
+        bucket: expect.stringMatching(/chat.*\["x1"\]$/),
+        definition: 'chat',
+        inclusion_reasons: ['default'],
+        priority: 3
+      },
+      {
+        bucket: expect.stringMatching(/chat.*\["x2"\]$/),
+        definition: 'chat',
+        inclusion_reasons: ['default'],
+        priority: 3
+      }
+    ]);
+
+    // Make the x2 bucket inaccessible
+    await writer.save({
+      sourceTable: tableB,
+      tag: storage.SaveOperationTag.UPDATE,
+      before: firstState,
+      after: secondState,
+      beforeReplicaId: replicaId,
+      afterReplicaId: replicaId
+    });
+    await writer.commit('1/2');
+
+    checkpoint = await bucketStorage.getCheckpoint();
+    buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['y1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
+
+        expect(parameter_sets).toEqual([{ '0': 'x2' }]);
+        return parameter_sets;
+      }
+    });
+    expect(buckets.map((bkt) => bkt.bucket)).toStrictEqual([expect.stringContaining('x2')]);
+
+    // Second update, remove user from inputs
+    await writer.save({
+      sourceTable: tableB,
+      tag: storage.SaveOperationTag.UPDATE,
+      before: secondState,
+      after: thirdState,
+      beforeReplicaId: replicaId,
+      afterReplicaId: replicaId
+    });
+    await writer.commit('1/3');
+
+    checkpoint = await bucketStorage.getCheckpoint();
+    buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups.map((l) => l.indexKey)).toEqual([['y1']]);
+
+        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
+
+        expect(parameter_sets).toHaveLength(0);
+        return parameter_sets;
+      }
+    });
+    expect(buckets).toHaveLength(0);
+  });
 }
