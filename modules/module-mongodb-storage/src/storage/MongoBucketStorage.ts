@@ -339,7 +339,9 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         return null;
       }
 
-      // TODO: cache this
+      // TODO: cache the config. It could specifically help for the main replication loop
+      // that checks for active replication streams.
+      // It is not a major bottleneck though, since it only runs once every couple of seconds at most.
       const db = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
       const syncConfigDoc = await db.syncConfigDefinitions.findOne({ _id: active._id });
       if (syncConfigDoc == null) {
