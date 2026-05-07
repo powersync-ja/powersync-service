@@ -4,9 +4,9 @@ import * as bson from 'bson';
 import { flushBucketDataShared } from '../bucket-operations/batch-write.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { PersistedBatchShared } from '../common/PersistedBatchShared.js';
+import { serializeParameterLookup } from '../document-formats/parameter-lookup.js';
 import { V3FormatAdapter } from '../document-formats/v3-format.js';
 import { BucketParameterDocument, taggedBucketParameterDocumentToTagged } from './models.js';
-import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatchShared {
@@ -29,7 +29,7 @@ export class PersistedBatchV3 extends PersistedBatchShared {
   }
 
   protected serializeParameterLookup(lookup: any): bson.Binary {
-    return serializeParameterLookupV3(lookup);
+    return serializeParameterLookup(lookup);
   }
 
   protected taggedBucketParameterDocumentToTagged(doc: any): any {
