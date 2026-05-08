@@ -757,7 +757,8 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
   });
 
   test('matches on large escape-heavy nested values serialized from BSON', () => {
-    const escapeHeavy = '\u0001'.repeat(1024 * 1024 + 4096);
+    // For this test to work, this must be larger than the default buffer size
+    const escapeHeavy = '\u0001'.repeat(1024 * 400);
     const source = BSON.serialize({
       _id: 'escapes-large',
       value: {

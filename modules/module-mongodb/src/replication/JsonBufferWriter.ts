@@ -177,7 +177,7 @@ export class JsonBufferWriter {
 
     const rawLength = end - start;
     let length = this.length;
-    this.ensureAbsoluteCapacity(length + rawLength + 2);
+    this.ensureCapacity(rawLength + 2);
     let buffer = this.buffer;
 
     buffer[length++] = BYTE_DQUOTE;
@@ -204,12 +204,14 @@ export class JsonBufferWriter {
 
       if (chunkStart < index) {
         const chunkLength = index - chunkStart;
-        this.ensureAbsoluteCapacity(length + chunkLength + 6);
+        this.length = length;
+        this.ensureCapacity(chunkLength + 6);
         buffer = this.buffer;
         bytes.copy(buffer, length, chunkStart, index);
         length += chunkLength;
       } else {
-        this.ensureAbsoluteCapacity(length + 6);
+        this.length = length;
+        this.ensureCapacity(6);
         buffer = this.buffer;
       }
 
@@ -257,12 +259,14 @@ export class JsonBufferWriter {
 
     if (chunkStart < end) {
       const chunkLength = end - chunkStart;
-      this.ensureAbsoluteCapacity(length + chunkLength + 1);
+      this.length = length;
+      this.ensureCapacity(chunkLength + 1);
       buffer = this.buffer;
       bytes.copy(buffer, length, chunkStart, end);
       length += chunkLength;
     } else {
-      this.ensureAbsoluteCapacity(length + 1);
+      this.length = length;
+      this.ensureCapacity(1);
       buffer = this.buffer;
     }
 
