@@ -10,6 +10,7 @@ import { BucketDataDoc } from './common/BucketDataDoc.js';
 import { MongoSyncBucketStorageCallbacks } from './common/MongoSyncBucketStorageCallbacks.js';
 import { MongoSyncBucketStorageCheckpoint } from './common/MongoSyncBucketStorageContext.js';
 import { BucketDataDocumentGeneric } from './common/SingleBucketStore.js';
+import { BucketDataFormatAdapter } from './document-formats/format-interface.js';
 import { deserializeParameterLookup, serializeParameterLookup } from './document-formats/parameter-lookup.js';
 import { CommonSourceTableDocument } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
@@ -29,6 +30,37 @@ function* walkDocumentOps(
       yield { row: data[opIndex++], docIndex, isLastOpInDocument: i === opCount - 1 };
     }
   }
+}
+
+function extractRowsFromDocument(
+  doc: any,
+  context: { replicationStreamId: number; definitionId: string },
+  bucketMap: Map<string, InternalOpId>,
+  endOpId: InternalOpId,
+  remainingLimit: number,
+  formatAdapter: BucketDataFormatAdapter
+): { rows: BucketDataDoc[]; remainingLimit: number; limitReached: boolean } {
+  const rows: BucketDataDoc[] = [];
+  for (const row of formatAdapter.loadDocument(context, doc)) {
+    const bucket = row.bucketKey.bucket;
+    const bucketStart = bucketMap.get(bucket);
+    if (bucketStart == null) {
+      throw new Error(`data for unexpected bucket: ${bucket}`);
+    }
+    if (row.o <= bucketStart) {
+      continue;
+    }
+    if (row.o > endOpId) {
+      continue;
+    }
+
+    rows.push(row);
+    remainingLimit--;
+    if (remainingLimit <= 0) {
+      return { rows, remainingLimit, limitReached: true };
+    }
+  }
+  return { rows, remainingLimit, limitReached: false };
 }
 
 export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
@@ -303,32 +335,18 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
 
       for (const raw of rawData) {
         const doc = bson.deserialize(raw, storage.BSON_DESERIALIZE_INTERNAL_OPTIONS);
-        let opCount = 0;
-        for (const row of formatAdapter.loadDocument(context, doc)) {
-          const bucket = row.bucketKey.bucket;
-          const bucketStart = bucketMap.get(bucket);
-          if (bucketStart == null) {
-            throw new Error(`data for unexpected bucket: ${bucket}`);
-          }
-          if (row.o <= bucketStart) {
-            continue;
-          }
-          if (row.o > endOpId) {
-            continue;
-          }
-
-          data.push(row);
-          opCount++;
-          sharedRemainingLimit--;
-          if (sharedRemainingLimit <= 0) {
-            limitReached = true;
-            break;
-          }
-        }
-        documentOpCounts.push(opCount);
+        const {
+          rows,
+          remainingLimit,
+          limitReached: docLimitReached
+        } = extractRowsFromDocument(doc, context, bucketMap, endOpId, sharedRemainingLimit, formatAdapter);
+        data.push(...rows);
+        documentOpCounts.push(rows.length);
         documentSizes.push(raw.byteLength);
         chunkSizeBytes += raw.byteLength;
-        if (limitReached) {
+        sharedRemainingLimit = remainingLimit;
+        if (docLimitReached) {
+          limitReached = true;
           break;
         }
       }
