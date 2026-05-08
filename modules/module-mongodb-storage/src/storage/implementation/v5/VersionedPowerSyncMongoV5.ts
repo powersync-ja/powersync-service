@@ -10,6 +10,12 @@ import {
   SourceTableDocument
 } from './models.js';
 
+/**
+ * Typed wrapper around {@link VersionedPowerSyncMongo} for V5 (compressed bucket) storage.
+ *
+ * Each method narrows the return type to the V5-specific document shape so that
+ * callers don't have to cast at every usage site.
+ */
 export class VersionedPowerSyncMongoV5 extends VersionedPowerSyncMongo {
   constructor(upstream: PowerSyncMongo, storageConfig: any) {
     super(upstream, storageConfig, 'V5');

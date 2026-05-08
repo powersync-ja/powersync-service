@@ -1,3 +1,9 @@
+/**
+ * Re-exports V3-specific document types and shared model types.
+ *
+ * Centralizes imports so that V3 storage implementation files don't need to
+ * reach directly into `../document-formats/v3-format.js` or `../common/models.js`.
+ */
 export {
   BucketDataDocumentV3,
   BucketDataKeyV3,

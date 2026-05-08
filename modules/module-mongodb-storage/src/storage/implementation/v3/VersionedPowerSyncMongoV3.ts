@@ -10,6 +10,12 @@ import {
   SourceTableDocument
 } from './models.js';
 
+/**
+ * Typed wrapper around {@link VersionedPowerSyncMongo} for V3 (per-op) storage.
+ *
+ * Each method narrows the return type to the V3-specific document shape so that
+ * callers don't have to cast at every usage site.
+ */
 export class VersionedPowerSyncMongoV3 extends VersionedPowerSyncMongo {
   constructor(upstream: PowerSyncMongo, storageConfig: any) {
     super(upstream, storageConfig, 'V3');
