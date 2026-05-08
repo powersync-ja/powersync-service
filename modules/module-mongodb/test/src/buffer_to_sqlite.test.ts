@@ -756,6 +756,18 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
     expectRowParity(source);
   });
 
+  test('matches on large escape-heavy nested values serialized from BSON', () => {
+    const escapeHeavy = '\u0001'.repeat(1024 * 1024 + 4096);
+    const source = BSON.serialize({
+      _id: 'escapes-large',
+      value: {
+        nested: escapeHeavy
+      }
+    }) as Buffer;
+
+    expectRowParity(source);
+  });
+
   test('matches 21 nested object levels', () => {
     expectRowParity(
       BSON.serialize({
