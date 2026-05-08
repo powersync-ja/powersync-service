@@ -22,6 +22,7 @@ import {
 } from 'bson';
 import { describe, expect, test } from 'vitest';
 
+import { JsonBufferWriter } from '@module/replication/JsonBufferWriter.js';
 import {
   DirectSourceRowConverter,
   LegacySourceRowConverter,
@@ -54,6 +55,18 @@ const objectId = new ObjectId('66e834cc91d805df11fa0ecb');
 const uuidBytes = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
 const depth21Expected =
   '{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":1}}}}}}}}}}}}}}}}}}}}}';
+
+describe('JsonBufferWriter', () => {
+  test('writeQuotedUtf8Slice escapes large control-heavy payloads without corruption', () => {
+    const writer = new JsonBufferWriter(32);
+    const payload = Buffer.alloc(256, 0x01);
+
+    writer.writeQuotedUtf8Slice(payload, 0, payload.length);
+
+    const expected = JSON.stringify(payload.toString('latin1'));
+    expect(writer.toString()).toBe(expected);
+  });
+});
 
 const testCases: ConverterCase[] = [
   serializableCase('double', new Double(1.25), placements(1.25, '[1.25]', '{"nested":1.25}')),

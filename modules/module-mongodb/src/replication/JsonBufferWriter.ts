@@ -310,10 +310,6 @@ export class JsonBufferWriter {
 
   private ensureCapacity(extra: number) {
     const required = this.length + extra;
-    this.ensureAbsoluteCapacity(required);
-  }
-
-  private ensureAbsoluteCapacity(required: number) {
     if (required <= this.buffer.length) {
       return;
     }
