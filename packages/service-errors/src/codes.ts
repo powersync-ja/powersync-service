@@ -469,7 +469,7 @@ export enum ErrorCode {
    */
   PSYNC_S2305 = 'PSYNC_S2305',
 
-  // ## PSYNC_S23xx: Sync API errors - MongoDB Storage
+  // ## PSYNC_S24xx: Sync API errors - MongoDB Storage
 
   /**
    * Could not get clusterTime.
