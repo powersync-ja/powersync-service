@@ -1,7 +1,6 @@
 import { ParameterLookupSource, ScopedParameterLookup, UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { HydrationState } from '../../HydrationState.js';
-import { cartesianProduct } from '../../streams/utils.js';
 import { RequestParameters, SqliteParameterValue, SqliteValue } from '../../types.js';
 import { isValidParameterValue } from '../../utils.js';
 import {
@@ -235,6 +234,13 @@ export class RequestParameterEvaluators {
   }
 }
 
+type LookupRowBindings = Map<string, number>;
+
+interface BoundParameterChoice {
+  value: SqliteParameterValue;
+  lookupBindings: LookupRowBindings;
+}
+
 class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantiationInput> {
   constructor(
     protected readonly input: I,
@@ -274,70 +280,94 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
   }
 
   protected *resolveInputs(params: PreparedParameterValue[]): Generator<SqliteParameterValue[]> {
-    const parameterValues = params.map((_, index) => {
-      const cached = this.parameterSync(params, index);
-      if (cached == null) {
-        // This method is only called for inputs from an earlier stage, which should have been resolved at this point.
-        throw new Error('Should have been able to resolve parameter from earlier stage synchronously.');
-      }
-      return cached;
-    });
-
-    yield* cartesianProduct(...parameterValues);
+    yield* this.resolveInputsFrom(params, 0, [], new Map());
   }
 
-  /**
-   * If possible, evaluates an element in an array of parameter values and replaces the parameter with a marker
-   * indicating it as cached.
-   */
-  parameterSync(parent: PreparedParameterValue[], index: number): SqliteParameterValue[] | undefined {
-    const current = parent[index];
-    if (current.type === 'cached') {
-      return current.values;
-    } else if (current.type === 'intersection') {
-      let intersection: Set<SqliteParameterValue> | null = null;
-      for (let i = 0; i < current.values.length; i++) {
-        const evaluated = this.parameterSync(current.values, i);
-        if (evaluated == null) {
-          return undefined; // Can't evaluate sub-parameter
-        }
-
-        if (intersection == null) {
-          intersection = new Set(evaluated);
-        } else {
-          // TODO: Remove as any once we can use ES2025 in TypeScript
-          intersection = (intersection as any).intersection(new Set(evaluated)) as Set<SqliteParameterValue>;
-        }
-
-        if (intersection.size == 0) {
-          // Empty intersection, we don't even need to evaluate the rest.
-          break;
-        }
-      }
-
-      let values: SqliteParameterValue[] = [];
-      if (intersection) {
-        values.push(...intersection.keys());
-      }
-
-      parent[index] = { type: 'cached', values };
-      return values;
-    } else if (current.type === 'lookup') {
-      const resolvedLookup = this.expandingLookupSync(current.lookup.stage, current.lookup.index);
-      if (resolvedLookup) {
-        const values = resolvedLookup.map((row) => row[current.resultIndex]);
-        parent[index] = { type: 'cached', values };
-        return values;
-      }
-    } else if (current.type === 'request') {
-      const value = current.read(this.input.request);
-      const values: SqliteParameterValue[] = isValidParameterValue(value) ? [value] : [];
-
-      parent[index] = { type: 'cached', values };
-      return values;
+  private *resolveInputsFrom(
+    params: PreparedParameterValue[],
+    index: number,
+    current: SqliteParameterValue[],
+    lookupBindings: LookupRowBindings
+  ): Generator<SqliteParameterValue[]> {
+    if (index == params.length) {
+      yield current;
+      return;
     }
 
-    return undefined;
+    for (const choice of this.parameterChoices(params[index], lookupBindings)) {
+      yield* this.resolveInputsFrom(params, index + 1, [...current, choice.value], choice.lookupBindings);
+    }
+  }
+
+  private *parameterChoices(
+    param: PreparedParameterValue,
+    lookupBindings: LookupRowBindings
+  ): Generator<BoundParameterChoice> {
+    switch (param.type) {
+      case 'cached':
+        for (const value of param.values) {
+          yield { value, lookupBindings };
+        }
+        break;
+      case 'request': {
+        const value = param.read(this.input.request);
+        if (isValidParameterValue(value)) {
+          yield { value, lookupBindings };
+        }
+        break;
+      }
+      case 'lookup': {
+        const resolvedLookup = this.expandingLookupSync(param.lookup.stage, param.lookup.index);
+        if (resolvedLookup == null) {
+          // This method is only called for inputs from an earlier stage, which should have been resolved at this point.
+          throw new Error('Should have been able to resolve parameter from earlier stage synchronously.');
+        }
+
+        const lookupKey = `${param.lookup.stage}:${param.lookup.index}`;
+        const boundRowIndex = lookupBindings.get(lookupKey);
+        if (boundRowIndex != null) {
+          yield { value: resolvedLookup[boundRowIndex][param.resultIndex], lookupBindings };
+        } else {
+          for (let rowIndex = 0; rowIndex < resolvedLookup.length; rowIndex++) {
+            const nextBindings = new Map(lookupBindings);
+            nextBindings.set(lookupKey, rowIndex);
+            yield { value: resolvedLookup[rowIndex][param.resultIndex], lookupBindings: nextBindings };
+          }
+        }
+        break;
+      }
+      case 'intersection':
+        yield* this.intersectionChoices(param.values, lookupBindings);
+        break;
+    }
+  }
+
+  private *intersectionChoices(
+    params: PreparedParameterValue[],
+    lookupBindings: LookupRowBindings
+  ): Generator<BoundParameterChoice> {
+    if (params.length == 0) {
+      return;
+    }
+
+    let choices = [...this.parameterChoices(params[0], lookupBindings)];
+    for (let i = 1; i < params.length; i++) {
+      const nextChoices: BoundParameterChoice[] = [];
+      for (const choice of choices) {
+        for (const nextChoice of this.parameterChoices(params[i], choice.lookupBindings)) {
+          if (Object.is(choice.value, nextChoice.value)) {
+            nextChoices.push(nextChoice);
+          }
+        }
+      }
+      choices = nextChoices;
+
+      if (choices.length == 0) {
+        break;
+      }
+    }
+
+    yield* choices;
   }
 
   expandingLookupSync(stage: number, index: number): SqliteParameterValue[][] | undefined {

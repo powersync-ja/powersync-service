@@ -549,6 +549,198 @@ streams:
     expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
   });
 
+  syncTest('preserves correlation across lookup output columns', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      # Buckets are parameterized by the joined a.c1/a.c2 values. The b table is
+      # only used to discover which pairs are visible to the current user.
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c2 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        // Equivalent source data:
+        //
+        //   b.c1 | b.c2 | b.u
+        //   -----+------+------
+        //   A    | 1    | user1
+        //   B    | 2    | user1
+        //
+        // getParameterSets() returns the two output columns for each matching b
+        // row. These values must stay grouped per row: (A, 1) and (B, 2).
+        // Treating column 0 and column 1 as independent value sets would create
+        // impossible pairs such as (A, 2) or (B, 1).
+        expect(lookups.map((l) => l.values)).toEqual([['lookup', '0', 'user1']]);
+        return [
+          { '0': 'A', '1': 1 },
+          { '0': 'B', '1': 2 }
+        ];
+      }
+    });
+
+    // Bucket parameter order is c2, c1 for this compiled plan, so the two valid
+    // joined pairs above become [1, "A"] and [2, "B"].
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual(['stream|0[1,"A"]', 'stream|0[2,"B"]']);
+  });
+
+  syncTest('preserves correlation across duplicate lookup output rows', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c2 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets() {
+        return [
+          { '0': 'A', '1': 1 },
+          { '0': 'A', '1': 1 },
+          { '0': 'B', '1': 2 }
+        ];
+      }
+    });
+
+    // Duplicates do not need to be removed here, but they must not make lookup
+    // columns independent and create impossible pairs like [2, "A"].
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
+      'stream|0[1,"A"]',
+      'stream|0[1,"A"]',
+      'stream|0[2,"B"]'
+    ]);
+  });
+
+  syncTest('preserves correlation across bigint lookup output columns', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c2 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets() {
+        return [
+          { '0': 'A', '1': 9007199254740993n },
+          { '0': 'B', '1': 9007199254740995n }
+        ];
+      }
+    });
+
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
+      'stream|0[9007199254740993,"A"]',
+      'stream|0[9007199254740995,"B"]'
+    ]);
+  });
+
+  syncTest('preserves lookup row bindings inside intersections', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c1 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets() {
+        // Column-wise intersection would see c1 values {A, B} and c2 values
+        // {B, A}, then incorrectly emit A and B. There is no single b row where
+        // both values are equal, so no a.c1 bucket can satisfy the join.
+        return [
+          { '0': 'A', '1': 'B' },
+          { '0': 'B', '1': 'A' }
+        ];
+      }
+    });
+
+    expect(dynamicBuckets).toStrictEqual([]);
+  });
+
+  syncTest('cross-combines independent lookup output rows', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b, c WHERE a.c1 = b.c1 AND a.c2 = c.c2 AND b.u = auth.user_id() AND c.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(_lookups, debugDefinition) {
+        if (debugDefinition.endsWith(' on b')) {
+          return [{ '0': 'A' }, { '0': 'B' }];
+        } else if (debugDefinition.endsWith(' on c')) {
+          return [{ '0': 1 }, { '0': 2 }];
+        }
+
+        throw new Error(`Unexpected lookup: ${debugDefinition}`);
+      }
+    });
+
+    expect(dynamicBuckets.map((bucket) => bucket.bucket).sort()).toStrictEqual([
+      'stream|0[1,"A"]',
+      'stream|0[1,"B"]',
+      'stream|0[2,"A"]',
+      'stream|0[2,"B"]'
+    ]);
+  });
+
   syncTest('multiple IN operators', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
