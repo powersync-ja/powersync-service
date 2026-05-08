@@ -111,8 +111,10 @@ export class VersionedPowerSyncMongo extends BaseVersionedPowerSyncMongo {
   }
 
   listBucketDataCollections(replicationStreamId: number) {
-    // Note: Both V3 and V5 currently use the upstream V3 method
-    return this.upstream.listBucketDataCollectionsV3(replicationStreamId);
+    // V3 and V5 share the same bucket_data_* collection naming scheme,
+    // so we can use the shared prefix helper instead of delegating to a
+    // version-specific upstream method.
+    return this.listCollectionsByPrefix(`bucket_data_${replicationStreamId}_`);
   }
 
   async listParameterIndexCollections(replicationStreamId: number) {

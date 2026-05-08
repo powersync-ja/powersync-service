@@ -6,7 +6,9 @@ import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
-  declare public readonly db: VersionedPowerSyncMongoV3;
+  get db(): VersionedPowerSyncMongoV3 {
+    return super.db as VersionedPowerSyncMongoV3;
+  }
 
   constructor(options: MongoBucketBatchOptions) {
     super({

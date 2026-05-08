@@ -32,7 +32,7 @@ export async function flushBucketDataShared(
     const inserts: mongo.AnyBulkWriteOperation<any>[] = [];
     for (const [bucket, ops] of operationsByBucket.entries()) {
       const serialized = options.formatAdapter.serializeForBulkWrite(bucket, ops);
-      inserts.push(...(serialized as mongo.AnyBulkWriteOperation<any>[]));
+      inserts.push(...serialized);
     }
 
     if (inserts.length > 0) {

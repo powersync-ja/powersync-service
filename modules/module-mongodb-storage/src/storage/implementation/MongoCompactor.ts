@@ -86,11 +86,20 @@ export abstract class MongoCompactor {
   protected readonly signal?: AbortSignal;
   protected readonly group_id: number;
 
-  constructor(
-    protected readonly storage: AbstractMongoSyncBucketStorage,
-    protected readonly db: VersionedPowerSyncMongo,
-    options: MongoCompactOptions
-  ) {
+  private _db: VersionedPowerSyncMongo;
+  private _storage: AbstractMongoSyncBucketStorage;
+
+  protected get db(): VersionedPowerSyncMongo {
+    return this._db;
+  }
+
+  protected get storage(): AbstractMongoSyncBucketStorage {
+    return this._storage;
+  }
+
+  constructor(storage: AbstractMongoSyncBucketStorage, db: VersionedPowerSyncMongo, options: MongoCompactOptions) {
+    this._storage = storage;
+    this._db = db;
     this.group_id = storage.group_id;
     this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
@@ -480,13 +489,13 @@ export abstract class MongoCompactor {
     await this.flush(bucketContext);
   }
 
-  protected updateBucketChecksums(state: CurrentBucketState) {
+  protected collectBucketStateUpdates(state: CurrentBucketState): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
     if (state.opCount < 0) {
       throw new ServiceAssertionError(
         `Invalid opCount: ${state.opCount} checksum ${state.checksum} opsSincePut: ${state.opsSincePut} maxOpId: ${this.maxOpId}`
       );
     }
-    this.bucketStateUpdates.push({
+    return {
       updateOne: {
         filter: this.bucketStateFilter(state.bucket, state.definitionId),
         update: {
@@ -509,7 +518,11 @@ export abstract class MongoCompactor {
         // We don't create new ones here, to avoid issues with the unique index on bucket_updates.
         upsert: false
       }
-    });
+    };
+  }
+
+  protected updateBucketChecksums(state: CurrentBucketState) {
+    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state));
   }
 
   protected async flush(col: SingleBucketStore) {

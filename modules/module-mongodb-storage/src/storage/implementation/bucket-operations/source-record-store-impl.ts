@@ -62,9 +62,9 @@ export class SourceRecordStoreImpl implements SourceRecordStore {
   async loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>> {
     const sizes = new Map<string, number>();
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const filter = {
-        _id: { $in: replicaIds as any[] }
-      } as unknown as mongo.Filter<any>;
+      const filter: mongo.Filter<any> = {
+        _id: { $in: replicaIds }
+      };
       const sizeCursor: mongo.AggregationCursor<any & { size: number }> = this.getCollection(
         this.groupId,
         sourceTableId
@@ -97,9 +97,9 @@ export class SourceRecordStoreImpl implements SourceRecordStore {
     const documents = new Map<string, LoadedSourceRecord>();
     const projection = idsOnly ? { _id: 1 } : undefined;
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const filter = {
-        _id: { $in: replicaIds as any[] }
-      } as unknown as mongo.Filter<any>;
+      const filter: mongo.Filter<any> = {
+        _id: { $in: replicaIds }
+      };
       const cursor = this.getCollection(this.groupId, sourceTableId).find(filter, { session, projection });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(

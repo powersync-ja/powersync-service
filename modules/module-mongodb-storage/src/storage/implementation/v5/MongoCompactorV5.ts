@@ -26,8 +26,13 @@ import { SingleBucketStoreV5 } from './SingleBucketStoreV5.js';
 import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
 export class MongoCompactorV5 extends MongoCompactor {
-  declare protected readonly db: VersionedPowerSyncMongoV5;
-  declare protected readonly storage: MongoSyncBucketStorage;
+  get db(): VersionedPowerSyncMongoV5 {
+    return super.db as VersionedPowerSyncMongoV5;
+  }
+
+  get storage(): MongoSyncBucketStorage {
+    return super.storage as MongoSyncBucketStorage;
+  }
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;
@@ -108,33 +113,24 @@ export class MongoCompactorV5 extends MongoCompactor {
     });
   }
 
-  protected override async compactSingleBucket(bucket: string, definitionId: BucketDefinitionId | null = null) {
-    const bucketContext = await this.getBucketDataContext(bucket, definitionId);
-    if (bucketContext == null) {
-      return;
-    }
-
-    const resolvedDefinitionId = bucketContext.key.definitionId;
-
-    // 1. Read all documents in the bucket sorted by max op_id ascending
+  private async loadBucketOps(bucket: string, definitionId: BucketDefinitionId): Promise<BucketDataDoc[] | null> {
     const docs = await this.db
-      .bucketDataV5(this.group_id, resolvedDefinitionId)
+      .bucketDataV5(this.group_id, definitionId)
       .find({ '_id.b': bucket })
       .sort({ '_id.o': 1 })
       .toArray();
 
     if (docs.length == 0) {
-      return;
+      return null;
     }
 
     this.signal?.throwIfAborted();
 
-    // 2. Load all operations from all documents
-    const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
+    const bucketLoadContext = { replicationStreamId: this.group_id, definitionId };
     const allOps: BucketDataDoc[] = [];
 
     for (const doc of docs) {
-      for (const op of loadBucketDataDocumentV5(context, doc as unknown as BucketDataDocumentV5)) {
+      for (const op of loadBucketDataDocumentV5(bucketLoadContext, doc as unknown as BucketDataDocumentV5)) {
         if (op.o > this.maxOpId) {
           continue;
         }
@@ -143,61 +139,62 @@ export class MongoCompactorV5 extends MongoCompactor {
     }
 
     if (allOps.length == 0) {
-      return;
+      return null;
     }
 
     this.signal?.throwIfAborted();
+    return allOps;
+  }
 
-    // 3. Filter superseded operations using the same row_id logic as v3.
-    //    We iterate newest-to-oldest and keep only the latest PUT/REMOVE per row.
-    const seen = new Map<string, bigint>();
-    const surviving = new Array<BucketDataDoc | null>(allOps.length);
+  private filterSupersededOps(allOps: BucketDataDoc[]): BucketDataDoc[] {
+    const lastOpByRowKey = new Map<string, bigint>();
+    const retained = new Array<BucketDataDoc | null>(allOps.length);
 
     for (let i = allOps.length - 1; i >= 0; i--) {
       const op = allOps[i];
 
       if (op.op == 'PUT' || op.op == 'REMOVE') {
         const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
-        if (seen.has(key)) {
+        if (lastOpByRowKey.has(key)) {
           // Superseded by a newer operation for the same row — drop it.
-          surviving[i] = null;
+          retained[i] = null;
         } else {
-          seen.set(utils.flatstr(key), op.o);
-          surviving[i] = op;
+          lastOpByRowKey.set(utils.flatstr(key), op.o);
+          retained[i] = op;
         }
       } else {
         // MOVE / CLEAR — preserve (these only exist if compaction was run before).
-        surviving[i] = op;
+        retained[i] = op;
       }
     }
 
-    const survivingOps = surviving.filter((op): op is BucketDataDoc => op != null);
+    return retained.filter((op): op is BucketDataDoc => op != null);
+  }
 
-    if (survivingOps.length == 0) {
-      // Nothing left — delete all old documents.
-      await bucketContext.collection.deleteMany({ '_id.b': bucket });
-      this.updateBucketChecksums({
-        bucket,
-        definitionId: resolvedDefinitionId,
-        seen: new Map(),
-        trackingSize: 0,
-        lastNotPut: null,
-        opsSincePut: 0,
-        checksum: 0,
-        opCount: 0,
-        opBytes: 0
-      });
-      await this.flushBucketStateUpdatesOnly();
-      return;
-    }
+  private async prepareRetainedOps(
+    bucketContext: SingleBucketStore,
+    bucket: string,
+    definitionId: BucketDefinitionId
+  ): Promise<void> {
+    await bucketContext.collection.deleteMany({ '_id.b': bucket });
+    const update = this.collectBucketStateUpdates({
+      bucket,
+      definitionId,
+      seen: new Map(),
+      trackingSize: 0,
+      lastNotPut: null,
+      opsSincePut: 0,
+      checksum: 0,
+      opCount: 0,
+      opBytes: 0
+    });
+    await this.flushPendingBucketStateUpdates([update]);
+  }
 
-    this.signal?.throwIfAborted();
-
-    // 4. Re-chunk surviving operations by 1MB data-size threshold.
-    const chunks = chunkBucketData(survivingOps);
+  private async writeCompactedChunks(bucketContext: SingleBucketStore, chunks: BucketDataDoc[][]): Promise<void> {
+    const bucket = bucketContext.key.bucket;
     const newDocs = chunks.map((chunk) => serializeBucketDataV5(bucket, chunk));
 
-    // 5. Replace old documents with new chunked documents in a transaction.
     const session = this.db.client.startSession();
     try {
       await session.withTransaction(
@@ -215,8 +212,9 @@ export class MongoCompactorV5 extends MongoCompactor {
     } finally {
       await session.endSession();
     }
+  }
 
-    // 6. Update bucket state with new aggregates.
+  private computeChecksumAndBytes(chunks: BucketDataDoc[][]): { checksum: number; opBytes: number } {
     let totalChecksum = 0;
     let totalOpBytes = 0;
     for (const chunk of chunks) {
@@ -225,28 +223,72 @@ export class MongoCompactorV5 extends MongoCompactor {
         totalOpBytes += op.data?.length ?? 0;
       }
     }
+    return { checksum: totalChecksum, opBytes: totalOpBytes };
+  }
 
-    this.updateBucketChecksums({
+  private async updateBucketStateAndFlush(
+    bucket: string,
+    definitionId: BucketDefinitionId,
+    checksum: number,
+    opCount: number,
+    opBytes: number
+  ): Promise<void> {
+    const update = this.collectBucketStateUpdates({
       bucket,
-      definitionId: resolvedDefinitionId,
+      definitionId,
       seen: new Map(),
       trackingSize: 0,
       lastNotPut: null,
       opsSincePut: 0,
-      checksum: totalChecksum,
-      opCount: survivingOps.length,
-      opBytes: totalOpBytes
+      checksum,
+      opCount,
+      opBytes
     });
-    await this.flushBucketStateUpdatesOnly();
+    await this.flushPendingBucketStateUpdates([update]);
+  }
+
+  protected override async compactSingleBucket(bucket: string, definitionId: BucketDefinitionId | null = null) {
+    const bucketContext = await this.getBucketDataContext(bucket, definitionId);
+    if (bucketContext == null) {
+      return;
+    }
+
+    const resolvedDefinitionId = bucketContext.key.definitionId;
+
+    const allOps = await this.loadBucketOps(bucket, resolvedDefinitionId);
+    if (allOps == null) {
+      return;
+    }
+
+    const retainedOps = this.filterSupersededOps(allOps);
+    if (retainedOps.length == 0) {
+      await this.prepareRetainedOps(bucketContext, bucket, resolvedDefinitionId);
+      return;
+    }
+
+    this.signal?.throwIfAborted();
+
+    const chunks = chunkBucketData(retainedOps);
+    await this.writeCompactedChunks(bucketContext, chunks);
+
+    const { checksum, opBytes } = this.computeChecksumAndBytes(chunks);
+    await this.updateBucketStateAndFlush(bucket, resolvedDefinitionId, checksum, retainedOps.length, opBytes);
 
     logger.info(
-      `Compacted bucket ${bucket}: ${allOps.length} ops → ${survivingOps.length} ops in ${newDocs.length} documents`
+      `Compacted bucket ${bucket}: ${allOps.length} ops → ${retainedOps.length} ops in ${chunks.length} documents`
     );
   }
 
-  private async flushBucketStateUpdatesOnly() {
-    if (this.bucketStateUpdates.length > 0) {
-      logger.info(`Updating ${this.bucketStateUpdates.length} bucket states`);
+  /**
+   * Flushes the given bucket state updates to MongoDB.
+   *
+   * Accepts updates as an explicit parameter to avoid hidden state
+   * coupling with {@link collectBucketStateUpdates}.
+   */
+  private async flushPendingBucketStateUpdates(updates: mongo.AnyBulkWriteOperation<BucketStateDocumentBase>[]) {
+    if (updates.length > 0) {
+      logger.info(`Updating ${updates.length} bucket states`);
+      this.bucketStateUpdates = updates;
       await this.writeBucketStateUpdates();
       this.bucketStateUpdates = [];
     }

@@ -24,7 +24,9 @@ import {
 } from './models.js';
 
 export class PersistedBatchV1 extends PersistedBatch {
-  declare protected readonly db: VersionedPowerSyncMongoV1;
+  get db(): VersionedPowerSyncMongoV1 {
+    return super.db as VersionedPowerSyncMongoV1;
+  }
 
   currentData: mongo.AnyBulkWriteOperation<CurrentDataDocument>[] = [];
 

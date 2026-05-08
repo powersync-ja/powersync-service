@@ -72,7 +72,10 @@ export abstract class MongoBucketBatch
   protected logger: Logger;
 
   private readonly client: mongo.MongoClient;
-  public readonly db: VersionedPowerSyncMongo;
+  private _db: VersionedPowerSyncMongo;
+  public get db(): VersionedPowerSyncMongo {
+    return this._db;
+  }
   public readonly session: mongo.ClientSession;
   private readonly sync_rules: HydratedSyncRules;
 
@@ -123,7 +126,7 @@ export abstract class MongoBucketBatch
     super();
     this.logger = options.logger ?? defaultLogger;
     this.client = options.db.client;
-    this.db = options.db;
+    this._db = options.db;
     this.group_id = options.groupId;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
     this.resumeFromLsn = options.resumeFromLsn;

@@ -11,9 +11,13 @@ import { SingleBucketStoreV1 } from './SingleBucketStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoCompactorV1 extends MongoCompactor {
-  // Override types to the more specific ones
-  declare protected readonly db: VersionedPowerSyncMongoV1;
-  declare protected readonly storage: MongoSyncBucketStorageV1;
+  get db(): VersionedPowerSyncMongoV1 {
+    return super.db as VersionedPowerSyncMongoV1;
+  }
+
+  get storage(): MongoSyncBucketStorageV1 {
+    return super.storage as MongoSyncBucketStorageV1;
+  }
 
   public async *dirtyBucketBatches(options: {
     minBucketChanges: number;

@@ -8,7 +8,7 @@ import {
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import {
   emptyChecksumForRequest,
-  FetchPartialBucketChecksumV3,
+  FetchPartialBucketChecksumByDefinition,
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
@@ -21,7 +21,10 @@ import { createBucketFilter } from '../bucket-operations/query-builders.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
-  declare protected readonly db: VersionedPowerSyncMongoV3;
+  get db(): VersionedPowerSyncMongoV3 {
+    return super.db as VersionedPowerSyncMongoV3;
+  }
+
   private readonly mapping: BucketDefinitionMapping;
 
   constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
@@ -29,9 +32,11 @@ export class MongoChecksumsV3 extends MongoChecksums {
     this.mapping = options.mapping!;
   }
 
-  async computePartialChecksumsDirectByDefinition(batch: FetchPartialBucketChecksumV3[]): Promise<PartialChecksumMap> {
+  async computePartialChecksumsDirectByDefinition(
+    batch: FetchPartialBucketChecksumByDefinition[]
+  ): Promise<PartialChecksumMap> {
     const results = new Map<string, PartialOrFullChecksum>();
-    const requestsByDefinition = new Map<string, FetchPartialBucketChecksumV3[]>();
+    const requestsByDefinition = new Map<string, FetchPartialBucketChecksumByDefinition[]>();
 
     for (const request of batch) {
       const existing = requestsByDefinition.get(request.definitionId) ?? [];

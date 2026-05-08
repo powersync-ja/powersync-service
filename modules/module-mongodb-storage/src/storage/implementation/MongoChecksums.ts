@@ -18,7 +18,7 @@ import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { BucketDataDocumentBase, StorageConfig } from './models.js';
 
-export interface FetchPartialBucketChecksumV3 {
+export interface FetchPartialBucketChecksumByDefinition {
   bucket: string;
   definitionId: BucketDefinitionId;
   start?: InternalOpId;
@@ -55,12 +55,18 @@ const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
 export abstract class MongoChecksums {
   private _cache: ChecksumCache | undefined;
   private readonly storageConfig: StorageConfig;
+  private _db: VersionedPowerSyncMongo;
+
+  protected get db(): VersionedPowerSyncMongo {
+    return this._db;
+  }
 
   constructor(
-    protected readonly db: VersionedPowerSyncMongo,
+    db: VersionedPowerSyncMongo,
     protected readonly group_id: number,
     protected readonly options: MongoChecksumOptions
   ) {
+    this._db = db;
     this.storageConfig = options.storageConfig;
   }
 
@@ -308,7 +314,7 @@ export abstract class MongoChecksums {
 }
 
 export function emptyChecksumForRequest(
-  request: Pick<FetchPartialBucketChecksum | FetchPartialBucketChecksumV3, 'bucket' | 'start'>
+  request: Pick<FetchPartialBucketChecksum | FetchPartialBucketChecksumByDefinition, 'bucket' | 'start'>
 ): PartialOrFullChecksum {
   if (request.start == null) {
     return { bucket: request.bucket, count: 0, checksum: 0 };

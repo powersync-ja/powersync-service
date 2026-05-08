@@ -34,9 +34,13 @@ import { MongoParameterCompactorV1 } from './MongoParameterCompactorV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoSyncBucketStorageV1 extends AbstractMongoSyncBucketStorage {
-  // Declare types to be more specific
-  declare readonly db: VersionedPowerSyncMongoV1;
-  declare readonly checksums: MongoChecksumsV1;
+  get db(): VersionedPowerSyncMongoV1 {
+    return super.db as VersionedPowerSyncMongoV1;
+  }
+
+  get checksums(): MongoChecksumsV1 {
+    return super.checksums as MongoChecksumsV1;
+  }
 
   constructor(
     factory: MongoBucketStorage,

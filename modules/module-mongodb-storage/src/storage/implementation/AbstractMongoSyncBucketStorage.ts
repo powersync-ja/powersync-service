@@ -64,10 +64,19 @@ export abstract class AbstractMongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  readonly db: VersionedPowerSyncMongo;
+  private _db: VersionedPowerSyncMongo;
+
+  get db(): VersionedPowerSyncMongo {
+    return this._db;
+  }
+
   [DO_NOT_LOG] = true;
 
-  readonly checksums: MongoChecksums;
+  private _checksums: MongoChecksums;
+
+  get checksums(): MongoChecksums {
+    return this._checksums;
+  }
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
@@ -83,8 +92,8 @@ export abstract class AbstractMongoSyncBucketStorage
     protected _versionCallbacks?: MongoSyncBucketStorageCallbacks
   ) {
     super();
-    this.db = factory.db.versioned(sync_rules.getStorageConfig());
-    this.checksums = this.createMongoChecksums(options);
+    this._db = factory.db.versioned(sync_rules.getStorageConfig());
+    this._checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,

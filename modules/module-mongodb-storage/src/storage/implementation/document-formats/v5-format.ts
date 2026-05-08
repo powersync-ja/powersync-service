@@ -97,6 +97,29 @@ export function* loadBucketDataDocumentV5(
   }
 }
 
+// BucketDataDocumentGeneric is a virtual type — it doesn't exist at runtime.
+// The actual shape is always BucketDataDocumentV5, so this cast documents the
+// structural equivalence rather than asserting an unsafe conversion.
+function asGenericDocument<T extends BucketDataDocumentV5>(doc: T): BucketDataDocumentGeneric {
+  return doc as unknown as BucketDataDocumentGeneric;
+}
+
+/**
+ * Validates that a partial persisted document has the expected `_id.o` shape.
+ * Used when the ops array is missing from a partial persisted document.
+ */
+function extractPartialDocumentFields(doc: unknown): { _id: { o: bigint }; [key: string]: unknown } {
+  if (typeof doc !== 'object' || doc === null) {
+    throw new Error('Invalid partial document: expected object');
+  }
+  const d = doc as Record<string, unknown>;
+  const id = d._id;
+  if (typeof id !== 'object' || id === null || !('o' in id)) {
+    throw new Error('Invalid partial document: missing _id.o');
+  }
+  return d as { _id: { o: bigint }; [key: string]: unknown };
+}
+
 export class V5FormatAdapter implements BucketDataFormatAdapter {
   serializeForBulkWrite(
     bucket: string,
@@ -105,7 +128,7 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
     const chunks = chunkBucketData(docs);
     return chunks.map((chunk) => ({
       insertOne: {
-        document: serializeBucketDataV5(bucket, chunk) as unknown as BucketDataDocumentGeneric
+        document: asGenericDocument(serializeBucketDataV5(bucket, chunk))
       }
     }));
   }
@@ -118,7 +141,7 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
   }
 
   toPersistedDocument(bucketKey: BucketKey, source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return serializeBucketDataV5(bucketKey.bucket, [{ bucketKey, ...source }]) as unknown as BucketDataDocumentGeneric;
+    return asGenericDocument(serializeBucketDataV5(bucketKey.bucket, [{ bucketKey, ...source }]));
   }
 
   fromPersistedDocument(bucketKey: BucketKey, doc: BucketDataDocumentGeneric): BucketDataDoc {
@@ -130,15 +153,27 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
     return first.value;
   }
 
+  /**
+   * Convert a partial persisted document (e.g., from an aggregation pipeline)
+   * to a partial in-memory op.
+   *
+   * Fallback branch: when the `ops` array is missing (old documents or
+   * partial projections that don't include the field), we pull fields directly
+   * from the document. A runtime validation helper extracts `_id.o` because
+   * `Pick<BucketDataDocumentGeneric, '_id' | T>` doesn't give us access to
+   * the underlying V5 fields at compile time.
+   */
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     bucketKey: BucketKey,
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
+    // We know the concrete type is BucketDataDocumentV5, but Pick prevents a direct cast.
     const document = doc as unknown as Pick<BucketDataDocumentV5, '_id' | 'ops'>;
     const op = document.ops?.[0];
     if (op == null) {
-      // Fallback for partial documents without ops array
-      const { _id, ...rest } = doc as any;
+      // Fallback for old documents or partial projections without ops field.
+      const fields = extractPartialDocumentFields(doc);
+      const { _id, ...rest } = fields;
       return {
         bucketKey,
         o: _id.o,
@@ -155,6 +190,8 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
     filter: mongo.Filter<BucketDataDocumentGeneric>;
     cursorOptions: { limit?: number; batchSize?: number };
   } {
+    // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type,
+    // so we need an explicit cast for the range filter on the nested op_id.
     const filter: mongo.Filter<BucketDataDocumentGeneric> = {
       '_id.o': {
         $gt: options.startOpId,

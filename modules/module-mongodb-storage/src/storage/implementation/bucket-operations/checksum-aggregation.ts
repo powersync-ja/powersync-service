@@ -7,7 +7,7 @@ import {
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { emptyChecksumForRequest, FetchPartialBucketChecksumV3 } from '../MongoChecksums.js';
+import { emptyChecksumForRequest, FetchPartialBucketChecksumByDefinition } from '../MongoChecksums.js';
 import { createBucketFilter } from './query-builders.js';
 
 /**
@@ -16,7 +16,7 @@ import { createBucketFilter } from './query-builders.js';
 export function normalizeBatch(
   batch: FetchPartialBucketChecksum[],
   mapping: BucketDefinitionMapping
-): FetchPartialBucketChecksumV3[] {
+): FetchPartialBucketChecksumByDefinition[] {
   return batch.map((request) => ({
     bucket: request.bucket,
     definitionId: mapping.bucketSourceId(request.source),
@@ -30,7 +30,7 @@ export function normalizeBatch(
  * that don't have a start op_id.
  */
 export async function fetchPreStates(
-  normalizedBatch: FetchPartialBucketChecksumV3[],
+  normalizedBatch: FetchPartialBucketChecksumByDefinition[],
   bucketStateCollection: mongo.Collection<any>
 ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
   const preFilters = normalizedBatch
@@ -74,16 +74,16 @@ export async function fetchPreStates(
  * the corresponding bucket_data collections.
  */
 export async function computePartialChecksumsDirectByDefinition(
-  batch: FetchPartialBucketChecksumV3[],
+  batch: FetchPartialBucketChecksumByDefinition[],
   getBucketData: (definitionId: BucketDefinitionId) => mongo.Collection<any>,
   computePartialChecksumsForCollection: (
-    batch: FetchPartialBucketChecksumV3[],
+    batch: FetchPartialBucketChecksumByDefinition[],
     collection: mongo.Collection<any>,
-    createFilter: (request: FetchPartialBucketChecksumV3) => any
+    createFilter: (request: FetchPartialBucketChecksumByDefinition) => any
   ) => Promise<PartialChecksumMap>
 ): Promise<PartialChecksumMap> {
   const results = new Map<string, PartialOrFullChecksum>();
-  const requestsByDefinition = new Map<string, FetchPartialBucketChecksumV3[]>();
+  const requestsByDefinition = new Map<string, FetchPartialBucketChecksumByDefinition[]>();
 
   for (const request of batch) {
     const existing = requestsByDefinition.get(request.definitionId) ?? [];
@@ -116,9 +116,9 @@ export async function computePartialChecksumsInternal(
   mapping: BucketDefinitionMapping,
   getBucketData: (definitionId: BucketDefinitionId) => mongo.Collection<any>,
   computePartialChecksumsForCollection: (
-    batch: FetchPartialBucketChecksumV3[],
+    batch: FetchPartialBucketChecksumByDefinition[],
     collection: mongo.Collection<any>,
-    createFilter: (request: FetchPartialBucketChecksumV3) => any
+    createFilter: (request: FetchPartialBucketChecksumByDefinition) => any
   ) => Promise<PartialChecksumMap>
 ): Promise<PartialChecksumMap> {
   const normalized = normalizeBatch(batch, mapping);

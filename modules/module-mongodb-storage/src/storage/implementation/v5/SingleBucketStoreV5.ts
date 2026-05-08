@@ -10,6 +10,22 @@ import { BucketDataKeyV5, V5FormatAdapter } from '../document-formats/v5-format.
 import { BucketDataProperties } from '../models.js';
 import { VersionedPowerSyncMongoV5 } from './VersionedPowerSyncMongoV5.js';
 
+// MongoDB's MinKey/MaxKey are special sentinel values that don't match the bigint type
+// for _id.o in BucketDataDocumentGenericId, so we need an explicit cast.
+function minKeyForBucket(bucket: string): BucketDataDocumentGenericId {
+  return {
+    b: bucket,
+    o: new mongo.MinKey()
+  } as any;
+}
+
+function maxKeyForBucket(bucket: string): BucketDataDocumentGenericId {
+  return {
+    b: bucket,
+    o: new mongo.MaxKey()
+  } as any;
+}
+
 export class SingleBucketStoreV5 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
   private format = new V5FormatAdapter();
@@ -34,17 +50,11 @@ export class SingleBucketStoreV5 implements SingleBucketStore {
   }
 
   get minId(): BucketDataDocumentGenericId {
-    return {
-      b: this.key.bucket,
-      o: new mongo.MinKey()
-    } as any; // No way to properly type this
+    return minKeyForBucket(this.key.bucket);
   }
 
   get maxId(): BucketDataDocumentGenericId {
-    return {
-      b: this.key.bucket,
-      o: new mongo.MaxKey()
-    } as any; // No way to properly type this
+    return maxKeyForBucket(this.key.bucket);
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {

@@ -45,6 +45,13 @@ export function loadBucketDataDocumentV3(
   };
 }
 
+// BucketDataDocumentGeneric is a virtual type — it doesn't exist at runtime.
+// The actual shape is always BucketDataDocumentV3, so this cast documents the
+// structural equivalence rather than asserting an unsafe conversion.
+function asGenericDocument<T extends BucketDataDocumentV3>(doc: T): BucketDataDocumentGeneric {
+  return doc as unknown as BucketDataDocumentGeneric;
+}
+
 export class V3FormatAdapter implements BucketDataFormatAdapter {
   serializeForBulkWrite(
     _bucket: string,
@@ -52,7 +59,7 @@ export class V3FormatAdapter implements BucketDataFormatAdapter {
   ): mongo.AnyBulkWriteOperation<BucketDataDocumentGeneric>[] {
     return docs.map((doc) => ({
       insertOne: {
-        document: serializeBucketDataV3(doc) as unknown as BucketDataDocumentGeneric
+        document: asGenericDocument(serializeBucketDataV3(doc))
       }
     }));
   }
@@ -65,7 +72,7 @@ export class V3FormatAdapter implements BucketDataFormatAdapter {
   }
 
   toPersistedDocument(bucketKey: BucketKey, source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return serializeBucketDataV3({ bucketKey, ...source }) as unknown as BucketDataDocumentGeneric;
+    return asGenericDocument(serializeBucketDataV3({ bucketKey, ...source }));
   }
 
   fromPersistedDocument(bucketKey: BucketKey, doc: BucketDataDocumentGeneric): BucketDataDoc {
@@ -76,6 +83,7 @@ export class V3FormatAdapter implements BucketDataFormatAdapter {
     bucketKey: BucketKey,
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
+    // We know the concrete type is BucketDataDocumentV3, but Pick prevents a direct cast.
     const document = doc as Pick<BucketDataDocumentV3, '_id' | T>;
     const { _id, ...rest } = document;
     return {
@@ -89,6 +97,8 @@ export class V3FormatAdapter implements BucketDataFormatAdapter {
     filter: mongo.Filter<BucketDataDocumentGeneric>;
     cursorOptions: { limit?: number; batchSize?: number };
   } {
+    // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type,
+    // so we need an explicit cast for the range filter on the nested op_id.
     const filter: mongo.Filter<BucketDataDocumentGeneric> = {
       '_id.o': {
         $gt: options.startOpId,

@@ -10,7 +10,9 @@ import { BucketParameterDocument, taggedBucketParameterDocumentToTagged } from '
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatchShared {
-  declare protected readonly db: VersionedPowerSyncMongoV3;
+  get db(): VersionedPowerSyncMongoV3 {
+    return super.db as VersionedPowerSyncMongoV3;
+  }
 
   protected parameterIndex(indexId: string): mongo.Collection<BucketParameterDocument> {
     return this.db.parameterIndexV3(this.group_id, indexId);

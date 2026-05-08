@@ -9,7 +9,9 @@ import { FetchPartialBucketChecksumByBucket, MongoChecksums } from '../MongoChec
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoChecksumsV1 extends MongoChecksums {
-  declare protected readonly db: VersionedPowerSyncMongoV1;
+  get db(): VersionedPowerSyncMongoV1 {
+    return super.db as VersionedPowerSyncMongoV1;
+  }
 
   async computePartialChecksumsDirectByBucket(
     batch: FetchPartialBucketChecksumByBucket[]
