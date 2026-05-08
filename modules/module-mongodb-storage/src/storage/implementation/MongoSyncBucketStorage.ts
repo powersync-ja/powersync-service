@@ -18,6 +18,19 @@ import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
 
+function* walkDocumentOps(
+  data: BucketDataDoc[],
+  documentOpCounts: number[],
+  documentSizes: number[]
+): Generator<{ row: BucketDataDoc; docIndex: number; isLastOpInDocument: boolean }> {
+  let opIndex = 0;
+  for (const [docIndex, opCount] of documentOpCounts.entries()) {
+    for (let i = 0; i < opCount; i++) {
+      yield { row: data[opIndex++], docIndex, isLastOpInDocument: i === opCount - 1 };
+    }
+  }
+}
+
 export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
   protected get callbacks(): MongoSyncBucketStorageCallbacks {
     return this._versionCallbacks as MongoSyncBucketStorageCallbacks;
@@ -223,8 +236,10 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
     }
 
     const definitionGroups = Array.from(requestsByDefinition.entries());
-    for (let groupIndex = 0; groupIndex < definitionGroups.length && remainingLimit > 0; groupIndex++) {
-      const [definitionId, requests] = definitionGroups[groupIndex];
+    for (const [groupIndex, [definitionId, requests]] of definitionGroups.entries()) {
+      if (remainingLimit <= 0) {
+        break;
+      }
       const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
       const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
       const filters = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
@@ -329,54 +344,52 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
       let currentChunkSizeBytes = 0;
       let currentChunk: utils.SyncBucketData | null = null;
       let targetOp: InternalOpId | null = null;
-      let opIndex = 0;
 
-      for (let docIndex = 0; docIndex < documentOpCounts.length; docIndex++) {
-        const opCount = documentOpCounts[docIndex];
-        for (let i = 0; i < opCount; i++) {
-          const row = data[opIndex++];
-          const bucket = row.bucketKey.bucket;
+      for (const { row, docIndex, isLastOpInDocument } of walkDocumentOps(data, documentOpCounts, documentSizes)) {
+        const bucket = row.bucketKey.bucket;
 
-          if (currentChunk == null || currentChunk.bucket != bucket || currentChunkSizeBytes >= chunkSizeLimitBytes) {
-            let start: ProtocolOpId | undefined = undefined;
-            if (currentChunk != null) {
-              if (currentChunk.bucket == bucket) {
-                currentChunk.has_more = true;
-                start = currentChunk.next_after;
-              }
-
-              const yieldChunk = currentChunk;
-              currentChunk = null;
-              currentChunkSizeBytes = 0;
-              yield { chunkData: yieldChunk, targetOp: targetOp };
-              targetOp = null;
+        if (currentChunk == null || currentChunk.bucket != bucket || currentChunkSizeBytes >= chunkSizeLimitBytes) {
+          let start: ProtocolOpId | undefined = undefined;
+          if (currentChunk != null) {
+            if (currentChunk.bucket == bucket) {
+              currentChunk.has_more = true;
+              start = currentChunk.next_after;
             }
 
-            if (start == null) {
-              const startOpId = bucketMap.get(bucket);
-              if (startOpId == null) {
-                throw new Error(`data for unexpected bucket: ${bucket}`);
-              }
-              start = internalToExternalOpId(startOpId);
+            const yieldChunk = currentChunk;
+            currentChunk = null;
+            currentChunkSizeBytes = 0;
+            yield { chunkData: yieldChunk, targetOp: targetOp };
+            targetOp = null;
+          }
+
+          if (start == null) {
+            const startOpId = bucketMap.get(bucket);
+            if (startOpId == null) {
+              throw new Error(`data for unexpected bucket: ${bucket}`);
             }
-            currentChunk = {
-              bucket,
-              after: start,
-              has_more: false,
-              data: [],
-              next_after: start
-            };
+            start = internalToExternalOpId(startOpId);
           }
-
-          const entry = mapOpEntry(row);
-          if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
-            targetOp = row.target_op;
-          }
-
-          currentChunk.data.push(entry);
-          currentChunk.next_after = entry.op_id;
+          currentChunk = {
+            bucket,
+            after: start,
+            has_more: false,
+            data: [],
+            next_after: start
+          };
         }
-        currentChunkSizeBytes += documentSizes[docIndex];
+
+        const entry = mapOpEntry(row);
+        if (row.target_op != null && (targetOp == null || row.target_op > targetOp)) {
+          targetOp = row.target_op;
+        }
+
+        currentChunk.data.push(entry);
+        currentChunk.next_after = entry.op_id;
+
+        if (isLastOpInDocument) {
+          currentChunkSizeBytes += documentSizes[docIndex];
+        }
       }
 
       if (currentChunk != null) {
