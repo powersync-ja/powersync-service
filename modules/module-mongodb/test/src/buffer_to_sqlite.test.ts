@@ -80,6 +80,16 @@ describe('JsonBufferWriter', () => {
     const expected = JSON.stringify(payload2.toString('latin1'));
     expect(writer.toString()).toBe(expected);
   });
+
+  test('truncate clears discarded bytes', () => {
+    const writer = new JsonBufferWriter(32);
+
+    writer.writeAscii('discarded');
+    writer.truncate(0);
+
+    const { buffer } = writer as unknown as { buffer: Buffer };
+    expect(buffer.subarray(0, 'discarded'.length)).toEqual(Buffer.alloc('discarded'.length));
+  });
 });
 
 const testCases: ConverterCase[] = [

@@ -68,7 +68,7 @@ export class JsonBufferWriter {
 
   truncate(length: number) {
     // Safely reset data
-    this.buffer.fill(0, this.length, length);
+    this.buffer.fill(0, length, this.length);
     this.length = length;
   }
 
