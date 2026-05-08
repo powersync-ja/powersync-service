@@ -1,6 +1,8 @@
 import { describe, expect } from 'vitest';
 import {
+  DEFAULT_HYDRATION_STATE,
   HydratedSyncRules,
+  PrecompiledSyncConfig,
   ScopedParameterLookup,
   SourceTableInterface,
   SqliteJsonRow,
@@ -594,6 +596,62 @@ streams:
     // Bucket parameter order is c2, c1 for this compiled plan, so the two valid
     // joined pairs above become [1, "A"] and [2, "B"].
     expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual(['stream|0[1,"A"]', 'stream|0[2,"B"]']);
+  });
+
+  syncTest('preserves correlation across lookup stages', async ({ sync }) => {
+    const compiled = sync.prepareWithoutHydration(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b, c WHERE a.id1 = b.id1 AND a.c1 = c.c1 AND b.c1 = c.c1 AND b.c2 = c.c2 AND c.u = auth.user_id()
+`) as PrecompiledSyncConfig;
+    const desc = compiled.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        const results: SqliteJsonRow[] = [];
+
+        for (const lookup of lookups) {
+          const lookupId = Number(lookup.values[1]);
+          const definition = compiled.plan.parameterIndexes[lookupId];
+
+          if (definition.sourceTable.name === 'c') {
+            // On table c: Output c1, c2 values
+            results.push({ '0': 'c1-1', '1': 'c2-1' }, { '0': 'c1-2', '1': 'c2-2' }, { '0': 'c1-3', '1': 'c2-3' });
+          } else if (definition.sourceTable.name === 'b') {
+            // On table b: Output id1 value which we copy from table c
+            const [c1, c2] = lookup.values.slice(2) as string[];
+            // Inputs should be a valid (c1-x, c2-x) pair.
+            expect(c1.charAt(3)).toStrictEqual(c2.charAt(3));
+
+            results.push({ '0': `id-${c1.charAt(3)}` });
+          } else {
+            throw new Error('unexpected lookup');
+          }
+        }
+
+        return results;
+      }
+    });
+
+    // Duplicates do not need to be removed here, but they must not make lookup
+    // columns independent and create impossible pairs like [2, "A"].
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
+      'stream|0["id-1","c1-1"]',
+      'stream|0["id-2","c1-2"]',
+      'stream|0["id-3","c1-3"]'
+    ]);
   });
 
   syncTest('preserves correlation across duplicate lookup output rows', async ({ sync }) => {
