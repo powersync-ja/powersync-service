@@ -33,7 +33,7 @@ export const writeCheckpoint = routeDefinition({
       const bucketStorage = await service_context.storageEngine.activeBucketStorage.getActiveStorage();
       const cp = await bucketStorage?.getCheckpoint();
       if (cp == null) {
-        throw new Error('No sync rules available');
+        throw new Error('No sync config available');
       }
       if (cp.lsn && cp.lsn >= head) {
         logger.info(`Got write checkpoint: ${head} : ${cp.checkpoint}`);

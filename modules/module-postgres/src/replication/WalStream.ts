@@ -331,12 +331,12 @@ export class WalStream {
     // errors during streaming replication, which is a little more robust.
 
     // We can have:
-    //   1. needsInitialSync: true, lost slot -> MissingReplicationSlotError (starts new sync rules version).
+    //   1. needsInitialSync: true, lost slot -> MissingReplicationSlotError (starts new replication stream).
     //      Theoretically we could handle this the same as (2).
     //   2. needsInitialSync: true, no slot -> create new slot
     //   3. needsInitialSync: true, valid slot -> resume initial sync
-    //   4. needsInitialSync: false, lost slot -> MissingReplicationSlotError (starts new sync rules version)
-    //   5. needsInitialSync: false, no slot -> MissingReplicationSlotError (starts new sync rules version)
+    //   4. needsInitialSync: false, lost slot -> MissingReplicationSlotError (starts new replication stream)
+    //   5. needsInitialSync: false, no slot -> MissingReplicationSlotError (starts new replication stream)
     //   6. needsInitialSync: false, valid slot -> resume streaming replication
     // The main advantage of MissingReplicationSlotError are:
     // 1. If there was a complete snapshot already (cases 4/5), users can still sync from that snapshot while
@@ -374,7 +374,7 @@ export class WalStream {
     } else {
       if (snapshotDone) {
         // Case 5
-        // This will create a new slot, while keeping the current sync rules active
+        // This will create a new slot, while keeping the current replication stream active
         throw new MissingReplicationSlotError(`Replication slot ${slotName} is missing`, {
           walStatus: 'missing',
           phase: 'streaming'
@@ -613,13 +613,13 @@ WHERE  oid = $1::regclass`,
      * If we don't explicitly check the contents of keepalive messages then a keepalive is detected
      * rather quickly after initial replication - perhaps due to other WAL events.
      * If we do explicitly check the contents of messages, we need an actual keepalive payload in order
-     * to advance the active sync rules LSN.
+     * to advance the active replication stream LSN.
      */
     await sendKeepAlive(db);
 
     const lastOp = flushResults?.flushed_op;
     if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
       await this.storage.populatePersistentChecksumCache({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
@@ -836,7 +836,7 @@ WHERE  oid = $1::regclass`,
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
+    // 3. The table is used in sync config.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
 
     if (shouldSnapshot) {
@@ -931,7 +931,7 @@ WHERE  oid = $1::regclass`,
     if (msg.tag == 'insert' || msg.tag == 'update' || msg.tag == 'delete') {
       const table = this.getTable(getRelId(msg.relation));
       if (!table.syncAny) {
-        this.logger.debug(`Table ${table.qualifiedName} not used in sync rules - skipping`);
+        this.logger.debug(`Table ${table.qualifiedName} not used in sync config - skipping`);
         return null;
       }
 

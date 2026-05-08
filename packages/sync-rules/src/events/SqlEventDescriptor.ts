@@ -8,7 +8,7 @@ import { EvaluateRowOptions } from '../types.js';
 import { EvaluatedEventRowWithErrors, SqlEventSourceQuery } from './SqlEventSourceQuery.js';
 
 /**
- * A sync rules event which is triggered from a SQL table change.
+ * A sync config event which is triggered from a SQL table change.
  */
 export class SqlEventDescriptor {
   name: string;

@@ -84,7 +84,7 @@ function isParsedSyncRules(
 }
 
 /**
- * Bucket names no longer purely depend on the sync rules.
+ * Bucket names no longer purely depend on the sync config.
  * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
  */
 export function bucketRequest(

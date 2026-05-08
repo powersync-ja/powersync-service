@@ -51,7 +51,7 @@ export interface GetQuerierOptions {
    *
    * For streams, this is invoked to check whether the client has opened the relevant stream.
    *
-   * @param name The name of the stream as it appears in the sync rule definitions.
+   * @param name The name of the stream as it appears in the sync config definitions.
    * @returns If the strema has been opened by the client, the stream parameters for that particular stream. Otherwise
    * null.
    */

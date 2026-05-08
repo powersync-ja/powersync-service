@@ -64,7 +64,7 @@ export class SyncConfigFromYaml {
       this.#errors.push(...parsed.errors.map((e) => new YamlError(e)));
       this.#throwOnErrorIfRequested();
 
-      // Return an empty sync rules instance if we couldn't parse YAML, it doesn't make sense to try parsing the broken
+      // Return an empty sync config instance if we couldn't parse YAML, it doesn't make sense to try parsing the broken
       // structure further.
       return new SqlSyncRules(this.yaml);
     }

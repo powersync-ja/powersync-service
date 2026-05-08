@@ -26,7 +26,7 @@ import { SourceTableInterface } from './SourceTableInterface.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 
 /**
- * Hydrated sync rules is sync rule definitions along with persisted state. Currently, the persisted state
+ * Hydrated sync config is sync config definitions along with persisted state. Currently, the persisted state
  * specifically affects bucket names.
  */
 export class HydratedSyncRules {

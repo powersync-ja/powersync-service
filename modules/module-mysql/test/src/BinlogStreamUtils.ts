@@ -82,7 +82,7 @@ export class BinlogStreamTestContext {
   async loadNextSyncRules() {
     const syncRules = await this.factory.getNextSyncRulesContent();
     if (syncRules == null) {
-      throw new Error(`Next sync rules not available`);
+      throw new Error(`Next replication stream not available`);
     }
 
     this.syncRulesContent = syncRules;
@@ -93,7 +93,7 @@ export class BinlogStreamTestContext {
   async loadActiveSyncRules() {
     const syncRules = await this.factory.getActiveSyncRulesContent();
     if (syncRules == null) {
-      throw new Error(`Active sync rules not available`);
+      throw new Error(`Active replication stream not available`);
     }
 
     this.syncRulesContent = syncRules;
@@ -104,7 +104,7 @@ export class BinlogStreamTestContext {
 
   private getSyncRulesContent(): storage.PersistedSyncRulesContent {
     if (this.syncRulesContent == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
+      throw new Error('Sync config not configured - call updateSyncRules() first');
     }
     return this.syncRulesContent;
   }
@@ -206,7 +206,7 @@ export async function getClientCheckpoint(
     const storage = await storageFactory.getActiveStorage();
     const cp = await storage?.getCheckpoint();
     if (cp == null) {
-      throw new Error('No sync rules available');
+      throw new Error('No replication stream available');
     }
     lastCp = cp;
     if (cp.lsn && cp.lsn >= gtid.comparable) {

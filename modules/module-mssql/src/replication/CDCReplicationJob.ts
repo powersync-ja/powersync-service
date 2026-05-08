@@ -1,4 +1,4 @@
-import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 import { AdditionalConfig } from '../types/types.js';
 import { POWERSYNC_CHECKPOINTS_TABLE } from '../utils/mssql.js';
@@ -17,7 +17,7 @@ export class CDCReplicationJob extends replication.AbstractReplicationJob {
 
   constructor(options: CDCReplicationJobOptions) {
     super(options);
-    this.logger = defaultLogger.child({ prefix: `[powersync_${this.options.storage.group_id}] ` });
+    this.logger = options.storage.logger;
     this.connectionFactory = options.connectionFactory;
     this.cdcReplicationJobOptions = options;
   }

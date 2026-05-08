@@ -5,10 +5,10 @@
  * for each.
  */
 export enum ErrorCode {
-  // # PSYNC_Rxxxx: Sync rules issues
+  // # PSYNC_Rxxxx: Sync config issues
 
   /**
-   * Catch-all sync rules parsing error, if no more specific error is available
+   * Catch-all sync config parsing error, if no more specific error is available
    */
   PSYNC_R0001 = 'PSYNC_R0001',
 
@@ -55,7 +55,7 @@ export enum ErrorCode {
   PSYNC_S1002 = 'PSYNC_S1002',
 
   /**
-   * Sync rules have been locked by another process for replication.
+   * Replication stream has been locked by another process for replication.
    *
    * This error is normal in some circumstances:
    * 1. In some cases, if a process was forcefully terminated, this error may occur for up to a minute.
@@ -205,7 +205,7 @@ export enum ErrorCode {
    * The replication slot was invalidated by PostgreSQL, typically because
    * WAL retention exceeded max_slot_wal_keep_size during a long-running
    * snapshot. Increase max_slot_wal_keep_size on the source database and
-   * redeploy sync rules.
+   * redeploy sync config or delete the slot.
    *
    * Other causes: rows_removed (catalog rows needed by the slot were
    * removed), wal_level_insufficient, idle_timeout (PG 18+).
@@ -447,13 +447,13 @@ export enum ErrorCode {
   // ## PSYNC_S23xx: Sync API errors
 
   /**
-   * No sync rules available.
+   * No sync config available.
    *
    * This error may happen if:
-   * 1. Sync rules have not been deployed.
-   * 2. Sync rules have been deployed, but is still busy processing.
+   * 1. Sync config has not been deployed.
+   * 2. Sync config has been deployed, but is still busy processing.
    *
-   * View the replicator logs to see if the sync rules are being processed.
+   * View the replicator logs to see if the sync config is being processed.
    */
   PSYNC_S2302 = 'PSYNC_S2302',
 
@@ -525,14 +525,14 @@ export enum ErrorCode {
   PSYNC_S4001 = 'PSYNC_S4001',
 
   /**
-   * No active sync rules.
+   * No active sync config.
    */
   PSYNC_S4104 = 'PSYNC_S4104',
 
   /**
-   * Sync rules API disabled.
+   * Sync config API disabled.
    *
-   * When a sync rules file is configured, the dynamic sync rules API is disabled.
+   * When a sync config is specified in the service config, the dynamic sync config API is disabled.
    */
   PSYNC_S4105 = 'PSYNC_S4105'
 }

@@ -143,7 +143,7 @@ function defineCDCStreamTests(config: storage.TestStorageConfig) {
     ]);
   });
 
-  test('Replication for tables not in the sync rules are ignored', async () => {
+  test('Replication for tables not in the sync config are ignored', async () => {
     await using context = await CDCStreamTestContext.open(factory);
     const { connectionManager } = context;
     await context.updateSyncRules(BASIC_SYNC_RULES);
@@ -164,7 +164,7 @@ function defineCDCStreamTests(config: storage.TestStorageConfig) {
     const endRowCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.ROWS_REPLICATED)) ?? 0;
     const endTxCount = (await METRICS_HELPER.getMetricValueForTests(ReplicationMetric.TRANSACTIONS_REPLICATED)) ?? 0;
 
-    // There was a transaction, but it is not counted since it is not for a table in the sync rules
+    // There was a transaction, but it is not counted since it is not for a table in the sync config
     expect(endRowCount - startRowCount).toEqual(0);
     expect(endTxCount - startTxCount).toEqual(0);
   });

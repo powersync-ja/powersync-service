@@ -1,6 +1,6 @@
 # Grammar
 
-W3C EBNF grammars for the SQL dialects supported by PowerSync sync rules.
+W3C EBNF grammars for the SQL dialects supported by PowerSync sync config.
 
 ## Source files
 

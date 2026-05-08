@@ -93,7 +93,7 @@ export type ScopedEvaluateParameterRow = (
  */
 export interface BucketDataSource {
   /**
-   * Unique name of the data source within a sync rules version.
+   * Unique name of the data source within a replication stream.
    *
    * This may be used as the basis for bucketPrefix (or it could be ignored).
    */

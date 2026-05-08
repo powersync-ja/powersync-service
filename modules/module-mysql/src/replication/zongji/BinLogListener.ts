@@ -445,8 +445,8 @@ export class BinLogListener {
     } catch (error) {
       if (matchedSchemaChangeQuery(query, Object.values(this.databaseFilter))) {
         this.logger.warn(
-          `Failed to parse query: [${query}]. 
-      Please review for the schema changes and manually redeploy the sync rules if required.`
+          `Failed to parse query: [${query}].
+Please review for the schema changes and manually redeploy the sync config if required.`
         );
       }
       return [];
@@ -537,7 +537,7 @@ export class BinLogListener {
   }
 
   private createDatabaseFilter(sourceTables: TablePattern[]): { [schema: string]: (table: string) => boolean } {
-    // Group sync rule tables by schema
+    // Group sync config tables by schema
     const schemaMap = new Map<string, TablePattern[]>();
     for (const table of sourceTables) {
       if (!schemaMap.has(table.schema)) {

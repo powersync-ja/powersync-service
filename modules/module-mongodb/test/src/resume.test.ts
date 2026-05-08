@@ -65,7 +65,7 @@ function defineResumeTest({ factory: factoryGenerator, storageVersion }: Storage
     );
     const factory = await factoryGenerator({ doNotClear: true });
 
-    // Create a new context without updating the sync rules
+    // Create a new context without updating the sync config
     await using context2 = new ChangeStreamTestContext(factory, connectionManager, {}, storageVersion);
     const activeContent = await factory.getActiveSyncRulesContent();
     context2.storage = factory.getInstance(activeContent!);

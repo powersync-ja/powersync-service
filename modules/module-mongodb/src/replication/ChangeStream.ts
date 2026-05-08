@@ -2,7 +2,6 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import {
   container,
   DatabaseConnectionError,
-  logger as defaultLogger,
   ErrorCode,
   Logger,
   ReplicationAbortedError,
@@ -134,7 +133,7 @@ export class ChangeStream {
       { once: true }
     );
 
-    this.logger = options.logger ?? defaultLogger;
+    this.logger = options.logger ?? this.storage.logger;
   }
 
   get stopped() {
@@ -634,7 +633,7 @@ export class ChangeStream {
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not already done, AND:
-    // 3. The table is used in sync rules.
+    // 3. The table is used in sync config.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
     if (shouldSnapshot) {
       this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
@@ -657,7 +656,7 @@ export class ChangeStream {
     change: ProjectedChangeStreamDocument
   ): Promise<storage.FlushedResult | null> {
     if (!table.syncAny) {
-      this.logger.debug(`Collection ${table.qualifiedName} not used in sync rules - skipping`);
+      this.logger.debug(`Collection ${table.qualifiedName} not used in sync config - skipping`);
       return null;
     }
 
@@ -728,7 +727,7 @@ export class ChangeStream {
       }
       const { lastOpId } = await this.initialReplication(result.snapshotLsn);
       if (lastOpId != null) {
-        // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+        // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
         await this.storage.populatePersistentChecksumCache({
           signal: this.abort_signal,
           // No checkpoint yet, but we do have the opId.
@@ -1077,7 +1076,7 @@ export class ChangeStream {
                 // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
                 // for whatever reason, then we do need to snapshot it.
                 // This may result in some duplicate operations when a collection is created for the first time after
-                // sync rules was deployed.
+                // sync config was deployed.
                 snapshot: true
               });
               if (table.syncAny) {
