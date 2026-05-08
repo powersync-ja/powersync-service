@@ -66,6 +66,20 @@ describe('JsonBufferWriter', () => {
     const expected = JSON.stringify(payload.toString('latin1'));
     expect(writer.toString()).toBe(expected);
   });
+
+  test('writeQuotedUtf8Slice escapes large control-heavy payloads without corruption (2)', () => {
+    const writer = new JsonBufferWriter(32);
+    const payload1 = Buffer.alloc(512);
+    const payload2 = Buffer.alloc(256, 0x01);
+
+    // This makes sure reset() properly clears the previous data
+    writer.writeQuotedUtf8Slice(payload1, 0, payload1.length);
+    writer.reset();
+    writer.writeQuotedUtf8Slice(payload2, 0, payload2.length);
+
+    const expected = JSON.stringify(payload2.toString('latin1'));
+    expect(writer.toString()).toBe(expected);
+  });
 });
 
 const testCases: ConverterCase[] = [
