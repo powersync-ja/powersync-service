@@ -130,6 +130,7 @@ export class MongoCompactorV5 extends MongoCompactor {
     const allOps: BucketDataDoc[] = [];
 
     for (const doc of docs) {
+      // We know the concrete type is BucketDataDocumentV5 in V5 compactor logic.
       for (const op of loadBucketDataDocumentV5(bucketLoadContext, doc as unknown as BucketDataDocumentV5)) {
         if (op.o > this.maxOpId) {
           continue;

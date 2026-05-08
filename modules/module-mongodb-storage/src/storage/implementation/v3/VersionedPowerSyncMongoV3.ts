@@ -46,6 +46,8 @@ export class VersionedPowerSyncMongoV3 extends VersionedPowerSyncMongo {
   listParameterIndexCollectionsV3(
     replicationStreamId: number
   ): Promise<{ collection: mongo.Collection<BucketParameterDocument>; indexId: ParameterIndexId }[]> {
+    // The base method returns a generic type; we know the concrete type because
+    // this wrapper is only used for V3 storage.
     return this.listParameterIndexCollections(replicationStreamId) as unknown as Promise<
       { collection: mongo.Collection<BucketParameterDocument>; indexId: ParameterIndexId }[]
     >;

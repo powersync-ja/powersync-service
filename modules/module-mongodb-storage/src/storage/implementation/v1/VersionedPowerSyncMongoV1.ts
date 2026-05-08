@@ -13,6 +13,8 @@ export class VersionedPowerSyncMongoV1 extends BaseVersionedPowerSyncMongo {
   }
 
   commonSourceTables(_replicationStreamId: number): mongo.Collection<CommonSourceTableDocument> {
+    // V1 uses a shared collection without the versioned naming scheme, so we cast
+    // from the raw upstream collection to the typed interface.
     return this.upstream.source_tables as any as mongo.Collection<CommonSourceTableDocument>;
   }
 

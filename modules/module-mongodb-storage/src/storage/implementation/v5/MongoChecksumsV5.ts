@@ -53,6 +53,8 @@ export class MongoChecksumsV5 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
+        // Cast from the version-specific collection type to the generic base type
+        // used by the shared checksum computation logic.
         this.db.bucketDataV5(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<
           import('../models.js').BucketDataDocumentBase
         >,
@@ -78,6 +80,8 @@ export class MongoChecksumsV5 extends MongoChecksums {
     return computePartialChecksumsInternal(
       batch,
       this.mapping,
+      // Cast from the version-specific collection type to the generic any type
+      // expected by the shared computePartialChecksumsInternal helper.
       (definitionId) => this.db.bucketDataV5(this.group_id, definitionId) as unknown as lib_mongo.mongo.Collection<any>,
       (batch, collection, createFilter) => this.computePartialChecksumsForCollection(batch, collection, createFilter)
     );

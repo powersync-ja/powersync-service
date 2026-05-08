@@ -149,4 +149,3 @@ exports[`Postgres Sync Bucket Storage - Data - v3 > (insert, delete, insert), (d
   },
 ]
 `;
-

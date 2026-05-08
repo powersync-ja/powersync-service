@@ -134,6 +134,7 @@ export abstract class MongoCompactor {
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
     let count = 0;
+    // Paginate through dirty buckets in batches until no more buckets meet the criteria.
     while (true) {
       this.signal?.throwIfAborted();
       const buckets = await this.dirtyBucketBatchForChecksums(options);
@@ -173,6 +174,7 @@ export abstract class MongoCompactor {
     },
     getDefinitionId: (state: TCollectionBucketState) => BucketDefinitionId | null
   ): AsyncGenerator<DirtyBucket[]> {
+    // Paginate through the bucket state collection using cursor-based scanning.
     while (true) {
       // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, use an aggregation pipeline
       // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria.
@@ -305,6 +307,7 @@ export abstract class MongoCompactor {
    */
   protected async compactSingleBucketRetried(bucket: string, definitionId: BucketDefinitionId | null = null) {
     let retryCount = 0;
+    // Retry with exponential backoff up to 3 times on MongoDB errors.
     while (true) {
       try {
         await this.compactSingleBucket(bucket, definitionId);
@@ -344,6 +347,7 @@ export abstract class MongoCompactor {
     // Upper bound is adjusted for each batch.
     let upperBound = bucketContext.maxId;
 
+    // Paginate through bucket data in batches to avoid cursor timeouts.
     while (true) {
       this.signal?.throwIfAborted();
 

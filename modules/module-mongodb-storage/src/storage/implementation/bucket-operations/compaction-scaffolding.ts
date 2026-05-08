@@ -19,6 +19,8 @@ export async function* dirtyBucketBatches<TBucketState extends BucketStateDocume
   }
   yield* compactor.dirtyBucketBatchesForCollection(
     collection,
+    // MongoDB MinKey/MaxKey sentinel values don't match the typed _id shape,
+    // so we need explicit casts for the scan boundaries.
     { d: new mongo.MinKey() as any, b: new mongo.MinKey() as any } as TBucketState['_id'],
     { d: new mongo.MaxKey() as any, b: new mongo.MaxKey() as any } as TBucketState['_id'],
     options,
@@ -37,6 +39,8 @@ export async function dirtyBucketBatchForChecksums<TBucketState extends BucketSt
   }
   return compactor.dirtyBucketBatchForChecksumsForCollection(
     collection,
+    // MongoDB Filter<T> doesn't accept dotted field paths like 'estimate_since_compact.count'
+    // in its type, so we need an explicit cast.
     {
       'estimate_since_compact.count': { $gte: options.minBucketChanges }
     } as unknown as mongo.Filter<TBucketState>,

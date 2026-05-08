@@ -21,10 +21,12 @@ function assertVersionedPowerSyncMongoV5(db: VersionedPowerSyncMongo): Versioned
 
 export class MongoSyncBucketStorageV5 extends MongoSyncBucketStorage {
   get db(): VersionedPowerSyncMongoV5 {
+    // We know the concrete type because this class is only instantiated for V5 storage.
     return super.db as VersionedPowerSyncMongoV5;
   }
 
   get checksums(): MongoChecksumsV5 {
+    // We know the concrete type because this class is only instantiated for V5 storage.
     return super.checksums as MongoChecksumsV5;
   }
 
@@ -51,7 +53,11 @@ export class MongoSyncBucketStorageV5 extends MongoSyncBucketStorage {
         new MongoParameterCompactor(assertVersionedPowerSyncMongoV5(d), gid, checkpoint, opts, () =>
           assertVersionedPowerSyncMongoV5(d)
             .listParameterIndexCollectionsV5(gid)
-            .then((collections) => collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>))
+            .then((collections) =>
+              // Cast from the version-specific collection type to the generic Document type
+              // used by the parameter compactor base class.
+              collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>)
+            )
         ),
       createWriter: (batchOptions) => new MongoBucketBatchV5(batchOptions),
       formatAdapter: new V5FormatAdapter()

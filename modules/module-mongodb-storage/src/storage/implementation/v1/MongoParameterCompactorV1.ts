@@ -6,6 +6,8 @@ export class MongoParameterCompactorV1 extends MongoParameterCompactor {
   declare protected readonly db: VersionedPowerSyncMongoV1;
 
   protected async getCollections(): Promise<mongo.Collection<mongo.Document>[]> {
+    // Cast from the V1-specific collection type to the generic Document type
+    // used by the parameter compactor base class.
     return [this.db.parameterIndexV1 as unknown as mongo.Collection<mongo.Document>];
   }
 

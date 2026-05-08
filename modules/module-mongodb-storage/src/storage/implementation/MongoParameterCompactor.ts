@@ -39,6 +39,8 @@ export class MongoParameterCompactor {
       throw new Error('getCollections callback not provided');
     }
     const collections = await this.getCollectionsCb();
+    // Cast from the version-specific collection type to the generic Document type
+    // used by the parameter compactor base class.
     return collections.map((collection) => collection as unknown as mongo.Collection<mongo.Document>);
   }
 
@@ -83,6 +85,7 @@ export class MongoParameterCompactor {
 
     const flush = async (force: boolean) => {
       if (removeIds.length >= 1000 || (force && removeIds.length > 0)) {
+        // MongoDB Filter<T> doesn't fully match our dynamic delete filter shape here.
         const results = await collection.deleteMany({ _id: { $in: removeIds } } as any);
         logger.info(`Removed ${results.deletedCount} (${removeIds.length}) superseded parameter entries`);
         removeIds = [];
@@ -96,6 +99,7 @@ export class MongoParameterCompactor {
     };
 
     while (await cursor.hasNext()) {
+      // readBufferedDocuments returns a generic type; we know the shape from our projection.
       const batch = cursor.readBufferedDocuments() as unknown as ParameterCompactionReadDocument[];
       checkedEntries += batch.length;
       const now = Date.now();

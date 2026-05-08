@@ -21,10 +21,12 @@ function assertVersionedPowerSyncMongoV3(db: VersionedPowerSyncMongo): Versioned
 
 export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   get db(): VersionedPowerSyncMongoV3 {
+    // We know the concrete type because this class is only instantiated for V3 storage.
     return super.db as VersionedPowerSyncMongoV3;
   }
 
   get checksums(): MongoChecksumsV3 {
+    // We know the concrete type because this class is only instantiated for V3 storage.
     return super.checksums as MongoChecksumsV3;
   }
 
@@ -51,7 +53,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         new MongoParameterCompactor(assertVersionedPowerSyncMongoV3(d), gid, checkpoint, opts, () =>
           assertVersionedPowerSyncMongoV3(d)
             .listParameterIndexCollectionsV3(gid)
-            .then((collections) => collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>))
+            .then((collections) =>
+              // Cast from the version-specific collection type to the generic Document type
+              // used by the parameter compactor base class.
+              collections.map((c) => c.collection as unknown as mongo.Collection<mongo.Document>)
+            )
         ),
       createWriter: (batchOptions) => new MongoBucketBatchV3(batchOptions),
       formatAdapter: new V3FormatAdapter()

@@ -34,6 +34,8 @@ export class SingleBucketStoreV5 implements SingleBucketStore {
     private db: VersionedPowerSyncMongoV5,
     public readonly key: BucketKey
   ) {
+    // Cast from the version-specific collection type to the generic interface
+    // used across storage versions.
     this.collection = db.bucketDataV5(
       key.replicationStreamId,
       key.definitionId

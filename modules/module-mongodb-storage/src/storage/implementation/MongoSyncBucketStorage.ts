@@ -282,18 +282,24 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
           },
           $lte: {
             b: bucket,
+            // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type,
+            // so we need an explicit cast for the range filter on the nested op_id.
             o: end as any
           }
         }
+        // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type.
       })) as any[];
 
       const minStart = Array.from(bucketMap.values()).reduce((min, val) => (val < min ? val : min));
 
+      // Cast from the version-specific collection type to the generic interface
+      // used across storage versions.
       const collection = this.callbacks.bucketData(
         this.group_id,
         definitionId
       ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentGeneric>;
       const formatAdapter = this.callbacks.formatAdapter;
+      // MongoDB Filter<T> doesn't accept the $or operator in its type.
       const filter = { $or: filters } as any;
       const context = { replicationStreamId: this.group_id, definitionId };
       const startOpId = minStart;
@@ -307,9 +313,12 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
       });
 
       const combinedFilter: lib_mongo.mongo.Filter<BucketDataDocumentGeneric> = {
+        // MongoDB Filter<T> doesn't accept the $and operator in its type.
         $and: [filter, rangeFilter]
       } as any;
 
+      // raw: true returns Buffers, but the driver typing doesn't reflect that
+      // without an explicit cast to FindCursor<Buffer>.
       const cursor = collection.find(combinedFilter, {
         session: undefined,
         sort: { _id: 1 },
