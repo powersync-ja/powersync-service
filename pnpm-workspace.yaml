@@ -19,6 +19,9 @@ allowBuilds:
   # These need install scripts to download/build native modules
   '@mongodb-js/zstd': true
 
+  # We don't need to run these checks: https://github.com/protobufjs/protobuf.js/blob/master/scripts/postinstall.js
+  protobufjs: false
+
 overrides:
   # Override to remove vitest production dependency
   # Remove once this is released: https://github.com/journeyapps-labs/common/pull/15
