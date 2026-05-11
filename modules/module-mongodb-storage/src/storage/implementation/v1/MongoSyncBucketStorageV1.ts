@@ -12,7 +12,7 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -99,7 +99,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     checkpoint: MongoSyncBucketStorageCheckpoint,
     lookups: ScopedParameterLookup[],
     limit: number
-  ): Promise<SqliteJsonRow[]> {
+  ): Promise<ParameterLookupRows[]> {
     return getParameterSetsV1(this.versionContext, checkpoint, lookups, limit);
   }
 
@@ -199,20 +199,29 @@ export async function getParameterSetsV1(
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[],
   limit: number
-): Promise<SqliteJsonRow[]> {
+): Promise<ParameterLookupRows[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
     const rows = await ctx.db.parameterIndexV1
-      .aggregate(
+      .aggregate<{ index: number; bucket_parameters: SqliteJsonRow }>(
         [
           {
             $match: {
               'key.g': ctx.group_id,
-              lookup: { $in: lookupFilter },
               _id: { $lte: checkpoint.checkpoint }
+            }
+          },
+          {
+            $addFields: {
+              index: { $indexOfArray: [lookupFilter, '$lookup'] }
+            }
+          },
+          {
+            $match: {
+              index: { $gte: 0 }
             }
           },
           {
@@ -222,10 +231,17 @@ export async function getParameterSetsV1(
           },
           {
             $group: {
-              _id: { key: '$key', lookup: '$lookup' },
+              _id: { key: '$key', index: '$index' },
               bucket_parameters: {
                 $first: '$bucket_parameters'
               }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              bucket_parameters: 1,
+              index: '$_id.index'
             }
           },
           { $unwind: '$bucket_parameters' },
@@ -244,10 +260,13 @@ export async function getParameterSetsV1(
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
 
-    const results = rows.map((row) => row.bucket_parameters);
-    if (results.length > limit) {
+    if (rows.length > limit) {
       throw new ParameterSetLimitExceededError(limit);
     }
+
+    const byLookup = Map.groupBy(rows, (row) => lookups[row.index]);
+    const results: ParameterLookupRows[] = [];
+    byLookup.forEach((value, lookup) => results.push({ lookup, rows: value.map((r) => r.bucket_parameters) }));
     return results;
   });
 }

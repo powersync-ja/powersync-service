@@ -1,9 +1,9 @@
 import { describe, expect } from 'vitest';
 import {
   HydratedSyncRules,
+  ParameterLookupRows,
   ScopedParameterLookup,
   SourceTableInterface,
-  SqliteJsonRow,
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
@@ -420,8 +420,8 @@ streams:
     expect(querier.staticBuckets[0].source).toBe(streamSource.dataSources[0]);
 
     const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
-      async getParameterSets() {
-        return [{ '0': 'i1' }];
+      async getParameterSets(lookups) {
+        return [{ lookup: lookups[0], rows: [{ '0': 'i1' }] }];
       }
     });
     expect(dynamicBuckets).toHaveLength(1);
@@ -530,17 +530,17 @@ streams:
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([]);
     let call = 0;
     const buckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
         if (call == 0) {
           // First call. Lookup from users.id => users.name
           call++;
           expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
-          return [{ '0': 'name' }];
+          return [{ lookup: lookups[0], rows: [{ '0': 'name' }] }];
         } else if (call == 1) {
           // Second call. Lookup from issues.owned_by => issues.id
           call++;
           expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '1'), ['name'])]);
-          return [{ '0': 'issue' }];
+          return [{ lookup: lookups[0], rows: [{ '0': 'issue' }] }];
         }
 
         throw new Error('Function not implemented.');
@@ -601,7 +601,7 @@ streams:
       // Should not return any streams if the synced_table lookup is empty.
       expect(
         await querier.queryDynamicBucketDescriptions({
-          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
             return [];
           }
@@ -610,9 +610,9 @@ streams:
 
       expect(
         await querier.queryDynamicBucketDescriptions({
-          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
-            return [{}];
+            return [{ lookup: lookups[0], rows: [{}] }];
           }
         })
       ).toStrictEqual([
@@ -695,9 +695,9 @@ streams:
         for (const hasLookupResult of [false, true]) {
           expect(
             await querier.queryDynamicBucketDescriptions({
-              getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+              getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
                 expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
-                return hasLookupResult ? [{}] : [];
+                return [{ lookup: lookups[0], rows: hasLookupResult ? [{}] : [] }];
               }
             })
           ).toHaveLength(hasLookupResult ? 1 : 0);
@@ -754,20 +754,20 @@ streams:
 
       expect(
         await querier.queryDynamicBucketDescriptions({
-          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-            for (const lookup of lookups) {
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
+            return lookups.flatMap((lookup) => {
               expect(lookup.values[0]).toStrictEqual('lookup');
               switch (lookup.values[1]) {
                 case '0':
-                  return [{ '0': 'c3', '1': 'c4' }];
+                  return [{ lookup, rows: [{ '0': 'c3', '1': 'c4' }] }];
                 case '1':
-                  return [{ '0': 'c2' }];
+                  return [{ lookup, rows: [{ '0': 'c2' }] }];
                 case '2':
-                  return [{ '0': 'c1' }];
+                  return [{ lookup, rows: [{ '0': 'c1' }] }];
+                default:
+                  return [];
               }
-            }
-
-            return [];
+            });
           }
         })
       ).toStrictEqual([
