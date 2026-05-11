@@ -294,7 +294,7 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
     if (current.type === 'cached') {
       return current.values;
     } else if (current.type === 'intersection') {
-      let intersection: Map<SqliteParameterValue, (VirtualSourceRow | null)[]> | null = null;
+      let intersection: Map<SqliteParameterValue, VirtualSourceRow[]> | null = null;
       for (let i = 0; i < current.values.length; i++) {
         const evaluated = this.parameterSync(current.values, i);
         if (evaluated == null) {
@@ -353,7 +353,7 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
         ? [
             {
               value,
-              provenance: [null]
+              provenance: []
             }
           ]
         : [];
@@ -400,13 +400,10 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
     if (lookup.type == 'parameter') {
       const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
       const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
-      const lookupsToProvenance = new Map<
-        ScopedParameterLookup,
-        { origin: (VirtualSourceRow | null)[]; symbol: symbol }
-      >();
+      const lookupsToProvenance = new Map<ScopedParameterLookup, { origin: VirtualSourceRow[]; symbol: symbol }>();
 
       for (const values of this.resolveInputs(lookup.instantiation)) {
-        const provenance: (VirtualSourceRow | null)[] = [];
+        const provenance: VirtualSourceRow[] = [];
         for (const value of values) {
           provenance.push(...value.provenance);
         }
@@ -433,7 +430,13 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
 
           for (let i = 0; i < length; i++) {
             const value = row[i.toString()] as SqliteParameterValue;
-            asArray.push({ value, provenance: [...origin, { resultSet: symbol, row: rowid }] });
+            asArray.push({
+              value,
+              // Note: Not tracking provenance for parameters with just a single output is purely a performance
+              // optimization. If there's just a single value, we don't need to correlate it with other columns in the
+              // row. Not adding provenance saves some work in mergeValueCombinations.
+              provenance: length > 1 ? [...origin, { resultSet: symbol, row: rowid }] : origin
+            });
           }
           return asArray;
         });
@@ -469,11 +472,47 @@ export type PreparedParameterValue =
 
 interface ParameterValueWithRow {
   value: SqliteParameterValue;
-  provenance: (VirtualSourceRow | null)[];
+
+  /**
+   * Information on how this value was resolved.
+   *
+   * We track how a parameter value was resolved to be able to merge parameters correctly. A Sync Stream with multiple
+   * independent parameters generates their cartesian product as buckets. When multiple parameters are resolved from the
+   * same row though, we can't use the full cartesian product. As an example, consider this stream:
+   *
+   * ```sql
+   * SELECT products.* FROM products, stores
+   *   WHERE stores.name = products.store_name
+   *     AND stores.region = products.region
+   *     AND stores.id = subscription.parameter('store');
+   * ```
+   *
+   * Here, the bucket shape consists of two parameters (`store_name` and `region`). But since they're derived from the
+   * same `stores` row, we can't combine them freely. For each parameter, `store_name` and `region` must come from the
+   * same row. Here, the `provenance` would have a single entry and both parameters would have the same
+   * {@link VirtualSourceRow.resultSet}.
+   *
+   * For static values, such as constants or scalar values derived from request parameters, this array is empty. It's
+   * also possible for this to contain more than one entry, though:
+   *
+   *  1. For intersection values, we track the provenance of all input values.
+   *  2. It's possible to nest parameters. For instance, in the query `SELECT data.* FROM data, a, b WHERE a.a = data.a
+   *     AND b.b = a.b AND data.c = b.c`, we have to parameters (`a` and `c`). `a` can be resolved from a lookup in
+   *     table `a`, but we need to go through a second lookup to resolve `c`. Here, we can only combine value `c` with
+   *     value `a` if the two were derived from the same row in `a`. So, the row `b` derived through `a` would include
+   *     provenance elements of row `a` here.
+   */
+  provenance: VirtualSourceRow[];
 }
 
 interface VirtualSourceRow {
+  /**
+   * An opaque identifier for the result set this row was derived from.
+   */
   resultSet: symbol;
+  /**
+   * A number uniquely identifying this row in its result set.
+   */
   row: number;
 }
 
@@ -525,11 +564,20 @@ function* filterParameterRows(rows: SqliteValue[][]): Generator<SqliteParameterV
   }
 }
 
-function* mergeValueCombinations(valuesByParameter: ParameterValueWithRow[][]) {
-  const usedRows = new Map<symbol, number>();
+/**
+ * Builds a cartesian product of parameter instantiations, taking {@link ParameterValueWithRow.provenance} into account
+ * to avoid combining values from different rows of the same result set.
+ *
+ * @param valuesByParameter An array containing possible instantiations for each parameter.
+ * @returns All allowed instantiations.
+ */
+function* mergeValueCombinations(valuesByParameter: ParameterValueWithRow[][]): Generator<ParameterValueWithRow[]> {
+  // Partial backtracking results, the current instantiation is fixed for 0..nextParameter in generateCombinations.
   const partialResults = new Array(valuesByParameter.length);
+  // A map from result sets to roows used in the partial instantiation.
+  const usedRows = new Map<symbol, number>();
 
-  function installRowOrFail(value: ParameterValueWithRow): [boolean, symbol[]] {
+  function installRowIfNoConflict(value: ParameterValueWithRow): [boolean, symbol[]] {
     const addedResultSets: symbol[] = [];
 
     for (const origin of value.provenance) {
@@ -566,7 +614,7 @@ function* mergeValueCombinations(valuesByParameter: ParameterValueWithRow[][]) {
 
     const availableValues = valuesByParameter[nextParameter];
     for (const available of availableValues) {
-      const [canUse, addedResultSets] = installRowOrFail(available);
+      const [canUse, addedResultSets] = installRowIfNoConflict(available);
       if (canUse) {
         partialResults[nextParameter] = available;
         yield* generateCombinations(nextParameter + 1);
