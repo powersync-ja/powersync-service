@@ -1,5 +1,11 @@
 import { CURRENT_STORAGE_VERSION, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  ParameterIndexLookupCreator,
+  RequestParameters,
+  ScopedParameterLookup,
+  SqliteJsonRow,
+  UnscopedParameterLookup
+} from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
@@ -970,5 +976,95 @@ streams:
       }
     });
     expect(buckets).toHaveLength(0);
+  });
+
+  test('can request multiple lookups at once', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
+config:
+  edition: 3
+streams:
+  a:
+    auto_subscribe: true
+    query: SELECT * FROM a WHERE p IN (SELECT id FROM param_a WHERE u = auth.user_id())
+  b:
+    auto_subscribe: true
+    query: SELECT * FROM b WHERE p IN (SELECT id FROM param_b WHERE u = auth.user_id())
+    `)
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const parsedSyncRules = syncRules.parsed(test_utils.PARSE_OPTIONS);
+    const hydrationState = parsedSyncRules.hydrationState;
+    const syncConfig = parsedSyncRules.sync_rules.config;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const paramATable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config);
+    const paramBTable = await test_utils.resolveTestTable(writer, 'param_b', ['id'], config);
+    const replicaId = test_utils.rid('id');
+
+    // Insert the same row into param_a and param_b
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: paramATable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'id',
+        u: 'user'
+      },
+      afterReplicaId: replicaId
+    });
+    await writer.save({
+      sourceTable: paramBTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'id',
+        u: 'user'
+      },
+      afterReplicaId: replicaId
+    });
+    await writer.commit('1/1');
+
+    function findParameterOnTable(name: string): ParameterIndexLookupCreator {
+      for (const source of syncConfig.bucketParameterLookupSources) {
+        for (const param of source.getSourceTables()) {
+          if (param.name == name) return source;
+        }
+      }
+
+      throw new Error(`Expected parameter index on ${name}`);
+    }
+
+    // Run two lookups on separate parameter indexes.
+    const lookupA = ScopedParameterLookup.normalized(
+      hydrationState.getParameterIndexLookupScope(findParameterOnTable('param_a')),
+      UnscopedParameterLookup.normalized(['user'])
+    );
+    const lookupB = ScopedParameterLookup.normalized(
+      hydrationState.getParameterIndexLookupScope(findParameterOnTable('param_b')),
+      UnscopedParameterLookup.normalized(['user'])
+    );
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameterSets = await checkpoint.getParameterSets([lookupA, lookupB], 1000);
+    const expectedRow = { '0': 'id' };
+    let foundLookupA = false,
+      foundLookupB = false;
+
+    // We should get the same row on both, with information on which lookup contributed which row.
+    for (const { lookup, rows } of parameterSets) {
+      if (lookup === lookupA) {
+        foundLookupA = true;
+        expect(rows).toStrictEqual([expectedRow]);
+      } else if (lookup === lookupB) {
+        foundLookupB = true;
+        expect(rows).toStrictEqual([expectedRow]);
+      } else {
+        throw new Error('unexpected lookup in results');
+      }
+    }
+
+    expect(foundLookupA).toBeTruthy();
+    expect(foundLookupB).toBeTruthy();
   });
 }

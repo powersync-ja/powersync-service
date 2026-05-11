@@ -447,11 +447,10 @@ export class PostgresSyncRulesStorage
       totalRows += parameterRows.length;
 
       const existingResults = resultsByLookup.get(lookup);
-      const decodedParameters = JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow[];
       if (existingResults != null) {
-        existingResults.push(...decodedParameters);
+        existingResults.push(...parameterRows);
       } else {
-        resultsByLookup.set(lookup, decodedParameters);
+        resultsByLookup.set(lookup, parameterRows);
       }
     }
 
