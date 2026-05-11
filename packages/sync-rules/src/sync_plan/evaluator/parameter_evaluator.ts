@@ -1,7 +1,6 @@
 import { ParameterLookupSource, ScopedParameterLookup, UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
 import { HydrationState } from '../../HydrationState.js';
-import { cartesianProduct } from '../../streams/utils.js';
 import { RequestParameters, SqliteParameterValue, SqliteValue } from '../../types.js';
 import { isValidParameterValue } from '../../utils.js';
 import {
@@ -120,7 +119,7 @@ export class RequestParameterEvaluators {
       stage.forEach((_, indexInStage) => helper.expandingLookupSync(stageIndex, indexInStage));
     });
 
-    return helper.tryResolveInstantiation(this.parameterValues);
+    return helper.tryResolveInstantiation(this.parameterValues)?.map(withoutProvenance);
   }
 
   /**
@@ -138,7 +137,7 @@ export class RequestParameterEvaluators {
 
     // At this point, all lookups have been resolved and we can synchronously evaluate parameters which might depend on
     // those lookups.
-    return helper.resolveInstantiation(this.parameterValues);
+    return helper.resolveInstantiation(this.parameterValues).map(withoutProvenance);
   }
 
   /**
@@ -241,7 +240,7 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
     protected readonly evaluators: RequestParameterEvaluators
   ) {}
 
-  tryResolveInstantiation(params: PreparedParameterValue[]): SqliteParameterValue[][] | undefined {
+  tryResolveInstantiation(params: PreparedParameterValue[]): ParameterValueWithRow[][] | undefined {
     const stages = this.evaluators.lookupStages;
     let hasUninstantiatedStage = false;
     for (let stageIndex = 0; stageIndex < stages.length; stageIndex++) {
@@ -273,7 +272,7 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
     return [...this.resolveInputs(params)];
   }
 
-  protected *resolveInputs(params: PreparedParameterValue[]): Generator<SqliteParameterValue[]> {
+  protected *resolveInputs(params: PreparedParameterValue[]): Generator<ParameterValueWithRow[]> {
     const parameterValues = params.map((_, index) => {
       const cached = this.parameterSync(params, index);
       if (cached == null) {
@@ -283,19 +282,19 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
       return cached;
     });
 
-    yield* cartesianProduct(...parameterValues);
+    yield* mergeValueCombinations(parameterValues);
   }
 
   /**
    * If possible, evaluates an element in an array of parameter values and replaces the parameter with a marker
    * indicating it as cached.
    */
-  parameterSync(parent: PreparedParameterValue[], index: number): SqliteParameterValue[] | undefined {
+  parameterSync(parent: PreparedParameterValue[], index: number): ParameterValueWithRow[] | undefined {
     const current = parent[index];
     if (current.type === 'cached') {
       return current.values;
     } else if (current.type === 'intersection') {
-      let intersection: Set<SqliteParameterValue> | null = null;
+      let intersection: Map<SqliteParameterValue, (VirtualSourceRow | null)[]> | null = null;
       for (let i = 0; i < current.values.length; i++) {
         const evaluated = this.parameterSync(current.values, i);
         if (evaluated == null) {
@@ -303,21 +302,40 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
         }
 
         if (intersection == null) {
-          intersection = new Set(evaluated);
+          intersection = new Map();
+          for (const { value, provenance } of evaluated) {
+            intersection.set(value, provenance);
+          }
         } else {
-          // TODO: Remove as any once we can use ES2025 in TypeScript
-          intersection = (intersection as any).intersection(new Set(evaluated)) as Set<SqliteParameterValue>;
+          const unmatchedValues = new Set(intersection.keys());
+
+          for (const { value, provenance } of evaluated) {
+            const existing = intersection.get(value);
+            if (existing == null) {
+              // Value not in intersection, ignore.
+            } else {
+              unmatchedValues.delete(value);
+
+              // An intersection value is derived from all inputs, so we track them all as provenance.
+              existing.push(...provenance);
+            }
+          }
+
+          for (const unmatched of unmatchedValues) {
+            // Values in intersection before, but not in evaluated
+            intersection.delete(unmatched);
+          }
         }
 
-        if (intersection.size == 0) {
+        if (intersection!.size == 0) {
           // Empty intersection, we don't even need to evaluate the rest.
           break;
         }
       }
 
-      let values: SqliteParameterValue[] = [];
+      let values: ParameterValueWithRow[] = [];
       if (intersection) {
-        values.push(...intersection.keys());
+        intersection.forEach((provenance, value) => values.push({ value, provenance }));
       }
 
       parent[index] = { type: 'cached', values };
@@ -331,7 +349,14 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
       }
     } else if (current.type === 'request') {
       const value = current.read(this.input.request);
-      const values: SqliteParameterValue[] = isValidParameterValue(value) ? [value] : [];
+      const values: ParameterValueWithRow[] = isValidParameterValue(value)
+        ? [
+            {
+              value,
+              provenance: [null]
+            }
+          ]
+        : [];
 
       parent[index] = { type: 'cached', values };
       return values;
@@ -340,11 +365,16 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
     return undefined;
   }
 
-  expandingLookupSync(stage: number, index: number): SqliteParameterValue[][] | undefined {
+  expandingLookupSync(stage: number, index: number): ParameterValueWithRow[][] | undefined {
     const lookup = this.evaluators.lookupStages[stage][index];
     if (lookup.type == 'table_valued') {
       // We can evaluate this table-valued function already.
-      const values = lookup.read(this.input.request);
+      const resultSetMarker = Symbol();
+      const values = lookup.read(this.input.request).map((values, rowid) => {
+        const provenance: [VirtualSourceRow] = [{ resultSet: resultSetMarker, row: rowid }];
+        return values.map((value) => ({ value, provenance }) satisfies ParameterValueWithRow);
+      });
+
       this.evaluators.lookupStages[stage][index] = { type: 'cached', values };
       return values;
     } else if (lookup.type == 'cached') {
@@ -356,7 +386,7 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
 }
 
 class FullInstantiator extends PartialInstantiator<InstantiationInput> {
-  resolveInstantiation(params: PreparedParameterValue[]): SqliteParameterValue[][] {
+  resolveInstantiation(params: PreparedParameterValue[]): ParameterValueWithRow[][] {
     const resolved = this.tryResolveInstantiation(params);
     if (resolved == null) {
       throw new Error('internal error: Should have been able to resolve instantiation after instantiating stages.');
@@ -365,30 +395,49 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
     return resolved;
   }
 
-  async expandingLookup(stage: number, index: number): Promise<SqliteParameterValue[][]> {
+  async expandingLookup(stage: number, index: number): Promise<ParameterValueWithRow[][]> {
     const lookup = this.evaluators.lookupStages[stage][index];
     if (lookup.type == 'parameter') {
       const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
       const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
+      const lookupsToProvenance = new Map<
+        ScopedParameterLookup,
+        { origin: (VirtualSourceRow | null)[]; symbol: symbol }
+      >();
+
+      for (const values of this.resolveInputs(lookup.instantiation)) {
+        const provenance: (VirtualSourceRow | null)[] = [];
+        for (const value of values) {
+          provenance.push(...value.provenance);
+        }
+
+        const lookup = ScopedParameterLookup.normalized(
+          scope,
+          UnscopedParameterLookup.normalized(withoutProvenance(values))
+        );
+        lookupsToProvenance.set(lookup, { origin: provenance, symbol: Symbol(`lookup ${stage}.${index}`) });
+      }
+
       const outputs = await this.input.source.getParameterSets(
-        [...this.resolveInputs(lookup.instantiation)].map((instantiation) =>
-          ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(instantiation))
-        ),
+        [...lookupsToProvenance.keys()],
         `Stream ${this.evaluators.stream.name} evaluating parameter on ${resolvedLookup.sourceTable.name}`
       );
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
-      const values = outputs.flatMap(({ rows }) =>
-        rows.map((row) => {
+      const values = outputs.flatMap(({ lookup, rows }) => {
+        const { symbol, origin } = lookupsToProvenance.get(lookup)!;
+
+        return rows.map((row, rowid) => {
           const length = Object.entries(row).length;
-          const asArray: SqliteParameterValue[] = [];
+          const asArray: ParameterValueWithRow[] = [];
 
           for (let i = 0; i < length; i++) {
-            asArray.push(row[i.toString()] as SqliteParameterValue);
+            const value = row[i.toString()] as SqliteParameterValue;
+            asArray.push({ value, provenance: [...origin, { resultSet: symbol, row: rowid }] });
           }
           return asArray;
-        })
-      );
+        });
+      });
 
       this.evaluators.lookupStages[stage][index] = { type: 'cached', values };
       return values;
@@ -405,7 +454,7 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
 export type PreparedExpandingLookup =
   | { type: 'parameter'; lookup: ParameterIndexLookupCreator; instantiation: PreparedParameterValue[] }
   | { type: 'table_valued'; read(request: RequestParameters): SqliteParameterValue[][] }
-  | { type: 'cached'; values: SqliteParameterValue[][] };
+  | { type: 'cached'; values: ParameterValueWithRow[][] };
 
 /**
  * A {@link plan.ParameterValue} that can be evaluated against request parameters.
@@ -416,7 +465,21 @@ export type PreparedParameterValue =
   | { type: 'request'; read(request: RequestParameters): SqliteValue }
   | { type: 'lookup'; lookup: { stage: number; index: number }; resultIndex: number }
   | { type: 'intersection'; values: PreparedParameterValue[] }
-  | { type: 'cached'; values: SqliteParameterValue[] };
+  | { type: 'cached'; values: ParameterValueWithRow[] };
+
+interface ParameterValueWithRow {
+  value: SqliteParameterValue;
+  provenance: (VirtualSourceRow | null)[];
+}
+
+interface VirtualSourceRow {
+  resultSet: symbol;
+  row: number;
+}
+
+function withoutProvenance(source: ParameterValueWithRow[]): SqliteParameterValue[] {
+  return source.map(({ value }) => value);
+}
 
 export interface PartialInstantiationInput {
   request: RequestParameters;
@@ -460,4 +523,58 @@ function* filterParameterRows(rows: SqliteValue[][]): Generator<SqliteParameterV
       yield row;
     }
   }
+}
+
+function* mergeValueCombinations(valuesByParameter: ParameterValueWithRow[][]) {
+  const usedRows = new Map<symbol, number>();
+  const partialResults = new Array(valuesByParameter.length);
+
+  function installRowOrFail(value: ParameterValueWithRow): [boolean, symbol[]] {
+    const addedResultSets: symbol[] = [];
+
+    for (const origin of value.provenance) {
+      if (origin != null) {
+        const { resultSet, row } = origin;
+        const existingRow = usedRows.get(resultSet);
+        if (existingRow === undefined) {
+          addedResultSets.push(resultSet);
+          usedRows.set(resultSet, row);
+        } else if (existingRow == row) {
+          continue;
+        } else {
+          // The current instantiation already constains a value from the same result set but derived from a different
+          // row. So we must ignore this parameter value.
+          return [false, addedResultSets];
+        }
+      }
+    }
+
+    return [true, addedResultSets];
+  }
+
+  function uninstallResultSets(resultSets: symbol[]) {
+    for (const rs of resultSets) {
+      usedRows.delete(rs);
+    }
+  }
+
+  function* generateCombinations(nextParameter: number): Generator<ParameterValueWithRow[]> {
+    if (nextParameter >= valuesByParameter.length) {
+      yield [...partialResults];
+      return;
+    }
+
+    const availableValues = valuesByParameter[nextParameter];
+    for (const available of availableValues) {
+      const [canUse, addedResultSets] = installRowOrFail(available);
+      if (canUse) {
+        partialResults[nextParameter] = available;
+        yield* generateCombinations(nextParameter + 1);
+      }
+
+      uninstallResultSets(addedResultSets);
+    }
+  }
+
+  yield* generateCombinations(0);
 }
