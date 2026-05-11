@@ -87,7 +87,7 @@ jobs:
           # If no changesets are available the status check will fail
           # We should not continue if there are no changesets    
           pnpm changeset status
-          pnpm changeset version --no-git-tag --snapshot dev
+          pnpm changeset version --snapshot dev
           pnpm changeset publish --tag dev
 
   release-docker-image:
