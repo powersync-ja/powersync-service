@@ -23,7 +23,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as uuid from 'uuid';
-import { BIGINT_MAX } from '../types/codecs.js';
+import { bigint, BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
@@ -408,20 +408,22 @@ export class PostgresSyncRulesStorage
       WITH
         rows AS (
           SELECT DISTINCT
-            ON (requested.index) requested.index - 1 AS index,
+            ON (lookup, source_table, source_key) requested.index - 1 AS index,
             bucket_parameters
           FROM
             bucket_parameters,
             jsonb_array_elements(${{
         type: 'jsonb',
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
-      }}) WITH ORDINALITY AS requested
+      }}) WITH ORDINALITY AS requested (value, index)
           WHERE
             group_id = ${{ type: 'int4', value: this.group_id }}
             AND lookup = decode((requested.value ->> 0)::text, 'hex') -- Decode the hex string to bytea
             AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
           ORDER BY
             lookup,
+            source_table,
+            source_key,
             id DESC
         )
       SELECT
@@ -438,15 +440,20 @@ export class PostgresSyncRulesStorage
       .rows();
 
     let totalRows = 0;
-    const parameters = rows.map((row) => {
+    const resultsByLookup = new Map<sync_rules.ScopedParameterLookup, sync_rules.SqliteJsonRow[]>();
+    for (const row of rows) {
       const parameterRows = JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow[];
+      const lookup = lookups[Number(row.index)];
       totalRows += parameterRows.length;
 
-      return {
-        lookup: lookups[row.index],
-        rows: parameterRows
-      } satisfies sync_rules.ParameterLookupRows;
-    });
+      const existingResults = resultsByLookup.get(lookup);
+      const decodedParameters = JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow[];
+      if (existingResults != null) {
+        existingResults.push(...decodedParameters);
+      } else {
+        resultsByLookup.set(lookup, decodedParameters);
+      }
+    }
 
     if (totalRows > limit) {
       // Note that the LIMIT in the query allows more rows than parameters (because each row stores an array of
@@ -454,7 +461,10 @@ export class PostgresSyncRulesStorage
       // the SQL limit is good enough.
       throw new ParameterSetLimitExceededError(limit);
     }
-    return parameters;
+
+    const results: sync_rules.ParameterLookupRows[] = [];
+    resultsByLookup.forEach((rows, lookup) => results.push({ lookup, rows }));
+    return results;
   }
 
   async *getBucketDataBatch(
@@ -930,6 +940,6 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
 }
 
 const parameterSetsRow = t.object({
-  index: t.number,
+  index: bigint,
   bucket_parameters: t.string
 });
