@@ -90,34 +90,3 @@ export async function clearTestDb(connection: TestConvexConnection) {
     console.info(`Cleared ${deletedCount} todos`);
   } while (deletedCount > 0);
 }
-
-// export async function getClientCheckpoint(
-//   db: pgwire.PgClient,
-//   storageFactory: BucketStorageFactory,
-//   options?: { timeout?: number }
-// ): Promise<InternalOpId> {
-//   const start = Date.now();
-
-//   const api = new PostgresRouteAPIAdapter(db);
-//   const lsn = await api.createReplicationHead(async (lsn) => lsn);
-
-//   // This old API needs a persisted checkpoint id.
-//   // Since we don't use LSNs anymore, the only way to get that is to wait.
-
-//   const timeout = options?.timeout ?? 50_000;
-
-//   logger.info(`Waiting for LSN checkpoint: ${lsn}`);
-//   while (Date.now() - start < timeout) {
-//     const storage = await storageFactory.getActiveStorage();
-//     const cp = await storage?.getCheckpoint();
-
-//     if (cp?.lsn != null && cp.lsn >= lsn) {
-//       logger.info(`Got write checkpoint: ${lsn} : ${cp.checkpoint}`);
-//       return cp.checkpoint;
-//     }
-
-//     await new Promise((resolve) => setTimeout(resolve, 5));
-//   }
-
-//   throw new Error('Timeout while waiting for checkpoint');
-// }

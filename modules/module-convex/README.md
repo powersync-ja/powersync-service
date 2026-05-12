@@ -2,6 +2,11 @@
 
 Convex replication module for PowerSync.
 
+> [!WARNING]
+> The Convex replicator is currently released as an alpha feature. APIs, configuration, metrics, schema-change handling,
+> and replication behavior may change before it is considered stable. Test carefully before using it with production
+> workloads.
+
 ## Configuration
 
 ```yaml
