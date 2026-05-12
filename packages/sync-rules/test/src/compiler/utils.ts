@@ -15,6 +15,7 @@ interface TranslationError {
   message: string;
   source: string;
   isWarning?: boolean;
+  startOffset?: number;
 }
 
 export function compileSingleStreamAndSerialize(...sql: string[]): unknown {
@@ -76,7 +77,7 @@ function compileSingleStream(...sql: string[]): [TranslationError[], SyncPlan] {
 
 export function yamlToSyncPlan(
   source: string,
-  options: SyncRulesOptions = { defaultSchema: 'test_schema' }
+  options: SyncRulesOptions & { includeErrorSpans?: boolean } = { defaultSchema: 'test_schema' }
 ): [TranslationError[], SyncPlan] {
   const { config, errors } = SqlSyncRules.fromYaml(source, {
     throwOnError: false,
@@ -87,6 +88,10 @@ export function yamlToSyncPlan(
     const error: TranslationError = { message: e.message, source: source.substring(e.location.start, e.location.end) };
     if ('type' in e && e.type == 'warning') {
       error.isWarning = true;
+    }
+
+    if (options.includeErrorSpans) {
+      error.startOffset = e.location.start;
     }
 
     return error;

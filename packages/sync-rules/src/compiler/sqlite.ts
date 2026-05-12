@@ -55,6 +55,11 @@ export interface PreparedSubquery {
   where: SqlExpression<ExpressionInput> | null;
 }
 
+export interface CommonTableExpression {
+  subquery: PreparedSubquery;
+  used: boolean;
+}
+
 export interface PostgresToSqliteOptions {
   readonly originalText: string;
   readonly scope: SqlScope;

@@ -7,7 +7,7 @@ import {
   TimeValuePrecision
 } from './compatibility.js';
 import { ParsingErrorListener, SyncStreamsCompiler } from './compiler/compiler.js';
-import { PreparedSubquery } from './compiler/sqlite.js';
+import { CommonTableExpression } from './compiler/sqlite.js';
 import { SqlRuleError, SyncRulesErrors, YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
 import { validateSyncRulesSchema } from './json_schema.js';
@@ -35,6 +35,8 @@ export class SyncConfigFromYaml {
 
   // Names of bucket definitions and sync streams, to prevent duplicates.
   readonly #definitionNames = new Set<string>();
+
+  readonly #definedCtes: CommonTableExpressionWithName[] = [];
 
   constructor(
     private readonly options: SyncConfigFromYamlOptions,
@@ -87,6 +89,7 @@ export class SyncConfigFromYaml {
     let result: SyncConfig;
     if (compatibility.edition >= CompatibilityEdition.COMPILED_STREAMS) {
       result = this.#compileSyncPlan(bucketMap, streamMap, globalCtes, compatibility);
+      this.#warnOnUnusedCtes();
     } else {
       if (globalCtes != null) {
         // We don't support CTEs at all in this compiler implementation.
@@ -195,8 +198,8 @@ export class SyncConfigFromYaml {
 
     const compiler = new SyncStreamsCompiler(this.options);
 
-    const parseCommonTableExpressions = (from: YAMLMap | null): Map<string, PreparedSubquery> => {
-      const map = new Map();
+    const parseCommonTableExpressions = (from: YAMLMap | null): Map<string, CommonTableExpression> => {
+      const map = new Map<string, CommonTableExpression>();
       if (from != null) {
         for (const entry of from.items ?? []) {
           const { key: cteNameScalar, value: cteQuery } = entry as { key: Scalar<string>; value: Node };
@@ -219,7 +222,9 @@ export class SyncConfigFromYaml {
             const [sql, errorListener] = this.#scalarErrorListener(cteQuery);
             const parsed = compiler.commonTableExpression(sql, errorListener);
             if (parsed) {
-              map.set(cteName, parsed);
+              const cte = { subquery: parsed, used: false };
+              this.#definedCtes.push({ cte, name: cteNameScalar });
+              map.set(cteName, cte);
             }
           }
         }
@@ -288,6 +293,16 @@ export class SyncConfigFromYaml {
       engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
     });
+  }
+
+  #warnOnUnusedCtes() {
+    for (const cte of this.#definedCtes) {
+      if (!cte.cte.used) {
+        const error = this.#yamlError(cte.name, `This common table expression isn't referenced.`);
+        error.type = 'warning';
+        this.#errors.push(error);
+      }
+    }
   }
 
   #legacyParseBucketDefinitionsAndStreams(
@@ -631,4 +646,10 @@ export interface SyncConfigFromYamlOptions {
    * 'public' for Postgres, default database for MongoDB/MySQL.
    */
   readonly defaultSchema: string;
+}
+
+interface CommonTableExpressionWithName {
+  // The key in a `with` map defining the CTE.
+  name: Scalar<string>;
+  cte: CommonTableExpression;
 }
