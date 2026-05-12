@@ -378,15 +378,17 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
       );
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
-      const values = outputs.map((row) => {
-        const length = Object.entries(row).length;
-        const asArray: SqliteParameterValue[] = [];
+      const values = outputs.flatMap(({ rows }) =>
+        rows.map((row) => {
+          const length = Object.entries(row).length;
+          const asArray: SqliteParameterValue[] = [];
 
-        for (let i = 0; i < length; i++) {
-          asArray.push(row[i.toString()] as SqliteParameterValue);
-        }
-        return asArray;
-      });
+          for (let i = 0; i < length; i++) {
+            asArray.push(row[i.toString()] as SqliteParameterValue);
+          }
+          return asArray;
+        })
+      );
 
       this.evaluators.lookupStages[stage][index] = { type: 'cached', values };
       return values;

@@ -2,8 +2,8 @@ import { Logger, ObserverClient } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   HydratedSyncRules,
-  ScopedParameterLookup,
-  SqliteJsonRow
+  ParameterLookupRows,
+  ScopedParameterLookup
 } from '@powersync/service-sync-rules';
 import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
@@ -330,7 +330,7 @@ export interface ReplicationCheckpoint {
    * @throws {@link ParameterSetLimitExceededError}
    * Thrown if resolved lookups in bucket storage exceed the `limit` parameter.
    */
-  getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<SqliteJsonRow[]>;
+  getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<ParameterLookupRows[]>;
 }
 
 /**

@@ -624,11 +624,13 @@ export class BucketParameterState {
           }
 
           try {
-            const rows = await checkpoint.base.getParameterSets(lookups, remainingBudget);
-            lookupLog.push({ definition, resultsOrLimit: rows.length, didExceedLimit: false });
-            remainingBudget -= rows.length;
-            usedParameterResults += rows.length;
-            return rows;
+            const results = await checkpoint.base.getParameterSets(lookups, remainingBudget);
+            const numRows = results.reduce((a, b) => a + b.rows.length, 0);
+
+            lookupLog.push({ definition, resultsOrLimit: numRows, didExceedLimit: false });
+            remainingBudget -= numRows;
+            usedParameterResults += numRows;
+            return results;
           } catch (e: unknown) {
             if (e instanceof ParameterSetLimitExceededError) {
               lookupLog.push({ definition, resultsOrLimit: remainingBudget, didExceedLimit: true });
