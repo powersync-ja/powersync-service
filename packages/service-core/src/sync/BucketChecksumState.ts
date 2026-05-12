@@ -616,22 +616,15 @@ export class BucketParameterState {
       // that. We should replace queriers for Sync Streams with an explicit graph structure based on sync plans instead
       // of adding these checks to the imperative querier interface.
       const lookupLog: storage.ParameterQueryInvocationLog[] = [];
-      const state = this;
 
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
-        async getParameterSets(lookups, definition) {
+        getParameterSets: async (lookups, definition) => {
           if (lookups.length > parameterLimit) {
-            // Typically, this method is called with a single lookup and we want to constrain the maximum amount of
-            // outputs. For Sync Streams, it's possible to chain parameter lookups, which means that a large output
-            // result set of an earlier call might be used here. Since it's somewhat expensive to serialize lookups and
-            // to send them to bucket storage implementations, we also want to avoid large requests here.
-            // Using the original parameter limit option for that is a very generous limit, reasonable queries would be
-            // much smaller. The only way for these large lookups to work at all is for most lookups to return no rows,
-            // which would be an unusual query anyway.
-
+            // Sync Streams can chain parameter lookups, so a large output from an earlier call may become the input
+            // here. We reuse the output limit as a generous upper bound; legitimate queries are much smaller.
             const msg = `Attempted to fetch ${lookups.length} lookups at once, a maximum of ${parameterLimit} lookups are allowed.`;
-            state.logger.error(msg, {
-              user_id: state.syncParams.userId,
+            this.logger.error(msg, {
+              user_id: this.syncParams.userId,
               checkpoint: checkpoint.base.checkpoint,
               cause: definition
             });
