@@ -831,6 +831,52 @@ streams:
     ]);
   });
 
+  syncTest('preserves valid intersection when duplicate lookup values have different provenance', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c1 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    async function checkWithParameters(...results: { c1: string; c2: string }[]): Promise<string[]> {
+      const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+        async getParameterSets(lookups) {
+          expect(lookups).toHaveLength(1);
+
+          return [
+            {
+              lookup: lookups[0],
+              rows: results.map(({ c1, c2 }) => ({ '0': c1, '1': c2 }))
+            }
+          ];
+        }
+      });
+
+      return dynamicBuckets.map((bucket) => bucket.bucket);
+    }
+
+    expect(await checkWithParameters({ c1: 'A', c2: 'A' })).toStrictEqual(['stream|0["A"]']);
+    expect(await checkWithParameters({ c1: 'A', c2: 'B' })).toStrictEqual([]);
+    expect(await checkWithParameters({ c1: 'A', c2: 'A' }, { c1: 'A', c2: 'B' })).toStrictEqual(['stream|0["A"]']);
+    expect(await checkWithParameters({ c1: 'A', c2: 'C' }, { c1: 'A', c2: 'B' })).toStrictEqual([]);
+    expect(await checkWithParameters({ c1: 'A', c2: 'A' }, { c1: 'A', c2: 'B' }, { c1: 'B', c2: 'B' })).toStrictEqual([
+      'stream|0["A"]',
+      'stream|0["B"]'
+    ]);
+  });
+
   syncTest('multiple IN operators', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:

@@ -294,30 +294,110 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
     if (current.type === 'cached') {
       return current.values;
     } else if (current.type === 'intersection') {
-      let intersection: Map<SqliteParameterValue, VirtualSourceRow[]> | null = null;
+      const columns: ParameterValueWithRow[][] = [];
       for (let i = 0; i < current.values.length; i++) {
         const evaluated = this.parameterSync(current.values, i);
         if (evaluated == null) {
           return undefined; // Can't evaluate sub-parameter
         }
+        columns.push(evaluated);
+      }
 
+      // For the most part, this just needs to find an intersection of values present in all columns. It gets more
+      // complicated for rows with provenance, however. For those. we need to ensure we find an intersection of values
+      // with compatible source rows. For example, consider an intersection of the same parameter lookup with columns
+      // `c1` and `c2`, and assume that we had the following rows:
+      //
+      //   1. Row {c1: 'a', c2: 'a'}
+      //   2. Row {c1: 'a', c2: 'b'}
+      //
+      // The intersection of this has one value: `a`, with a provenance of Row 1.  To achieve this, we re-create rows
+      // by tracking a canonical value per row. If we see another value in the same row, we know that row can't
+      // contribute to the intersection because it has different values for `c1` and `c2`.
+      const poison = Symbol('poison');
+      const valuesByResultSet = new Map<symbol, Map<number, SqliteParameterValue | typeof poison>>();
+      const completedRows = new Map<symbol, Set<number>>();
+      function markRowAsCompleted(resultSet: symbol, rowid: number) {
+        let rowids = completedRows.get(resultSet);
+        if (rowids == null) {
+          rowids = new Set();
+          completedRows.set(resultSet, rowids);
+        }
+
+        rowids.add(rowid);
+      }
+
+      // Eliminate rows with conflicting values.
+      for (const column of columns) {
+        nextValue: for (const value of column) {
+          for (const row of value.provenance) {
+            let forResultSet = valuesByResultSet.get(row.resultSet);
+            if (forResultSet == null) {
+              forResultSet = new Map();
+              valuesByResultSet.set(row.resultSet, forResultSet);
+            }
+
+            const existingValue = forResultSet.get(row.row);
+            if (existingValue != null && existingValue != value.value) {
+              forResultSet.set(row.row, poison);
+              markRowAsCompleted(row.resultSet, row.row);
+              continue nextValue;
+            } else {
+              forResultSet.set(row.row, value.value);
+            }
+          }
+        }
+      }
+
+      function shouldSkipValue(value: ParameterValueWithRow): boolean {
+        for (const { resultSet, row } of value.provenance) {
+          const ignoredRowIds = completedRows.get(resultSet);
+          if (ignoredRowIds?.has(row)) return true;
+
+          const valuesForResultSet = valuesByResultSet.get(resultSet);
+          if (valuesForResultSet == null) continue;
+
+          if (valuesForResultSet.get(row) != value.value) return true;
+        }
+
+        return false;
+      }
+
+      let intersection: Map<SqliteParameterValue, VirtualSourceRow[][]> | null = null;
+      for (const column of columns) {
         if (intersection == null) {
           intersection = new Map();
-          for (const { value, provenance } of evaluated) {
-            intersection.set(value, provenance);
+
+          for (const value of column) {
+            if (shouldSkipValue(value)) continue;
+
+            const existing = intersection.get(value.value);
+            if (existing != null) {
+              existing.push(value.provenance);
+            } else {
+              intersection.set(value.value, [value.provenance]);
+            }
+
+            for (const { resultSet, row } of value.provenance) {
+              // Any other value derived from this row must have the same value (otherwise we would have eliminated it).
+              // So we don't have to consider this row again.
+              markRowAsCompleted(resultSet, row);
+            }
           }
         } else {
           const unmatchedValues = new Set(intersection.keys());
 
-          for (const { value, provenance } of evaluated) {
-            const existing = intersection.get(value);
+          for (const value of column) {
+            const existing = intersection.get(value.value);
             if (existing == null) {
               // Value not in intersection, ignore.
             } else {
-              unmatchedValues.delete(value);
+              unmatchedValues.delete(value.value);
 
-              // An intersection value is derived from all inputs, so we track them all as provenance.
-              existing.push(...provenance);
+              if (!shouldSkipValue(value)) {
+                // An intersection value is derived from all inputs, so we track them all as provenance.
+                existing.push(value.provenance);
+              }
             }
           }
 
@@ -335,7 +415,11 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
 
       let values: ParameterValueWithRow[] = [];
       if (intersection) {
-        intersection.forEach((provenance, value) => values.push({ value, provenance }));
+        intersection.forEach((provenances, value) => {
+          for (const provenance of provenances) {
+            values.push({ value, provenance });
+          }
+        });
       }
 
       parent[index] = { type: 'cached', values };
