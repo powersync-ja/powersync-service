@@ -44,7 +44,7 @@
     "@powersync/service-module-mongodb-storage": "workspace:*",
     "@powersync/service-module-postgres-storage": "workspace:*",
     "@convex-dev/auth": "^0.0.92",
-    "convex": "^1.37.0",
+    "convex": "^1.38.0",
     "dotenv": "^16.4.5"
   }
 }

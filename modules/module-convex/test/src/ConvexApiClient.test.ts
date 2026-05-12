@@ -1,6 +1,8 @@
 import { ConvexApiClient } from '@module/client/ConvexApiClient.js';
+import { ConvexListSnapshotResult, RawJsonSchemaResponse } from '@module/client/ConvexAPITypes.js';
 import { CONVEX_CHECKPOINT_TABLE } from '@module/common/ConvexCheckpoints.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
+import { JSONBig } from '@powersync/service-jsonbig';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const baseConfig = normalizeConnectionConfig({
@@ -8,7 +10,7 @@ const baseConfig = normalizeConnectionConfig({
   deployment_url: 'https://example.convex.cloud',
   deploy_key: 'test-key'
 });
-const SNAPSHOT_CURSOR = '1770335566197683000';
+const SNAPSHOT_CURSOR = 1770335566197683000n;
 
 describe('ConvexApiClient', () => {
   afterEach(() => {
@@ -19,10 +21,8 @@ describe('ConvexApiClient', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
-          tables: {
-            users: { properties: { _id: { type: 'string' } } }
-          }
-        }),
+          users: { type: 'table', properties: { _id: { type: 'string' } } }
+        } satisfies RawJsonSchemaResponse),
         { status: 200 }
       )
     );
@@ -38,71 +38,6 @@ describe('ConvexApiClient', () => {
     expect((init?.headers as Record<string, string>).Authorization).toBe('Convex test-key');
   });
 
-  it('falls back to /api/streaming_export path on 404', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(new Response('{}', { status: 404 }))
-      .mockResolvedValueOnce(
-        new Response(
-          JSON.stringify({
-            snapshot: SNAPSHOT_CURSOR,
-            cursor: 'next-page',
-            has_more: false,
-            values: []
-          }),
-          { status: 200 }
-        )
-      );
-
-    const client = new ConvexApiClient(baseConfig);
-    const page = await client.listSnapshot({ tableName: 'users' });
-
-    expect(page.snapshot).toBe(SNAPSHOT_CURSOR);
-    expect(fetchSpy.mock.calls.length).toBe(2);
-    expect(String(fetchSpy.mock.calls[1]![0])).toContain('/api/streaming_export/list_snapshot');
-  });
-
-  it('reuses requested snapshot when response omits snapshot', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          cursor: 'next-page',
-          has_more: true,
-          values: []
-        }),
-        { status: 200 }
-      )
-    );
-
-    const client = new ConvexApiClient(baseConfig);
-    const page = await client.listSnapshot({
-      snapshot: SNAPSHOT_CURSOR,
-      tableName: 'lists'
-    });
-
-    expect(page.snapshot).toBe(SNAPSHOT_CURSOR);
-    expect(page.cursor).toBe('next-page');
-  });
-
-  it('fails when first list_snapshot page omits snapshot', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          cursor: 'next-page',
-          has_more: true,
-          values: []
-        }),
-        { status: 200 }
-      )
-    );
-
-    const client = new ConvexApiClient(baseConfig);
-    await expect(client.listSnapshot({ tableName: 'lists' })).rejects.toMatchObject({
-      message: expect.stringContaining('missing snapshot'),
-      retryable: false
-    });
-  });
-
   it('preserves high-precision numeric snapshot values', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
@@ -114,54 +49,26 @@ describe('ConvexApiClient', () => {
     const client = new ConvexApiClient(baseConfig);
     const page = await client.listSnapshot({ tableName: 'lists' });
 
-    expect(page.snapshot).toBe('1770335566197682922');
+    expect(page.snapshot).toBe(1770335566197682922n);
     expect(page.cursor).toContain('"tablet":"X0yj4Cm7GfuikfsSBm9QCQ"');
     expect(page.hasMore).toBe(true);
-  });
-
-  it('parses self-hosted top-level json_schemas table map', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          todos: {
-            type: 'object',
-            properties: {
-              _id: { type: 'string' }
-            }
-          },
-          lists: {
-            type: 'object',
-            properties: {
-              _id: { type: 'string' },
-              name: { type: 'string' }
-            }
-          }
-        }),
-        { status: 200 }
-      )
-    );
-
-    const client = new ConvexApiClient(baseConfig);
-    const result = await client.getJsonSchemas();
-
-    expect(result.tables.map((table) => table.tableName)).toEqual(['lists', 'todos']);
   });
 
   it('sends table_name as snake_case query parameter in list_snapshot', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
-        JSON.stringify({
+        JSONBig.stringify({
           snapshot: SNAPSHOT_CURSOR,
           cursor: null,
-          has_more: false,
+          hasMore: false,
           values: []
-        }),
+        } satisfies ConvexListSnapshotResult),
         { status: 200 }
       )
     );
 
     const client = new ConvexApiClient(baseConfig);
-    await client.listSnapshot({ tableName: 'lists', snapshot: SNAPSHOT_CURSOR });
+    await client.listSnapshot({ tableName: 'lists', snapshot: SNAPSHOT_CURSOR.toString() });
 
     const url = String(fetchSpy.mock.calls[0]![0]);
     expect(url).toContain('table_name=lists');

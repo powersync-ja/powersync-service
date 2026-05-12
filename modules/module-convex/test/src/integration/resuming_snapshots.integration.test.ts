@@ -54,6 +54,8 @@ async function testResumingReplication(
       name: `list-${index}`
     }))
   });
+  // Delay to avoid TooManyWrites error from Convex
+  await new Promise((r) => setTimeout(r, 1_000));
 
   // create a single row to track deleted items
   const deletableListId = randomUUID();
@@ -82,6 +84,8 @@ async function testResumingReplication(
       description: `todo-${index}`
     }))
   });
+  // Delay to avoid TooManyWrites error from Convex
+  await new Promise((r) => setTimeout(r, 1_000));
   // twice in order to get many todos (see limits above)
   await backend.client.mutation(backend.api.todos.createBatch, {
     todos: Array.from({ length: 2_000 }).map((_, index) => ({
@@ -90,6 +94,8 @@ async function testResumingReplication(
       description: `todo-${index}`
     }))
   });
+  // Delay to avoid TooManyWrites error from Convex
+  await new Promise((r) => setTimeout(r, 1_000));
 
   let stopped = new Promise<void>((resolve) => {
     context.storage!.registerListener({

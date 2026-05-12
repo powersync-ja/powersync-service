@@ -1,3 +1,4 @@
+import { ConvexDocumentDeltasResult, ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
 import { toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSnapshotProgresCursor.js';
 import { ConvexStream } from '@module/replication/ConvexStream.js';
@@ -6,12 +7,12 @@ import { TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { describe, expect, it, vi } from 'vitest';
 
-const CURSOR_100 = '1772817606884944100';
-const CURSOR_101 = '1772817606884944101';
-const CURSOR_102 = '1772817606884944102';
-const CURSOR_200 = '1772817606884944200';
-const CURSOR_300 = '1772817606884944300';
-const CURSOR_301 = '1772817606884944301';
+const CURSOR_100 = 1772817606884944100n;
+const CURSOR_101 = 1772817606884944101n;
+const CURSOR_102 = 1772817606884944102n;
+const CURSOR_200 = 1772817606884944200n;
+const CURSOR_300 = 1772817606884944300n;
+const CURSOR_301 = 1772817606884944301n;
 
 function createFakeStorage(options?: {
   snapshotDone?: boolean;
@@ -459,18 +460,21 @@ describe('ConvexStream', () => {
         connectionId: '1',
         config: { pollingIntervalMs: 1 },
         client: {
-          getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: {} }],
-            raw: {}
-          }),
-          documentDeltas: async () => ({
-            cursor: CURSOR_102,
-            hasMore: false,
-            values: [
-              { _table: 'users', _id: 'u1', _ts: BigInt(CURSOR_102), name: 'Later' },
-              { _table: 'users', _id: 'u2', _ts: BigInt(CURSOR_101), name: 'Earlier' }
-            ]
-          })
+          getJsonSchemas: async () => {
+            return {
+              tables: [{ tableName: 'users', schema: {} }]
+            } satisfies ConvexJsonSchemasResult;
+          },
+          documentDeltas: async () => {
+            return {
+              cursor: CURSOR_102,
+              hasMore: false,
+              values: [
+                { _table: 'users', _id: 'u1', _ts: BigInt(CURSOR_102), name: 'Later' },
+                { _table: 'users', _id: 'u2', _ts: BigInt(CURSOR_101), name: 'Earlier' }
+              ]
+            } satisfies ConvexDocumentDeltasResult;
+          }
         }
       } as any
     });
@@ -532,7 +536,7 @@ describe('ConvexStream', () => {
     expect(listSnapshot).toHaveBeenCalledTimes(1);
     expect(listSnapshot).toHaveBeenCalledWith({
       tableName: 'projects_archive',
-      snapshot: CURSOR_101,
+      snapshot: CURSOR_101.toString(),
       cursor: undefined,
       signal: abortController.signal
     });

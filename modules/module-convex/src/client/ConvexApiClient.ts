@@ -1,6 +1,5 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { setTimeout as delay } from 'timers/promises';
-import * as t from 'ts-codec';
 import { CONVEX_CHECKPOINT_TABLE } from '../common/ConvexCheckpoints.js';
 import { NormalizedConvexConnectionConfig } from '../types/types.js';
 import {
@@ -11,19 +10,10 @@ import {
   ConvexListSnapshotResult,
   ensureConvexDocumentDeltasResult,
   ensureConvexListSnapshotResult,
-  ensureResponseFormatValidator
+  ensureRawJsonSchemaResponse
 } from './ConvexAPITypes.js';
 
 const CONVEX_REQUEST_TIMEOUT_MS = 60_000;
-
-const RawJsonSchemaResponse = t.record(
-  t.object({
-    type: t.string,
-    properties: t.record(t.any)
-  })
-);
-
-const ensureRawJsonSchemaResponse = ensureResponseFormatValidator(RawJsonSchemaResponse);
 
 type GetRequestParams = {
   path: string;

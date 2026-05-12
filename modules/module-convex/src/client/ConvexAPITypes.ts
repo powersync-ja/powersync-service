@@ -83,6 +83,17 @@ export interface ConvexDocumentDeltasOptions {
   signal?: AbortSignal;
 }
 
+export const RawJsonSchemaResponse = t.record(
+  t.object({
+    type: t.string,
+    properties: t.record(t.any)
+  })
+);
+
+export type RawJsonSchemaResponse = t.Encoded<typeof RawJsonSchemaResponse>;
+
+export const ensureRawJsonSchemaResponse = ensureResponseFormatValidator(RawJsonSchemaResponse);
+
 /**
  * Performs a validation which ensures the input data matches the codec specification.
  */
