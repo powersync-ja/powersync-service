@@ -35,6 +35,7 @@
     "@powersync/service-jsonbig": "workspace:*",
     "@powersync/service-sync-rules": "workspace:*",
     "@powersync/service-types": "workspace:*",
+    "ajv": "^8.18.0",
     "bson": "^6.10.4",
     "ts-codec": "^1.3.0"
   },

@@ -19,12 +19,8 @@ import {
 import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { setTimeout as delay } from 'timers/promises';
-import {
-  ConvexListSnapshotResult,
-  ConvexRawDocument,
-  ConvexTableSchema,
-  isCursorExpiredError
-} from '../client/ConvexApiClient.js';
+import { ConvexListSnapshotResult, ConvexRawDocument, ConvexTableSchema } from '../client/ConvexAPITypes.js';
+import { isCursorExpiredError } from '../client/ConvexApiClient.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { lsnToDate, parseConvexLsn, toConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
 import { extractProperties, toSqliteInputRow } from '../common/convex-to-sqlite.js';
@@ -155,13 +151,13 @@ export class ConvexStream {
     // Resolve source tables up-front to warm table metadata and sync-rule matching.
     await this.resolveAllSourceTables(batch);
 
-    let cursor = parseConvexLsn(resumeFromLsn);
+    let cursor = BigInt(resumeFromLsn);
     let lastTransactionTimestamp: bigint | null = null;
 
     while (!this.abortSignal.aborted) {
       const page = await this.connections.client
         .documentDeltas({
-          cursor,
+          cursor: cursor.toString(),
           signal: this.abortSignal
         })
         .catch((error) => {
@@ -210,7 +206,7 @@ export class ConvexStream {
         }
         lastTransactionTimestamp = transactionTimestamp;
 
-        const table = await this.getOrResolveTable(batch, tableName, nextCursor, snapshottedTablesInPage);
+        const table = await this.getOrResolveTable(batch, tableName, nextCursor.toString(), snapshottedTablesInPage);
         if (table == null || !table.syncAny) {
           continue;
         }
@@ -401,7 +397,7 @@ export class ConvexStream {
           throw error;
         });
 
-      if (snapshotCursor != page.snapshot) {
+      if (snapshotCursor != page.snapshot.toString()) {
         throw new ReplicationAssertionError(
           `Convex snapshot cursor changed while snapshotting ${table.qualifiedName}: ${snapshotCursor} -> ${page.snapshot}`
         );

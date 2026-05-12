@@ -1,55 +1,37 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { setTimeout as delay } from 'timers/promises';
+import * as t from 'ts-codec';
 import { CONVEX_CHECKPOINT_TABLE } from '../common/ConvexCheckpoints.js';
 import { NormalizedConvexConnectionConfig } from '../types/types.js';
+import {
+  ConvexDocumentDeltasOptions,
+  ConvexDocumentDeltasResult,
+  ConvexJsonSchemasResult,
+  ConvexListSnapshotOptions,
+  ConvexListSnapshotResult,
+  ensureConvexDocumentDeltasResult,
+  ensureConvexListSnapshotResult,
+  ensureResponseFormatValidator
+} from './ConvexAPITypes.js';
 
 const CONVEX_REQUEST_TIMEOUT_MS = 60_000;
 
-export interface ConvexRawDocument {
-  _id?: string;
-  _table?: string;
-  _deleted?: boolean;
-  [key: string]: any;
-}
+const RawJsonSchemaResponse = t.record(
+  t.object({
+    type: t.string,
+    properties: t.record(t.any)
+  })
+);
 
-export interface ConvexDocumentDelta extends ConvexRawDocument {
-  _ts: bigint;
-}
+const ensureRawJsonSchemaResponse = ensureResponseFormatValidator(RawJsonSchemaResponse);
 
-export interface ConvexTableSchema {
-  tableName: string;
-  schema: Record<string, any>;
-}
-
-export interface ConvexJsonSchemasResult {
-  tables: ConvexTableSchema[];
-  raw: Record<string, any>;
-}
-
-export interface ConvexListSnapshotOptions {
-  snapshot?: string;
-  cursor?: string;
-  tableName?: string;
+type GetRequestParams = {
+  path: string;
+  params?: Record<string, unknown>;
   signal?: AbortSignal;
-}
-
-export interface ConvexListSnapshotResult {
-  snapshot: string;
-  cursor: string | null;
-  hasMore: boolean;
-  values: ConvexRawDocument[];
-}
-
-export interface ConvexDocumentDeltasOptions {
-  cursor?: string;
-  signal?: AbortSignal;
-}
-
-export interface ConvexDocumentDeltasResult {
-  cursor: string;
-  hasMore: boolean;
-  values: ConvexDocumentDelta[];
-}
+  extraHeaders?: Record<string, string>;
+  includeJsonFormat?: boolean;
+};
 
 export class ConvexApiError extends Error {
   readonly status?: number;
@@ -69,65 +51,55 @@ export class ConvexApiClient {
   constructor(private readonly config: NormalizedConvexConnectionConfig) {}
 
   async getJsonSchemas(options?: { signal?: AbortSignal }): Promise<ConvexJsonSchemasResult> {
-    const payload = await this.requestJson({
-      endpoint: 'json_schemas',
-      signal: options?.signal,
-      allowStreamingFallback: true
-    });
-
+    const raw = await this.performTypedGetRequest(
+      {
+        path: '/api/json_schemas',
+        signal: options?.signal
+      },
+      ensureRawJsonSchemaResponse
+    );
+    // Convex returns this as a map of {[tableName]: JSONSchema} for tables
     return {
-      tables: extractTableSchemas(payload),
-      raw: payload
+      tables: Object.entries(raw).map(([tableName, schema]) => ({
+        tableName,
+        schema
+      }))
     };
   }
 
   async listSnapshot(options: ConvexListSnapshotOptions): Promise<ConvexListSnapshotResult> {
-    const payload = await this.requestJson({
-      endpoint: 'list_snapshot',
-      params: {
-        snapshot: options.snapshot,
-        cursor: options.cursor,
-        //TODO: NB: test this against cloud. Seems to be `tableName` in the docs, but `table_name` when self-hosting.
-        table_name: options.tableName
+    return await this.performTypedGetRequest(
+      {
+        path: '/api/list_snapshot',
+        params: {
+          snapshot: options.snapshot,
+          cursor: options.cursor,
+          table_name: options.tableName
+        },
+        signal: options.signal
       },
-      signal: options.signal,
-      allowStreamingFallback: true
-    });
-
-    const values = parseValues(payload);
-    const snapshot = parseSnapshot(payload, options.snapshot);
-    const cursor = payload.cursor == null ? null : stringifyCursor(payload.cursor);
-
-    return {
-      snapshot,
-      cursor,
-      hasMore: parseHasMore(payload),
-      values
-    };
+      ensureConvexListSnapshotResult
+    );
   }
 
   async documentDeltas(options: ConvexDocumentDeltasOptions): Promise<ConvexDocumentDeltasResult> {
-    const payload = await this.requestJson({
-      endpoint: 'document_deltas',
-      params: {
-        cursor: options.cursor
+    return await this.performTypedGetRequest(
+      {
+        path: '/api/document_deltas',
+        params: {
+          cursor: options.cursor
+        },
+        signal: options.signal
       },
-      signal: options.signal,
-      allowStreamingFallback: true
-    });
-
-    return {
-      cursor: stringifyCursor(payload.cursor),
-      hasMore: parseHasMore(payload),
-      values: parseValues(payload) as ConvexDocumentDelta[]
-    };
+      ensureConvexDocumentDeltasResult
+    );
   }
 
   async getGlobalSnapshotCursor(options?: { signal?: AbortSignal }): Promise<string> {
     const page = await this.listSnapshot({
       signal: options?.signal
     });
-    return page.snapshot;
+    return page.snapshot.toString();
   }
 
   async getHeadCursor(options?: { signal?: AbortSignal }): Promise<string> {
@@ -139,7 +111,7 @@ export class ConvexApiClient {
 
     await this.performRequest({
       method: 'POST',
-      path: '/api/mutation',
+      url: new URL('/api/mutation', this.config.deployment_url),
       body: {
         path: `${CONVEX_CHECKPOINT_TABLE}:createCheckpoint`,
         args: {},
@@ -148,65 +120,61 @@ export class ConvexApiClient {
       signal: options?.signal,
       extraHeaders: {
         'Content-Type': 'application/json'
-      },
-      includeJsonFormat: false
+      }
     });
   }
 
-  private async requestJson(options: {
-    endpoint: string;
-    params?: Record<string, unknown>;
-    signal?: AbortSignal;
-    allowStreamingFallback?: boolean;
-  }): Promise<Record<string, any>> {
-    await this.assertHostAllowed();
+  private async performGetRequest(options: GetRequestParams) {
+    const { path, params = {}, signal, extraHeaders, includeJsonFormat } = options;
 
-    const primaryPath = `/api/${options.endpoint}`;
-    const fallbackPath = `/api/streaming_export/${options.endpoint}`;
-
-    try {
-      return await this.performRequest({
-        path: primaryPath,
-        params: options.params,
-        signal: options.signal
-      });
-    } catch (error) {
-      if (
-        options.allowStreamingFallback &&
-        error instanceof ConvexApiError &&
-        error.status == 404 &&
-        primaryPath != fallbackPath
-      ) {
-        return await this.performRequest({
-          path: fallbackPath,
-          params: options.params,
-          signal: options.signal
-        });
-      }
-      throw error;
-    }
-  }
-
-  private async performRequest(options: {
-    method?: 'GET' | 'POST';
-    path: string;
-    params?: Record<string, unknown>;
-    body?: unknown;
-    signal?: AbortSignal;
-    extraHeaders?: Record<string, string>;
-    includeJsonFormat?: boolean;
-  }): Promise<Record<string, any>> {
-    const url = new URL(options.path, this.config.deployment_url);
-    if (options.includeJsonFormat ?? true) {
+    // `params` are mapped to url search params for GET requests
+    const url = new URL(path, this.config.deployment_url);
+    if (includeJsonFormat ?? true) {
       url.searchParams.set('format', 'json');
     }
 
-    for (const [key, value] of Object.entries(options.params ?? {})) {
+    for (const [key, value] of Object.entries(params)) {
       if (value == null) {
         continue;
       }
       url.searchParams.set(key, `${value}`);
     }
+
+    return this.performRequest({
+      method: 'GET',
+      url,
+      extraHeaders,
+      signal
+    });
+  }
+
+  private async performTypedGetRequest<ResponseType>(
+    options: GetRequestParams,
+    validator: (data: unknown) => ResponseType
+  ) {
+    const rawResponse = await this.performGetRequest(options);
+    try {
+      return validator(rawResponse);
+    } catch (ex) {
+      throw new ConvexApiError({
+        message: `Failed to validate Convex API request response format`,
+        retryable: false,
+        cause: ex
+      });
+    }
+  }
+
+  /**
+   * Performs a request which expects a JSON response
+   */
+  private async performRequest(options: {
+    method: 'GET' | 'POST';
+    url: URL;
+    body?: unknown;
+    signal?: AbortSignal;
+    extraHeaders?: Record<string, string>;
+  }): Promise<Record<string, any>> {
+    const { method, url, body, extraHeaders = {}, signal: requestSignal } = options;
 
     const timeout = new AbortController();
     const timeoutPromise = delay(CONVEX_REQUEST_TIMEOUT_MS, undefined, {
@@ -216,26 +184,31 @@ export class ConvexApiClient {
     });
 
     const signals = [timeout.signal];
-    if (options.signal) {
-      signals.push(options.signal);
+    if (requestSignal) {
+      signals.push(requestSignal);
     }
 
     const signal = AbortSignal.any(signals);
 
     try {
       const response = await fetch(url, {
-        method: options.method ?? 'GET',
+        method,
         headers: {
           Authorization: `Convex ${this.config.deploy_key}`,
           Accept: 'application/json',
-          ...(options.extraHeaders ?? {})
+          ...extraHeaders
         },
-        body: options.body == null ? undefined : JSON.stringify(options.body),
+        body: body == null ? undefined : JSON.stringify(options.body),
         signal
       });
 
       const text = await response.text();
-      const json = text == '' ? {} : safeParseJson(text);
+      let json: unknown;
+      try {
+        json = JSONBig.parse(text);
+      } catch (ex) {
+        // The response could not be json, this should only happen for !ok responses.
+      }
 
       if (!response.ok) {
         const retryable = response.status == 429 || response.status >= 500;
@@ -317,154 +290,6 @@ export function isCursorExpiredError(error: unknown): boolean {
   );
 }
 
-function parseHasMore(payload: Record<string, any>): boolean {
-  return Boolean(payload.has_more ?? payload.hasMore ?? false);
-}
-
-function parseValues(payload: Record<string, any>): ConvexRawDocument[] {
-  const values = payload.values ?? payload.page ?? [];
-  if (!Array.isArray(values)) {
-    return [];
-  }
-
-  return values.filter((value) => isRecord(value)) as ConvexRawDocument[];
-}
-
-function extractTableSchemas(payload: Record<string, any>): ConvexTableSchema[] {
-  const resolved = new Map<string, ConvexTableSchema>();
-
-  const tableList = payload.tables;
-  if (Array.isArray(tableList)) {
-    for (const table of tableList) {
-      if (!isRecord(table)) {
-        continue;
-      }
-      const tableName = table.tableName ?? table.table_name ?? table.name;
-      if (typeof tableName != 'string' || tableName.length == 0) {
-        continue;
-      }
-      resolved.set(tableName, {
-        tableName,
-        schema: isRecord(table.schema) ? table.schema : {}
-      });
-    }
-  } else if (isRecord(tableList)) {
-    for (const [tableName, schema] of Object.entries(tableList)) {
-      resolved.set(tableName, {
-        tableName,
-        schema: isRecord(schema) ? schema : {}
-      });
-    }
-  }
-
-  const schemaMap = payload.schema;
-  if (isRecord(schemaMap)) {
-    for (const [tableName, schema] of Object.entries(schemaMap)) {
-      if (!resolved.has(tableName)) {
-        resolved.set(tableName, {
-          tableName,
-          schema: isRecord(schema) ? schema : {}
-        });
-      }
-    }
-  }
-
-  // Self-hosted Convex may return table schemas as the top-level object:
-  // { "table_a": { ...json schema... }, "table_b": { ...json schema... } }.
-  for (const [tableName, schema] of Object.entries(payload)) {
-    if (resolved.has(tableName) || RESERVED_SCHEMA_KEYS.has(tableName)) {
-      continue;
-    }
-
-    if (!looksLikeJsonSchema(schema)) {
-      continue;
-    }
-
-    resolved.set(tableName, {
-      tableName,
-      schema: isRecord(schema) ? schema : {}
-    });
-  }
-
-  return [...resolved.values()].sort((a, b) => a.tableName.localeCompare(b.tableName));
-}
-
-function stringifyCursor(value: unknown): string {
-  if (typeof value == 'string') {
-    if (value.length == 0) {
-      throw new ConvexApiError({
-        message: 'Convex cursor cannot be empty',
-        retryable: false,
-        body: value
-      });
-    }
-    return value;
-  }
-
-  if (typeof value == 'number' || typeof value == 'bigint') {
-    return `${value}`;
-  }
-
-  throw new ConvexApiError({
-    message: `Convex cursor is missing or invalid: ${JSON.stringify(value)}`,
-    retryable: false,
-    body: value
-  });
-}
-
-function parseSnapshot(payload: Record<string, any>, requestedSnapshot?: string): string {
-  const responseSnapshot = payload.snapshot ?? payload.snapshot_ts ?? payload.snapshotTs;
-  if (responseSnapshot != null) {
-    return stringifyCursor(responseSnapshot);
-  }
-
-  if (requestedSnapshot != null && requestedSnapshot.length > 0) {
-    return requestedSnapshot;
-  }
-
-  throw new ConvexApiError({
-    message: 'Convex list_snapshot response is missing snapshot',
-    retryable: false,
-    body: payload
-  });
-}
-
-function safeParseJson(value: string): unknown {
-  try {
-    return JSONBig.parse(value);
-  } catch {
-    return { raw: value };
-  }
-}
-
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value == 'object' && value != null && !Array.isArray(value);
-}
-
-const RESERVED_SCHEMA_KEYS = new Set([
-  'tables',
-  'schema',
-  'snapshot',
-  'cursor',
-  'values',
-  'value',
-  'page',
-  'hasMore',
-  'has_more',
-  'error',
-  'errors'
-]);
-
-function looksLikeJsonSchema(value: unknown): boolean {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.type == 'string' ||
-    typeof value.$schema == 'string' ||
-    Array.isArray(value.required) ||
-    isRecord(value.properties) ||
-    isRecord(value.schema)
-  );
 }

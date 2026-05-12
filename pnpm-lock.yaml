@@ -213,6 +213,9 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
+      ajv:
+        specifier: ^8.18.0
+        version: 8.18.0
       bson:
         specifier: ^6.10.4
         version: 6.10.4
@@ -857,7 +860,7 @@ importers:
         version: 3.1.14
       ts-node:
         specifier: ^10.9.2
-        version: 10.9.2(@types/node@22.16.2)(typescript@6.0.3)
+        version: 10.9.2(@types/node@25.5.0)(typescript@6.0.3)
 
   test-client:
     dependencies:
@@ -7490,14 +7493,14 @@ snapshots:
 
   ts-codec@1.3.0: {}
 
-  ts-node@10.9.2(@types/node@22.16.2)(typescript@6.0.3):
+  ts-node@10.9.2(@types/node@25.5.0)(typescript@6.0.3):
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       '@tsconfig/node10': 1.0.12
       '@tsconfig/node12': 1.0.11
       '@tsconfig/node14': 1.0.3
       '@tsconfig/node16': 1.0.4
-      '@types/node': 22.16.2
+      '@types/node': 25.5.0
       acorn: 8.15.0
       acorn-walk: 8.3.5
       arg: 4.1.3

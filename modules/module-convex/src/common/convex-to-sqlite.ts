@@ -6,7 +6,7 @@ import {
   SqliteInputRow,
   toSyncRulesRow
 } from '@powersync/service-sync-rules';
-import { ConvexRawDocument } from '../client/ConvexApiClient.js';
+import { ConvexRawDocument } from '../client/ConvexAPITypes.js';
 
 /**
  * From Convex docs:

@@ -4,7 +4,7 @@ export const BufferNodeType: ajv.KeywordDefinition = {
   keyword: 'nodeType',
   metaSchema: {
     type: 'string',
-    enum: ['buffer', 'date']
+    enum: ['bigint', 'buffer', 'date']
   },
   error: {
     message: ({ schemaCode }) => {
@@ -13,6 +13,9 @@ export const BufferNodeType: ajv.KeywordDefinition = {
   },
   code(context) {
     switch (context.schema) {
+      case 'bigint': {
+        return context.fail(ajv._`typeof ${context.data} != 'bigint'`);
+      }
       case 'buffer': {
         return context.fail(ajv._`!Buffer.isBuffer(${context.data})`);
       }
