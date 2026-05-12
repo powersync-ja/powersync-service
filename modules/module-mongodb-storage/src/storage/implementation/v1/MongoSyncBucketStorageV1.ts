@@ -202,71 +202,56 @@ export async function getParameterSetsV1(
 ): Promise<ParameterLookupRows[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
-    const parameterIndexCollection = ctx.db.parameterIndexV1;
     const lookupFilter = lookups.map((lookup) => {
       return storage.serializeLookup(lookup);
     });
 
-    function pipelineForLookup(lookup: ScopedParameterLookup, index: number) {
-      const filter = storage.serializeLookup(lookup);
-      return parameterIndexCollection.aggregate<{ index: number; bucket_parameters: SqliteJsonRow[] }>([
-        {
-          $match: {
-            'key.g': ctx.group_id,
-            lookup: { $eq: filter },
-            _id: { $lte: checkpoint.checkpoint }
-          }
-        },
-        {
-          $sort: {
-            _id: -1
-          }
-        },
-        {
-          $group: {
-            _id: { key: '$key', lookup: '$lookup' },
-            bucket_parameters: {
-              $first: '$bucket_parameters'
-            }
-          }
-        },
-        {
-          $project: {
-            _id: 0,
-            bucket_parameters: 1,
-            index: { $literal: index }
-          }
-        }
-      ]);
-    }
-
-    const [firstLookup, ...remainingLookups] = lookups;
-    const firstQuery = firstLookup == null ? null : pipelineForLookup(firstLookup, 0);
-    if (firstQuery == null) {
-      return [];
-    }
-
-    const pipeline: mongo.Document[] = [
-      ...firstQuery.pipeline,
-      ...remainingLookups.map((lookup, indexInRemaining) => {
-        const query = pipelineForLookup(lookup, indexInRemaining + 1);
-        return {
-          $unionWith: {
-            coll: parameterIndexCollection.collectionName,
-            pipeline: query.pipeline
-          }
-        };
-      }),
-      { $unwind: '$bucket_parameters' },
-      { $limit: limit + 1 }
-    ];
-
     const rows = await ctx.db.parameterIndexV1
-      .aggregate<{ index: number; bucket_parameters: SqliteJsonRow }>(pipeline, {
-        session,
-        readConcern: 'snapshot',
-        maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
-      })
+      .aggregate<{ lookup: number; bucket_parameters: SqliteJsonRow }>(
+        [
+          {
+            $match: {
+              'key.g': ctx.group_id,
+              lookup: { $in: lookupFilter },
+              _id: { $lte: checkpoint.checkpoint }
+            }
+          },
+          {
+            $set: {
+              index: { $indexOfArray: [lookupFilter, '$lookup'] }
+            }
+          },
+          {
+            $sort: {
+              _id: -1
+            }
+          },
+          {
+            $group: {
+              _id: { key: '$key', lookup: '$index' },
+              bucket_parameters: {
+                $first: '$bucket_parameters'
+              }
+            }
+          },
+          {
+            $project: {
+              _id: false,
+              lookup: '$_id.lookup',
+              bucket_parameters: true
+            }
+          },
+          { $unwind: '$bucket_parameters' },
+          {
+            $limit: limit + 1
+          }
+        ],
+        {
+          session,
+          readConcern: 'snapshot',
+          maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
+        }
+      )
       .toArray()
       .catch((e) => {
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
@@ -276,7 +261,7 @@ export async function getParameterSetsV1(
       throw new ParameterSetLimitExceededError(limit);
     }
 
-    const byLookup = Map.groupBy(rows, (row) => lookups[row.index]);
+    const byLookup = Map.groupBy(rows, (row) => lookups[row.lookup]);
     const results: ParameterLookupRows[] = [];
     byLookup.forEach((value, lookup) => results.push({ lookup, rows: value.map((r) => r.bucket_parameters) }));
     return results;
