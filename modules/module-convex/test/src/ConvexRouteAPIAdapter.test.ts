@@ -1,4 +1,5 @@
 import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
+import { ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
 import { toConvexLsn } from '@module/common/ConvexLSN.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
 import { ExpressionType, SqlSyncRules } from '@powersync/service-sync-rules';
@@ -21,21 +22,22 @@ function createAdapter() {
   });
 
   (adapter as any).connectionManager.client = {
-    getJsonSchemas: async () => ({
-      tables: [
-        {
-          tableName: 'users',
-          schema: {
-            properties: {
-              _id: { type: 'string' },
-              age: { type: 'integer' },
-              avatar: { type: 'bytes' }
+    getJsonSchemas: async () => {
+      return {
+        tables: [
+          {
+            tableName: 'users',
+            schema: {
+              properties: {
+                _id: { type: 'string' },
+                age: { type: 'integer' },
+                avatar: { type: 'bytes' }
+              }
             }
           }
-        }
-      ],
-      raw: {}
-    }),
+        ]
+      } satisfies ConvexJsonSchemasResult;
+    },
     getHeadCursor: async () => HEAD_CURSOR,
     createWriteCheckpointMarker: async () => undefined
   };

@@ -12,7 +12,6 @@ import { StorageDataHelpers } from './StorageDataHelpers.js';
 import { bucketRequest } from './general-utils.js';
 import { fromAsync } from './stream_utils.js';
 
-// TODO: Might want to share this with other replication module tests
 export abstract class AbstractStreamTestContext implements AsyncDisposable {
   protected abortController = new AbortController();
   protected syncRulesContent?: storage.PersistedSyncRulesContent;
