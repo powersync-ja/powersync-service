@@ -23,14 +23,19 @@ export class ConvexStreamTestContext extends AbstractStreamTestContext {
    */
   static async open(
     factory: (options: storage.TestStorageOptions) => Promise<BucketStorageFactory>,
-    options?: { doNotClear?: boolean; storageVersion?: number; streamOptions?: Partial<ConvexStreamOptions> }
+    options?: {
+      doNotClear?: boolean;
+      storageVersion?: number;
+      streamOptions?: Partial<ConvexStreamOptions>;
+      clearSource?: boolean;
+    }
   ) {
     const f = await factory({ doNotClear: options?.doNotClear });
     const connectionManager = new ConvexConnectionManager(TEST_CONNECTION_OPTIONS);
 
     const convexBackend = connectConvex();
 
-    if (!options?.doNotClear) {
+    if (options?.clearSource ?? !options?.doNotClear) {
       await clearTestDb(convexBackend);
     }
 
