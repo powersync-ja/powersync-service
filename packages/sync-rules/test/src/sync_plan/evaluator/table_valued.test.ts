@@ -2,9 +2,9 @@ import { describe, expect } from 'vitest';
 import {
   deserializeSyncPlan,
   ImplicitSchemaTablePattern,
+  ParameterLookupRows,
   ScopedParameterLookup,
   serializeSyncPlan,
-  SqliteJsonRow,
   StreamDataSource,
   TableProcessorTableValuedFunction
 } from '../../../../src/index.js';
@@ -76,10 +76,10 @@ streams:
     });
 
     const buckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
         expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat'])]);
 
-        return [{ '0': 'user' }, { '0': 'another' }];
+        return [{ lookup: lookups[0], rows: [{ '0': 'user' }, { '0': 'another' }] }];
       }
     });
 

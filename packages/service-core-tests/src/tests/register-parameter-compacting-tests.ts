@@ -45,7 +45,7 @@ bucket_definitions:
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup], 1000);
-    expect(parameters1).toEqual([{ id: 't1' }]);
+    expect(parameters1).toEqual([{ lookup, rows: [{ id: 't1' }] }]);
 
     await writer.save({
       sourceTable: testTable,
@@ -79,7 +79,7 @@ bucket_definitions:
     // Check consistency
     const parameters1b = await checkpoint1.getParameterSets([lookup], 1000);
     const parameters2b = await checkpoint2.getParameterSets([lookup], 1000);
-    expect(parameters1b).toEqual([{ id: 't1' }]);
+    expect(parameters1b).toEqual([{ lookup, rows: [{ id: 't1' }] }]);
     expect(parameters2b).toEqual([]);
 
     // Check storage size

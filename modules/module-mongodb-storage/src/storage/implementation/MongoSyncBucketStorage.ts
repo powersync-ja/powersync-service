@@ -22,7 +22,7 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -362,13 +362,13 @@ export abstract class MongoSyncBucketStorage
     checkpoint: MongoReplicationCheckpoint,
     lookups: ScopedParameterLookup[],
     limit: number
-  ): Promise<SqliteJsonRow[]>;
+  ): Promise<ParameterLookupRows[]>;
 
   async getParameterSets(
     checkpoint: MongoReplicationCheckpoint,
     lookups: ScopedParameterLookup[],
     limit: number
-  ): Promise<SqliteJsonRow[]> {
+  ): Promise<ParameterLookupRows[]> {
     return this.getParameterSetsImpl(checkpoint, lookups, limit);
   }
 
@@ -783,7 +783,7 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     this.#storage = storage;
   }
 
-  async getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<SqliteJsonRow[]> {
+  async getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<ParameterLookupRows[]> {
     return this.#storage.getParameterSets(this, lookups, limit);
   }
 }
@@ -792,7 +792,7 @@ class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
   readonly checkpoint: InternalOpId = 0n;
   readonly lsn: string | null = null;
 
-  async getParameterSets(_lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(_lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
     return [];
   }
 }
