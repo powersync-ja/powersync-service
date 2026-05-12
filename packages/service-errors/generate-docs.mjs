@@ -101,9 +101,9 @@ function generateMarkdownDocs(filePath) {
   // We'll do a simple format, e.g.:
   // # ErrorCode Documentation
   //
-  // ## PSYNC_Rxxxx: Sync rules issues
+  // ## PSYNC_Rxxxx: Sync config issues
   // - **PSYNC_R0001**
-  //   Catch-all sync rules parsing error, if no more specific error is available
+  //   Catch-all sync config parsing error, if no more specific error is available
   //
   // ## PSYNC_Sxxxx: Service issues
   // - **PSYNC_S0001**

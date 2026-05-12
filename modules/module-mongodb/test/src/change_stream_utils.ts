@@ -9,7 +9,6 @@ import {
   ProtocolOpId,
   ReplicationCheckpoint,
   storage,
-  STORAGE_VERSION_CONFIG,
   SyncRulesBucketStorage,
   TestStorageOptions,
   updateSyncRulesFromYaml,
@@ -28,7 +27,6 @@ export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private streamPromise?: Promise<PromiseSettledResult<void>>;
-  private syncRulesId?: number;
   private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
 
@@ -55,17 +53,15 @@ export class ChangeStreamTestContext {
     }
 
     const storageVersion = options?.storageVersion ?? LEGACY_STORAGE_VERSION;
-    const versionedBuckets = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false;
 
-    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion, versionedBuckets);
+    return new ChangeStreamTestContext(f, connectionManager, options?.streamOptions, storageVersion);
   }
 
   constructor(
     public factory: BucketStorageFactory,
     public connectionManager: MongoManager,
     private streamOptions: Partial<ChangeStreamOptions> = {},
-    private storageVersion: number = LEGACY_STORAGE_VERSION,
-    private versionedBuckets: boolean = STORAGE_VERSION_CONFIG[storageVersion]?.versionedBuckets ?? false
+    private storageVersion: number = LEGACY_STORAGE_VERSION
   ) {
     createCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
     initializeCoreReplicationMetrics(METRICS_HELPER.metricsEngine);
@@ -105,7 +101,6 @@ export class ChangeStreamTestContext {
     const syncRules = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesId = syncRules.id;
     this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
@@ -114,10 +109,9 @@ export class ChangeStreamTestContext {
   async loadNextSyncRules() {
     const syncRules = await this.factory.getNextSyncRulesContent();
     if (syncRules == null) {
-      throw new Error(`Next sync rules not available`);
+      throw new Error(`Next sync config not available`);
     }
 
-    this.syncRulesId = syncRules.id;
     this.syncRulesContent = syncRules;
     this.storage = this.factory.getInstance(syncRules);
     return this.storage!;
@@ -125,7 +119,7 @@ export class ChangeStreamTestContext {
 
   private getSyncRulesContent(): storage.PersistedSyncRulesContent {
     if (this.syncRulesContent == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
+      throw new Error('Sync config not configured - call updateSyncRules() first');
     }
     return this.syncRulesContent;
   }

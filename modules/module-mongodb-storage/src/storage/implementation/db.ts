@@ -195,7 +195,7 @@ export class PowerSyncMongo {
   }
 
   /**
-   * Call this after every checkpoint or sync rules status update. Rather call too often than too rarely.
+   * Call this after every checkpoint or replication stream status update. Rather call too often than too rarely.
    *
    * This is used in a similar way to the Postgres NOTIFY functionality.
    */

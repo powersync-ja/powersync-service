@@ -232,6 +232,115 @@ streams:
     ]);
   });
 
+  syncTest('multiple inputs for parameter row', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  chat:
+    query: |
+      SELECT messages.*
+      FROM messages
+      JOIN conversations ON conversations.id = messages.conversation
+      JOIN json_each(conversations.members) AS members
+      WHERE auth.user_id() = members.value
+`);
+
+    // This generates multiple parameter lookups (one for each member) with a single output (the conversation id). A
+    // querier would use the connecting user's id to find bucket parameters.
+    const conversations = new TestSourceTable('conversations');
+    expect(
+      desc.evaluateParameterRow(conversations, { id: 'c', members: JSON.stringify(['a', 'b', 'c']) })
+    ).toStrictEqual(
+      ['a', 'b', 'c'].map((id) => ({
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), [id]),
+        bucketParameters: [
+          {
+            '0': 'c'
+          }
+        ]
+      }))
+    );
+  });
+
+  syncTest('multiple outputs for parameter row', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  chat:
+    accept_potentially_dangerous_queries: true
+    query: |
+      SELECT users.*
+      FROM users
+      JOIN conversations
+      JOIN json_each(conversations.members) AS members
+      WHERE users.id = members.value
+        AND conversations.id = subscription.parameter('chat')
+`);
+
+    // On the other hand, this must generate a single lookup with multiple outputs. The chat is the input as part of
+    // the key, and we output one parameter for each member.
+    const conversations = new TestSourceTable('conversations');
+    expect(
+      desc.evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['a', 'b', 'c']) })
+    ).toStrictEqual([
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
+        bucketParameters: [
+          {
+            '0': 'a'
+          },
+          {
+            '0': 'b'
+          },
+          {
+            '0': 'c'
+          }
+        ]
+      }
+    ]);
+  });
+
+  syncTest('multiple inputs and outputs for parameter row', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  chat:
+    query: |
+      SELECT a.*
+      FROM a, b, json_each(b.x) x, json_each(b.y) y
+      WHERE a.x = x.value AND y.value = auth.user_id()
+`);
+
+    const outputs = desc.evaluateParameterRow(new TestSourceTable('b'), { x: '[1,2]', y: '["a", "b"]' });
+    expect(outputs).toStrictEqual([
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['a']),
+        bucketParameters: [
+          {
+            '0': 1
+          },
+          {
+            '0': 2
+          }
+        ]
+      },
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['b']),
+        bucketParameters: [
+          {
+            '0': 1
+          },
+          {
+            '0': 2
+          }
+        ]
+      }
+    ]);
+  });
+
   syncTest('skips null and binary values', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:

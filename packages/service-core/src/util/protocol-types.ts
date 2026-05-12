@@ -77,7 +77,7 @@ export const StreamingSyncRequest = t.object({
   raw_data: t.boolean.optional(),
 
   /**
-   * Client parameters to be passed to the sync rules.
+   * Client parameters to be passed to the sync config.
    */
   parameters: t.record(t.any).optional(),
 

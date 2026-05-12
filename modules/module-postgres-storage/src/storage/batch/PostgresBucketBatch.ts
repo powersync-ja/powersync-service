@@ -52,7 +52,7 @@ export interface PostgresBucketBatchOptions {
 }
 
 /**
- * Intermediate type which helps for only watching the active sync rules
+ * Intermediate type which helps for only watching the active replication stream
  * via the Postgres NOTIFY protocol.
  */
 const StatefulCheckpoint = models.ActiveCheckpoint.and(t.object({ state: t.Enum(storage.SyncRuleState) }));
@@ -1054,7 +1054,7 @@ export class PostgresBucketBatch
       }
     });
     if (didActivate) {
-      this.logger.info(`Activated new sync rules at ${lsn}`);
+      this.logger.info(`Activated new replication stream at ${lsn}`);
     }
   }
 

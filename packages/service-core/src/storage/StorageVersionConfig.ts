@@ -45,7 +45,7 @@ export const STORAGE_VERSION_3 = 3;
 export const LEGACY_STORAGE_VERSION = STORAGE_VERSION_1;
 
 /**
- * Default storage version for newly persisted sync rules.
+ * Default storage version for newly persisted replication streams.
  */
 export const CURRENT_STORAGE_VERSION = STORAGE_VERSION_2;
 

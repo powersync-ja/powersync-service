@@ -137,7 +137,7 @@ export class BaseJwtPayload implements RequestJwtPayload {
   /**
    * sub, converted to a SQLite-compatible value (number | string | bigint | null).
    *
-   * This is the value used for sync rules and in logs.
+   * This is the value used for sync config and in logs.
    */
   public readonly userIdJson: SqliteJsonValue;
 

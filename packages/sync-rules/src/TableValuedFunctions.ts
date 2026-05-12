@@ -24,6 +24,7 @@ function jsonEachImplementation(fixedJsonBehavior: boolean): TableValuedFunction
       }
       let values: SqliteJsonValue[] = [];
       try {
+        // FIXME: This should use JsonBig to parse integers as bigints.
         values = JSON.parse(valueString);
       } catch (e) {
         throw new Error('Expected JSON string');

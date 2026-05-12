@@ -1,5 +1,5 @@
 import * as lib_postgres from '@powersync/lib-service-postgres';
-import { ErrorCode, logger, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { models } from '../../types/types.js';
 
@@ -31,17 +31,14 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
     });
     const lockHandle = await manager.acquire();
     if (!lockHandle) {
-      throw new ServiceError(
-        ErrorCode.PSYNC_S1003,
-        `Sync rules: ${this.id} have been locked by another process for replication.`
-      );
+      throw new ServiceError(ErrorCode.PSYNC_S1003, `Replication stream is locked by another process, standing by.`);
     }
 
     const interval = setInterval(async () => {
       try {
         await lockHandle.refresh();
       } catch (e) {
-        logger.error('Failed to refresh lock', e);
+        this.logger.error('Failed to refresh lock', e);
         clearInterval(interval);
       }
     }, 30_130);

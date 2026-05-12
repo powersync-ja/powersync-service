@@ -8,7 +8,7 @@ import { RouteAPI, SlotWalBudgetInfo } from './RouteAPI.js';
 
 export interface DiagnosticsOptions {
   /**
-   * Include sync rules content in response.
+   * Include sync config content in response.
    */
   include_content?: boolean;
 
@@ -169,7 +169,7 @@ export async function getSyncRulesStatus(
   }
 
   if (live_status && status?.active) {
-    // Check replication lag for active sync rules.
+    // Check replication lag for active replication stream.
     // Right now we exclude mysql, since it we don't have consistent keepalives for it.
     if (sync_rules.last_checkpoint_ts == null && sync_rules.last_keepalive_ts == null) {
       errors.push({

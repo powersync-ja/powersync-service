@@ -5,6 +5,7 @@ import {
   ScopedParameterLookup,
   SqliteJsonRow
 } from '@powersync/service-sync-rules';
+import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
@@ -14,7 +15,7 @@ import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 /**
- * Storage for a specific copy of sync rules.
+ * Storage for a specific replication stream.
  */
 export interface SyncRulesBucketStorage
   extends ObserverClient<SyncRulesBucketStorageListener>,
@@ -23,6 +24,7 @@ export interface SyncRulesBucketStorage
   readonly slot_name: string;
 
   readonly factory: BucketStorageFactory;
+  readonly logger: Logger;
 
   /**
    * Resolve a table, keeping track of it internally.
@@ -47,11 +49,11 @@ export interface SyncRulesBucketStorage
   getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
 
   /**
-   * Terminate the sync rules.
+   * Terminate the replication stream.
    *
    * This clears the storage, and sets state to TERMINATED.
    *
-   * Must only be called on stopped sync rules.
+   * Must only be called on stopped replication streams.
    */
   terminate(options?: TerminateOptions): Promise<void>;
 
@@ -98,7 +100,7 @@ export interface SyncRulesBucketStorage
   /**
    * Yields the latest user write checkpoint whenever the sync checkpoint updates.
    *
-   * The stream stops or errors if this is not the active sync rules (anymore).
+   * The stream stops or errors if this is not the active sync config (anymore).
    */
   watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<StorageCheckpointUpdate>;
 
@@ -196,6 +198,8 @@ export interface CreateWriterOptions extends ParseSyncRulesOptions {
    */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 
+  tracer?: PerformanceTracer<'storage' | 'evaluate'>;
+
   logger?: Logger;
 }
 
@@ -265,6 +269,8 @@ export interface CompactOptions {
   compactParameterCacheLimit?: number;
 
   signal?: AbortSignal;
+
+  logger?: Logger;
 }
 
 export interface PopulateChecksumCacheOptions {
@@ -320,8 +326,41 @@ export interface ReplicationCheckpoint {
    * Used to resolve "dynamic" parameter queries.
    *
    * This gets parameter sets specific to this checkpoint.
+   *
+   * @throws {@link ParameterSetLimitExceededError}
+   * Thrown if resolved lookups in bucket storage exceed the `limit` parameter.
    */
-  getParameterSets(lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]>;
+  getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<SqliteJsonRow[]>;
+}
+
+/**
+ * An exception thrown by {@link ReplicationCheckpoint} implementations if there are too many parameter results.
+ *
+ * This is not a suitable exception to show to users, `BucketParameterState` adds additional context.
+ */
+export class ParameterSetLimitExceededError extends Error {
+  constructor(
+    readonly limit: number,
+    readonly breakdown?: ParameterQueryInvocationLog[]
+  ) {
+    super(`Too many parameter results (limit was ${limit})`);
+  }
+}
+
+export interface ParameterQueryInvocationLog {
+  /**
+   * The definition for which a parameter query was invoked.
+   *
+   * The exact format of definition is unspecified, it's shown to users to help them debug this failure.
+   */
+  definition: string;
+  /**
+   * If {@link didExceedLimit} is false, the amount of rows returned by the invocation.
+   *
+   * Otherwise, the maximum amount of rows this invocation was allowed to return.
+   */
+  resultsOrLimit: number;
+  didExceedLimit: boolean;
 }
 
 export interface WatchWriteCheckpointOptions {

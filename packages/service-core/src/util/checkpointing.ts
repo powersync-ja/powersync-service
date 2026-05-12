@@ -13,7 +13,7 @@ export async function createWriteCheckpoint(options: CreateWriteCheckpointOption
 
   const syncBucketStorage = await options.storage.getActiveStorage();
   if (!syncBucketStorage) {
-    throw new ServiceError(ErrorCode.PSYNC_S2302, `Cannot create Write Checkpoint since no sync rules are active.`);
+    throw new ServiceError(ErrorCode.PSYNC_S2302, `Cannot create Write Checkpoint since no sync config is active.`);
   }
 
   const { writeCheckpoint, currentCheckpoint } = await options.api.createReplicationHead(async (currentCheckpoint) => {

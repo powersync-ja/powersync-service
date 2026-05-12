@@ -139,7 +139,7 @@ export class BinLogStream {
     // Snapshot if:
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not done yet, AND:
-    // 3. The table is used in sync rules.
+    // 3. The table is used in sync config.
     const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
 
     if (shouldSnapshot) {
@@ -291,7 +291,7 @@ export class BinLogStream {
     }
 
     if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
       await this.storage.populatePersistentChecksumCache({
         // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
@@ -504,7 +504,7 @@ export class BinLogStream {
         await batch.drop([fromTable]);
         this.tableCache.delete(fromTableId);
       }
-      // The new table matched a table in the sync rules
+      // The new table matched a table in the sync config
       if (change.newTable) {
         await this.handleCreateOrUpdateTable(batch, change.newTable!, change.schema);
       }
@@ -577,7 +577,7 @@ export class BinLogStream {
 
     let table = this.tableCache.get(tableId);
     if (table == null) {
-      // This is an insert for a new table that matches a table in the sync rules
+      // This is an insert for a new table that matches a table in the sync config
       // We need to create the table in the storage and cache it.
       table = await this.handleCreateOrUpdateTable(batch, msg.tableEntry.tableName, msg.tableEntry.parentSchema);
     }
