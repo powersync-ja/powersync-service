@@ -1,5 +1,5 @@
 import { ParsingErrorListener } from './compiler.js';
-import { PreparedSubquery } from './sqlite.js';
+import { CommonTableExpression, PreparedSubquery } from './sqlite.js';
 import { SyntacticResultSetSource } from './table.js';
 
 /**
@@ -10,7 +10,7 @@ import { SyntacticResultSetSource } from './table.js';
 export class SqlScope {
   readonly parent?: SqlScope;
   private readonly nameToResultSet = new Map<string, SyntacticResultSetSource>();
-  private readonly commonTableExpressions = new Map<string, PreparedSubquery>();
+  private readonly commonTableExpressions = new Map<string, CommonTableExpression>();
 
   constructor(options: { parent?: SqlScope }) {
     this.parent = options.parent;
@@ -52,14 +52,15 @@ export class SqlScope {
     return this.nameToResultSet.get(name.toLowerCase()) ?? this.parent?.resolveResultSetForReference(name);
   }
 
-  registerCommonTableExpression(name: string, subquery: PreparedSubquery) {
+  registerCommonTableExpression(name: string, subquery: CommonTableExpression) {
     this.commonTableExpressions.set(name.toLowerCase(), subquery);
   }
 
   resolveCommonTableExpression(name: string): PreparedSubquery | null {
     const inThisScope = this.commonTableExpressions.get(name.toLowerCase());
     if (inThisScope) {
-      return inThisScope;
+      inThisScope.used = true;
+      return inThisScope.subquery;
     }
 
     return this.parent ? this.parent.resolveCommonTableExpression(name) : null;
