@@ -330,7 +330,8 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
       // Eliminate rows with conflicting values.
       for (const column of columns) {
         nextValue: for (const value of column) {
-          for (const row of value.provenance) {
+          const row = value.directOrigin;
+          if (row) {
             let forResultSet = valuesByResultSet.get(row.resultSet);
             if (forResultSet == null) {
               forResultSet = new Map();
@@ -350,12 +351,14 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
       }
 
       function shouldSkipValue(value: ParameterValueWithRow): boolean {
-        for (const { resultSet, row } of value.provenance) {
+        if (value.directOrigin) {
+          const { resultSet, row } = value.directOrigin;
+
           const ignoredRowIds = completedRows.get(resultSet);
           if (ignoredRowIds?.has(row)) return true;
 
           const valuesForResultSet = valuesByResultSet.get(resultSet);
-          if (valuesForResultSet == null) continue;
+          if (valuesForResultSet == null) return false;
 
           if (valuesForResultSet.get(row) != value.value) return true;
         }
@@ -455,8 +458,9 @@ class PartialInstantiator<I extends PartialInstantiationInput = PartialInstantia
       // We can evaluate this table-valued function already.
       const resultSetMarker = Symbol();
       const values = lookup.read(this.input.request).map((values, rowid) => {
-        const provenance: [VirtualSourceRow] = [{ resultSet: resultSetMarker, row: rowid }];
-        return values.map((value) => ({ value, provenance }) satisfies ParameterValueWithRow);
+        const directOrigin: VirtualSourceRow = { resultSet: resultSetMarker, row: rowid };
+        const provenance: [VirtualSourceRow] = [directOrigin];
+        return values.map((value) => ({ value, provenance, directOrigin }) satisfies ParameterValueWithRow);
       });
 
       this.evaluators.lookupStages[stage][index] = { type: 'cached', values };
@@ -514,12 +518,15 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
 
           for (let i = 0; i < length; i++) {
             const value = row[i.toString()] as SqliteParameterValue;
+            const directOrigin = length > 1 ? { resultSet: symbol, row: rowid } : undefined;
+
             asArray.push({
               value,
               // Note: Not tracking provenance for parameters with just a single output is purely a performance
               // optimization. If there's just a single value, we don't need to correlate it with other columns in the
               // row. Not adding provenance saves some work in mergeValueCombinations.
-              provenance: length > 1 ? [...origin, { resultSet: symbol, row: rowid }] : origin
+              provenance: directOrigin != null ? [...origin, directOrigin] : origin,
+              directOrigin
             });
           }
           return asArray;
@@ -587,6 +594,8 @@ interface ParameterValueWithRow {
    *     provenance elements of row `a` here.
    */
   provenance: VirtualSourceRow[];
+  // If set, must be contained in provenance
+  directOrigin?: VirtualSourceRow;
 }
 
 interface VirtualSourceRow {
@@ -658,26 +667,24 @@ function* filterParameterRows(rows: SqliteValue[][]): Generator<SqliteParameterV
 function* mergeValueCombinations(valuesByParameter: ParameterValueWithRow[][]): Generator<ParameterValueWithRow[]> {
   // Partial backtracking results, the current instantiation is fixed for 0..nextParameter in generateCombinations.
   const partialResults = new Array(valuesByParameter.length);
-  // A map from result sets to roows used in the partial instantiation.
+  // A map from result sets to rows used in the partial instantiation.
   const usedRows = new Map<symbol, number>();
 
   function installRowIfNoConflict(value: ParameterValueWithRow): [boolean, symbol[]] {
     const addedResultSets: symbol[] = [];
 
     for (const origin of value.provenance) {
-      if (origin != null) {
-        const { resultSet, row } = origin;
-        const existingRow = usedRows.get(resultSet);
-        if (existingRow === undefined) {
-          addedResultSets.push(resultSet);
-          usedRows.set(resultSet, row);
-        } else if (existingRow == row) {
-          continue;
-        } else {
-          // The current instantiation already constains a value from the same result set but derived from a different
-          // row. So we must ignore this parameter value.
-          return [false, addedResultSets];
-        }
+      const { resultSet, row } = origin;
+      const existingRow = usedRows.get(resultSet);
+      if (existingRow === undefined) {
+        addedResultSets.push(resultSet);
+        usedRows.set(resultSet, row);
+      } else if (existingRow == row) {
+        continue;
+      } else {
+        // The current instantiation already contains a value from the same result set but derived from a different
+        // row. So we must ignore this parameter value.
+        return [false, addedResultSets];
       }
     }
 
