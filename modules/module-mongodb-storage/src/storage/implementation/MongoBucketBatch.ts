@@ -29,7 +29,7 @@ import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PersistedBatch } from './common/PersistedBatch.js';
 import { LoadedSourceRecord, SourceRecordStore } from './common/SourceRecordStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import { CurrentBucket, SyncRuleDocument } from './models.js';
+import { SyncRuleDocument } from './models.js';
 import { MAX_ROW_SIZE } from './MongoBucketBatchShared.js';
 import { MongoIdSequence } from './MongoIdSequence.js';
 import { batchCreateCustomWriteCheckpoints } from './MongoWriteCheckpointAPI.js';
@@ -944,7 +944,7 @@ export abstract class MongoBucketBatch
       return null;
     }
 
-    this.logger.debug(`Saving ${record.tag}:${formatSaveReplicaIds(record)}`);
+    this.logger.debug(`Saving ${record.tag}:${record.before?.id}/${record.after?.id}`);
 
     this.batch ??= new OperationBatch();
     this.batch.push(new RecordOperation(record));
@@ -1172,40 +1172,5 @@ export abstract class MongoBucketBatch
     return this.sync_rules.eventDescriptors.filter((evt) =>
       [...evt.getSourceTables()].some((sourceTable) => sourceTable.matches(table))
     );
-  }
-}
-
-export function currentBucketKey(b: CurrentBucket) {
-  return `${b.bucket}/${b.table}/${b.id}`;
-}
-
-function formatReplicaId(value: unknown): string {
-  if (value == null) {
-    return '-';
-  }
-
-  if (typeof value == 'string' || typeof value == 'number' || typeof value == 'bigint' || typeof value == 'boolean') {
-    return `${value}`;
-  }
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return '[unserializable]';
-  }
-}
-
-function formatSaveReplicaIds(record: storage.SaveOptions): string {
-  switch (record.tag) {
-    case SaveOperationTag.INSERT:
-      return formatReplicaId(record.afterReplicaId);
-    case SaveOperationTag.DELETE:
-      return formatReplicaId(record.beforeReplicaId);
-    case SaveOperationTag.UPDATE: {
-      if (record.beforeReplicaId == null) {
-        return formatReplicaId(record.afterReplicaId);
-      }
-      return `${formatReplicaId(record.beforeReplicaId)}->${formatReplicaId(record.afterReplicaId)}`;
-    }
   }
 }

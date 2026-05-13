@@ -21,7 +21,7 @@ replication:
 
 ## Manual smoke test
 
-1. Simplest is to run the convex demo in the self-host-demo [repo](https://github.com/powersync-ja/self-host-demo)
+1. Simplest is to run the react-convex-todolist demo in the powersync-js[repo](https://github.com/powersync-ja/powersync-js)
 
 ## Development
 
@@ -119,18 +119,18 @@ The content below is written in an agents.md style describing the behavior of `m
 
 - Current runtime mapping in stream writer:
 
-| Convex Type | TS/JS Type  | SQLite type                        |
-| ----------- | ----------- | ---------------------------------- |
-| Id          | string      | text                               |
-| Null        | null        | null                               |
-| Int64       | bigint      | integer                            |
-| Float64     | number      | real                               |
-| Boolean     | boolean     | Up to developer - string or number |
-| String      | string      | text                               |
-| Bytes       | ArrayBuffer | text                               |
-| Array       | Array       | text                               |
-| Object      | Object      | text                               |
-| Record      | Record      | text                               |
+| Convex Type | TS/JS Type  | SQLite type |
+| ----------- | ----------- | ----------- |
+| Id          | string      | text        |
+| Null        | null        | null        |
+| Int64       | bigint      | integer     |
+| Float64     | number      | real        |
+| Boolean     | boolean     | integer     |
+| String      | string      | text        |
+| Bytes       | ArrayBuffer | text        |
+| Array       | Array       | text        |
+| Object      | Object      | text        |
+| Record      | Record      | text        |
 
 - Convex does not expose a native `Date` wire type; timestamps arrive as `number` or `string`.
 - BLOB values are valid row values but are not valid bucket parameter values.
