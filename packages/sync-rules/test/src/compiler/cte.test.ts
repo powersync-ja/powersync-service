@@ -138,7 +138,8 @@ streams:
     });
 
     test('local ctes take precedence', () => {
-      compileToSyncPlanWithoutErrors(`
+      const [errors] = yamlToSyncPlan(
+        `
 config:
   edition: 3
 
@@ -151,7 +152,19 @@ streams:
       owned_orgs: SELECT id AS org_id FROM orgs WHERE owner = auth.user_id()
     # This would emit an error about a missing org_id column if the global definition was used.
     query: SELECT * FROM orgs WHERE id IN (SELECT org_id FROM owned_orgs)
-`);
+`,
+        { defaultSchema: 'ignored', includeErrorSpans: true }
+      );
+
+      expect(errors).toStrictEqual([
+        {
+          message: "This common table expression isn't referenced.",
+          source: 'owned_orgs',
+          isWarning: true,
+          // The first owned_orgs (global CTE).
+          startOffset: 31
+        }
+      ]);
     });
   });
 
