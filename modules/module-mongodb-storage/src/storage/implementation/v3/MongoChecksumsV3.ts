@@ -18,16 +18,17 @@ import {
   normalizeBatch
 } from '../bucket-operations/checksum-aggregation.js';
 import { createBucketFilter } from '../bucket-operations/query-builders.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
+import { BucketDataDocumentBase } from '../models.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
-  get db(): VersionedPowerSyncMongoV3 {
-    return super.db as VersionedPowerSyncMongoV3;
+  get db(): VersionedPowerSyncMongo {
+    return super.db as VersionedPowerSyncMongo;
   }
 
   private readonly mapping: BucketDefinitionMapping;
 
-  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
+  constructor(db: VersionedPowerSyncMongo, group_id: number, options: MongoChecksumOptions) {
     super(db, group_id, options);
     this.mapping = options.mapping!;
   }
@@ -47,7 +48,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucketDataV3(this.group_id, definitionId),
+        this.db.bucketData<BucketDataDocumentBase>(this.group_id, definitionId),
         createBucketFilter
       );
       for (const checksum of groupResults.values()) {
@@ -63,14 +64,14 @@ export class MongoChecksumsV3 extends MongoChecksums {
   protected async fetchPreStates(
     batch: FetchPartialBucketChecksum[]
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
-    return fetchPreStates(normalizeBatch(batch, this.mapping), this.db.bucketStateV3(this.group_id));
+    return fetchPreStates(normalizeBatch(batch, this.mapping), this.db.bucketState(this.group_id));
   }
 
   protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
     return computePartialChecksumsInternal(
       batch,
       this.mapping,
-      (definitionId) => this.db.bucketDataV3(this.group_id, definitionId),
+      (definitionId) => this.db.bucketData<BucketDataDocumentBase>(this.group_id, definitionId),
       (batch, collection, createFilter) => this.computePartialChecksumsForCollection(batch, collection, createFilter)
     );
   }

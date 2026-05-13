@@ -4,6 +4,7 @@ import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 
 import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
+import { VersionedPowerSyncMongo as VersionedPowerSyncMongoClass } from './collection-access/versioned-collections.js';
 import { BaseVersionedPowerSyncMongo } from './common/VersionedPowerSyncMongoBase.js';
 import {
   CheckpointEventDocument,
@@ -24,7 +25,6 @@ import {
   CurrentDataDocument
 } from './v1/models.js';
 import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
-import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -78,7 +78,7 @@ export class PowerSyncMongo {
 
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
     if (storageConfig.compressedBucketStorage || storageConfig.incrementalReprocessing) {
-      return new VersionedPowerSyncMongoV3(this, storageConfig);
+      return new VersionedPowerSyncMongoClass(this, storageConfig, 'V3');
     }
 
     return new VersionedPowerSyncMongoV1(this, storageConfig);

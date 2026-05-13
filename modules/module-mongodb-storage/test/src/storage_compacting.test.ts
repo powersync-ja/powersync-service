@@ -1,4 +1,4 @@
-import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { VersionedPowerSyncMongo } from '@module/storage/implementation/collection-access/versioned-collections.js';
 import { storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import { describe, expect, test } from 'vitest';
@@ -70,7 +70,7 @@ bucket_definitions:
       if (storageDb.storageConfig.incrementalReprocessing) {
         // This should actually never happen on V3, but we test this anyway.
         // Can remove this if it causes issues in the future.
-        await (storageDb as VersionedPowerSyncMongoV3).bucketStateV3(bucketStorage.group_id).deleteMany({});
+        await (storageDb as VersionedPowerSyncMongo).bucketState(bucketStorage.group_id).deleteMany({});
       } else {
         await factory.db.bucket_state.deleteMany({});
       }
@@ -172,7 +172,9 @@ bucket_definitions:
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
       if (storageDb.storageConfig.incrementalReprocessing) {
-        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketStateV3(bucketStorage.group_id);
+        const bucketStateCollection = (storageDb as VersionedPowerSyncMongo).bucketState<
+          import('@module/storage/implementation/common/models.js').BucketStateDocument
+        >(bucketStorage.group_id);
         await bucketStateCollection.insertOne({
           _id: {
             d: '1',

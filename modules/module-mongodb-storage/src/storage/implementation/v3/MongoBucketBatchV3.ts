@@ -1,20 +1,20 @@
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
 import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
-  get db(): VersionedPowerSyncMongoV3 {
-    return super.db as VersionedPowerSyncMongoV3;
+  get db(): VersionedPowerSyncMongo {
+    return super.db as VersionedPowerSyncMongo;
   }
 
   constructor(options: MongoBucketBatchOptions) {
     super({
       ...options,
       listSourceRecordCollections: (groupId) =>
-        (options.db as VersionedPowerSyncMongoV3).listSourceRecordCollectionsV3(groupId)
+        (options.db as VersionedPowerSyncMongo).listSourceRecordCollections(groupId)
     });
   }
 
