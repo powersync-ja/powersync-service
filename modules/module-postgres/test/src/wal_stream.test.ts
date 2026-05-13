@@ -627,7 +627,7 @@ bucket_definitions:
       {
         await using context = await openContext({ doNotClear: true });
 
-        // Sync rules are still "next" (not "active") because the snapshot never completed.
+        // Replication stream is still "next" (not "active") because the snapshot never completed.
         await context.loadNextSyncRules();
 
         let caughtError: any;

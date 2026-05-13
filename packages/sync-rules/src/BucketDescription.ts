@@ -44,7 +44,7 @@ export type NonEnumerableBucketDataSource = NonEnumerableSourceClass;
 export interface BucketDescription extends NonEnumerableBucketDataSource {
   /**
    * The id of the bucket, which is derived from the name of the bucket's definition
-   * in the sync rules as well as the values returned by the parameter queries.
+   * in the sync config as well as the values returned by the parameter queries.
    */
   bucket: string;
   /**

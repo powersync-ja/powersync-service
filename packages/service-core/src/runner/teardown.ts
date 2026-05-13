@@ -35,13 +35,13 @@ export async function teardown(runnerConfig: utils.RunnerConfig) {
 }
 
 async function terminateSyncRules(storageFactory: storage.BucketStorageFactory, moduleManager: modules.ModuleManager) {
-  logger.info(`Terminating sync rules...`);
+  logger.info(`Terminating replication stream...`);
   const start = Date.now();
   const locks: storage.ReplicationLock[] = [];
   while (Date.now() - start < 120_000) {
     let retry = false;
     const replicatingSyncRules = await storageFactory.getReplicatingSyncRules();
-    // Lock all the replicating sync rules
+    // Lock all the replicating replication streams
     for (const replicatingSyncRule of replicatingSyncRules) {
       const lock = await replicatingSyncRule.lock();
       locks.push(lock);
@@ -50,10 +50,10 @@ async function terminateSyncRules(storageFactory: storage.BucketStorageFactory, 
     const stoppedSyncRules = await storageFactory.getStoppedSyncRules();
     const combinedSyncRules = [...replicatingSyncRules, ...stoppedSyncRules];
     try {
-      // Clean up any module specific configuration for the sync rules
+      // Clean up any module specific configuration for the replication stream
       await moduleManager.tearDown({ syncRules: combinedSyncRules });
 
-      // Mark the sync rules as terminated
+      // Mark the replication stream as terminated
       for (let syncRules of combinedSyncRules) {
         const syncRulesStorage = storageFactory.getInstance(syncRules);
         // The storage will be dropped at the end of the teardown, so we don't need to clear it here

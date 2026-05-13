@@ -16,9 +16,9 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
   ParameterIndexLookupCreator,
+  ParameterLookupRows,
   ScopedParameterLookup,
   SourceTableInterface,
-  SqliteJsonRow,
   SqliteRow,
   SqlSyncRules,
   TablePattern,
@@ -546,7 +546,7 @@ bucket_definitions:
     const line = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(1n, (lookups) => {
         expect(lookups).toEqual([ScopedParameterLookup.direct(lookupScope('by_project', '1'), ['u1'])]);
-        return [{ id: 1 }, { id: 2 }];
+        return [{ lookup: lookups[0], rows: [{ id: 1 }, { id: 2 }] }];
       }),
       writeCheckpoint: null,
       update: CHECKPOINT_INVALIDATE_ALL
@@ -607,7 +607,7 @@ bucket_definitions:
     const line2 = (await state.buildNextCheckpointLine({
       base: storage.makeCheckpoint(2n, (lookups) => {
         expect(lookups).toEqual([ScopedParameterLookup.direct(lookupScope('by_project', '1'), ['u1'])]);
-        return [{ id: 1 }, { id: 2 }, { id: 3 }];
+        return [{ lookup: lookups[0], rows: [{ id: 1 }, { id: 2 }, { id: 3 }] }];
       }),
       writeCheckpoint: null,
       update: {
@@ -890,7 +890,8 @@ config:
 
       const line = (await state.buildNextCheckpointLine({
         base: storage.makeCheckpoint(1n, (lookups) => {
-          return [{ id: 1 }, { id: 2 }, { id: 3 }];
+          expect(lookups).toHaveLength(1);
+          return [{ lookup: lookups[0], rows: [{ id: 1 }, { id: 2 }, { id: 3 }] }];
         }),
         writeCheckpoint: null,
         update: CHECKPOINT_INVALIDATE_ALL
@@ -969,7 +970,7 @@ streams:
             if (count > limit) {
               throw new ParameterSetLimitExceededError(limit);
             }
-            return Array.from({ length: count }, (_, i) => ({ '0': BigInt(i) }));
+            return [{ lookup: lookups[0], rows: Array.from({ length: count }, (_, i) => ({ '0': BigInt(i) })) }];
           }),
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
@@ -1000,6 +1001,71 @@ streams:
           definition: 'Stream c evaluating parameter on magic_sequence',
           didExceedLimit: true,
           resultsOrLimit: 5
+        }
+      ]);
+    });
+
+    test('throws error when too many lookups are requested at once', async () => {
+      const syncRules = SqlSyncRules.fromYaml(
+        `
+config:
+  edition: 3
+
+streams:
+  a:
+    auto_subscribe: true
+    query: SELECT * FROM a WHERE x IN (SELECT x FROM b WHERE y IN auth.parameter('p'))
+`,
+        { defaultSchema: 'public' }
+      ).config.hydrate({
+        hydrationState: versionedHydrationState(1)
+      });
+
+      const storage = new MockBucketChecksumStateStorage();
+
+      const errorData: any[] = [];
+      const mockLogger = {
+        info: () => {},
+        error: (_message: string, data: any) => {
+          errorData.push(data);
+        },
+        warn: () => {},
+        debug: () => {}
+      };
+
+      const smallContext = new SyncContext({
+        maxBuckets: 100,
+        maxParameterQueryResults: 10,
+        maxDataFetchConcurrency: 10
+      });
+
+      const state = new BucketChecksumState({
+        syncContext: smallContext,
+        tokenPayload: new JwtPayload({
+          sub: 'u1',
+          p: Array.from({ length: 100 }, (_, i) => i)
+        }),
+        syncRequest,
+        syncRules,
+        bucketStorage: storage,
+        logger: mockLogger as any
+      });
+
+      await expect(
+        state.buildNextCheckpointLine({
+          base: storage.makeCheckpoint(1n, () => {
+            throw new Error('should not get called');
+          }),
+          writeCheckpoint: null,
+          update: CHECKPOINT_INVALIDATE_ALL
+        })
+      ).rejects.toThrow('Attempted to fetch 100 lookups at once, a maximum of 10 lookups are allowed');
+
+      expect(errorData).toStrictEqual([
+        {
+          user_id: 'u1',
+          checkpoint: 1n,
+          cause: 'Stream a evaluating parameter on b'
         }
       ]);
     });
@@ -1061,18 +1127,13 @@ streams:
         logger: mockLogger as any
       });
 
-      let invokedParameterQueries = 0;
       await expect(
         state.buildNextCheckpointLine({
-          base: storage.makeCheckpoint(1n, () => {
-            invokedParameterQueries++;
-            return [{ '0': 'user' }];
-          }),
+          base: storage.makeCheckpoint(1n),
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
         })
       ).rejects.toThrow('Too many buckets: 60 (limit of 50');
-      expect(invokedParameterQueries).toStrictEqual(0);
 
       // Verify error log includes breakdown
       expect(errorMessages[0]).toContain('Buckets by definition:');
@@ -1139,9 +1200,7 @@ streams:
 
       await expect(
         state.buildNextCheckpointLine({
-          base: storage.makeCheckpoint(1n, (lookups) => {
-            return [{ '0': 'user' }];
-          }),
+          base: storage.makeCheckpoint(1n),
           writeCheckpoint: null,
           update: CHECKPOINT_INVALIDATE_ALL
         })
@@ -1191,7 +1250,7 @@ class MockBucketChecksumStateStorage implements BucketChecksumStateStorage {
 
   makeCheckpoint(
     opId: InternalOpId,
-    parameters?: (lookups: ScopedParameterLookup[], limit: number) => SqliteJsonRow[]
+    parameters?: (lookups: ScopedParameterLookup[], limit: number) => ParameterLookupRows[]
   ): ReplicationCheckpoint {
     return {
       checkpoint: opId,

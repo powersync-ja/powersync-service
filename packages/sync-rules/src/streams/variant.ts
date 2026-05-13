@@ -185,12 +185,12 @@ export class StreamVariant {
         // Evaluate subqueries
         const subqueryResults = new Map<SubqueryEvaluator, SqliteJsonValue[]>();
         for (const [subquery, lookups] of subqueryToLookups.entries()) {
-          const rows = await source.getParameterSets(
+          const results = await source.getParameterSets(
             lookups,
             `variant ${variant.id} of legacy Sync Stream ${stream.name}`
           );
           // The result column used in parameter sets is always named result, see pushParameterRowEvaluation
-          const values = rows.map((r) => r.result);
+          const values = results.flatMap(({ rows }) => rows.map((r) => r.result));
           subqueryResults.set(subquery, values);
         }
 

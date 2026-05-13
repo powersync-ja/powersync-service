@@ -77,7 +77,7 @@ export const syncStreamReactive: SocketRouteGenerator = (router) =>
           new errors.ServiceError({
             status: 500,
             code: ErrorCode.PSYNC_S2302,
-            description: 'No sync rules available'
+            description: 'No sync config available'
           })
         );
         responder.onComplete();

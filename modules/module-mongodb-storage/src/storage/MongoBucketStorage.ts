@@ -110,7 +110,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const active = await this.getActiveSyncRulesContent();
 
     if (next != null && next.id == sync_rules_group_id) {
-      // We need to redo the "next" sync rules
+      // We need to redo the "next" replication stream
       await this.updateSyncRules(next.asUpdateOptions());
       // Pro-actively stop replicating
       await this.db.sync_rules.updateOne(
@@ -122,7 +122,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       );
       await this.db.notifyCheckpoint();
     } else if (next == null && active?.id == sync_rules_group_id) {
-      // Slot removed for "active" sync rules, while there is no "next" one.
+      // Slot removed for "active" replication stream, while there is no "next" one.
       await this.updateSyncRules(active.asUpdateOptions());
 
       // In this case we keep the old one as active for clients, so that that existing clients
@@ -138,7 +138,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       );
       await this.db.notifyCheckpoint();
     } else if (next != null && active?.id == sync_rules_group_id) {
-      // Already have next sync rules, but need to stop replicating the active one.
+      // Already have next replication stream, but need to stop replicating the active one.
 
       await this.db.sync_rules.updateOne(
         {
@@ -162,7 +162,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const session = this.session;
 
     await session.withTransaction(async () => {
-      // Only have a single set of sync rules with PROCESSING.
+      // Only have a single replication stream with PROCESSING.
       await this.db.sync_rules.updateMany(
         {
           state: storage.SyncRuleState.PROCESSING

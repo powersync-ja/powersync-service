@@ -5,7 +5,6 @@ import * as bson from 'bson';
 import {
   BaseObserver,
   container,
-  logger as defaultLogger,
   ErrorCode,
   errors,
   Logger,
@@ -58,7 +57,7 @@ export interface MongoBucketBatchOptions {
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
 
-  logger?: Logger;
+  logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 }
 
@@ -117,7 +116,7 @@ export abstract class MongoBucketBatch
 
   constructor(options: MongoBucketBatchOptions) {
     super();
-    this.logger = options.logger ?? defaultLogger;
+    this.logger = options.logger;
     this.client = options.db.client;
     this.db = options.db;
     this.group_id = options.groupId;

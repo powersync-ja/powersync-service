@@ -43,12 +43,12 @@ export const deploySyncRules = routeDefinition({
     const { storageEngine } = service_context;
 
     if (service_context.configuration.sync_rules.present) {
-      // If sync rules are configured via the config, disable deploy via the API.
+      // If sync config is configured via the service config, disable deploy via the API.
       throw new errors.ServiceError({
         status: 422,
         code: ErrorCode.PSYNC_S4105,
-        description: 'Sync rules API disabled',
-        details: 'Use the management API to deploy sync rules'
+        description: 'Sync config API disabled',
+        details: 'Update sync config in the service configuration'
       });
     }
     const content = payload.params.content;
@@ -65,7 +65,7 @@ export const deploySyncRules = routeDefinition({
       throw new errors.ServiceError({
         status: 422,
         code: ErrorCode.PSYNC_R0001,
-        description: 'Sync rules parsing failed',
+        description: 'Sync config parsing failed',
         details: e.message
       });
     }
@@ -115,7 +115,7 @@ export const currentSyncRules = routeDefinition({
       throw new errors.ServiceError({
         status: 422,
         code: ErrorCode.PSYNC_S4104,
-        description: 'No active sync rules'
+        description: 'No active sync config'
       });
     }
 
@@ -162,13 +162,13 @@ export const reprocessSyncRules = routeDefinition({
       throw new errors.ServiceError({
         status: 422,
         code: ErrorCode.PSYNC_S4104,
-        description: 'No active sync rules'
+        description: 'No active sync config'
       });
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules(
       updateSyncRulesFromYaml(sync_rules.sync_rules.config.content, {
-        // These sync rules already passed validation. But if the rules are not valid anymore due
+        // This sync config already passed validation. But if the rules are not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true
       })

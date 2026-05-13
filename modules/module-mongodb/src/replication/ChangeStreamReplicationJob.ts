@@ -1,4 +1,4 @@
-import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 
 import { ChangeStream, ChangeStreamInvalidatedError } from './ChangeStream.js';
@@ -16,7 +16,7 @@ export class ChangeStreamReplicationJob extends replication.AbstractReplicationJ
     super(options);
     this.connectionFactory = options.connectionFactory;
     // We use a custom formatter to process the prefix
-    this.logger = defaultLogger.child({ prefix: `[powersync_${this.storage.group_id}] ` });
+    this.logger = options.storage.logger;
   }
 
   async cleanUp(): Promise<void> {

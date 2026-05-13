@@ -267,7 +267,7 @@ interface BucketDataRequest {
    * This signal also fires when abort_connection fires.
    */
   abort_batch: AbortSignal;
-  /** User id for debug purposes, not for sync rules. */
+  /** User id for debug purposes, not for sync config. */
   userIdForLogs?: SqliteJsonValue;
   forPriority: BucketPriority | null;
   onRowsSent: (stats: OperationsSentStats) => void;

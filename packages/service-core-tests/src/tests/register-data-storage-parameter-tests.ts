@@ -1,5 +1,11 @@
 import { CURRENT_STORAGE_VERSION, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
-import { RequestParameters, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import {
+  ParameterIndexLookupCreator,
+  RequestParameters,
+  ScopedParameterLookup,
+  SqliteJsonRow,
+  UnscopedParameterLookup
+} from '@powersync/service-sync-rules';
 import { expect, test } from 'vitest';
 import * as test_utils from '../test-utils/test-utils-index.js';
 import { bucketRequest } from '../test-utils/test-utils-index.js';
@@ -76,7 +82,7 @@ bucket_definitions:
         expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
-        expect(parameter_sets).toEqual([{ group_id: 'group1a' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ group_id: 'group1a' }] }]);
         return parameter_sets;
       }
     });
@@ -137,7 +143,7 @@ bucket_definitions:
         expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
 
         const parameter_sets = await checkpoint1.getParameterSets(lookups, 1000);
-        expect(parameter_sets).toEqual([{ group_id: 'group1' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ group_id: 'group1' }] }]);
         return parameter_sets;
       }
     });
@@ -148,7 +154,7 @@ bucket_definitions:
         expect(lookups.map((l) => l.indexKey)).toEqual([['user1']]);
 
         const parameter_sets = await checkpoint2.getParameterSets(lookups, 1000);
-        expect(parameter_sets).toEqual([{ group_id: 'group2' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ group_id: 'group2' }] }]);
         return parameter_sets;
       }
     });
@@ -226,12 +232,13 @@ bucket_definitions:
       async getParameterSets(lookups) {
         expect(lookups.map((l) => JSON.stringify(l.indexKey)).sort()).toEqual(['["list1"]', '["list2"]']);
 
-        const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
-        expect(parameter_sets.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
+        const results = await checkpoint.getParameterSets(lookups, 1000);
+        const allRows = results.flatMap(({ rows }) => rows);
+        expect(allRows.sort((a, b) => (a.todo_id as string).localeCompare(b.todo_id as string))).toEqual([
           { todo_id: 'todo1' },
           { todo_id: 'todo2' }
         ]);
-        return parameter_sets;
+        return results;
       }
     });
 
@@ -286,7 +293,11 @@ bucket_definitions:
       return await querier.queryDynamicBucketDescriptions({
         async getParameterSets(lookups) {
           const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
-          expect(parameter_sets).toEqual(expectedParameterSets);
+          if (expectedParameterSets.length == 0) {
+            expect(parameter_sets).toEqual([]);
+          } else {
+            expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: expectedParameterSets }]);
+          }
           return parameter_sets;
         }
       });
@@ -364,7 +375,7 @@ bucket_definitions:
         expect(lookups.map((l) => l.indexKey)).toEqual([[n1]]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
-        expect(parameter_sets).toEqual([{ group_id: 'group1' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ group_id: 'group1' }] }]);
         return parameter_sets;
       }
     });
@@ -416,7 +427,7 @@ bucket_definitions:
         expect(lookups.map((l) => l.indexKey)).toEqual([['u1']]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
-        expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ workspace_id: 'workspace1' }] }]);
         return parameter_sets;
       }
     });
@@ -496,8 +507,12 @@ bucket_definitions:
         expect(lookups.map((l) => l.indexKey)).toEqual([[]]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
-        parameter_sets.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-        expect(parameter_sets).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
+        expect(parameter_sets).toHaveLength(1);
+
+        const [{ lookup, rows }] = parameter_sets;
+        expect(lookup).toEqual(lookups[0]);
+        rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+        expect(rows).toEqual([{ workspace_id: 'workspace1' }, { workspace_id: 'workspace3' }]);
         return parameter_sets;
       }
     });
@@ -602,7 +617,10 @@ bucket_definitions:
         async getParameterSets(lookups) {
           foundLookups.push(...lookups);
           const output = await checkpoint.getParameterSets(lookups, 1000);
-          parameter_sets.push(...output);
+          for (const { rows } of output) {
+            parameter_sets.push(...rows);
+          }
+
           return output;
         }
       })
@@ -764,7 +782,7 @@ streams:
         expect(lookups.map((l) => l.indexKey)).toEqual([['baz']]);
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
-        expect(parameter_sets).toEqual([{ '0': 'bar' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ '0': 'bar' }] }]);
         return parameter_sets;
       }
     });
@@ -891,7 +909,7 @@ streams:
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
 
-        expect(parameter_sets).toEqual([{ '0': 'x1' }, { '0': 'x2' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ '0': 'x1' }, { '0': 'x2' }] }]);
         return parameter_sets;
       }
     });
@@ -929,7 +947,7 @@ streams:
 
         const parameter_sets = await checkpoint.getParameterSets(lookups, 1000);
 
-        expect(parameter_sets).toEqual([{ '0': 'x2' }]);
+        expect(parameter_sets).toEqual([{ lookup: lookups[0], rows: [{ '0': 'x2' }] }]);
         return parameter_sets;
       }
     });
@@ -958,5 +976,95 @@ streams:
       }
     });
     expect(buckets).toHaveLength(0);
+  });
+
+  test('can request multiple lookups at once', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(`
+config:
+  edition: 3
+streams:
+  a:
+    auto_subscribe: true
+    query: SELECT * FROM a WHERE p IN (SELECT id FROM param_a WHERE u = auth.user_id())
+  b:
+    auto_subscribe: true
+    query: SELECT * FROM b WHERE p IN (SELECT id FROM param_b WHERE u = auth.user_id())
+    `)
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const parsedSyncRules = syncRules.parsed(test_utils.PARSE_OPTIONS);
+    const hydrationState = parsedSyncRules.hydrationState;
+    const syncConfig = parsedSyncRules.sync_rules.config;
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const paramATable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config);
+    const paramBTable = await test_utils.resolveTestTable(writer, 'param_b', ['id'], config);
+    const replicaId = test_utils.rid('id');
+
+    // Insert the same row into param_a and param_b
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: paramATable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'id',
+        u: 'user'
+      },
+      afterReplicaId: replicaId
+    });
+    await writer.save({
+      sourceTable: paramBTable,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'id',
+        u: 'user'
+      },
+      afterReplicaId: replicaId
+    });
+    await writer.commit('1/1');
+
+    function findParameterOnTable(name: string): ParameterIndexLookupCreator {
+      for (const source of syncConfig.bucketParameterLookupSources) {
+        for (const param of source.getSourceTables()) {
+          if (param.name == name) return source;
+        }
+      }
+
+      throw new Error(`Expected parameter index on ${name}`);
+    }
+
+    // Run two lookups on separate parameter indexes.
+    const lookupA = ScopedParameterLookup.normalized(
+      hydrationState.getParameterIndexLookupScope(findParameterOnTable('param_a')),
+      UnscopedParameterLookup.normalized(['user'])
+    );
+    const lookupB = ScopedParameterLookup.normalized(
+      hydrationState.getParameterIndexLookupScope(findParameterOnTable('param_b')),
+      UnscopedParameterLookup.normalized(['user'])
+    );
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameterSets = await checkpoint.getParameterSets([lookupA, lookupB], 1000);
+    const expectedRow = { '0': 'id' };
+    let foundLookupA = false,
+      foundLookupB = false;
+
+    // We should get the same row on both, with information on which lookup contributed which row.
+    for (const { lookup, rows } of parameterSets) {
+      if (lookup === lookupA) {
+        foundLookupA = true;
+        expect(rows).toStrictEqual([expectedRow]);
+      } else if (lookup === lookupB) {
+        foundLookupB = true;
+        expect(rows).toStrictEqual([expectedRow]);
+      } else {
+        throw new Error('unexpected lookup in results');
+      }
+    }
+
+    expect(foundLookupA).toBeTruthy();
+    expect(foundLookupB).toBeTruthy();
   });
 }

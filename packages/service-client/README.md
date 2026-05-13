@@ -1,6 +1,6 @@
 # @powersync/service-client
 
-TypeScript client for the PowerSync instance admin API. Use it to fetch diagnostics, manage schema, validate sync rules, and reprocess sync state.
+TypeScript client for the PowerSync instance admin API. Use it to fetch diagnostics, manage schema, validate sync config, and reprocess sync state.
 
 ## Installation
 
@@ -33,7 +33,7 @@ const client = new InstanceClient({
   endpoint: 'https://[Your PowerSync URL here]'
 });
 
-// Get diagnostics, schema, validate sync rules, or reprocess
+// Get diagnostics, schema, validate sync config, or reprocess
 const diag = await client.diagnostics({ sync_rules_content: true });
 const schema = await client.getSchema({});
 const validation = await client.validate({ sync_rules: '...' });
@@ -42,11 +42,11 @@ const resp = await client.reprocess({});
 
 ## API
 
-| Method        | Description                                    |
-| ------------- | ---------------------------------------------- |
-| `diagnostics` | Get connections and sync rules health          |
-| `getSchema`   | Get the current schema (connections, tables)   |
-| `validate`    | Validate sync rules against the current schema |
-| `reprocess`   | Reprocess sync state for the instance          |
+| Method        | Description                                     |
+| ------------- | ----------------------------------------------- |
+| `diagnostics` | Get connections and sync config health          |
+| `getSchema`   | Get the current schema (connections, tables)    |
+| `validate`    | Validate sync config against the current schema |
+| `reprocess`   | Reprocess sync state for the instance           |
 
 Request and response types are exported from `@powersync/service-types` (internal routes). See the `InstanceClient` and method JSDoc in source for examples and shapes.

@@ -12,7 +12,7 @@ import { EvaluatedRow, SqliteValue } from '../types.js';
  * subtype where `toSqliteValue` returns the old or the new format depending on options.
  *
  * Instances of {@link CustomSqliteValue} are always temporary structures that aren't persisted. They are created by the
- * replicator implementations, the sync rule implementation will invoke {@link toSqliteValue} to ensure that an
+ * replicator implementations, the sync config implementation will invoke {@link toSqliteValue} to ensure that an
  * {@link EvaluatedRow} only consists of proper SQLite values.
  */
 export abstract class CustomSqliteValue {

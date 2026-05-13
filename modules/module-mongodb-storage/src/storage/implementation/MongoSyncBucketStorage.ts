@@ -3,7 +3,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import {
   BaseObserver,
   DO_NOT_LOG,
-  logger,
+  Logger,
   ReplicationAbortedError,
   ServiceAssertionError
 } from '@powersync/lib-services-framework';
@@ -21,7 +21,7 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { HydratedSyncRules, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { HydratedSyncRules, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -76,6 +76,7 @@ export abstract class MongoSyncBucketStorage
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
+  public readonly logger: Logger;
   #storageInitialized = false;
 
   constructor(
@@ -94,6 +95,7 @@ export abstract class MongoSyncBucketStorage
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
       sync_rules_id: group_id
     });
+    this.logger = sync_rules.logger;
   }
 
   /**
@@ -193,7 +195,7 @@ export abstract class MongoSyncBucketStorage
     const state = await this.getWriterSyncState();
 
     const batchOptions: MongoBucketBatchOptions = {
-      logger: options.logger,
+      logger: options.logger ?? this.logger,
       db: this.db,
       syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
       mapping: this.sync_rules.mapping,
@@ -355,13 +357,13 @@ export abstract class MongoSyncBucketStorage
     checkpoint: MongoReplicationCheckpoint,
     lookups: ScopedParameterLookup[],
     limit: number
-  ): Promise<SqliteJsonRow[]>;
+  ): Promise<ParameterLookupRows[]>;
 
   async getParameterSets(
     checkpoint: MongoReplicationCheckpoint,
     lookups: ScopedParameterLookup[],
     limit: number
-  ): Promise<SqliteJsonRow[]> {
+  ): Promise<ParameterLookupRows[]> {
     return this.getParameterSetsImpl(checkpoint, lookups, limit);
   }
 
@@ -445,8 +447,8 @@ export abstract class MongoSyncBucketStorage
       abortMessage: 'Aborted clearing data',
       retryDelayMs: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS / 5,
       onRetry: () => {
-        logger.info(
-          `${this.slot_name} Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
+        this.logger.info(
+          `Cleared batch of ${label} in ${lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS}ms, continuing...`
         );
       }
     });
@@ -473,7 +475,7 @@ export abstract class MongoSyncBucketStorage
       const checkpoint = await this.getCheckpointInternal();
       maxOpId = checkpoint?.checkpoint ?? undefined;
     }
-    await this.createMongoCompactor({ ...options, maxOpId }).compact();
+    await this.createMongoCompactor({ ...options, maxOpId, logger: this.logger }).compact();
 
     if (maxOpId != null && options?.compactParameterData) {
       await this.createMongoParameterCompactor(maxOpId, options).compact();
@@ -481,18 +483,19 @@ export abstract class MongoSyncBucketStorage
   }
 
   async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
-    logger.info(`Populating persistent checksum cache...`);
+    this.logger.info(`Populating persistent checksum cache...`);
     const start = Date.now();
     const compactor = this.createMongoCompactor({
       ...options,
-      memoryLimitMB: 0
+      memoryLimitMB: 0,
+      logger: this.logger
     });
 
     const result = await compactor.populateChecksums({
       minBucketChanges: options.minBucketChanges ?? 10
     });
     const duration = Date.now() - start;
-    logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
+    this.logger.info(`Populated persistent checksum cache in ${(duration / 1000).toFixed(1)}s`);
     return result;
   }
 
@@ -730,7 +733,7 @@ class MongoReplicationCheckpoint implements ReplicationCheckpoint {
     this.#storage = storage;
   }
 
-  async getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<SqliteJsonRow[]> {
+  async getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<ParameterLookupRows[]> {
     return this.#storage.getParameterSets(this, lookups, limit);
   }
 }
@@ -739,7 +742,7 @@ class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
   readonly checkpoint: InternalOpId = 0n;
   readonly lsn: string | null = null;
 
-  async getParameterSets(_lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+  async getParameterSets(_lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
     return [];
   }
 }

@@ -618,17 +618,31 @@ export class BucketParameterState {
       const lookupLog: storage.ParameterQueryInvocationLog[] = [];
 
       dynamicBuckets = await querier.queryDynamicBucketDescriptions({
-        async getParameterSets(lookups, definition) {
+        getParameterSets: async (lookups, definition) => {
+          if (lookups.length > parameterLimit) {
+            // Sync Streams can chain parameter lookups, so a large output from an earlier call may become the input
+            // here. We reuse the output limit as a generous upper bound; legitimate queries are much smaller.
+            const msg = `Attempted to fetch ${lookups.length} lookups at once, a maximum of ${parameterLimit} lookups are allowed.`;
+            this.logger.error(msg, {
+              user_id: this.syncParams.userId,
+              checkpoint: checkpoint.base.checkpoint,
+              cause: definition
+            });
+            throw new ServiceError(ErrorCode.PSYNC_S2305, msg);
+          }
+
           for (const lookup of lookups) {
             recordedLookups.add(lookup.serializedRepresentation);
           }
 
           try {
-            const rows = await checkpoint.base.getParameterSets(lookups, remainingBudget);
-            lookupLog.push({ definition, resultsOrLimit: rows.length, didExceedLimit: false });
-            remainingBudget -= rows.length;
-            usedParameterResults += rows.length;
-            return rows;
+            const results = await checkpoint.base.getParameterSets(lookups, remainingBudget);
+            const numRows = results.reduce((a, b) => a + b.rows.length, 0);
+
+            lookupLog.push({ definition, resultsOrLimit: numRows, didExceedLimit: false });
+            remainingBudget -= numRows;
+            usedParameterResults += numRows;
+            return results;
           } catch (e: unknown) {
             if (e instanceof ParameterSetLimitExceededError) {
               lookupLog.push({ definition, resultsOrLimit: remainingBudget, didExceedLimit: true });

@@ -2,8 +2,8 @@ import { Logger, ObserverClient } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   HydratedSyncRules,
-  ScopedParameterLookup,
-  SqliteJsonRow
+  ParameterLookupRows,
+  ScopedParameterLookup
 } from '@powersync/service-sync-rules';
 import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
@@ -15,7 +15,7 @@ import { SourceTable } from './SourceTable.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 /**
- * Storage for a specific copy of sync rules.
+ * Storage for a specific replication stream.
  */
 export interface SyncRulesBucketStorage
   extends ObserverClient<SyncRulesBucketStorageListener>,
@@ -24,6 +24,7 @@ export interface SyncRulesBucketStorage
   readonly slot_name: string;
 
   readonly factory: BucketStorageFactory;
+  readonly logger: Logger;
 
   /**
    * Resolve a table, keeping track of it internally.
@@ -48,11 +49,11 @@ export interface SyncRulesBucketStorage
   getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
 
   /**
-   * Terminate the sync rules.
+   * Terminate the replication stream.
    *
    * This clears the storage, and sets state to TERMINATED.
    *
-   * Must only be called on stopped sync rules.
+   * Must only be called on stopped replication streams.
    */
   terminate(options?: TerminateOptions): Promise<void>;
 
@@ -99,7 +100,7 @@ export interface SyncRulesBucketStorage
   /**
    * Yields the latest user write checkpoint whenever the sync checkpoint updates.
    *
-   * The stream stops or errors if this is not the active sync rules (anymore).
+   * The stream stops or errors if this is not the active sync config (anymore).
    */
   watchCheckpointChanges(options: WatchWriteCheckpointOptions): AsyncIterable<StorageCheckpointUpdate>;
 
@@ -268,6 +269,8 @@ export interface CompactOptions {
   compactParameterCacheLimit?: number;
 
   signal?: AbortSignal;
+
+  logger?: Logger;
 }
 
 export interface PopulateChecksumCacheOptions {
@@ -327,7 +330,7 @@ export interface ReplicationCheckpoint {
    * @throws {@link ParameterSetLimitExceededError}
    * Thrown if resolved lookups in bucket storage exceed the `limit` parameter.
    */
-  getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<SqliteJsonRow[]>;
+  getParameterSets(lookups: ScopedParameterLookup[], limit: number): Promise<ParameterLookupRows[]>;
 }
 
 /**

@@ -13,7 +13,7 @@ import {
   utils
 } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -292,7 +292,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     checkpoint: MongoSyncBucketStorageCheckpoint,
     lookups: ScopedParameterLookup[],
     limit: number
-  ): Promise<SqliteJsonRow[]> {
+  ): Promise<ParameterLookupRows[]> {
     return getParameterSetsV3(this.versionContext, checkpoint, lookups, limit);
   }
 
@@ -364,12 +364,13 @@ export async function getParameterSetsV3(
   checkpoint: MongoSyncBucketStorageCheckpoint,
   lookups: ScopedParameterLookup[],
   limit: number
-): Promise<SqliteJsonRow[]> {
+): Promise<ParameterLookupRows[]> {
   return ctx.db.client.withSession({ snapshot: true }, async (session) => {
     setSessionSnapshotTime(session, checkpoint.snapshotTime);
 
     const buildLookupPipeline = (
-      lookup: ScopedParameterLookup
+      lookup: ScopedParameterLookup,
+      index: number
     ): {
       collection: mongo.Collection<BucketParameterDocumentV3>;
       pipeline: mongo.Document[];
@@ -406,7 +407,8 @@ export async function getParameterSetsV3(
           {
             $project: {
               _id: 0,
-              bucket_parameters: 1
+              bucket_parameters: 1,
+              index: { $literal: index }
             }
           }
         ]
@@ -414,15 +416,15 @@ export async function getParameterSetsV3(
     };
 
     const [firstLookup, ...remainingLookups] = lookups;
-    const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup);
+    const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup, 0);
     if (firstQuery == null) {
       return [];
     }
 
     const pipeline: mongo.Document[] = [
       ...firstQuery.pipeline,
-      ...remainingLookups.map((lookup) => {
-        const query = buildLookupPipeline(lookup);
+      ...remainingLookups.map((lookup, indexInRemaining) => {
+        const query = buildLookupPipeline(lookup, indexInRemaining + 1);
         return {
           $unionWith: {
             coll: query.collection.collectionName,
@@ -435,7 +437,7 @@ export async function getParameterSetsV3(
     ];
 
     const rows = await firstQuery.collection
-      .aggregate<{ bucket_parameters: SqliteJsonRow }>(pipeline, {
+      .aggregate<{ index: number; bucket_parameters: SqliteJsonRow }>(pipeline, {
         session,
         readConcern: 'snapshot',
         maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
@@ -445,12 +447,15 @@ export async function getParameterSetsV3(
         throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
       });
 
-    const expandedRows = rows.map((row) => row.bucket_parameters);
-    if (expandedRows.length > limit) {
+    if (rows.length > limit) {
       throw new ParameterSetLimitExceededError(limit);
     }
 
-    return expandedRows;
+    const byLookup = Map.groupBy(rows, (row) => lookups[row.index]);
+
+    const results: ParameterLookupRows[] = [];
+    byLookup.forEach((value, lookup) => results.push({ lookup, rows: value.map((r) => r.bucket_parameters) }));
+    return results;
   });
 }
 

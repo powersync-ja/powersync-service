@@ -86,7 +86,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
   async loadNextSyncRules() {
     const syncRules = await this.factory.getNextSyncRulesContent();
     if (syncRules == null) {
-      throw new Error(`Next sync rules not available`);
+      throw new Error(`Next replication stream not available`);
     }
 
     this.syncRulesContent = syncRules;
@@ -97,7 +97,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
   async loadActiveSyncRules() {
     const syncRules = await this.factory.getActiveSyncRulesContent();
     if (syncRules == null) {
-      throw new Error(`Active sync rules not available`);
+      throw new Error(`Active replication stream not available`);
     }
 
     this.syncRulesContent = syncRules;
@@ -107,7 +107,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
 
   private getSyncRulesContent(): storage.PersistedSyncRulesContent {
     if (this.syncRulesContent == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
+      throw new Error('Sync config not configured - call updateSyncRules() first');
     }
     return this.syncRulesContent;
   }

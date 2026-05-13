@@ -392,8 +392,8 @@ export const powerSyncConfig = t
               .meta({
                 description: dedent`
               Maximum number of buckets for each connection.
-              More buckets increase latency and memory usage. While the actual number is controlled by sync rules,
-              having a hard limit ensures that the service errors instead of crashing when a sync rule is misconfigured.
+              More buckets increase latency and memory usage. While the actual number is controlled by sync config,
+              having a hard limit ensures that the service errors instead of crashing when the sync config is misconfigured.
               Default of 1000.
             `
               })
@@ -520,7 +520,7 @@ export const powerSyncConfig = t
     parameters: t
       .record(t.number.or(t.string).or(t.boolean).or(t.Null))
       .meta({
-        description: 'Global parameters that can be referenced in sync rules and other configurations.'
+        description: 'Global parameters that can be referenced in sync config and other configurations.'
       })
       .optional()
   })
