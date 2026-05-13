@@ -1,5 +1,14 @@
 # @powersync/service-rsocket-router
 
+## 0.2.20
+
+### Patch Changes
+
+- 2b19fc3: Update first-party uuid dependencies to v14.
+- Updated dependencies [f20f318]
+- Updated dependencies [2b19fc3]
+  - @powersync/lib-services-framework@0.9.4
+
 ## 0.2.19
 
 ### Patch Changes

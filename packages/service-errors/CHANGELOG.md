@@ -1,5 +1,12 @@
 # @powersync/service-errors
 
+## 0.4.3
+
+### Patch Changes
+
+- 040fffd: Improve consistency of logs and error messages
+- 75174c4: Improve Postgres query errors.
+
 ## 0.4.2
 
 ### Patch Changes

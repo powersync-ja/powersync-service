@@ -1,5 +1,12 @@
 # @powersync/service-types
 
+## 0.15.2
+
+### Patch Changes
+
+- ad9ea06: Fix typo to allow P-521 EC curves in JWKs.
+- 040fffd: Improve consistency of logs and error messages
+
 ## 0.15.1
 
 ### Patch Changes

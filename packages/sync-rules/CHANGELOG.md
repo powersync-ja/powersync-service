@@ -1,5 +1,26 @@
 # @powersync/service-sync-rules
 
+## 0.36.0
+
+### Minor Changes
+
+- 01c29c3: Avoid parameter results loaded from bucket storage exceeding the configured limit.
+- 8afe719: When querying parameter rows, track which lookups resulted in which rows.
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- 17503d1: Fix miscompilations and compiler crashes when CTEs are referenced multiple times.
+- b8f0195: Emit a warning for unused common table expressions.
+- cdb8993: Add `config.storage_version` configuration option.
+- 824e229: Support multiple references between the same tables as join conditions for Sync Streams (the compiler would previously crash due to an "internal circular reference error").
+- 040fffd: Improve consistency of logs and error messages
+- 9e474d3: Improve error messages when invalid YAML nodes are used where a scalar value is expected.
+- 423822c: Fix incorrect replication of parameter rows contributing multiple parameter instantiations for Sync Streams.
+- 2b19fc3: Update first-party uuid dependencies to v14.
+- Updated dependencies [040fffd]
+  - @powersync/service-jsonbig@0.17.13
+
 ## 0.35.0
 
 ### Minor Changes
