@@ -15,7 +15,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
   private readonly store: SourceRecordStore;
   private needsActivation = true;
-  private lastWaitingLogThottled = 0;
+  private lastWaitingLogThrottled = 0;
 
   constructor(options: MongoBucketBatchOptions) {
     super(options);
