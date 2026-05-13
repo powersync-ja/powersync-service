@@ -1,5 +1,6 @@
 import { ParameterLookupSource, ScopedParameterLookup, UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
+import { HashMap, listEquality, StableHasher } from '../../compiler/equality.js';
 import { HydrationState } from '../../HydrationState.js';
 import { RequestParameters, SqliteParameterValue, SqliteValue } from '../../types.js';
 import { isValidParameterValue } from '../../utils.js';
@@ -488,7 +489,18 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
     if (lookup.type == 'parameter') {
       const scope = this.input.hydrationState.getParameterIndexLookupScope(lookup.lookup);
       const resolvedLookup = lookup.lookup as PreparedParameterIndexLookupCreator;
-      const lookupsToProvenance = new Map<ScopedParameterLookup, { origin: VirtualSourceRow[]; symbol: symbol }>();
+
+      interface PendingLookup {
+        lookup: ScopedParameterLookup;
+        provenance: { origin: VirtualSourceRow[]; symbol: symbol }[];
+      }
+
+      // It's possible that we'll have the same logical lookup with multiple provenance values. For instance, if the
+      // outputs of another lookup with two columns (where only one column is an input to this lookup) are passed into
+      // this, we can have two lookups with identical keys but different provenances. This hash map de-duplicates keys.
+      const pendingLookups = new HashMap<SqliteParameterValue[], PendingLookup>(
+        FullInstantiator.parameterArrayEquality
+      );
 
       for (const values of this.resolveInputs(lookup.instantiation)) {
         const provenance: VirtualSourceRow[] = [];
@@ -496,11 +508,23 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
           provenance.push(...value.provenance);
         }
 
-        const lookup = ScopedParameterLookup.normalized(
-          scope,
-          UnscopedParameterLookup.normalized(withoutProvenance(values))
-        );
-        lookupsToProvenance.set(lookup, { origin: provenance, symbol: Symbol(`lookup ${stage}.${index}`) });
+        const directValues = withoutProvenance(values);
+        pendingLookups.setOrUpdate(directValues, (old) => {
+          if (old == null) {
+            return {
+              lookup: ScopedParameterLookup.normalized(scope, UnscopedParameterLookup.normalized(directValues)),
+              provenance: [{ origin: provenance, symbol: Symbol(`lookup ${stage}.${index}`) }]
+            };
+          } else {
+            old.provenance.push({ origin: provenance, symbol: Symbol(`lookup ${stage}.${index}`) });
+            return old;
+          }
+        });
+      }
+
+      const lookupsToProvenance = new Map<ScopedParameterLookup, { origin: VirtualSourceRow[]; symbol: symbol }[]>();
+      for (const [_, { lookup, provenance }] of pendingLookups.entries) {
+        lookupsToProvenance.set(lookup, provenance);
       }
 
       const outputs = await this.input.source.getParameterSets(
@@ -510,26 +534,26 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
 
       // Stream parameters generate an output row like {0: <expr>, 1: <expr>, ...}.
       const values = outputs.flatMap(({ lookup, rows }) => {
-        const { symbol, origin } = lookupsToProvenance.get(lookup)!;
+        return lookupsToProvenance.get(lookup)!.flatMap(({ symbol, origin }) => {
+          return rows.map((row, rowid) => {
+            const length = Object.entries(row).length;
+            const asArray: ParameterValueWithRow[] = [];
 
-        return rows.map((row, rowid) => {
-          const length = Object.entries(row).length;
-          const asArray: ParameterValueWithRow[] = [];
+            for (let i = 0; i < length; i++) {
+              const value = row[i.toString()] as SqliteParameterValue;
+              const directOrigin = length > 1 ? { resultSet: symbol, row: rowid } : undefined;
 
-          for (let i = 0; i < length; i++) {
-            const value = row[i.toString()] as SqliteParameterValue;
-            const directOrigin = length > 1 ? { resultSet: symbol, row: rowid } : undefined;
-
-            asArray.push({
-              value,
-              // Note: Not tracking provenance for parameters with just a single output is purely a performance
-              // optimization. If there's just a single value, we don't need to correlate it with other columns in the
-              // row. Not adding provenance saves some work in mergeValueCombinations.
-              provenance: directOrigin != null ? [...origin, directOrigin] : origin,
-              directOrigin
-            });
-          }
-          return asArray;
+              asArray.push({
+                value,
+                // Note: Not tracking provenance for parameters with just a single output is purely a performance
+                // optimization. If there's just a single value, we don't need to correlate it with other columns in the
+                // row. Not adding provenance saves some work in mergeValueCombinations.
+                provenance: directOrigin != null ? [...origin, directOrigin] : origin,
+                directOrigin
+              });
+            }
+            return asArray;
+          });
         });
       });
 
@@ -543,6 +567,8 @@ class FullInstantiator extends PartialInstantiator<InstantiationInput> {
     }
     return other;
   }
+
+  private static readonly parameterArrayEquality = listEquality(StableHasher.parameterValueEquality);
 }
 
 export type PreparedExpandingLookup =
