@@ -1067,4 +1067,87 @@ streams:
     expect(foundLookupA).toBeTruthy();
     expect(foundLookupB).toBeTruthy();
   });
+
+  test('sync streams preserve duplicate downstream lookups with different provenance', async () => {
+    await using factory = await generateStorageFactory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+config:
+  edition: 3
+streams:
+  stream:
+    auto_subscribe: true
+    query: |
+      SELECT a.*
+      FROM a, b, c
+      WHERE a.x = b.x
+        AND a.z = c.z
+        AND b.y = c.y
+        AND c.u = auth.user_id()
+    `,
+        {
+          storageVersion
+        }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const tableB = await test_utils.resolveTestTable(writer, 'b', ['id'], config);
+    const tableC = await test_utils.resolveTestTable(writer, 'c', ['id'], config);
+
+    await writer.markAllSnapshotDone('1/1');
+    await writer.save({
+      sourceTable: tableB,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'b1',
+        y: 'shared-y',
+        x: 'x-from-shared-y'
+      },
+      afterReplicaId: test_utils.rid('b1')
+    });
+    await writer.save({
+      sourceTable: tableC,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'c1',
+        u: 'user1',
+        y: 'shared-y',
+        z: 'z1'
+      },
+      afterReplicaId: test_utils.rid('c1')
+    });
+    await writer.save({
+      sourceTable: tableC,
+      tag: storage.SaveOperationTag.INSERT,
+      after: {
+        id: 'c2',
+        u: 'user1',
+        y: 'shared-y',
+        z: 'z2'
+      },
+      afterReplicaId: test_utils.rid('c2')
+    });
+    await writer.commit('1/1');
+
+    const checkpoint = await bucketStorage.getCheckpoint();
+    const parameters = new RequestParameters(new JwtPayload({ sub: 'user1' }), {});
+    const querier = sync_rules.getBucketParameterQuerier({
+      ...test_utils.querierOptions(parameters)
+    }).querier;
+
+    const buckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        return checkpoint.getParameterSets(lookups, 1000);
+      }
+    });
+
+    expect(buckets.map((bucket) => bucket.bucket).sort()).toStrictEqual([
+      expect.stringMatching(/stream.*\["x-from-shared-y","z1"\]$/),
+      expect.stringMatching(/stream.*\["x-from-shared-y","z2"\]$/)
+    ]);
+  });
 }
