@@ -3,8 +3,6 @@ import { api } from '@testing-convex/_generated/api.js';
 import { ConvexHttpClient } from 'convex/browser';
 
 import { SUPPORTED_STORAGE_VERSIONS, TestStorageConfig, TestStorageFactory } from '@powersync/service-core';
-import * as mongo_storage from '@powersync/service-module-mongodb-storage';
-import * as postgres_storage from '@powersync/service-module-postgres-storage';
 import { describe, TestOptions } from 'vitest';
 import { env } from '../env.js';
 
@@ -15,14 +13,28 @@ export type TestConvexConnection = {
 
 export const TEST_URI = env.CONVEX_URL;
 
-export const INITIALIZED_MONGO_STORAGE_FACTORY = mongo_storage.test_utils.mongoTestStorageFactoryGenerator({
-  url: env.MONGO_TEST_URL,
-  isCI: env.CI
-});
+export const INITIALIZED_MONGO_STORAGE_FACTORY: TestStorageConfig = {
+  tableIdStrings: false,
+  factory: async (options) => {
+    const mongo_storage = await import('@powersync/service-module-mongodb-storage');
+    const config = mongo_storage.test_utils.mongoTestStorageFactoryGenerator({
+      url: env.MONGO_TEST_URL,
+      isCI: env.CI
+    });
+    return config.factory(options);
+  }
+};
 
-export const INITIALIZED_POSTGRES_STORAGE_FACTORY = postgres_storage.test_utils.postgresTestSetup({
-  url: env.PG_STORAGE_TEST_URL
-});
+export const INITIALIZED_POSTGRES_STORAGE_FACTORY: TestStorageConfig = {
+  tableIdStrings: true,
+  factory: async (options) => {
+    const postgres_storage = await import('@powersync/service-module-postgres-storage');
+    const config = postgres_storage.test_utils.postgresTestSetup({
+      url: env.PG_STORAGE_TEST_URL
+    });
+    return config.factory(options);
+  }
+};
 
 const TEST_STORAGE_VERSIONS = SUPPORTED_STORAGE_VERSIONS;
 

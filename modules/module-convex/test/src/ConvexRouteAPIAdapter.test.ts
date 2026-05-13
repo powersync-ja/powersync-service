@@ -1,6 +1,6 @@
 import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
 import { ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
-import { toConvexLsn } from '@module/common/ConvexLSN.js';
+import { parseConvexLsn } from '@module/common/ConvexLSN.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
 import { ExpressionType, SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
@@ -28,6 +28,7 @@ function createAdapter() {
           {
             tableName: 'users',
             schema: {
+              type: 'object',
               properties: {
                 _id: { type: 'string' },
                 age: { type: 'integer' },
@@ -89,7 +90,7 @@ bucket_definitions:
     (adapter as any).connectionManager.client.createWriteCheckpointMarker = createWriteCheckpointMarker;
 
     const result = await adapter.createReplicationHead(async (head) => head);
-    expect(result).toBe(toConvexLsn(HEAD_CURSOR));
+    expect(result).toBe(parseConvexLsn(HEAD_CURSOR));
     expect(getHeadCursor).toHaveBeenCalledTimes(1);
     expect(getHeadCursor).toHaveBeenCalledWith();
     expect(createWriteCheckpointMarker).toHaveBeenCalledTimes(1);

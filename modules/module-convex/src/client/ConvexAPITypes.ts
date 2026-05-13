@@ -67,8 +67,6 @@ export const ConvexDocumentDeltasResult = t.object({
 
 export type ConvexDocumentDeltasResult = t.Encoded<typeof ConvexDocumentDeltasResult>;
 
-// These validators help assert the API structure response.
-// These could be disabled for production.
 export const ensureConvexDocumentDeltasResult = ensureResponseFormatValidator(ConvexDocumentDeltasResult);
 
 export interface ConvexListSnapshotOptions {
@@ -95,7 +93,14 @@ export type RawJsonSchemaResponse = t.Encoded<typeof RawJsonSchemaResponse>;
 export const ensureRawJsonSchemaResponse = ensureResponseFormatValidator(RawJsonSchemaResponse);
 
 /**
- * Performs a validation which ensures the input data matches the codec specification.
+ * Performs a validation which ensures the Convex API response data matches the codec specification.
+ * This was added after noticing the original implementation was coercing various permutations of
+ * response fields e.g. `has_more` and `hasMore` in responses. There were comments that the
+ * self hosted and cloud Convex implementations might have returned different responses.
+ * In testing, with these validations, I could not see any actual discrepency in responses.
+ * Having these checks could help spot potential changes to the API - however they do come at a cost.
+ * We could disable this in prod builds or remove in the future. For now, while the API seems fickle, it could
+ * be nice to have a safety net.
  */
 export function ensureResponseFormatValidator<Codec extends t.AnyCodec>(
   codec: Codec

@@ -22,7 +22,7 @@ import { setTimeout as delay } from 'timers/promises';
 import { ConvexListSnapshotResult, ConvexRawDocument, ConvexTableSchema } from '../client/ConvexAPITypes.js';
 import { isCursorExpiredError } from '../client/ConvexApiClient.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
-import { lsnToDate, parseConvexLsn, toConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
+import { lsnCursorToDate, parseConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
 import { extractProperties, toSqliteInputRow } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 import { BinaryConvexSnapshotProgressCursor, decodeSnapshotProgressCursor } from './ConvexSnapshotProgresCursor.js';
@@ -168,7 +168,7 @@ export class ConvexStream {
         });
 
       const nextCursor = page.cursor;
-      const pageLsn = toConvexLsn(nextCursor);
+      const pageLsn = parseConvexLsn(nextCursor);
 
       let changesInPage = 0;
       const transactionTimestampsInPage = new Set<string>();
@@ -223,7 +223,7 @@ export class ConvexStream {
          * mark the start after this point - which means we will have an uncommited change.
          */
         if (!didMarkOldestUncommitedChange) {
-          this.replicationLag.trackUncommittedChange(lsnToDate(page.cursor));
+          this.replicationLag.trackUncommittedChange(lsnCursorToDate(page.cursor));
           didMarkOldestUncommitedChange = true;
         }
 
@@ -318,7 +318,7 @@ export class ConvexStream {
     });
 
     const snapshotCursor = await this.resolveSnapshotBoundary(snapshotLsn);
-    const snapshotLsnValue = toConvexLsn(snapshotCursor);
+    const snapshotLsnValue = parseConvexLsn(snapshotCursor);
     await batch.setResumeLsn(snapshotLsnValue);
 
     const sourceTables = await this.resolveAllSourceTables(batch);
@@ -461,7 +461,7 @@ export class ConvexStream {
     table: SourceTable,
     snapshotCursor: string
   ): Promise<SourceTable> {
-    const snapshotLsnValue = toConvexLsn(snapshotCursor);
+    const snapshotLsnValue = parseConvexLsn(snapshotCursor);
     const [doneTable] = await batch.markTableSnapshotDone([table], snapshotLsnValue);
     this.relationCache.update(doneTable);
     return doneTable;

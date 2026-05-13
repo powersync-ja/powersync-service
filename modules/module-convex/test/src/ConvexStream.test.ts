@@ -1,5 +1,5 @@
 import { ConvexDocumentDeltasResult, ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
-import { toConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
+import { parseConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSnapshotProgresCursor.js';
 import { ConvexStream } from '@module/replication/ConvexStream.js';
 import { SaveOperationTag, SourceTable } from '@powersync/service-core';
@@ -140,7 +140,7 @@ function createFakeStorage(options?: {
       return {
         active: true,
         snapshot_done: options?.snapshotDone ?? false,
-        checkpoint_lsn: options?.snapshotDone ? toConvexLsn(CURSOR_100) : null,
+        checkpoint_lsn: options?.snapshotDone ? parseConvexLsn(CURSOR_100) : null,
         snapshot_lsn: options?.snapshotLsn ?? null
       };
     },
@@ -209,7 +209,7 @@ describe('ConvexStream', () => {
         config: { pollingIntervalMs: 1 },
         client: {
           getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: {} }],
+            tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
             raw: {}
           }),
           listSnapshot,
@@ -229,8 +229,8 @@ describe('ConvexStream', () => {
     expect(context.saves.length).toBe(1);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
     expect(context.resumeLsnUpdates.length).toBe(1);
-    expect(context.allSnapshotDoneLsns).toEqual([toConvexLsn(CURSOR_100)]);
-    expect(context.commits.at(-1)).toBe(toConvexLsn(CURSOR_100));
+    expect(context.allSnapshotDoneLsns).toEqual([parseConvexLsn(CURSOR_100)]);
+    expect(context.commits.at(-1)).toBe(parseConvexLsn(CURSOR_100));
   });
 
   it('decodes bytes fields to Uint8Array during snapshot hydration', async () => {
@@ -254,6 +254,7 @@ describe('ConvexStream', () => {
               {
                 tableName: 'users',
                 schema: {
+                  type: 'object',
                   properties: {
                     avatar: { type: 'bytes' }
                   }
@@ -292,7 +293,7 @@ describe('ConvexStream', () => {
 
   it('marks snapshot done without re-reading rows when the final page was already flushed', async () => {
     const context = createFakeStorage({
-      snapshotLsn: toConvexLsn(CURSOR_200),
+      snapshotLsn: parseConvexLsn(CURSOR_200),
       tableSnapshotStatus: {
         replicatedCount: 2,
         totalEstimatedCount: -1,
@@ -323,7 +324,7 @@ describe('ConvexStream', () => {
         config: { polling_interval_ms: 1 },
         client: {
           getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: {} }],
+            tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
             raw: {}
           }),
           listSnapshot,
@@ -341,7 +342,7 @@ describe('ConvexStream', () => {
 
   it('fails when table snapshots return a different snapshot boundary', async () => {
     const context = createFakeStorage({
-      snapshotLsn: toConvexLsn(CURSOR_300)
+      snapshotLsn: parseConvexLsn(CURSOR_300)
     });
     const abortController = new AbortController();
 
@@ -358,7 +359,7 @@ describe('ConvexStream', () => {
         config: { pollingIntervalMs: 1 },
         client: {
           getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: {} }],
+            tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
             raw: {}
           }),
           getGlobalSnapshotCursor: async () => 'should-not-be-called',
@@ -378,7 +379,7 @@ describe('ConvexStream', () => {
   it('streams deltas and commits checkpoint', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: toConvexLsn(CURSOR_100)
+      resumeFromLsn: parseConvexLsn(CURSOR_100)
     });
     const abortController = new AbortController();
 
@@ -405,7 +406,7 @@ describe('ConvexStream', () => {
         config: { pollingIntervalMs: 1 },
         client: {
           getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: {} }],
+            tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
             raw: {}
           }),
           documentDeltas: async (options: any) => {
@@ -433,7 +434,7 @@ describe('ConvexStream', () => {
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.UPDATE);
     expect(context.saves[1]?.tag).toBe(SaveOperationTag.DELETE);
     expect(context.saves[2]?.tag).toBe(SaveOperationTag.UPDATE);
-    expect(context.commits.at(-1)).toBe(toConvexLsn(CURSOR_102));
+    expect(context.commits.at(-1)).toBe(parseConvexLsn(CURSOR_102));
     expect(deltaCalls[0]?.tableName).toBeUndefined();
     expect(transactionCounts).toEqual([2]);
   });
@@ -444,7 +445,7 @@ describe('ConvexStream', () => {
     // This test just verifies the assertion would catch an issue if it ever happened for some reason.
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: toConvexLsn(CURSOR_100)
+      resumeFromLsn: parseConvexLsn(CURSOR_100)
     });
     const abortController = new AbortController();
 
@@ -462,7 +463,7 @@ describe('ConvexStream', () => {
         client: {
           getJsonSchemas: async () => {
             return {
-              tables: [{ tableName: 'users', schema: {} }]
+              tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }]
             } satisfies ConvexJsonSchemasResult;
           },
           documentDeltas: async () => {
@@ -485,14 +486,14 @@ describe('ConvexStream', () => {
   it('refreshes metadata before snapshotting a newly discovered wildcard-matched table inline', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: toConvexLsn(CURSOR_100),
+      resumeFromLsn: parseConvexLsn(CURSOR_100),
       sourcePatterns: [new TablePattern('convex', 'projects%')]
     });
     const abortController = new AbortController();
 
     let calls = 0;
     const getJsonSchemas = vi.fn(async () => ({
-      tables: [{ tableName: 'users', schema: {} }],
+      tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
       raw: {}
     }));
     const listSnapshot = vi.fn(async (options: any) => ({
@@ -549,7 +550,7 @@ describe('ConvexStream', () => {
   it('keeps alive immediately when only checkpoint marker rows are streamed', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
-      resumeFromLsn: toConvexLsn(CURSOR_100)
+      resumeFromLsn: parseConvexLsn(CURSOR_100)
     });
     const abortController = new AbortController();
     let calls = 0;
@@ -567,7 +568,7 @@ describe('ConvexStream', () => {
         config: { pollingIntervalMs: 1 },
         client: {
           getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: {} }],
+            tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
             raw: {}
           }),
           documentDeltas: async () => {
@@ -595,6 +596,6 @@ describe('ConvexStream', () => {
 
     expect(context.saves.length).toBe(0);
     expect(context.commits.length).toBe(0);
-    expect(context.keepalives).toEqual([toConvexLsn(CURSOR_101), toConvexLsn(CURSOR_102)]);
+    expect(context.keepalives).toEqual([parseConvexLsn(CURSOR_101), parseConvexLsn(CURSOR_102)]);
   });
 });
