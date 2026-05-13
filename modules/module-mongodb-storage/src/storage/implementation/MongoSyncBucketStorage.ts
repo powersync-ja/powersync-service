@@ -7,10 +7,8 @@ import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../utils
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './AbstractMongoSyncBucketStorage.js';
 import { BucketDataDoc } from './common/BucketDataDoc.js';
-import { MongoSyncBucketStorageCallbacks } from './common/MongoSyncBucketStorageCallbacks.js';
 import { MongoSyncBucketStorageCheckpoint } from './common/MongoSyncBucketStorageContext.js';
-import { BucketDataDocumentGeneric } from './common/SingleBucketStore.js';
-import { BucketDataFormatAdapter } from './document-formats/format-interface.js';
+import { BucketDataDocument } from './document-formats/bucket-document-format.js';
 import { deserializeParameterLookup, serializeParameterLookup } from './document-formats/parameter-lookup.js';
 import { CommonSourceTableDocument } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
@@ -38,7 +36,7 @@ function extractRowsFromDocument(
   bucketMap: Map<string, InternalOpId>,
   endOpId: InternalOpId,
   remainingLimit: number,
-  formatAdapter: BucketDataFormatAdapter
+  formatAdapter: any
 ): { rows: BucketDataDoc[]; remainingLimit: number; limitReached: boolean } {
   const rows: BucketDataDoc[] = [];
   for (const row of formatAdapter.loadDocument(context, doc)) {
@@ -64,8 +62,8 @@ function extractRowsFromDocument(
 }
 
 export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
-  protected get callbacks(): MongoSyncBucketStorageCallbacks {
-    return this._versionCallbacks as MongoSyncBucketStorageCallbacks;
+  protected get callbacks(): any {
+    return this._versionCallbacks;
   }
 
   constructor(
@@ -75,7 +73,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
     slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions,
-    callbacks: MongoSyncBucketStorageCallbacks
+    callbacks: any
   ) {
     super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options, callbacks);
   }
@@ -135,7 +133,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
       const collection = this.callbacks.bucketData(this.group_id, source).collectionName;
       await this.db.db
         .createCollection(collection, { clusteredIndex: { name: '_id', unique: true, key: { _id: 1 } } })
-        .catch((error) => {
+        .catch((error: any) => {
           if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceExists') {
             return;
           }
@@ -297,7 +295,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
       const collection = this.callbacks.bucketData(
         this.group_id,
         definitionId
-      ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentGeneric>;
+      ) as unknown as lib_mongo.mongo.Collection<BucketDataDocument>;
       const formatAdapter = this.callbacks.formatAdapter;
       // MongoDB Filter<T> doesn't accept the $or operator in its type.
       const filter = { $or: filters } as any;
@@ -312,7 +310,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
         remainingLimit: limit
       });
 
-      const combinedFilter: lib_mongo.mongo.Filter<BucketDataDocumentGeneric> = {
+      const combinedFilter: lib_mongo.mongo.Filter<BucketDataDocument> = {
         // MongoDB Filter<T> doesn't accept the $and operator in its type.
         $and: [filter, rangeFilter]
       } as any;
@@ -453,7 +451,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
     await this.callbacks
       .bucketState(this.group_id)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
-      .catch((error) => {
+      .catch((error: any) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
           return;
         }
@@ -465,7 +463,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
     await this.callbacks
       .sourceTables(this.group_id)
       .drop({ maxTimeMS: lib_mongo.db.MONGO_CLEAR_OPERATION_TIMEOUT_MS })
-      .catch((error) => {
+      .catch((error: any) => {
         if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
           return;
         }
@@ -477,9 +475,9 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
     options: storage.GetCheckpointChangesOptions
   ): Promise<Pick<storage.CheckpointChanges, 'updatedDataBuckets' | 'invalidateDataBuckets'>> {
     const limit = 1000;
-    const bucketStateUpdates = await this.callbacks
+    const bucketStateUpdates: { _id: string; last_op: bigint }[] = (await this.callbacks
       .bucketState(this.group_id)
-      .aggregate<{ _id: string; last_op: bigint }>(
+      .aggregate(
         [
           {
             $match: {
@@ -503,7 +501,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
         ],
         { maxTimeMS: lib_mongo.MONGO_CHECKSUM_TIMEOUT_MS }
       )
-      .toArray();
+      .toArray()) as { _id: string; last_op: bigint }[];
 
     const buckets = bucketStateUpdates.map((doc) => doc._id);
     const invalidateDataBuckets = buckets.length > limit;
@@ -545,8 +543,8 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
       }
     ];
     const [firstCollection, ...remainingCollections] = collections;
-    const parameterUpdates = await firstCollection.collection
-      .aggregate<{ lookup: bson.Binary; indexId: string }>(
+    const parameterUpdates: { lookup: bson.Binary; indexId: string }[] = (await firstCollection.collection
+      .aggregate(
         [
           ...pipelineForCollection(firstCollection.indexId),
           ...remainingCollections.map((collection) => {
@@ -566,7 +564,7 @@ export class MongoSyncBucketStorage extends AbstractMongoSyncBucketStorage {
           maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
         }
       )
-      .toArray();
+      .toArray()) as { lookup: bson.Binary; indexId: string }[];
 
     const invalidateParameterUpdates = parameterUpdates.length > limit;
 

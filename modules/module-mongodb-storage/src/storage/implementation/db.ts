@@ -24,9 +24,7 @@ import {
   CurrentDataDocument
 } from './v1/models.js';
 import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
-import { BucketDataDocumentV3 } from './v3/models.js';
 import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
-import { VersionedPowerSyncMongoV5 } from './v5/VersionedPowerSyncMongoV5.js';
 
 export interface PowerSyncMongoOptions {
   /**
@@ -79,11 +77,7 @@ export class PowerSyncMongo {
   }
 
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
-    if (storageConfig.compressedBucketStorage) {
-      return new VersionedPowerSyncMongoV5(this, storageConfig);
-    }
-
-    if (storageConfig.incrementalReprocessing) {
+    if (storageConfig.compressedBucketStorage || storageConfig.incrementalReprocessing) {
       return new VersionedPowerSyncMongoV3(this, storageConfig);
     }
 
@@ -93,13 +87,13 @@ export class PowerSyncMongo {
   /**
    * Not safe for user-provided prefix - only for hardcoded values.
    */
-  async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<BucketDataDocumentV3>[]> {
+  async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<any>[]> {
     const prefix = groupId == null ? 'bucket_data_' : `bucket_data_${groupId}_`;
     const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
 
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<BucketDataDocumentV3>(collection.name));
+      .map((collection) => this.db.collection<any>(collection.name));
   }
 
   /**

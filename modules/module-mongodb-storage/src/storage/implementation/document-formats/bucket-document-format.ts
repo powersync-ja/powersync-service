@@ -2,13 +2,9 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
 import { chunkBucketData } from '../bucket-operations/chunking.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
-import { BucketDataDocumentGeneric } from '../common/SingleBucketStore.js';
 import { BucketDataKey, BucketDataProperties, OpType } from '../models.js';
-import { BucketDataFormatAdapter } from './format-interface.js';
 
-export type BucketDataKeyV5 = BucketDataKey;
-
-export interface BucketOperationV5 {
+export interface BucketOperation {
   o: bigint;
   op: OpType;
   source_table?: import('bson').ObjectId;
@@ -19,17 +15,17 @@ export interface BucketOperationV5 {
   data: string | null;
 }
 
-export interface BucketDataDocumentV5 {
-  _id: BucketDataKeyV5;
+export interface BucketDataDocument {
+  _id: BucketDataKey;
   min_op: bigint;
   checksum: bigint;
   count: number;
   size: number;
   target_op?: bigint | null;
-  ops: BucketOperationV5[];
+  ops: BucketOperation[];
 }
 
-export function serializeBucketDataV5(bucket: string, operations: BucketDataDoc[]): BucketDataDocumentV5 {
+export function serializeBucketData(bucket: string, operations: BucketDataDoc[]): BucketDataDocument {
   const minOp = operations[0].o;
   const maxOp = operations[operations.length - 1].o;
 
@@ -37,7 +33,7 @@ export function serializeBucketDataV5(bucket: string, operations: BucketDataDoc[
   let totalSize = 0;
   let maxTargetOp: bigint | null = null;
 
-  const ops: BucketOperationV5[] = operations.map((op) => {
+  const ops: BucketOperation[] = operations.map((op) => {
     totalChecksum += op.checksum;
     totalSize += op.data?.length ?? 0;
 
@@ -71,9 +67,9 @@ export function serializeBucketDataV5(bucket: string, operations: BucketDataDoc[
   };
 }
 
-export function* loadBucketDataDocumentV5(
+export function* loadBucketDataDocument(
   context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>,
-  doc: BucketDataDocumentV5
+  doc: BucketDataDocument
 ): Generator<BucketDataDoc> {
   const { _id, ops } = doc;
   const bucketKey = {
@@ -97,13 +93,6 @@ export function* loadBucketDataDocumentV5(
   }
 }
 
-// BucketDataDocumentGeneric is a virtual type — it doesn't exist at runtime.
-// The actual shape is always BucketDataDocumentV5, so this cast documents the
-// structural equivalence rather than asserting an unsafe conversion.
-function asGenericDocument<T extends BucketDataDocumentV5>(doc: T): BucketDataDocumentGeneric {
-  return doc as unknown as BucketDataDocumentGeneric;
-}
-
 /**
  * Validates that a partial persisted document has the expected `_id.o` shape.
  * Used when the ops array is missing from a partial persisted document.
@@ -120,15 +109,12 @@ function extractPartialDocumentFields(doc: unknown): { _id: { o: bigint }; [key:
   return d as { _id: { o: bigint }; [key: string]: unknown };
 }
 
-export class V5FormatAdapter implements BucketDataFormatAdapter {
-  serializeForBulkWrite(
-    bucket: string,
-    docs: BucketDataDoc[]
-  ): mongo.AnyBulkWriteOperation<BucketDataDocumentGeneric>[] {
+export class BucketDocumentFormatAdapter {
+  serializeForBulkWrite(bucket: string, docs: BucketDataDoc[]): mongo.AnyBulkWriteOperation<BucketDataDocument>[] {
     const chunks = chunkBucketData(docs);
     return chunks.map((chunk) => ({
       insertOne: {
-        document: asGenericDocument(serializeBucketDataV5(bucket, chunk))
+        document: serializeBucketData(bucket, chunk)
       }
     }));
   }
@@ -137,18 +123,18 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
     context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>,
     rawDoc: unknown
   ): Generator<BucketDataDoc> {
-    yield* loadBucketDataDocumentV5(context, rawDoc as BucketDataDocumentV5);
+    yield* loadBucketDataDocument(context, rawDoc as BucketDataDocument);
   }
 
-  toPersistedDocument(bucketKey: BucketKey, source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return asGenericDocument(serializeBucketDataV5(bucketKey.bucket, [{ bucketKey, ...source }]));
+  toPersistedDocument(bucketKey: BucketKey, source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocument {
+    return serializeBucketData(bucketKey.bucket, [{ bucketKey, ...source }]);
   }
 
-  fromPersistedDocument(bucketKey: BucketKey, doc: BucketDataDocumentGeneric): BucketDataDoc {
-    const generator = loadBucketDataDocumentV5(bucketKey, doc as unknown as BucketDataDocumentV5);
+  fromPersistedDocument(bucketKey: BucketKey, doc: BucketDataDocument): BucketDataDoc {
+    const generator = loadBucketDataDocument(bucketKey, doc);
     const first = generator.next();
     if (first.done) {
-      throw new Error('Empty ops array in BucketDataDocumentV5');
+      throw new Error('Empty ops array in BucketDataDocument');
     }
     return first.value;
   }
@@ -160,15 +146,15 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
    * Fallback branch: when the `ops` array is missing (old documents or
    * partial projections that don't include the field), we pull fields directly
    * from the document. A runtime validation helper extracts `_id.o` because
-   * `Pick<BucketDataDocumentGeneric, '_id' | T>` doesn't give us access to
+   * `Pick<BucketDataDocument, '_id' | T>` doesn't give us access to
    * the underlying V5 fields at compile time.
    */
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     bucketKey: BucketKey,
-    doc: Pick<BucketDataDocumentGeneric, '_id' | T>
+    doc: Pick<BucketDataDocument & BucketDataProperties, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    // We know the concrete type is BucketDataDocumentV5, but Pick prevents a direct cast.
-    const document = doc as unknown as Pick<BucketDataDocumentV5, '_id' | 'ops'>;
+    // We know the concrete type is BucketDataDocument, but Pick prevents a direct cast.
+    const document = doc as unknown as Pick<BucketDataDocument, '_id' | 'ops'>;
     const op = document.ops?.[0];
     if (op == null) {
       // Fallback for old documents or partial projections without ops field.
@@ -187,12 +173,12 @@ export class V5FormatAdapter implements BucketDataFormatAdapter {
   }
 
   buildBucketDataQuery(options: { startOpId?: InternalOpId; endOpId: InternalOpId; remainingLimit: number }): {
-    filter: mongo.Filter<BucketDataDocumentGeneric>;
+    filter: mongo.Filter<BucketDataDocument>;
     cursorOptions: { limit?: number; batchSize?: number };
   } {
     // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type,
     // so we need an explicit cast for the range filter on the nested op_id.
-    const filter: mongo.Filter<BucketDataDocumentGeneric> = {
+    const filter: mongo.Filter<BucketDataDocument> = {
       '_id.o': {
         $gt: options.startOpId,
         $lte: options.endOpId
