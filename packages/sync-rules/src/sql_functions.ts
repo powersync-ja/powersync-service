@@ -652,7 +652,8 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
         return null;
       }
       const bParsed = checkJsonArray(b, 'IN is only supported on JSON arrays');
-      return sqliteBool(bParsed.includes(a));
+      // Use compare() for SQLite affinity since Array.includes strict equality mismatches bigint vs number.
+      return sqliteBool(bParsed.some((v) => compare(v, a) === 0));
     }
     case '&&': {
       // a && b evaluates to true iff they're both arrays and have a non-empty intersection.
@@ -675,17 +676,18 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
   }
 }
 
-export function checkJsonArray(value: SqliteValue, errorMessage: string): any[] {
+export function checkJsonArray(value: SqliteValue, errorMessage: string): SqliteValue[] {
   if (typeof value != 'string') {
     throw new Error(errorMessage);
   }
 
-  const parsed = JSON.parse(value);
+  // JSONBig preserves precision for integers above 2^53
+  const parsed = JSONBig.parse(value);
   if (!Array.isArray(parsed)) {
     throw new Error(value);
   }
 
-  return parsed;
+  return parsed.map((v: any) => jsonValueToSqlite(true, v));
 }
 
 export function getOperatorReturnType(op: string, left: ExpressionType, right: ExpressionType) {
