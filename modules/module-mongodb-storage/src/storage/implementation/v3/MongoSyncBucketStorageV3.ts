@@ -220,7 +220,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     });
     const syncConfig = this.selectedSyncConfig(doc);
     if (doc == null || syncConfig == null) {
-      throw new ServiceAssertionError('Cannot find sync rules status');
+      throw new ServiceAssertionError('Cannot find replication stream status');
     }
 
     return {

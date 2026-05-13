@@ -254,7 +254,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const session = this.session;
 
     await session.withTransaction(async () => {
-      // Only have a single set of sync rules with PROCESSING.
+      // Only have a single replication stream with PROCESSING.
       await this.db.sync_rules.updateMany(
         {
           state: storage.SyncRuleState.PROCESSING

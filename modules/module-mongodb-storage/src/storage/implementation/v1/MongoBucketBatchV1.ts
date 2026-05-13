@@ -327,7 +327,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       }
     });
     if (activated) {
-      this.logger.info(`Activated new sync rules at ${lsn}`);
+      this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
       this.needsActivation = false;
     }
