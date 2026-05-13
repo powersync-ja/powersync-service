@@ -161,7 +161,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       createEmptyCheckpoints
     });
     if (checkpointState.checkpointBlocked) {
-      if (Date.now() - this.lastWaitingLogThottled > 5_000) {
+      if (Date.now() - this.lastWaitingLogThrottled > 5_000) {
         this.logger.info(
           `Waiting before creating checkpoint, currently at ${lsn} / ${checkpointState.newKeepaliveOp}. Current state: ${JSON.stringify(
             {
@@ -171,7 +171,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
             }
           )}`
         );
-        this.lastWaitingLogThottled = Date.now();
+        this.lastWaitingLogThrottled = Date.now();
       }
     } else {
       if (checkpointState.checkpointCreated) {
