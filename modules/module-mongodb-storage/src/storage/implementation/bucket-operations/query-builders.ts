@@ -6,7 +6,6 @@ import { FetchPartialBucketChecksumByBucket } from '../MongoChecksums.js';
 
 /**
  * Creates a MongoDB filter for bucket data queries based on bucket name and op id range.
- * Used by both V3 and V5 storage implementations for computing checksums.
  */
 export function createBucketFilter<
   TRequest extends Pick<FetchPartialBucketChecksumByBucket, 'bucket' | 'start' | 'end'>
@@ -27,7 +26,6 @@ export function createBucketFilter<
 
 /**
  * Creates a filter for bucket_state collection queries.
- * Used by both V3 and V5 storage implementations.
  */
 export function bucketStateFilter(
   bucket: string,
@@ -60,7 +58,6 @@ export interface BucketStateLookup {
 
 /**
  * Builds the context parameters for bucket data operations.
- * This helper extracts the common logic from V3 and V5 implementations.
  *
  * @returns The resolved definitionId, or null if not found
  */

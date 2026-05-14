@@ -7,17 +7,10 @@ type UpstreamType = ConstructorParameters<typeof BaseVersionedPowerSyncMongo>[0]
 type StorageConfigType = ConstructorParameters<typeof BaseVersionedPowerSyncMongo>[1];
 
 /**
- * Parameterized versioned MongoDB collection accessor.
- *
- * This class contains all the shared logic between V3 and V5 implementations.
- * The V3/V5 subclasses only add version-specific method names and type annotations.
+ * Versioned MongoDB collection accessor for V3 storage.
  */
 export class VersionedPowerSyncMongo extends BaseVersionedPowerSyncMongo {
-  constructor(
-    upstream: UpstreamType,
-    storageConfig: StorageConfigType,
-    private versionSuffix: 'V3' | 'V5'
-  ) {
+  constructor(upstream: UpstreamType, storageConfig: StorageConfigType) {
     super(upstream, storageConfig);
   }
 
@@ -111,9 +104,6 @@ export class VersionedPowerSyncMongo extends BaseVersionedPowerSyncMongo {
   }
 
   listBucketDataCollections(replicationStreamId: number) {
-    // V3 and V5 share the same bucket_data_* collection naming scheme,
-    // so we can use the shared prefix helper instead of delegating to a
-    // version-specific upstream method.
     return this.listCollectionsByPrefix(`bucket_data_${replicationStreamId}_`);
   }
 

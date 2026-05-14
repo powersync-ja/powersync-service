@@ -78,7 +78,7 @@ export class PowerSyncMongo {
 
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
     if (storageConfig.compressedBucketStorage || storageConfig.incrementalReprocessing) {
-      return new VersionedPowerSyncMongoClass(this, storageConfig, 'V3');
+      return new VersionedPowerSyncMongoClass(this, storageConfig);
     }
 
     return new VersionedPowerSyncMongoV1(this, storageConfig);

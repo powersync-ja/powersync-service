@@ -2,8 +2,6 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
-// Type is any to avoid coupling to a specific format adapter during the V3→V5 merge
-
 export async function flushBucketDataShared(
   options: {
     db: VersionedPowerSyncMongo;

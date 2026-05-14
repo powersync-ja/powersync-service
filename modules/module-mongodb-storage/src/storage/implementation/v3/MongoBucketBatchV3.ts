@@ -1,9 +1,9 @@
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
+import { SourceRecordStoreImpl } from '../bucket-operations/source-record-store-impl.js';
 import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV3 } from './PersistedBatchV3.js';
-import { SourceRecordStoreV3 } from './SourceRecordStoreV3.js';
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   get db(): VersionedPowerSyncMongo {
@@ -25,6 +25,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   protected get sourceRecordStore(): SourceRecordStore {
-    return new SourceRecordStoreV3(this.db, this.group_id, this.mapping);
+    return new SourceRecordStoreImpl(
+      (gid, tableId) => this.db.sourceRecords(gid, tableId),
+      (gid) => this.db.sourceTables(gid),
+      this.group_id,
+      this.mapping
+    );
   }
 }
