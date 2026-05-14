@@ -13,8 +13,6 @@ import {
   ensureRawJsonSchemaResponse
 } from './ConvexAPITypes.js';
 
-const CONVEX_REQUEST_TIMEOUT_MS = 60_000;
-
 type GetRequestParams = {
   path: string;
   params?: Record<string, unknown>;
@@ -97,8 +95,6 @@ export class ConvexApiClient {
   }
 
   async createWriteCheckpointMarker(options?: { signal?: AbortSignal }): Promise<void> {
-    await this.assertHostAllowed();
-
     await this.performRequest({
       method: 'POST',
       url: new URL('/api/mutation', this.config.deployment_url),
@@ -167,10 +163,10 @@ export class ConvexApiClient {
     const { method, url, body, extraHeaders = {}, signal: requestSignal } = options;
 
     const timeout = new AbortController();
-    const timeoutPromise = delay(CONVEX_REQUEST_TIMEOUT_MS, undefined, {
+    const timeoutPromise = delay(this.config.request_timeout_ms, undefined, {
       signal: timeout.signal
     }).then(() => {
-      timeout.abort(new Error(`Convex API request timed out after ${CONVEX_REQUEST_TIMEOUT_MS}ms`));
+      timeout.abort(new Error(`Convex API request timed out after ${this.config.request_timeout_ms}ms`));
     });
 
     const signals = [timeout.signal];
@@ -181,6 +177,8 @@ export class ConvexApiClient {
     const signal = AbortSignal.any(signals);
 
     try {
+      await this.assertHostAllowed(url);
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -248,15 +246,13 @@ export class ConvexApiClient {
     }
   }
 
-  private async assertHostAllowed(): Promise<void> {
+  private async assertHostAllowed(url: URL): Promise<void> {
     if (!this.config.lookup) {
       return;
     }
 
-    const hostname = new URL(this.config.deployment_url).hostname;
-
     await new Promise<void>((resolve, reject) => {
-      this.config.lookup!(hostname, {}, (error) => {
+      this.config.lookup!(url.hostname, {}, (error) => {
         if (error) {
           reject(error);
         } else {

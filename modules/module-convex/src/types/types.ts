@@ -4,6 +4,8 @@ import { LookupFunction } from 'node:net';
 import * as t from 'ts-codec';
 
 export const CONVEX_CONNECTION_TYPE = 'convex' as const;
+const DEFAULT_POLLING_INTERVAL_MS = 1_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 export interface NormalizedConvexConnectionConfig {
   id: string;
@@ -15,6 +17,7 @@ export interface NormalizedConvexConnectionConfig {
 
   debug_api: boolean;
   polling_interval_ms: number;
+  request_timeout_ms: number;
 
   lookup?: LookupFunction;
 }
@@ -25,6 +28,7 @@ export const ConvexConnectionConfig = service_types.configFile.DataSourceConfig.
     deployment_url: t.string,
     deploy_key: t.string,
     polling_interval_ms: t.number.optional(),
+    request_timeout_ms: t.number.optional(),
     reject_ip_ranges: t.array(t.string).optional()
   })
 );
@@ -59,6 +63,22 @@ export function normalizeConnectionConfig(options: ConvexConnectionConfig): Norm
     throw new ServiceError(ErrorCode.PSYNC_S1108, `Convex connection: deploy_key required`);
   }
 
+  const pollingIntervalMs = options.polling_interval_ms ?? DEFAULT_POLLING_INTERVAL_MS;
+  if (!Number.isFinite(pollingIntervalMs) || pollingIntervalMs <= 0) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1109,
+      `Convex connection: polling_interval_ms must be a positive finite number`
+    );
+  }
+
+  const requestTimeoutMs = options.request_timeout_ms ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  if (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0) {
+    throw new ServiceError(
+      ErrorCode.PSYNC_S1109,
+      `Convex connection: request_timeout_ms must be a positive finite number`
+    );
+  }
+
   const lookup = makeHostnameLookupFunction(deploymentURL.hostname, {
     reject_ip_ranges: options.reject_ip_ranges ?? []
   });
@@ -72,7 +92,8 @@ export function normalizeConnectionConfig(options: ConvexConnectionConfig): Norm
     deploy_key: options.deploy_key,
 
     debug_api: options.debug_api ?? false,
-    polling_interval_ms: options.polling_interval_ms ?? 1_000,
+    polling_interval_ms: pollingIntervalMs,
+    request_timeout_ms: requestTimeoutMs,
 
     lookup
   };

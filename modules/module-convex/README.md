@@ -141,8 +141,9 @@ The content below is written in an agents.md style describing the behavior of `m
 
 - `createReplicationHead` must:
   1. resolve global head cursor,
-  2. write a Convex checkpoint marker via `POST /api/mutation` (calls `powersync_checkpoints:createCheckpoint`),
-  3. then pass the head to callback.
+  2. pass that head to the callback so PowerSync stores the managed write checkpoint mapping,
+  3. then write a Convex checkpoint marker via `POST /api/mutation` (calls `powersync_checkpoints:createCheckpoint`).
+- The marker must be written after the callback. If the marker is replicated before the managed write checkpoint mapping exists, an idle source can still leave the client waiting for a later observable checkpoint update.
 - Source marker table: `powersync_checkpoints`
   - Convex rejects table names starting with `_`, so no leading-underscore variant is used.
   - The table has a single `last_updated` field; the mutation upserts one row (bounded to one row total).

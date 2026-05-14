@@ -14,6 +14,7 @@ const SNAPSHOT_CURSOR = 1770335566197683000n;
 
 describe('ConvexApiClient', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -85,6 +86,31 @@ describe('ConvexApiClient', () => {
     });
   });
 
+  it('uses the configured request timeout', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(init.signal!.reason);
+          });
+        })
+    );
+
+    const client = new ConvexApiClient({
+      ...baseConfig,
+      request_timeout_ms: 25
+    });
+
+    const request = expect(client.getJsonSchemas()).rejects.toMatchObject({
+      message: expect.stringContaining('timed out after 25ms'),
+      retryable: true
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+    await request;
+  });
+
   it('creates write checkpoint markers via mutation', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
@@ -117,7 +143,7 @@ describe('ConvexApiClient', () => {
     });
   });
 
-  it('checks the hostname policy before creating checkpoint markers', async () => {
+  it('checks the hostname policy before every Convex API request', async () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200 }));
@@ -130,8 +156,13 @@ describe('ConvexApiClient', () => {
       lookup
     });
 
+    await expect(client.getJsonSchemas()).rejects.toThrow('blocked by reject_ip_ranges');
+    await expect(client.listSnapshot({ tableName: 'lists' })).rejects.toThrow('blocked by reject_ip_ranges');
+    await expect(client.documentDeltas({ cursor: SNAPSHOT_CURSOR.toString() })).rejects.toThrow(
+      'blocked by reject_ip_ranges'
+    );
     await expect(client.createWriteCheckpointMarker()).rejects.toThrow('blocked by reject_ip_ranges');
-    expect(lookup).toHaveBeenCalledTimes(1);
+    expect(lookup).toHaveBeenCalledTimes(4);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
