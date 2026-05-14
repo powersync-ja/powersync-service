@@ -1,6 +1,6 @@
 import { JSONBig } from '@powersync/service-jsonbig';
 import { SQLITE_FALSE, SQLITE_TRUE, sqliteBool, sqliteNot } from './sql_support.js';
-import { SqliteInputValue, SqliteValue } from './types.js';
+import { SqliteInputValue, SqliteJsonValue, SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 // Declares @syncpoint/wkx module
 // This allows for consumers of this lib to resolve types correctly
@@ -676,7 +676,7 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
   }
 }
 
-export function checkJsonArray(value: SqliteValue, errorMessage: string): any[] {
+export function checkJsonArray(value: SqliteValue, errorMessage: string): SqliteJsonValue[] {
   if (typeof value != 'string') {
     throw new Error(errorMessage);
   }
