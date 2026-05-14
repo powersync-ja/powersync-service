@@ -147,7 +147,7 @@ export class BucketDocumentFormatAdapter {
    * partial projections that don't include the field), we pull fields directly
    * from the document. A runtime validation helper extracts `_id.o` because
    * `Pick<BucketDataDocument, '_id' | T>` doesn't give us access to
-   * the underlying V5 fields at compile time.
+   * the underlying fields at compile time.
    */
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     bucketKey: BucketKey,

@@ -153,7 +153,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     this.signal?.throwIfAborted();
 
-    // 3. Filter superseded operations using the same row_id logic as v3/v5.
+    // 3. Filter superseded operations using the same row_id logic as v3.
     //    We iterate newest-to-oldest and keep only the latest PUT/REMOVE per row.
     const seen = new Map<string, bigint>();
     const surviving = new Array<BucketDataDoc | null>(allOps.length);

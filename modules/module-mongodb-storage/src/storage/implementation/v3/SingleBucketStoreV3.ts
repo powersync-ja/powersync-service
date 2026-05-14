@@ -7,7 +7,7 @@ import {
   BucketDataDocumentGenericId,
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
-import { BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
+import { BucketDataDocument, BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
 import { BucketDataKey, BucketDataProperties } from '../models.js';
 
 // MongoDB's MinKey/MaxKey are special sentinel values that don't match the bigint type
@@ -64,10 +64,7 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    return this.format.fromPersistedDocument(
-      this.key,
-      doc as unknown as import('../document-formats/bucket-document-format.js').BucketDataDocument
-    );
+    return this.format.fromPersistedDocument(this.key, doc as unknown as BucketDataDocument);
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
@@ -75,10 +72,7 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
     return this.format.fromPartialPersistedDocument(
       this.key,
-      doc as unknown as Pick<
-        import('../document-formats/bucket-document-format.js').BucketDataDocument & BucketDataProperties,
-        '_id' | T
-      >
+      doc as unknown as Pick<BucketDataDocument & BucketDataProperties, '_id' | T>
     );
   }
 }

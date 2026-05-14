@@ -23,7 +23,7 @@ export interface BucketKey {
 /**
  * In-memory bucket data document.
  *
- * This is converted to/from BucketDataDocumentV1 / BucketDataDocumentV3 for storage.
+ * This is converted to/from BucketDataDocumentV1 / BucketDataDocument for storage.
  */
 export interface BucketDataDoc extends BucketDataProperties {
   /**
