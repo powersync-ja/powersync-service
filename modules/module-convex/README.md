@@ -128,14 +128,22 @@ The content below is written in an agents.md style describing the behavior of `m
 | Float64     | number      | real        |
 | Boolean     | boolean     | integer     |
 | String      | string      | text        |
-| Bytes       | ArrayBuffer | text        |
+| Bytes       | ArrayBuffer | blob        |
 | Array       | Array       | text        |
 | Object      | Object      | text        |
 | Record      | Record      | text        |
 
 - Convex does not expose a native `Date` wire type; timestamps arrive as `number` or `string`.
 - BLOB values are valid row values but are not valid bucket parameter values.
-- Known limitation: missing `json_schemas` entries can affect type-sensitive fields. This is most visible for Convex `Int64` values, which may be synced inconsistently as strings or bigints when schema metadata was missing, and for `Bytes` values, which may be represented as base64 strings or otherwise not converted as intended. Until schema handling is improved, users should explicitly cast those columns to strings in Sync Streams rules to avoid ambiguity.
+- Value conversion flow:
+  1. PowerSync requests snapshots or document deltas from Convex's Streaming Export APIs.
+  2. The JSON response is parsed into raw Convex documents, where row columns are represented as JSON object fields.
+  3. PowerSync queries Convex's `json_schemas` endpoint for table schema metadata.
+  4. The raw document values and schema metadata are used together to convert Convex values to SQLite-compatible values.
+- Known limitation: Convex JSON documents are close to SQLite-compatible input, but some values need schema metadata to preserve their intended type. Boolean values are handled internally as SQLite integers, but `Int64` and `Bytes` values are ambiguous on the JSON wire:
+  - Convex `Int64` values arrive in raw documents as JSON strings. With schema metadata, PowerSync converts those strings to SQLite integers backed by `bigint`. Without schema metadata, the same value is indistinguishable from an ordinary string and may be synced as text.
+  - Convex `Bytes` values arrive in raw documents as base64 strings. With schema metadata, PowerSync decodes them to SQLite blobs. Without schema metadata, the value is indistinguishable from an ordinary string and may be synced as text.
+- Convex's `json_schemas` endpoint appears to infer table schemas from table summaries instead of using the TypeScript schema as a complete source of truth. This means fields can be absent from `json_schemas` until populated data exists. For columns that may suffer from this ambiguity, users should explicitly cast those values in Sync Streams rules, commonly to `TEXT`, until Convex exposes complete schema metadata.
 
 ## 8) Checkpointing and Consistency
 

@@ -25,7 +25,7 @@ import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { lsnCursorToDate, parseConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
 import { extractProperties, toSqliteInputRow } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
-import { BinaryConvexSnapshotProgressCursor, decodeSnapshotProgressCursor } from './ConvexSnapshotProgresCursor.js';
+import { BinaryConvexSnapshotProgressCursor, decodeSnapshotProgressCursor } from './ConvexSnapshotProgressCursor.js';
 
 export interface ConvexStreamOptions {
   connections: ConvexConnectionManager;

@@ -28,14 +28,15 @@ For Convex, the source position is the Convex replication cursor. The current
 implementation in `createReplicationHead`:
 
 1. calls `getHeadCursor()` to read the current global Convex head,
-2. calls `createWriteCheckpointMarker()` to run the
-   `powersync_checkpoints:createCheckpoint` Convex mutation,
-3. invokes the callback with the original head cursor.
+2. invokes the callback with the original head cursor so PowerSync stores the
+   managed write checkpoint mapping,
+3. calls `createWriteCheckpointMarker()` to run the
+   `powersync_checkpoints:createCheckpoint` Convex mutation.
 
 The callback stores the managed write checkpoint in bucket storage with the
 original head as the replication head. The marker write is intentionally not the
 write checkpoint position. It is a later Convex mutation whose job is to advance
-the Convex delta stream beyond the stored head.
+the Convex delta stream beyond the stored head after the managed mapping exists.
 
 The key invariant is that PowerSync must observe a checkpoint update at or past
 the stored head after the managed write checkpoint mapping exists. Other source

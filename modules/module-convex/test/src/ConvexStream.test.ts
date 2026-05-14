@@ -1,6 +1,6 @@
 import { ConvexDocumentDeltasResult, ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
 import { parseConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
-import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSnapshotProgresCursor.js';
+import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSnapshotProgressCursor.js';
 import { ConvexStream } from '@module/replication/ConvexStream.js';
 import { SaveOperationTag, SourceTable } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
