@@ -14,7 +14,8 @@ import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
     storageVersion,
-    tableIdStrings: storageConfig.tableIdStrings
+    tableIdStrings: storageConfig.tableIdStrings,
+    compressedBucketStorage: storageVersion >= 3
   });
   // The split of returned results can vary depending on storage drivers
   test('large batch (2)', async () => {

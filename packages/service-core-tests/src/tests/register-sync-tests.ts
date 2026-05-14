@@ -38,7 +38,7 @@ export const SYNC_SNAPSHOT_PATH = path.resolve(__dirname, '../__snapshots/sync.t
  */
 export function registerSyncTests(
   configOrFactory: storage.TestStorageConfig | storage.TestStorageFactory,
-  options: { storageVersion?: number; tableIdStrings?: boolean } = {}
+  options: { storageVersion?: number; tableIdStrings?: boolean; compressedBucketStorage?: boolean } = {}
 ) {
   const config: storage.TestStorageConfig =
     typeof configOrFactory == 'function'
@@ -1192,7 +1192,7 @@ bucket_definitions:
     // in this test.
     expect(lines2).toMatchSnapshot();
 
-    if (options.storageVersion != null && options.storageVersion >= 3) {
+    if (options.compressedBucketStorage) {
       // v3+ drops superseded ops during compaction instead of converting them to CLEAR.
       // The in-flight checkpoint is completed with no data; the client will start
       // a fresh sync to receive the updated state.

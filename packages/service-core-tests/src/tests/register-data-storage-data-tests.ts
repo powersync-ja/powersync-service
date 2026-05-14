@@ -1332,7 +1332,7 @@ bucket_definitions:
       // 50 bytes is more than 1 row, less than 2 rows
       const { batch, global1Request, global2Request } = await setup({ limit: 3, chunkLimitBytes: 50 });
 
-      if (storageVersion >= 3) {
+      if (config.compressedBucketStorage) {
         // In v3+, ops in the same bucket share a document, so ops 2 and 3 (global2) are batched together
         expect(batch.length).toEqual(2);
         expect(batch[0].chunkData.bucket).toEqual(global1Request.bucket);
