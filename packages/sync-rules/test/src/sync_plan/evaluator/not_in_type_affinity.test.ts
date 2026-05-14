@@ -16,12 +16,8 @@ streams:
     query: SELECT * FROM docs WHERE flag NOT IN '[true]'
 `);
 
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', flag: 1n } })
-    ).toHaveLength(0);
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', flag: 0n } })
-    ).toHaveLength(1);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', flag: 1n } })).toHaveLength(0);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', flag: 0n } })).toHaveLength(1);
   });
 
   syncTest('boolean column IN [true] admits only the matching row', ({ sync }) => {
@@ -35,12 +31,8 @@ streams:
     query: SELECT * FROM docs WHERE flag IN '[true]'
 `);
 
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', flag: 1n } })
-    ).toHaveLength(1);
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', flag: 0n } })
-    ).toHaveLength(0);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', flag: 1n } })).toHaveLength(1);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', flag: 0n } })).toHaveLength(0);
   });
 
   syncTest('large bigint column NOT IN keeps precision via JSONBig parse', ({ sync }) => {
@@ -55,12 +47,8 @@ streams:
     query: SELECT * FROM docs WHERE big NOT IN '[9999999999999999]'
 `);
 
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', big: 9999999999999999n } })
-    ).toHaveLength(0);
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', big: 1n } })
-    ).toHaveLength(1);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', big: 9999999999999999n } })).toHaveLength(0);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', big: 1n } })).toHaveLength(1);
   });
 
   syncTest('integer column NOT IN [1] excludes 1n and admits 2n', ({ sync }) => {
@@ -89,11 +77,7 @@ streams:
     query: SELECT * FROM docs WHERE state NOT IN '["foo"]'
 `);
 
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', state: 'foo' } })
-    ).toHaveLength(0);
-    expect(
-      desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', state: 'bar' } })
-    ).toHaveLength(1);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', state: 'foo' } })).toHaveLength(0);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', state: 'bar' } })).toHaveLength(1);
   });
 });

@@ -676,7 +676,7 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
   }
 }
 
-export function checkJsonArray(value: SqliteValue, errorMessage: string): SqliteValue[] {
+export function checkJsonArray(value: SqliteValue, errorMessage: string): any[] {
   if (typeof value != 'string') {
     throw new Error(errorMessage);
   }
