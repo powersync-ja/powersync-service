@@ -66,6 +66,22 @@ streams:
     expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', n: 2n } })).toHaveLength(1);
   });
 
+  // TODO: unskip once json_each in TableValuedFunctions.ts uses JSONBig (behind a CompatibilityOption).
+  syncTest.skip('large bigint column IN keeps precision', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    auto_subscribe: true
+    query: SELECT * FROM docs WHERE big IN '[9999999999999999]'
+`);
+
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'a', big: 9999999999999999n } })).toHaveLength(1);
+    expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'b', big: 1n } })).toHaveLength(0);
+  });
+
   syncTest('string variant still works (regression guard)', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
