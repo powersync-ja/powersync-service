@@ -1,5 +1,38 @@
 # @powersync/service-module-postgres
 
+## 0.19.5
+
+### Patch Changes
+
+- 9add445: Fix initSlot phase detection for snapshot failures requiring operator intervention and add WAL budget warnings to diagnostics API.
+- cdb8993: Add `config.storage_version` configuration option.
+- 040fffd: Improve consistency of logs and error messages
+- 75174c4: Improve Postgres query errors.
+- 2b19fc3: Update first-party uuid dependencies to v14.
+- Updated dependencies [f20f318]
+- Updated dependencies [9add445]
+- Updated dependencies [17503d1]
+- Updated dependencies [ad9ea06]
+- Updated dependencies [01c29c3]
+- Updated dependencies [8afe719]
+- Updated dependencies [b8f0195]
+- Updated dependencies [cdb8993]
+- Updated dependencies [7c7b525]
+- Updated dependencies [824e229]
+- Updated dependencies [6304a21]
+- Updated dependencies [040fffd]
+- Updated dependencies [9e474d3]
+- Updated dependencies [75174c4]
+- Updated dependencies [423822c]
+- Updated dependencies [2b19fc3]
+  - @powersync/service-core@1.21.0
+  - @powersync/service-sync-rules@0.36.0
+  - @powersync/lib-services-framework@0.9.4
+  - @powersync/service-types@0.15.2
+  - @powersync/service-jsonbig@0.17.13
+  - @powersync/service-jpgwire@0.21.18
+  - @powersync/lib-service-postgres@0.4.27
+
 ## 0.19.4
 
 ### Patch Changes
