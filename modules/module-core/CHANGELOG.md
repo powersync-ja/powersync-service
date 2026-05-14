@@ -1,5 +1,25 @@
 # @powersync/service-module-core
 
+## 0.2.26
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- Updated dependencies [f20f318]
+- Updated dependencies [9add445]
+- Updated dependencies [ad9ea06]
+- Updated dependencies [01c29c3]
+- Updated dependencies [8afe719]
+- Updated dependencies [cdb8993]
+- Updated dependencies [7c7b525]
+- Updated dependencies [6304a21]
+- Updated dependencies [040fffd]
+- Updated dependencies [2b19fc3]
+  - @powersync/service-core@1.21.0
+  - @powersync/lib-services-framework@0.9.4
+  - @powersync/service-types@0.15.2
+  - @powersync/service-rsocket-router@0.2.20
+
 ## 0.2.25
 
 ### Patch Changes

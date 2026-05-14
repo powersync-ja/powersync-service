@@ -1,5 +1,14 @@
 # @powersync/service-client
 
+## 0.0.6
+
+### Patch Changes
+
+- 040fffd: Improve consistency of logs and error messages
+- Updated dependencies [ad9ea06]
+- Updated dependencies [040fffd]
+  - @powersync/service-types@0.15.2
+
 ## 0.0.5
 
 ### Patch Changes
