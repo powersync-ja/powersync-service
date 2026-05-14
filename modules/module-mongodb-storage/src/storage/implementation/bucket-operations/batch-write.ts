@@ -2,12 +2,13 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import type { VersionedPowerSyncMongo } from '../db.js';
+import { BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
 export async function flushBucketDataShared(
   options: {
     db: VersionedPowerSyncMongo;
     groupId: number;
     bucketData: BucketDataDoc[];
-    formatAdapter: any;
+    formatAdapter: BucketDocumentFormatAdapter;
     getCollection: (groupId: number, definitionId: BucketDefinitionId) => mongo.Collection<any>;
   },
   session: mongo.ClientSession
