@@ -74,9 +74,9 @@ describe.skipIf(!env.CONVEX_DEPLOY_KEY)('ConvexStream ConvexRouteAPIAdapter test
               name: 'lists',
               columns: expect.arrayContaining([
                 {
-                  internal_type: 'id',
+                  internal_type: 'string',
                   name: '_id',
-                  pg_type: 'id',
+                  pg_type: 'string',
                   sqlite_type: 2,
                   type: 'id'
                 },
@@ -85,7 +85,7 @@ describe.skipIf(!env.CONVEX_DEPLOY_KEY)('ConvexStream ConvexRouteAPIAdapter test
                   name: 'archived',
                   pg_type: 'float64',
                   sqlite_type: 8,
-                  type: 'float64'
+                  type: 'number'
                 },
                 {
                   internal_type: 'object',

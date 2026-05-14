@@ -9,7 +9,7 @@ import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { parseConvexLsn } from '../common/ConvexLSN.js';
-import { extractProperties, readConvexFieldType, toExpressionTypeFromConvexType } from '../common/convex-to-sqlite.js';
+import { extractProperties, jsonSchemaToSQLiteType, readConvexFieldJsonType } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from '../replication/ConvexConnectionManager.js';
 import * as types from '../types/types.js';
 
@@ -149,12 +149,12 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
             })
               .sort(([a], [b]) => a.localeCompare(b))
               .map(([columnName, jsonSchemaProperty]) => {
-                const jsonType = readConvexFieldType(jsonSchemaProperty);
-                const sqliteType = toExpressionTypeFromConvexType(jsonType);
+                const jsonType = readConvexFieldJsonType(jsonSchemaProperty);
+                const sqliteType = jsonSchemaToSQLiteType(jsonType);
 
                 return {
                   name: columnName,
-                  type: jsonType,
+                  type: jsonSchemaProperty.type ?? 'unknown',
                   sqlite_type: sqliteType.typeFlags,
                   internal_type: jsonType,
                   pg_type: jsonType

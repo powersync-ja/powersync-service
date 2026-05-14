@@ -32,7 +32,7 @@ function createAdapter() {
               properties: {
                 _id: { type: 'string' },
                 age: { type: 'integer' },
-                avatar: { type: 'bytes' }
+                avatar: { type: 'string', $description: 'base64 bytes' }
               }
             }
           }
@@ -54,6 +54,7 @@ describe('ConvexRouteAPIAdapter', () => {
     expect(schema[0]?.name).toBe('convex');
     expect(schema[0]?.tables[0]?.name).toBe('users');
     expect(schema[0]?.tables[0]?.columns.find((column) => column.name == '_id')?.type).toBe('id');
+    expect(schema[0]?.tables[0]?.columns.find((column) => column.name == '_creationTime')).toBeUndefined();
     expect(schema[0]?.tables[0]?.columns.find((column) => column.name == 'avatar')?.sqlite_type).toBe(
       ExpressionType.BLOB.typeFlags
     );

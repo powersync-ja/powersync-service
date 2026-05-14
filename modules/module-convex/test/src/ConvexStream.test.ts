@@ -256,7 +256,7 @@ describe('ConvexStream', () => {
                 schema: {
                   type: 'object',
                   properties: {
-                    avatar: { type: 'bytes' }
+                    avatar: { type: 'string', $description: 'base64 bytes' }
                   }
                 }
               }

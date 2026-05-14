@@ -113,6 +113,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - Convex `json_schemas` does not provide a schema change token or revision cursor that can be checkpointed.
 - Current behavior uses `json_schemas` for discovery/debug, but does not continuously diff source schema versions.
 - Schema changes are not automatically supported at this point. If Convex schema changes (tables or columns), developers must review and redeploy Sync Streams rules manually so PowerSync re-resolves the schema and re-replicates affected streams.
+- Convex `json_schemas` can omit fields that do not have populated values at the time the schema is fetched. If PowerSync caches that incomplete schema during an initial snapshot, later values for those fields may be converted using runtime inspection only.
 - Future improvement: cache a canonicalized `json_schemas` hash, poll periodically, and raise diagnostics when schema drift is detected.
 
 ## 7) Datatype Mapping
@@ -134,6 +135,7 @@ The content below is written in an agents.md style describing the behavior of `m
 
 - Convex does not expose a native `Date` wire type; timestamps arrive as `number` or `string`.
 - BLOB values are valid row values but are not valid bucket parameter values.
+- Known limitation: missing `json_schemas` entries can affect type-sensitive fields. This is most visible for Convex `Int64` values, which may be synced inconsistently as strings or bigints when schema metadata was missing, and for `Bytes` values, which may be represented as base64 strings or otherwise not converted as intended. Until schema handling is improved, users should explicitly cast those columns to strings in Sync Streams rules to avoid ambiguity.
 
 ## 8) Checkpointing and Consistency
 

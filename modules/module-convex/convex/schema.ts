@@ -50,6 +50,7 @@ export default defineSchema({
 
     // Number types
     priority: v.optional(v.number()),
+    points: v.optional(v.int64()),
     estimated_hours: v.optional(v.float64()),
     progress_percentage: v.optional(v.float64()),
 
@@ -57,6 +58,7 @@ export default defineSchema({
     is_urgent: v.optional(v.boolean()),
     is_private: v.optional(v.boolean()),
     has_attachments: v.optional(v.boolean()),
+    attachment_data: v.optional(v.bytes()),
 
     // Array types
     tags: v.optional(v.array(v.string())),
@@ -64,6 +66,15 @@ export default defineSchema({
     assigned_users: v.optional(v.array(v.string())),
 
     // Object types
+    details: v.optional(
+      v.object({
+        label: v.string(),
+        count: v.number(),
+        nested: v.object({
+          enabled: v.boolean()
+        })
+      })
+    ),
     metadata: v.optional(v.record(v.string(), v.any())),
     custom_fields: v.optional(v.record(v.string(), v.union(v.string(), v.number(), v.boolean()))),
 
@@ -78,6 +89,7 @@ export default defineSchema({
     difficulty: v.optional(v.union(v.literal('easy'), v.literal('medium'), v.literal('hard'))),
 
     // Null handling
+    explicit_null: v.optional(v.null()),
     archived_at: v.optional(v.union(v.null(), v.string())),
     deleted_by: v.optional(v.union(v.null(), v.string())),
 

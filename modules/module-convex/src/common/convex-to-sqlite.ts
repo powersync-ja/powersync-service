@@ -1,4 +1,5 @@
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { JSONBig } from '@powersync/service-jsonbig';
 import {
   DatabaseInputRow,
   DatabaseInputValue,
@@ -14,7 +15,6 @@ export enum SupportedJSONSchemaPropertyType {
   BYTES = 'bytes',
   ARRAY = 'array',
   OBJECT = 'object',
-  RECORD = 'record',
   NULL = 'null',
   INT64 = 'int64',
   FLOAT64 = 'float64',
@@ -28,7 +28,6 @@ export const CONVEX_TO_SQLITE_TYPE_MAP: Record<SupportedJSONSchemaPropertyType, 
   [SupportedJSONSchemaPropertyType.BYTES]: ExpressionType.BLOB,
   [SupportedJSONSchemaPropertyType.ARRAY]: ExpressionType.TEXT,
   [SupportedJSONSchemaPropertyType.OBJECT]: ExpressionType.TEXT,
-  [SupportedJSONSchemaPropertyType.RECORD]: ExpressionType.TEXT,
   [SupportedJSONSchemaPropertyType.NULL]: ExpressionType.NONE,
   [SupportedJSONSchemaPropertyType.INT64]: ExpressionType.INTEGER,
   [SupportedJSONSchemaPropertyType.FLOAT64]: ExpressionType.REAL,
@@ -36,16 +35,11 @@ export const CONVEX_TO_SQLITE_TYPE_MAP: Record<SupportedJSONSchemaPropertyType, 
   [SupportedJSONSchemaPropertyType.UNKNOWN]: ExpressionType.TEXT
 } as const;
 
-/**
- * From Convex docs:
- * Every document in Convex automatically has two system fields:
+const INTERNAL_KEYS = new Set(['_table', '_deleted', '_ts', '_component']);
 
-    _id - a unique document ID with validator v.id("tableName")
-    _creationTime - a creation timestamp with validator v.number()
-
-    Technically _creationTime should be handlded differently as the other metadata excludes defined below, but we include it here for convenience since it's not necessary for replication.
- */
-const INTERNAL_KEYS = new Set(['_table', '_deleted', '_ts', '_component', '_creationTime']);
+export function jsonSchemaToSQLiteType(jsonType: SupportedJSONSchemaPropertyType): ExpressionType {
+  return CONVEX_TO_SQLITE_TYPE_MAP[jsonType];
+}
 
 export function toSqliteInputRow(
   change: ConvexRawDocument,
@@ -58,50 +52,10 @@ export function toSqliteInputRow(
       continue;
     }
 
-    row[key] = toDatabaseValue(value, readConvexFieldType(jsonSchemaProperties?.[key]));
+    row[key] = toDatabaseValue(value, readConvexFieldJsonType(jsonSchemaProperties?.[key]));
   }
 
   return toSyncRulesRow(row);
-}
-
-/**
- * Normalizes the Convex Table columns JSON schema property type
- * to a set of common supported JSON schema property types.
- */
-function normalizeConvexJsonSchemaType(type: string | undefined): SupportedJSONSchemaPropertyType {
-  const normalized = type?.trim().toLowerCase();
-  switch (normalized) {
-    case SupportedJSONSchemaPropertyType.ID:
-    case SupportedJSONSchemaPropertyType.STRING:
-    case SupportedJSONSchemaPropertyType.BYTES:
-    case SupportedJSONSchemaPropertyType.ARRAY:
-    case SupportedJSONSchemaPropertyType.OBJECT:
-    case SupportedJSONSchemaPropertyType.RECORD:
-    case SupportedJSONSchemaPropertyType.NULL:
-      return normalized;
-    case 'integer':
-    case 'int64':
-      return SupportedJSONSchemaPropertyType.INT64;
-    case 'number':
-    case 'float':
-    case 'float64':
-      return SupportedJSONSchemaPropertyType.FLOAT64;
-    case 'bool':
-    case 'boolean':
-      return SupportedJSONSchemaPropertyType.BOOLEAN;
-    case 'bytea':
-    case 'blob':
-      return SupportedJSONSchemaPropertyType.BYTES;
-    default:
-      return SupportedJSONSchemaPropertyType.UNKNOWN;
-  }
-}
-
-/**
- * Connverts a Convex JSON Schema property type to A SQLite ExpressionType
- */
-export function toExpressionTypeFromConvexType(type: string | undefined): ExpressionType {
-  return CONVEX_TO_SQLITE_TYPE_MAP[normalizeConvexJsonSchemaType(type)];
 }
 
 export function extractProperties(schema: Record<string, any>): Record<string, unknown> {
@@ -122,59 +76,73 @@ export function extractProperties(schema: Record<string, any>): Record<string, u
  * We don't exclusively rely on the jsonSchemaType for this reason. Type mappings are performed using
  * type checks in these scenarios.
  */
-function toDatabaseValue(value: unknown, jsonSchemaType: string): DatabaseInputValue {
-  // Use the schema type if available
-  switch (normalizeConvexJsonSchemaType(jsonSchemaType)) {
-    case 'bytes':
-      return toBytesValue(value);
-    case 'boolean':
-      if (typeof value == 'boolean') {
-        return value;
+function toDatabaseValue(value: unknown, jsonSchemaType: SupportedJSONSchemaPropertyType): DatabaseInputValue {
+  // If we have the schema available for the value, we can perform basic assertions.
+  switch (jsonSchemaType) {
+    case SupportedJSONSchemaPropertyType.BYTES:
+      if (typeof value != 'string') {
+        // we should have received a string for this
+        throw new ServiceError(
+          ErrorCode.PSYNC_S1004,
+          `Convex bytes value must be a base64 string or binary buffer, got ${typeof value}`
+        );
+      }
+      return new Uint8Array(Buffer.from(value, 'base64'));
+    case SupportedJSONSchemaPropertyType.INT64:
+      // Convex can return values for int64 as a qouted string
+      if (typeof value == 'number' || typeof value == 'string') {
+        // We can cast this number to bigint
+        return BigInt(value);
       }
       break;
-    default:
-      break;
-  }
-
-  // The schema did not match at this point, we continue with runtime type checks
-
-  if (value == null) {
-    return null;
-  }
-
-  if (typeof value == 'string') {
-    return value;
-  }
-
-  if (typeof value == 'number') {
-    if (Number.isInteger(value)) {
-      return BigInt(value);
-    }
-    return value;
-  }
-
-  if (typeof value == 'bigint') {
-    return value;
-  }
-
-  if (typeof value == 'boolean') {
-    return value;
-  }
-
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-
-  if (value instanceof ArrayBuffer) {
-    return new Uint8Array(value);
-  }
-
-  if (Array.isArray(value) || typeof value == 'object') {
-    return value as DatabaseInputValue;
+    case SupportedJSONSchemaPropertyType.BOOLEAN:
+      if (typeof value == 'number') {
+        return value != 0 ? 1n : 0n;
+      } else if (typeof value == 'boolean') {
+        return value;
+      } else {
+        throw new ServiceError(ErrorCode.PSYNC_S1004, `Convex boolean value must be a boolean, got ${typeof value}`);
+      }
+    case SupportedJSONSchemaPropertyType.NULL:
+      return null;
+    case SupportedJSONSchemaPropertyType.FLOAT64:
+      if (typeof value !== 'number') {
+        return Number(value);
+      } else {
+        return value;
+      }
+    case SupportedJSONSchemaPropertyType.ARRAY:
+    case SupportedJSONSchemaPropertyType.OBJECT:
+      return JSONBig.stringify(value);
+    case SupportedJSONSchemaPropertyType.ID:
+    case SupportedJSONSchemaPropertyType.STRING:
+      if (typeof value !== 'string') {
+        throw new ServiceError(
+          ErrorCode.PSYNC_S1004,
+          `Convex ${jsonSchemaType} value must be a string, got ${typeof value}`
+        );
+      } else {
+        return value;
+      }
+    case SupportedJSONSchemaPropertyType.UNKNOWN:
+      // TODO! It seems like Convex might not report the schema value for values which have not
+      // been populated in the DB yet. This can cause many issues - and we need to work around this.
+      // We perform runtime checks and conversions at this point.
+      if (value == null) {
+        return null;
+      } else if (
+        typeof value == 'string' ||
+        typeof value == 'boolean' ||
+        typeof value == 'number' ||
+        typeof value == 'bigint'
+      ) {
+        // We can return the value as is in this case
+        return value;
+      } else if (Array.isArray(value) || typeof value == 'object') {
+        return JSONBig.stringify(value);
+      } else {
+        return null;
+      }
   }
 
   return null;
@@ -184,96 +152,40 @@ function isRecord(value: unknown): value is Record<string, any> {
   return typeof value == 'object' && value != null && !Array.isArray(value);
 }
 
-function toBytesValue(value: unknown): Uint8Array | null {
-  if (value == null) {
-    return null;
-  }
-
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-
-  if (ArrayBuffer.isView(value)) {
-    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-  }
-
-  if (value instanceof ArrayBuffer) {
-    return new Uint8Array(value);
-  }
-
-  if (typeof value != 'string') {
-    throw new ServiceError(
-      ErrorCode.PSYNC_S1004,
-      `Convex bytes value must be a base64 string or binary buffer, got ${typeof value}`
-    );
-  }
-
-  const normalized = value.replace(/\s+/g, '');
-  const buffer = Buffer.from(normalized, 'base64');
-  const canonical = buffer.toString('base64').replace(/=+$/g, '');
-  if (normalized != '' && canonical != normalized.replace(/=+$/g, '')) {
-    throw new ServiceError(ErrorCode.PSYNC_S1004, 'Convex bytes value is not valid base64');
-  }
-
-  return new Uint8Array(buffer);
-}
-
-/**
- * Reads the Convex field type from the Convex table column's JSON schema entry.
- */
-export function readConvexFieldType(jsonSchemaProperty: unknown): string {
+export function readConvexFieldJsonType(jsonSchemaProperty: unknown): SupportedJSONSchemaPropertyType {
   if (!isRecord(jsonSchemaProperty)) {
     // Invalid schema property entry received
-    return 'unknown';
+    return SupportedJSONSchemaPropertyType.UNKNOWN;
   }
 
-  // Convex can expose logical string subtypes through JSON schema `format`.
-  // For example: { "type": "string", "format": "id" } or { "type": "string", "format": "bytes" }.
-  // Check this before `type`, otherwise these would be treated as plain strings.
-  const format =
-    typeof jsonSchemaProperty.format == 'string' ? normalizeConvexJsonSchemaType(jsonSchemaProperty.format) : null;
-  if (format == 'bytes' || format == 'id') {
-    return format;
+  const description = jsonSchemaProperty['$description'];
+  const type = jsonSchemaProperty['type'];
+  /**
+   * An Int64 example
+   *   "points": {"$description": "int64 represented as base10 string", "type": "string"},
+   */
+  if (description == 'int64 represented as base10 string' && type == 'string') {
+    return SupportedJSONSchemaPropertyType.INT64;
+  } else if (description == 'base64 bytes' && type == 'string') {
+    /**
+     * Buffer example
+     * "attachment_data": {"$description": "base64 bytes", "type": "string"},
+     */
+    return SupportedJSONSchemaPropertyType.BYTES;
+  } else if (type == 'string' || type == 'id') {
+    return SupportedJSONSchemaPropertyType.STRING;
+  } else if (type == 'boolean') {
+    return SupportedJSONSchemaPropertyType.BOOLEAN;
+  } else if (type == 'number') {
+    // number and float64 seem to both be represented as 'number' in the reported JSON schema
+    return SupportedJSONSchemaPropertyType.FLOAT64;
+  } else if (type == 'array') {
+    return SupportedJSONSchemaPropertyType.ARRAY;
+  } else if (type == 'object') {
+    return SupportedJSONSchemaPropertyType.OBJECT;
+  } else if (type == 'null') {
+    return SupportedJSONSchemaPropertyType.NULL;
   }
 
-  // Some schema exporters describe binary data as a base64-encoded string.
-  // For example: { "type": "string", "contentEncoding": "base64" }.
-  const contentEncoding =
-    typeof jsonSchemaProperty.contentEncoding == 'string' ? jsonSchemaProperty.contentEncoding.toLowerCase() : null;
-  if (contentEncoding == 'base64') {
-    return 'bytes';
-  }
-
-  // Standard JSON schema uses a direct `type`.
-  // For example: { "type": "integer" }, { "type": "number" }, or { "type": "boolean" }.
-  const directType = typeof jsonSchemaProperty.type == 'string' ? jsonSchemaProperty.type : null;
-  if (directType != null) {
-    return normalizeConvexJsonSchemaType(directType);
-  }
-
-  // Nullable JSON schema fields can use a type array.
-  // For example: { "type": ["string", "null"] }. Use the first concrete string type.
-  if (Array.isArray(jsonSchemaProperty.type)) {
-    const firstString = jsonSchemaProperty.type.find((entry) => typeof entry == 'string');
-    if (typeof firstString == 'string') {
-      return normalizeConvexJsonSchemaType(firstString);
-    }
-  }
-
-  // Convex-generated or intermediate schema metadata can carry the same type
-  // under non-standard keys. For example: { "valueType": "record" },
-  // { "fieldType": "bytes" }, or { "kind": "array" }.
-  const alternateType =
-    typeof jsonSchemaProperty.valueType == 'string'
-      ? jsonSchemaProperty.valueType
-      : typeof jsonSchemaProperty.fieldType == 'string'
-        ? jsonSchemaProperty.fieldType
-        : typeof jsonSchemaProperty.kind == 'string'
-          ? jsonSchemaProperty.kind
-          : null;
-  if (alternateType != null) {
-    return normalizeConvexJsonSchemaType(alternateType);
-  }
-
-  return 'unknown';
+  return SupportedJSONSchemaPropertyType.UNKNOWN;
 }
