@@ -1,5 +1,4 @@
-import { BufferNodeType } from '@powersync/lib-services-framework';
-import AJV from 'ajv';
+import { schema } from '@powersync/lib-services-framework';
 import * as t from 'ts-codec';
 
 export const ConvexRawDocument = t
@@ -55,8 +54,9 @@ export const ConvexListSnapshotResult = t.object({
 
 export type ConvexListSnapshotResult = t.Encoded<typeof ConvexListSnapshotResult>;
 
-// These validators help assert the API structure response.
-// These could be disabled for production.
+const CHECK_CONVEX_RESPONSES_ENV = 'POWERSYNC_DEV_CHECK_CONVEX_RESPONSES';
+
+// These validators optionally assert the API response shape in development.
 export const ensureConvexListSnapshotResult = ensureResponseFormatValidator(ConvexListSnapshotResult);
 
 export const ConvexDocumentDeltasResult = t.object({
@@ -93,34 +93,38 @@ export type RawJsonSchemaResponse = t.Encoded<typeof RawJsonSchemaResponse>;
 export const ensureRawJsonSchemaResponse = ensureResponseFormatValidator(RawJsonSchemaResponse);
 
 /**
- * Performs a validation which ensures the Convex API response data matches the codec specification.
- * This was added after noticing the original implementation was coercing various permutations of
- * response fields e.g. `has_more` and `hasMore` in responses. There were comments that the
- * self hosted and cloud Convex implementations might have returned different responses.
- * In testing, with these validations, I could not see any actual discrepency in responses.
- * Having these checks could help spot potential changes to the API - however they do come at a cost.
- * We could disable this in prod builds or remove in the future. For now, while the API seems fickle, it could
- * be nice to have a safety net.
+ * Optionally validates that Convex API response data matches the codec specification.
+ *
+ * These checks were originally added because earlier iterations of this client
+ * handled several Convex API route and field-name permutations, such as falling
+ * back between `has_more` and `hasMore`. That suggested there may have been
+ * response differences between Convex Cloud and self-hosted Convex deployments.
+ *
+ * The current response typings have been verified with cloud and self-hosted
+ * integration tests, so we do not need to pay this validation cost in
+ * production. The checks are still useful while developing against Convex API
+ * changes, so they are kept as an opt-in guardrail.
+ *
+ * Set POWERSYNC_DEV_CHECK_CONVEX_RESPONSES to enable this development safety net.
  */
 export function ensureResponseFormatValidator<Codec extends t.AnyCodec>(
   codec: Codec
 ): (data: unknown) => t.Encoded<Codec> {
-  const schema = t.generateJSONSchema(codec, {
+  if (!process.env[CHECK_CONVEX_RESPONSES_ENV]) {
+    return (data: unknown) => data as t.Encoded<Codec>;
+  }
+
+  const validator = schema.createTsCodecValidator(codec, {
     parsers: [bigintParser],
     allowAdditional: true
   });
-  const ajv = new AJV.Ajv({
-    allErrors: true,
-    keywords: [BufferNodeType]
-  });
 
-  const validator = ajv.compile(schema);
   return (data: unknown) => {
-    const isValid = validator(data);
-    if (!isValid) {
+    const result = validator.validate(data);
+    if (!result.valid) {
       // This does not result in leaking failed data, it only logs the keys which failed validation
       throw new Error(
-        `Invalid data received. Got parsing errors when checking data format. Keys which failed validation: ${ajv.errors?.map((e) => e.propertyName).join(', ')}`
+        `Invalid data received. Got parsing errors when checking data format. Errors: ${result.errors.join(', ')}`
       );
     }
     return data as t.Encoded<Codec>;

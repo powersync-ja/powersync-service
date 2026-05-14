@@ -104,6 +104,7 @@ The content below is written in an agents.md style describing the behavior of `m
 - Auth header: `Authorization: Convex <deploy_key>`.
 - Always request `format=json`.
 - Parse large numeric JSON using `JSONBig`.
+- Convex API response shape validation is disabled by default. Set `POWERSYNC_DEV_CHECK_CONVEX_RESPONSES` before service startup to validate responses with the shared ts-codec JSON schema validator while debugging API compatibility.
 - Retry classification:
   - retryable: network, timeout, 429, 5xx.
   - non-retryable: malformed responses, auth/config issues.

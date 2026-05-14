@@ -213,9 +213,6 @@ importers:
       '@powersync/service-types':
         specifier: workspace:*
         version: link:../../packages/types
-      ajv:
-        specifier: ^8.18.0
-        version: 8.18.0
       bson:
         specifier: ^6.10.4
         version: 6.10.4
