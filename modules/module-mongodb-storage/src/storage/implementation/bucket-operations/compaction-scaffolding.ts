@@ -20,9 +20,9 @@ export async function* dirtyBucketBatches<TBucketState extends BucketStateDocume
   yield* compactor.dirtyBucketBatchesForCollection(
     collection,
     // MongoDB MinKey/MaxKey sentinel values don't match the typed _id shape,
-    // so we need explicit casts for the scan boundaries.
-    { d: new mongo.MinKey() as any, b: new mongo.MinKey() as any } as TBucketState['_id'],
-    { d: new mongo.MaxKey() as any, b: new mongo.MaxKey() as any } as TBucketState['_id'],
+    // so we cast through unknown for the scan boundaries.
+    { d: new mongo.MinKey(), b: new mongo.MinKey() } as unknown as TBucketState['_id'],
+    { d: new mongo.MaxKey(), b: new mongo.MaxKey() } as unknown as TBucketState['_id'],
     options,
     getDefinitionId
   );

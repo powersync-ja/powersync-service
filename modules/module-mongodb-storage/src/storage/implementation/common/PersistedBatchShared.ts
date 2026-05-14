@@ -119,8 +119,8 @@ export abstract class PersistedBatchShared extends PersistedBatch {
           update: {
             $set: {
               data: null,
-              buckets: [] as any[],
-              lookups: [] as any[],
+              buckets: [],
+              lookups: [],
               pending_delete: checkpointGreaterThan
             }
           },

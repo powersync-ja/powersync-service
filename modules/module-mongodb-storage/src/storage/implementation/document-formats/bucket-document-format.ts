@@ -178,12 +178,12 @@ export class BucketDocumentFormatAdapter {
   } {
     // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type,
     // so we need an explicit cast for the range filter on the nested op_id.
-    const filter: mongo.Filter<BucketDataDocument> = {
+    const filter = {
       '_id.o': {
         $gt: options.startOpId,
         $lte: options.endOpId
       }
-    } as any;
+    } as unknown as mongo.Filter<BucketDataDocument>;
 
     return {
       filter,

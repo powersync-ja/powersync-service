@@ -12,7 +12,7 @@ import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketStateDocument } from '../common/models.js';
-import { SingleBucketStore } from '../common/SingleBucketStore.js';
+import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
 import {
   BucketDataDocument,
   loadBucketDataDocument,
@@ -212,7 +212,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         async () => {
           await bucketContext.collection.deleteMany({ '_id.b': bucket }, { session });
           if (newDocs.length > 0) {
-            await bucketContext.collection.insertMany(newDocs as any, { session });
+            await bucketContext.collection.insertMany(newDocs as unknown as BucketDataDocumentGeneric[], { session });
           }
         },
         {

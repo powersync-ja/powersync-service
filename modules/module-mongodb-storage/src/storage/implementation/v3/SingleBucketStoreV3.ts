@@ -16,14 +16,14 @@ function minKeyForBucket(bucket: string): BucketDataDocumentGenericId {
   return {
     b: bucket,
     o: new mongo.MinKey()
-  } as any;
+  } as unknown as BucketDataDocumentGenericId;
 }
 
 function maxKeyForBucket(bucket: string): BucketDataDocumentGenericId {
   return {
     b: bucket,
     o: new mongo.MaxKey()
-  } as any;
+  } as unknown as BucketDataDocumentGenericId;
 }
 
 export class SingleBucketStoreV3 implements SingleBucketStore {
