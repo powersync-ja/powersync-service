@@ -417,7 +417,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const sourceTableA = new bson.ObjectId();
     const sourceTableB = new bson.ObjectId();
-    await db.sourceTablesV3(syncRules.id).insertMany([
+    await db.sourceTables(syncRules.id).insertMany([
       {
         _id: sourceTableA,
         connection_id: 1,
@@ -448,13 +448,13 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       }
     ]);
 
-    await db.sourceRecordsV3(syncRules.id, sourceTableA).insertMany([
+    await db.sourceRecords(syncRules.id, sourceTableA).insertMany([
       { _id: 'deleted-1', data: null, buckets: [], lookups: [], pending_delete: 5n },
       { _id: 'deleted-2', data: null, buckets: [], lookups: [], pending_delete: 9n },
       { _id: 'active', data: null, buckets: [], lookups: [] }
     ]);
     await db
-      .sourceRecordsV3(syncRules.id, sourceTableB)
+      .sourceRecords(syncRules.id, sourceTableB)
       .insertMany([{ _id: 'later-delete', data: null, buckets: [], lookups: [], pending_delete: 12n }]);
 
     const store = new SourceRecordStoreImpl(
@@ -467,21 +467,19 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     await store.postCommitCleanup(6n, logger);
 
-    expect(await db.sourceRecordsV3(syncRules.id, sourceTableA).countDocuments({ pending_delete: 5n })).toBe(0);
-    expect(await db.sourceRecordsV3(syncRules.id, sourceTableA).countDocuments({ pending_delete: 9n })).toBe(1);
-    expect(await db.sourceRecordsV3(syncRules.id, sourceTableB).countDocuments({ pending_delete: 12n })).toBe(1);
-    expect((await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete).toBe(9n);
-    expect((await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
+    expect(await db.sourceRecords(syncRules.id, sourceTableA).countDocuments({ pending_delete: 5n })).toBe(0);
+    expect(await db.sourceRecords(syncRules.id, sourceTableA).countDocuments({ pending_delete: 9n })).toBe(1);
+    expect(await db.sourceRecords(syncRules.id, sourceTableB).countDocuments({ pending_delete: 12n })).toBe(1);
+    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete).toBe(9n);
+    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
 
     await store.postCommitCleanup(10n, logger);
 
     expect(
-      await db.sourceRecordsV3(syncRules.id, sourceTableA).countDocuments({ pending_delete: { $exists: true } })
+      await db.sourceRecords(syncRules.id, sourceTableA).countDocuments({ pending_delete: { $exists: true } })
     ).toBe(0);
-    expect(
-      (await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete
-    ).toBeUndefined();
-    expect((await db.sourceTablesV3(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
+    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableA }))?.latest_pending_delete).toBeUndefined();
+    expect((await db.sourceTables(syncRules.id).findOne({ _id: sourceTableB }))?.latest_pending_delete).toBe(12n);
   });
 }
 

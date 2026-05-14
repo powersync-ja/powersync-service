@@ -1192,8 +1192,8 @@ bucket_definitions:
     // in this test.
     expect(lines2).toMatchSnapshot();
 
-    if (options.storageVersion != null && options.storageVersion >= 5) {
-      // v5 drops superseded ops during compaction instead of converting them to CLEAR.
+    if (options.storageVersion != null && options.storageVersion >= 3) {
+      // v3+ drops superseded ops during compaction instead of converting them to CLEAR.
       // The in-flight checkpoint is completed with no data; the client will start
       // a fresh sync to receive the updated state.
       expect(lines2[0]).toEqual({
