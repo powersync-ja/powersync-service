@@ -549,9 +549,7 @@ describe('sync - mongodb', () => {
         async function getFilteredOps(start: number, checkpoint: number): Promise<bigint[]> {
           const { syncRules, bucketStorage } = await setupFilteringTest();
           const request = bucketRequest(syncRules, 'global[]', BigInt(start));
-          const batch = await test_utils.fromAsync(
-            bucketStorage.getBucketDataBatch(BigInt(checkpoint), [request])
-          );
+          const batch = await test_utils.fromAsync(bucketStorage.getBucketDataBatch(BigInt(checkpoint), [request]));
           const ops = batch.flatMap((b) => b.chunkData.data.map((d) => BigInt(d.op_id)));
           return ops;
         }
@@ -591,9 +589,9 @@ describe('sync - mongodb', () => {
           expect(ops).toEqual([30n]);
         });
 
-        test('case 8: start=30, checkpoint=40 → empty (between docs)', async () => {
+        test('case 8: start=30, checkpoint=40 → op at checkpoint from next doc', async () => {
           const ops = await getFilteredOps(30, 40);
-          expect(ops).toEqual([]);
+          expect(ops).toEqual([40n]);
         });
 
         test('case 9: start=100, checkpoint=200 → beyond all docs', async () => {
@@ -616,9 +614,9 @@ describe('sync - mongodb', () => {
           expect(ops).toEqual([50n]);
         });
 
-        test('case 13: start=50, checkpoint=55 → op at start boundary', async () => {
+        test('case 13: start=50, checkpoint=55 → no ops strictly after start', async () => {
           const ops = await getFilteredOps(50, 55);
-          expect(ops).toEqual([50n]);
+          expect(ops).toEqual([]);
         });
       });
     });

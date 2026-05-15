@@ -1,14 +1,16 @@
+import {
+  chunkBucketData,
+  DEFAULT_MAX_DOC_SIZE_BYTES
+} from '@module/storage/implementation/bucket-operations/chunking.js';
 import { VersionedPowerSyncMongo } from '@module/storage/implementation/collection-access/versioned-collections.js';
-import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/bucket-operations/chunking.js';
 import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataDoc.js';
+import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
+import { AbstractMongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
 import {
   BucketDataDocument,
-  BucketDocumentFormatAdapter,
   loadBucketDataDocument,
   serializeBucketData
 } from '@module/storage/implementation/document-formats/bucket-document-format.js';
-import { AbstractMongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
-import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
 import { addChecksums, storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';
@@ -257,6 +259,30 @@ describe('Mongo Sync Parameter Storage Compact', () => {
   register.registerParameterCompactTests(INITIALIZED_MONGO_STORAGE_FACTORY);
 });
 
+/**
+ * V3 Invariant Verification
+ *
+ * Tests in this block exercise two levels:
+ *
+ * Unit tests (no MongoDB): call serializeBucketData(), chunkBucketData(), or
+ * loadBucketDataDocument() directly. These use makeBucketDataDoc() with fake
+ * bucket keys and source table IDs.
+ *
+ * Integration tests (full MongoDB): provision V3 storage, insert pre-serialized
+ * documents directly into collections, trigger compaction via
+ * bucketStorage.compact(), then read back and verify. Surfaces exercised:
+ *
+ *   - collection.insertMany (direct bucket_data writes)
+ *   - bucketStateCollection.insertOne (so compactor discovers buckets)
+ *   - bucketStorage.compact() (full pipeline: dirtyBucketBatches →
+ *     compactSingleBucket → delete-all + rechunk in transaction →
+ *     writeBucketStateUpdates)
+ *   - collection.find with _id.b filters (verify post-compaction state)
+ *
+ * The initial write path (MongoBucketBatchV3 → flushBucketDataShared →
+ * chunkBucketData → serializeBucketData → bulk write) is NOT exercised here —
+ * that path is covered by the existing shared tests in register-compacting-tests.ts.
+ */
 describe('V3 invariant verification', () => {
   const BUCKET = 'global[]';
   const TABLE = 'items';
@@ -330,18 +356,11 @@ bucket_definitions:
     };
   }
 
-  async function insertDocs(
-    collection: ReturnType<VersionedPowerSyncMongo['bucketData']>,
-    docs: BucketDataDocument[]
-  ) {
+  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
     await collection.insertMany(docs);
   }
 
-  async function insertBucketState(
-    bucketStateCollection: ReturnType<VersionedPowerSyncMongo['bucketState']>,
-    definitionId: string,
-    lastOp: bigint
-  ) {
+  async function insertBucketState(bucketStateCollection: any, definitionId: string, lastOp: bigint) {
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: lastOp,
@@ -412,10 +431,7 @@ bucket_definitions:
 
   test('2. range metadata consistency - after compaction', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
-    const ops = [
-      makeOp(10, 'A', 'a1', ctx, sourceTableId),
-      makeOp(20, 'B', 'b1', ctx, sourceTableId)
-    ];
+    const ops = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
     const doc1 = serializeBucketData(BUCKET, ops);
     await insertDocs(collection, [doc1]);
     await insertBucketState(bucketStateCollection, ctx.definitionId, 20n);
@@ -445,10 +461,7 @@ bucket_definitions:
   });
 
   test('3. target_op correctness - all null yields null', () => {
-    const ops = [
-      makeBucketDataDoc({ o: 1n, target_op: null }),
-      makeBucketDataDoc({ o: 2n, target_op: null })
-    ];
+    const ops = [makeBucketDataDoc({ o: 1n, target_op: null }), makeBucketDataDoc({ o: 2n, target_op: null })];
 
     const doc = serializeBucketData('test[]', ops);
     expect(doc.target_op).toBeNull();
@@ -648,22 +661,14 @@ bucket_definitions:
   });
 
   test('10. document _id.o invariant - equals last ops[*].o (caller must sort)', () => {
-    const ops = [
-      makeBucketDataDoc({ o: 10n }),
-      makeBucketDataDoc({ o: 25n }),
-      makeBucketDataDoc({ o: 7n })
-    ];
+    const ops = [makeBucketDataDoc({ o: 10n }), makeBucketDataDoc({ o: 25n }), makeBucketDataDoc({ o: 7n })];
 
     const doc = serializeBucketData('test[]', ops);
     expect(doc._id.o).toBe(7n);
   });
 
   test('10. document _id.o invariant - equals max when pre-sorted', () => {
-    const ops = [
-      makeBucketDataDoc({ o: 3n }),
-      makeBucketDataDoc({ o: 10n }),
-      makeBucketDataDoc({ o: 25n })
-    ];
+    const ops = [makeBucketDataDoc({ o: 3n }), makeBucketDataDoc({ o: 10n }), makeBucketDataDoc({ o: 25n })];
 
     const doc = serializeBucketData('test[]', ops);
     const maxO = ops.reduce((max, op) => (op.o > max ? op.o : max), 0n);
@@ -710,10 +715,7 @@ bucket_definitions:
 
   test('checksum consistency - aggregation pipeline matches JavaScript addChecksums', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
-    const ops = [
-      makeOp(10, 'A', 'a1', ctx, sourceTableId),
-      makeOp(20, 'B', 'b1', ctx, sourceTableId)
-    ];
+    const ops = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
     const doc1 = serializeBucketData(BUCKET, ops);
     await insertDocs(collection, [doc1]);
     await insertBucketState(bucketStateCollection, ctx.definitionId, 20n);
@@ -793,18 +795,11 @@ bucket_definitions:
     };
   }
 
-  async function insertDocs(
-    collection: ReturnType<VersionedPowerSyncMongo['bucketData']>,
-    docs: BucketDataDocument[]
-  ) {
+  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
     await collection.insertMany(docs);
   }
 
-  async function insertBucketState(
-    bucketStateCollection: ReturnType<VersionedPowerSyncMongo['bucketState']>,
-    definitionId: string,
-    lastOp: bigint
-  ) {
+  async function insertBucketState(bucketStateCollection: any, definitionId: string, lastOp: bigint) {
     await bucketStateCollection.insertOne({
       _id: { d: definitionId, b: BUCKET },
       last_op: lastOp,
@@ -824,18 +819,12 @@ bucket_definitions:
     });
   }
 
-  async function readAllOps(
-    collection: ReturnType<VersionedPowerSyncMongo['bucketData']>
-  ): Promise<{ row_id: string; o: bigint; op: string }[]> {
+  async function readAllOps(collection: any): Promise<{ row_id: string; o: bigint; op: string }[]> {
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    return docs.flatMap((d) =>
-      d.ops.map((op) => ({ row_id: op.row_id!, o: op.o, op: op.op }))
-    );
+    return docs.flatMap((d: any) => d.ops.map((op: any) => ({ row_id: op.row_id!, o: op.o, op: op.op })));
   }
 
-  async function readAllDocs(
-    collection: ReturnType<VersionedPowerSyncMongo['bucketData']>
-  ): Promise<BucketDataDocument[]> {
+  async function readAllDocs(collection: any): Promise<BucketDataDocument[]> {
     return collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
   }
 
@@ -905,10 +894,7 @@ bucket_definitions:
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     // Doc1: [A@10, A@20] — A@10 superseded by A@20; A@20 is last, so only it survives
     // Then we add A@30 as REMOVE — A@20 also superseded, all ops for row removed
-    const ops1 = [
-      makeOp(10, 'A', 'a1', ctx, sourceTableId),
-      makeOp(20, 'A', 'a2', ctx, sourceTableId)
-    ];
+    const ops1 = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'A', 'a2', ctx, sourceTableId)];
     const ops2 = [makeOp(30, 'A', 'a3', ctx, sourceTableId, { op: 'REMOVE' })];
     const doc1 = serializeBucketData(BUCKET, ops1);
     const doc2 = serializeBucketData(BUCKET, ops2);
@@ -918,7 +904,8 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(0);
+    expect(surviving).toHaveLength(1);
+    expect(surviving[0]).toMatchObject({ row_id: 'A', o: 30n, op: 'REMOVE' });
   });
 
   test('5. one surviving op per document', async () => {

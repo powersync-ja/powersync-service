@@ -180,7 +180,9 @@ export class BucketDocumentFormatAdapter {
     // so we need an explicit cast for the range filter on the nested op_id.
     const filter = {
       '_id.o': {
-        $gt: options.startOpId,
+        $gt: options.startOpId
+      },
+      min_op: {
         $lte: options.endOpId
       }
     } as unknown as mongo.Filter<BucketDataDocument>;

@@ -302,16 +302,8 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
       const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
       const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
       const filters = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
-        _id: {
-          $gt: {
-            b: bucket,
-            o: start
-          },
-          $lte: {
-            b: bucket,
-            o: end
-          }
-        }
+        '_id.b': bucket,
+        '_id.o': { $gt: start }
         // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type.
       })) as unknown as lib_mongo.mongo.Filter<BucketDataDocument>[];
 
