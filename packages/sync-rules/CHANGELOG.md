@@ -1,5 +1,12 @@
 # @powersync/service-sync-rules
 
+## 0.36.1
+
+### Patch Changes
+
+- cae92ce: Fix the `&&` (overlap) operator on JSON arrays so it correctly tests intersection. Also compares array elements with SQLite affinity so `&&` handles bigint/number mixes consistently.
+- 5b1b215: Fix IN / NOT IN against a scalar JSON array so it applies SQLite type for booleans and integers above 2^53
+
 ## 0.36.0
 
 ### Minor Changes
