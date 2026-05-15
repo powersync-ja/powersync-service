@@ -528,9 +528,7 @@ describe('streams', () => {
       // satisfy the filter when it intersects the literal right-hand array.
       // Previously, a left-hand array containing an index-like string such as "0"
       // overlapped any right-hand array because the evaluator iterated indexes.
-      const desc = parseStream(
-        `SELECT * FROM comments WHERE auth.parameters() -> 'tags' && '["foo"]'`
-      );
+      const desc = parseStream(`SELECT * FROM comments WHERE auth.parameters() -> 'tags' && '["foo"]'`);
 
       expect(await queryBucketIds(desc, { tokenPayload: { sub: 'u1', tags: ['foo'] } })).toStrictEqual([
         '1#stream|0[]'
