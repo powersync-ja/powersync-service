@@ -6,8 +6,13 @@ import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { SourceRecordStoreImpl } from '../../src/storage/implementation/bucket-operations/source-record-store-impl.js';
 import type { VersionedPowerSyncMongo } from '../../src/storage/implementation/collection-access/versioned-collections.js';
+import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { CurrentBucket } from '../../src/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
+import {
+  BucketDataDocument,
+  serializeBucketData
+} from '../../src/storage/implementation/document-formats/bucket-document-format.js';
 import { SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -488,6 +493,134 @@ describe('sync - mongodb', () => {
   for (const storageVersion of TEST_STORAGE_VERSIONS) {
     describe(`storage v${storageVersion}`, () => {
       registerSyncStorageTests(INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion);
+
+      describe.runIf(storageVersion == 3)('V3 read filtering boundaries', () => {
+        async function setupFilteringTest() {
+          await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+          const syncRules = await factory.updateSyncRules(
+            updateSyncRulesFromYaml(
+              `
+          bucket_definitions:
+            global:
+              data:
+                - SELECT id, description FROM test
+          `,
+              { storageVersion }
+            )
+          );
+          const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+          const db = bucketStorage.db as VersionedPowerSyncMongo;
+
+          const request = bucketRequest(syncRules, 'global[]', 0n);
+          const definitionId = bucketStorage.mapping.bucketSourceId(request.source);
+          const collection = db.bucketData<BucketDataDocument>(syncRules.id, definitionId);
+
+          const bucketName = request.bucket;
+          const sourceTable = new bson.ObjectId();
+          const bucketKey: BucketKey = {
+            replicationStreamId: syncRules.id,
+            definitionId,
+            bucket: bucketName
+          };
+
+          function makeOps(opIds: bigint[]): BucketDataDoc[] {
+            return opIds.map((opId) => ({
+              bucketKey,
+              o: opId,
+              op: 'PUT' as const,
+              source_table: sourceTable,
+              source_key: test_utils.rid(`row-${opId}`),
+              table: 'items',
+              row_id: `row-${opId}`,
+              checksum: BigInt(opId) * 10n,
+              data: `{"id":"row-${opId}"}`
+            }));
+          }
+
+          const docA = serializeBucketData(bucketName, makeOps([10n, 20n, 30n]));
+          const docB = serializeBucketData(bucketName, makeOps([40n, 50n, 60n]));
+          const docC = serializeBucketData(bucketName, makeOps([70n, 80n, 90n]));
+
+          await collection.insertMany([docA, docB, docC]);
+
+          return { factory, syncRules, bucketStorage, bucketName };
+        }
+
+        async function getFilteredOps(start: number, checkpoint: number): Promise<bigint[]> {
+          const { syncRules, bucketStorage } = await setupFilteringTest();
+          const request = bucketRequest(syncRules, 'global[]', BigInt(start));
+          const batch = await test_utils.fromAsync(
+            bucketStorage.getBucketDataBatch(BigInt(checkpoint), [request])
+          );
+          const ops = batch.flatMap((b) => b.chunkData.data.map((d) => BigInt(d.op_id)));
+          return ops;
+        }
+
+        test('case 1: start=5, checkpoint=95 → all ops', async () => {
+          const ops = await getFilteredOps(5, 95);
+          expect(ops).toEqual([10n, 20n, 30n, 40n, 50n, 60n, 70n, 80n, 90n]);
+        });
+
+        test('case 2: start=10, checkpoint=90 → ops in (10,90]', async () => {
+          const ops = await getFilteredOps(10, 90);
+          expect(ops).toEqual([20n, 30n, 40n, 50n, 60n, 70n, 80n, 90n]);
+        });
+
+        test('case 3: start=15, checkpoint=85 → partial doc boundaries', async () => {
+          const ops = await getFilteredOps(15, 85);
+          expect(ops).toEqual([20n, 30n, 40n, 50n, 60n, 70n, 80n]);
+        });
+
+        test('case 4: start=25, checkpoint=55 → spans two docs', async () => {
+          const ops = await getFilteredOps(25, 55);
+          expect(ops).toEqual([30n, 40n, 50n]);
+        });
+
+        test('case 5: start=35, checkpoint=45 → single op within doc', async () => {
+          const ops = await getFilteredOps(35, 45);
+          expect(ops).toEqual([40n]);
+        });
+
+        test('case 6: start=35, checkpoint=65 → full doc B', async () => {
+          const ops = await getFilteredOps(35, 65);
+          expect(ops).toEqual([40n, 50n, 60n]);
+        });
+
+        test('case 7: start=25, checkpoint=35 → single op from doc A', async () => {
+          const ops = await getFilteredOps(25, 35);
+          expect(ops).toEqual([30n]);
+        });
+
+        test('case 8: start=30, checkpoint=40 → empty (between docs)', async () => {
+          const ops = await getFilteredOps(30, 40);
+          expect(ops).toEqual([]);
+        });
+
+        test('case 9: start=100, checkpoint=200 → beyond all docs', async () => {
+          const ops = await getFilteredOps(100, 200);
+          expect(ops).toEqual([]);
+        });
+
+        test('case 10: start=0, checkpoint=5 → before all docs', async () => {
+          const ops = await getFilteredOps(0, 5);
+          expect(ops).toEqual([]);
+        });
+
+        test('case 11: start=50, checkpoint=50 → zero-width range', async () => {
+          const ops = await getFilteredOps(50, 50);
+          expect(ops).toEqual([]);
+        });
+
+        test('case 12: start=45, checkpoint=50 → op at checkpoint boundary', async () => {
+          const ops = await getFilteredOps(45, 50);
+          expect(ops).toEqual([50n]);
+        });
+
+        test('case 13: start=50, checkpoint=55 → op at start boundary', async () => {
+          const ops = await getFilteredOps(50, 55);
+          expect(ops).toEqual([50n]);
+        });
+      });
     });
   }
 });
