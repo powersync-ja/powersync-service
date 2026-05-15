@@ -20,6 +20,7 @@
     "@powersync/service-module-mysql": "workspace:*",
     "@powersync/service-rsocket-router": "workspace:*",
     "@powersync/service-module-core": "workspace:*",
+    "@powersync/service-module-convex": "workspace:*",
     "@sentry/node": "^10.2.0"
   },
   "devDependencies": {

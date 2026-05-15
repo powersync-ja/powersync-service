@@ -18,6 +18,7 @@ catalog:
 allowBuilds:
   # These need install scripts to download/build native modules
   '@mongodb-js/zstd': true
+  esbuild: false
 
   # We don't need to run these checks: https://github.com/protobufjs/protobuf.js/blob/master/scripts/postinstall.js
   protobufjs: false
