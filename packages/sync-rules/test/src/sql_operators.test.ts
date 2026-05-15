@@ -129,4 +129,31 @@ describe('SQL operators', () => {
     expect(evaluateOperator('-', 3n, '2.0')).toStrictEqual(1.0);
     expect(evaluateOperator('-', '3', '2.0')).toStrictEqual(1.0);
   });
+
+  test('&&', () => {
+    // null short-circuit
+    expect(evaluateOperator('&&', null, '["foo"]')).toStrictEqual(null);
+    expect(evaluateOperator('&&', '["foo"]', null)).toStrictEqual(null);
+
+    // disjoint arrays
+    expect(evaluateOperator('&&', '["bar"]', '["foo"]')).toStrictEqual(0n);
+    expect(evaluateOperator('&&', '[]', '["foo"]')).toStrictEqual(0n);
+    expect(evaluateOperator('&&', '["foo"]', '[]')).toStrictEqual(0n);
+
+    // overlapping arrays
+    expect(evaluateOperator('&&', '["foo"]', '["foo"]')).toStrictEqual(1n);
+    expect(evaluateOperator('&&', '["bar","foo"]', '["foo"]')).toStrictEqual(1n);
+    expect(evaluateOperator('&&', '["foo"]', '["bar","foo"]')).toStrictEqual(1n);
+
+    // regression: index-like string on the left must not satisfy any right-hand array.
+    // The previous implementation iterated indexes of the left array, so "0" would
+    // overlap any non-empty right-hand array.
+    expect(evaluateOperator('&&', '["0"]', '["foo"]')).toStrictEqual(0n);
+    expect(evaluateOperator('&&', '["0","1"]', '["foo","bar"]')).toStrictEqual(0n);
+    expect(evaluateOperator('&&', '["0"]', '["0"]')).toStrictEqual(1n);
+
+    // numeric affinity: bigint on one side, number on the other should still match.
+    expect(evaluateOperator('&&', '[1]', '[1]')).toStrictEqual(1n);
+    expect(evaluateOperator('&&', '[1,2,3]', '[4,3]')).toStrictEqual(1n);
+  });
 });
