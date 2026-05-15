@@ -89,22 +89,18 @@ export class PowerSyncMongo {
    */
   async listBucketDataCollectionsV3(groupId?: number): Promise<mongo.Collection<any>[]> {
     const prefix = groupId == null ? 'bucket_data_' : `bucket_data_${groupId}_`;
-    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
-
-    return collections
-      .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<any>(collection.name));
+    return this.collectionsByPrefix<any>(prefix);
   }
 
   /**
    * Not safe for user-provided prefix - only for hardcoded values.
    */
-  private async collectionsByPrefix(prefix: string): Promise<mongo.Collection<never>[]> {
-    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+  private async collectionsByPrefix<T extends mongo.Document = never>(prefix: string): Promise<mongo.Collection<T>[]> {
+    const collections = await this.db.listCollections({ name: { $regex: `^${prefix}` } }, { nameOnly: true }).toArray();
 
     return collections
       .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<never>(collection.name));
+      .map((collection) => this.db.collection<T>(collection.name));
   }
 
   /**
@@ -140,16 +136,12 @@ export class PowerSyncMongo {
   async listSourceTableCollections(
     replicationStreamId?: number
   ): Promise<mongo.Collection<CommonSourceTableDocument>[]> {
-    const filter =
-      replicationStreamId == null
-        ? { name: new RegExp('^source_table_') }
-        : { name: this.sourceTableCollectionName(replicationStreamId) };
-    const prefix = replicationStreamId == null ? 'source_table_' : this.sourceTableCollectionName(replicationStreamId);
-    const collections = await this.db.listCollections(filter, { nameOnly: true }).toArray();
-
-    return collections
-      .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => this.db.collection<CommonSourceTableDocument>(collection.name));
+    if (replicationStreamId == null) {
+      return this.collectionsByPrefix('source_table_');
+    }
+    const name = this.sourceTableCollectionName(replicationStreamId);
+    const collections = await this.db.listCollections({ name }, { nameOnly: true }).toArray();
+    return collections.map((c) => this.db.collection<CommonSourceTableDocument>(c.name));
   }
 
   /**

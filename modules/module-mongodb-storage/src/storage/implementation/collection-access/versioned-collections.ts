@@ -109,13 +109,11 @@ export class VersionedPowerSyncMongo extends BaseVersionedPowerSyncMongo {
 
   async listParameterIndexCollections(replicationStreamId: number) {
     const prefix = `parameter_index_${replicationStreamId}_`;
-    const collections = await this.db.listCollections({ name: new RegExp(`^${prefix}`) }, { nameOnly: true }).toArray();
+    const collections = await this.listCollectionsByPrefix(prefix);
 
-    return collections
-      .filter((collection) => collection.name.startsWith(prefix))
-      .map((collection) => ({
-        collection: this.db.collection(collection.name),
-        indexId: collection.name.slice(prefix.length)
-      }));
+    return collections.map((collection) => ({
+      collection,
+      indexId: collection.collectionName.slice(prefix.length)
+    }));
   }
 }
