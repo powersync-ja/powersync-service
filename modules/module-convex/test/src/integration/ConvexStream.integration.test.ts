@@ -232,14 +232,13 @@ bucket_definitions:
       expect(typeof parsedData.notes).eq('string'),
       expect(typeof parsedData.category).eq('string'),
       expect(typeof parsedData.priority).eq('number'), // This is a regular v.number()
-      expect(typeof parsedData.points).eq('bigint'),
+      expect(typeof parsedData.points).eq('string'), // int64 values use the raw Convex JSON wire type
       expect(typeof parsedData.estimated_hours).eq('number'),
       expect(typeof parsedData.progress_percentage).eq('number'),
       expect(typeof parsedData.is_urgent).eq('bigint'), // boolean
       expect(typeof parsedData.is_private).eq('bigint'), // boolean
       expect(typeof parsedData.has_attachments).eq('bigint'), // boolean
-      // TODO, should this have been persisted? I believe this requires a sync config cast in order to work.
-      // expect(typeof parsedData.attachment_data).eq('string'), // buffer
+      expect(typeof parsedData.attachment_data).eq('string'), // base64 bytes
       expect(typeof parsedData.tags).eq('string'), // array
       expect(typeof parsedData.assigned_users).eq('string'), //array
       expect(typeof parsedData.details).eq('string'),
@@ -335,24 +334,13 @@ bucket_definitions:
       expect(typeof parsedData.notes).eq('string'),
       expect(typeof parsedData.category).eq('string'),
       expect(typeof parsedData.priority).eq('number'), // This is a regular v.number()
-      /**
-       * This is where the logic breaks down.
-       * We fetched the schema for todos before any values for points (a int64 column)
-       * were present. This means the json-schemas result did not include an entry for `points`.
-       * We then receive a string value for the points value in the document-deltas endpoint.
-       * We don't have a schema for this column, so we can only do runtime inspection for this value -
-       * which results in us storing the value as is.
-       * This results in the type being string instead of bigint.
-       */
-      // expect(typeof parsedData.points).eq('bigint'),
-      expect(typeof parsedData.points).eq('string'),
+      expect(typeof parsedData.points).eq('string'), // int64 values use the raw Convex JSON wire type
       expect(typeof parsedData.estimated_hours).eq('number'),
       expect(typeof parsedData.progress_percentage).eq('number'),
       expect(typeof parsedData.is_urgent).eq('bigint'), // boolean
       expect(typeof parsedData.is_private).eq('bigint'), // boolean
       expect(typeof parsedData.has_attachments).eq('bigint'), // boolean
-      // TODO, should this have been persisted? I believe this requires a sync config cast in order to work.
-      // expect(typeof parsedData.attachment_data).eq('string'), // buffer
+      expect(typeof parsedData.attachment_data).eq('string'), // base64 bytes
       expect(typeof parsedData.tags).eq('string'), // array
       expect(typeof parsedData.assigned_users).eq('string'), //array
       expect(typeof parsedData.details).eq('string'),

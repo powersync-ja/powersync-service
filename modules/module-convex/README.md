@@ -114,37 +114,32 @@ The content below is written in an agents.md style describing the behavior of `m
 - Convex `json_schemas` does not provide a schema change token or revision cursor that can be checkpointed.
 - Current behavior uses `json_schemas` for discovery/debug, but does not continuously diff source schema versions.
 - Schema changes are not automatically supported at this point. If Convex schema changes (tables or columns), developers must review and redeploy Sync Streams rules manually so PowerSync re-resolves the schema and re-replicates affected streams.
-- Convex `json_schemas` can omit fields that do not have populated values at the time the schema is fetched. If PowerSync caches that incomplete schema during an initial snapshot, later values for those fields may be converted using runtime inspection only.
+- Convex `json_schemas` can omit fields that do not have populated values at the time the schema is fetched. To keep replicated values consistent, stream row conversion does not use `json_schemas` metadata for datatype coercion.
 - Future improvement: cache a canonicalized `json_schemas` hash, poll periodically, and raise diagnostics when schema drift is detected.
 
 ## 7) Datatype Mapping
 
 - Current runtime mapping in stream writer:
 
-| Convex Type | TS/JS Type  | SQLite type |
-| ----------- | ----------- | ----------- |
-| Id          | string      | text        |
-| Null        | null        | null        |
-| Int64       | bigint      | integer     |
-| Float64     | number      | real        |
-| Boolean     | boolean     | integer     |
-| String      | string      | text        |
-| Bytes       | ArrayBuffer | blob        |
-| Array       | Array       | text        |
-| Object      | Object      | text        |
-| Record      | Record      | text        |
+| Convex Type | JSON wire / Sync Streams value | SQLite type |
+| ----------- | ------------------------------ | ----------- |
+| Id          | string                         | text        |
+| Null        | null                           | null        |
+| Int64       | base10 string                  | text        |
+| Float64     | number                         | real        |
+| Boolean     | boolean                        | integer     |
+| String      | string                         | text        |
+| Bytes       | base64 string                  | text        |
+| Array       | Array                          | text        |
+| Object      | Object                         | text        |
+| Record      | Record                         | text        |
 
 - Convex does not expose a native `Date` wire type; timestamps arrive as `number` or `string`.
-- BLOB values are valid row values but are not valid bucket parameter values.
 - Value conversion flow:
   1. PowerSync requests snapshots or document deltas from Convex's Streaming Export APIs.
   2. The JSON response is parsed into raw Convex documents, where row columns are represented as JSON object fields.
-  3. PowerSync queries Convex's `json_schemas` endpoint for table schema metadata.
-  4. The raw document values and schema metadata are used together to convert Convex values to SQLite-compatible values.
-- Known limitation: Convex JSON documents are close to SQLite-compatible input, but some values need schema metadata to preserve their intended type. Boolean values are handled internally as SQLite integers, but `Int64` and `Bytes` values are ambiguous on the JSON wire:
-  - Convex `Int64` values arrive in raw documents as JSON strings. With schema metadata, PowerSync converts those strings to SQLite integers backed by `bigint`. Without schema metadata, the same value is indistinguishable from an ordinary string and may be synced as text.
-  - Convex `Bytes` values arrive in raw documents as base64 strings. With schema metadata, PowerSync decodes them to SQLite blobs. Without schema metadata, the value is indistinguishable from an ordinary string and may be synced as text.
-- Convex's `json_schemas` endpoint appears to infer table schemas from table summaries instead of using the TypeScript schema as a complete source of truth. This means fields can be absent from `json_schemas` until populated data exists. For `Int64` columns that may suffer from this ambiguity, users should explicitly cast those values in Sync Streams rules using `CAST(value AS INTEGER)` so either a raw string or already-converted `bigint` is emitted as a SQLite integer.
+  3. PowerSync converts the raw JSON-compatible values to SQLite-compatible values without using `json_schemas` metadata for datatype coercion.
+- Convex's `json_schemas` endpoint appears to infer table schemas from table summaries instead of using the TypeScript schema as a complete source of truth. This means fields can be absent from `json_schemas` until populated data exists. To avoid changing replicated value types based on whether schema metadata was available, Sync Streams see the stable JSON wire representation. For `Int64` columns, users should explicitly cast those values in Sync Streams rules using `CAST(value AS INTEGER)`.
 
 ## 8) Checkpointing and Consistency
 

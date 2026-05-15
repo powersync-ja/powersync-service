@@ -23,7 +23,7 @@ import { ConvexListSnapshotResult, ConvexRawDocument, ConvexTableSchema } from '
 import { isCursorExpiredError } from '../client/ConvexApiClient.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { lsnCursorToDate, parseConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
-import { extractProperties, toSqliteInputRow } from '../common/convex-to-sqlite.js';
+import { toSqliteInputRow } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from './ConvexConnectionManager.js';
 import { BinaryConvexSnapshotProgressCursor, decodeSnapshotProgressCursor } from './ConvexSnapshotProgressCursor.js';
 
@@ -51,7 +51,6 @@ export class ConvexStream {
   private replicationLag = new ReplicationLagTracker();
 
   private tableSchemaCache: ConvexTableSchema[] | null = null;
-  private tableSchemaPropertiesByName = new Map<string, Record<string, unknown>>();
 
   private lastKeepaliveAt = 0;
   private lastTouchedAt = performance.now();
@@ -359,7 +358,6 @@ export class ConvexStream {
     table: SourceTable,
     snapshotCursor: string
   ): Promise<{ table: SourceTable }> {
-    const tableProperties = this.getTableSchemaProperties(table.name);
     const snapshotProgress = decodeSnapshotProgressCursor(table.snapshotStatus?.lastKey);
     let pageCursor = snapshotProgress.cursor;
     let replicatedCount = table.snapshotStatus?.replicatedCount ?? 0;
@@ -415,7 +413,7 @@ export class ConvexStream {
           continue;
         }
 
-        const row = this.toSqliteRow(rawDocument, tableProperties);
+        const row = this.toSqliteRow(rawDocument);
         await batch.save({
           tag: SaveOperationTag.INSERT,
           sourceTable: latestTable,
@@ -640,7 +638,7 @@ export class ConvexStream {
       return true;
     }
 
-    const after = this.toSqliteRow(change, this.getTableSchemaProperties(table.name));
+    const after = this.toSqliteRow(change);
     await batch.save({
       tag: SaveOperationTag.UPDATE,
       sourceTable: table,
@@ -653,8 +651,8 @@ export class ConvexStream {
     return true;
   }
 
-  private toSqliteRow(change: ConvexRawDocument, properties?: Record<string, unknown>) {
-    return this.syncRules.applyRowContext<never>(toSqliteInputRow(change, properties));
+  private toSqliteRow(change: ConvexRawDocument) {
+    return this.syncRules.applyRowContext<never>(toSqliteInputRow(change));
   }
 
   private async getAllTableSchemas(options?: { force?: boolean }): Promise<ConvexTableSchema[]> {
@@ -664,14 +662,7 @@ export class ConvexStream {
 
     const schema = await this.connections.client.getJsonSchemas({ signal: this.abortSignal });
     this.tableSchemaCache = schema.tables;
-    this.tableSchemaPropertiesByName = new Map(
-      schema.tables.map((table) => [table.tableName, extractProperties(table.schema)])
-    );
     return schema.tables;
-  }
-
-  private getTableSchemaProperties(tableName: string): Record<string, unknown> | undefined {
-    return this.tableSchemaPropertiesByName.get(tableName);
   }
 
   private touch() {

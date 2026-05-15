@@ -56,7 +56,7 @@ describe('ConvexRouteAPIAdapter', () => {
     expect(schema[0]?.tables[0]?.columns.find((column) => column.name == '_id')?.type).toBe('id');
     expect(schema[0]?.tables[0]?.columns.find((column) => column.name == '_creationTime')).toBeUndefined();
     expect(schema[0]?.tables[0]?.columns.find((column) => column.name == 'avatar')?.sqlite_type).toBe(
-      ExpressionType.BLOB.typeFlags
+      ExpressionType.TEXT.typeFlags
     );
 
     await adapter.shutdown();

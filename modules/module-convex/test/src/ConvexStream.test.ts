@@ -233,7 +233,7 @@ describe('ConvexStream', () => {
     expect(context.commits.at(-1)).toBe(parseConvexLsn(CURSOR_100));
   });
 
-  it('decodes bytes fields to Uint8Array during snapshot hydration', async () => {
+  it('keeps bytes fields as base64 strings during snapshot hydration', async () => {
     const context = createFakeStorage();
     const abortController = new AbortController();
 
@@ -288,7 +288,7 @@ describe('ConvexStream', () => {
     await stream.initReplication();
 
     expect(context.saves).toHaveLength(1);
-    expect(context.saves[0]?.after.avatar).toEqual(Uint8Array.of(1, 2, 3));
+    expect(context.saves[0]?.after.avatar).toBe('AQID');
   });
 
   it('marks snapshot done without re-reading rows when the final page was already flushed', async () => {
