@@ -2,36 +2,36 @@ import { ToastableSqliteRow } from '@powersync/service-sync-rules';
 
 export enum SyncRuleState {
   /**
-   * New sync rules - needs to be processed (initial replication).
+   * New replication stream - needs to be processed (initial replication).
    *
-   * While multiple sets of sync rules _can_ be in PROCESSING,
+   * While multiple replication streams _can_ be in PROCESSING,
    * it's generally pointless, so we only keep one in that state.
    */
   PROCESSING = 'PROCESSING',
 
   /**
-   * Sync rule processing is done, and can be used for sync.
+   * Intial processing is done, and can be used for sync.
    *
-   * Only one set of sync rules should be in ACTIVE or ERRORED state.
+   * Only one replication stream should be in ACTIVE or ERRORED state.
    */
   ACTIVE = 'ACTIVE',
   /**
-   * This state is used when the sync rules has been replaced,
+   * This state is used when the replication stream has been replaced,
    * and replication is or should be stopped.
    */
   STOP = 'STOP',
   /**
-   * After sync rules have been stopped, the data needs to be
+   * After replication stream has been stopped, the data needs to be
    * deleted. Once deleted, the state is TERMINATED.
    */
   TERMINATED = 'TERMINATED',
 
   /**
-   * Sync rules has run into a permanent replication error. It
-   * is still the "active" sync rules for syncing to users,
+   * Replication stream has run into a permanent replication error. It
+   * is still the "active" replication stram for syncing to users,
    * but should not replicate anymore.
    *
-   * It will transition to STOP when a new sync rules is activated.
+   * It will transition to STOP when a new replication stream is activated.
    */
   ERRORED = 'ERRORED'
 }

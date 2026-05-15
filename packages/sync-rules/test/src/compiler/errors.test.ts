@@ -62,6 +62,11 @@ streams:
         source: `with:
       foo: SELECT id FROM users
 `
+      },
+      {
+        message: "This common table expression isn't referenced.",
+        source: 'foo',
+        isWarning: true
       }
     ]);
   });

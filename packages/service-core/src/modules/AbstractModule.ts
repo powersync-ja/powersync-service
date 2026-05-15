@@ -5,7 +5,7 @@ import { ServiceContextContainer } from '../system/ServiceContext.js';
 
 export interface TearDownOptions {
   /**
-   *  If required, tear down any configuration/state for the specific sync rules
+   *  If required, tear down any configuration/state for the specific replication stream
    */
   syncRules?: PersistedSyncRulesContent[];
 }

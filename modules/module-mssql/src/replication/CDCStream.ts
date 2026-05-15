@@ -259,7 +259,7 @@ export class CDCStream {
     await batch.drop(resolved.dropTables);
 
     // Snapshot if:
-    // 1. The table is in the sync rules and snapshot is requested, or not already done.
+    // 1. The table is in the sync config and snapshot is requested, or not already done.
     // 2. AND the table is enabled for CDC with a valid capture instance.
     const shouldSnapshot =
       snapshot && !resolved.table.snapshotComplete && resolved.table.syncAny && resolvedTable.enabledForCDC();

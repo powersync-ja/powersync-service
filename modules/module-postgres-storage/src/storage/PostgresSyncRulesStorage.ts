@@ -9,6 +9,7 @@ import {
   internalToExternalOpId,
   LastValueSink,
   maxLsn,
+  ParameterSetLimitExceededError,
   PartialChecksum,
   PopulateChecksumCacheOptions,
   PopulateChecksumCacheResults,
@@ -22,7 +23,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
 import * as uuid from 'uuid';
-import { BIGINT_MAX } from '../types/codecs.js';
+import { bigint, BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
 import { mapOpEntry } from '../utils/bucket-data.js';
@@ -30,6 +31,7 @@ import { mapOpEntry } from '../utils/bucket-data.js';
 import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
+import * as t from 'ts-codec';
 import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
@@ -57,6 +59,7 @@ export class PostgresSyncRulesStorage
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
   public readonly storageConfig: StorageVersionConfig;
+  public readonly logger: framework.Logger;
 
   private sharedIterator = new BroadcastIterable((signal) => this.watchActiveCheckpoint(signal));
 
@@ -79,6 +82,7 @@ export class PostgresSyncRulesStorage
     this.factory = options.factory;
     this.storageConfig = options.sync_rules.getStorageConfig();
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
+    this.logger = options.sync_rules.logger;
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -108,8 +112,8 @@ export class PostgresSyncRulesStorage
   getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
-     * Check if the cached sync rules, if present, had the same options.
-     * Parse sync rules if the options are different or if there is no cached value.
+     * Check if the cached sync config, if present, had the same options.
+     * Parse sync config if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
       this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
@@ -139,11 +143,12 @@ export class PostgresSyncRulesStorage
 
     return new PostgresCompactor(this.db, this.group_id, {
       ...options,
-      maxOpId
+      maxOpId,
+      logger: this.logger
     }).compact();
   }
 
-  async populatePersistentChecksumCache(options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
+  async populatePersistentChecksumCache(_options: PopulateChecksumCacheOptions): Promise<PopulateChecksumCacheResults> {
     // no-op - checksum cache is not implemented for Postgres yet
     return { buckets: 0 };
   }
@@ -363,7 +368,7 @@ export class PostgresSyncRulesStorage
     const checkpoint_lsn = syncRules?.last_checkpoint_lsn ?? null;
 
     const writer = new PostgresBucketBatch({
-      logger: options.logger ?? framework.logger,
+      logger: options.logger ?? this.logger,
       db: this.db,
       sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
       group_id: this.group_id,
@@ -396,42 +401,69 @@ export class PostgresSyncRulesStorage
 
   async getParameterSets(
     checkpoint: ReplicationCheckpoint,
-    lookups: sync_rules.ScopedParameterLookup[]
-  ): Promise<sync_rules.SqliteJsonRow[]> {
+    lookups: sync_rules.ScopedParameterLookup[],
+    limit: number
+  ): Promise<sync_rules.ParameterLookupRows[]> {
     const rows = await this.db.sql`
-      SELECT DISTINCT
-        ON (lookup, source_table, source_key) lookup,
-        source_table,
-        source_key,
-        id,
-        bucket_parameters
-      FROM
-        bucket_parameters
-      WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
-        AND lookup = ANY (
-          SELECT
-            decode((FILTER ->> 0)::text, 'hex') -- Decode the hex string to bytea
+      WITH
+        rows AS (
+          SELECT DISTINCT
+            ON (lookup, source_table, source_key) requested.index - 1 AS index,
+            bucket_parameters
           FROM
+            bucket_parameters,
             jsonb_array_elements(${{
         type: 'jsonb',
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
-      }}) AS FILTER
+      }}) WITH ORDINALITY AS requested (value, index)
+          WHERE
+            group_id = ${{ type: 'int4', value: this.group_id }}
+            AND lookup = decode((requested.value ->> 0)::text, 'hex') -- Decode the hex string to bytea
+            AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
+          ORDER BY
+            lookup,
+            source_table,
+            source_key,
+            id DESC
         )
-        AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
-      ORDER BY
-        lookup,
-        source_table,
-        source_key,
-        id DESC
+      SELECT
+        index,
+        bucket_parameters
+      FROM
+        rows
+      WHERE
+        bucket_parameters != '[]'
+      LIMIT
+        ${{ type: 'int4', value: limit + 1 }}
     `
-      .decoded(pick(models.BucketParameters, ['bucket_parameters']))
+      .decoded(parameterSetsRow)
       .rows();
 
-    const groupedParameters = rows.map((row) => {
-      return JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow;
-    });
-    return groupedParameters.flat();
+    let totalRows = 0;
+    const resultsByLookup = new Map<sync_rules.ScopedParameterLookup, sync_rules.SqliteJsonRow[]>();
+    for (const row of rows) {
+      const parameterRows = JSONBig.parse(row.bucket_parameters) as sync_rules.SqliteJsonRow[];
+      const lookup = lookups[Number(row.index)];
+      totalRows += parameterRows.length;
+
+      const existingResults = resultsByLookup.get(lookup);
+      if (existingResults != null) {
+        existingResults.push(...parameterRows);
+      } else {
+        resultsByLookup.set(lookup, parameterRows);
+      }
+    }
+
+    if (totalRows > limit) {
+      // Note that the LIMIT in the query allows more rows than parameters (because each row stores an array of
+      // parameter results). That array is very small though, and it doesn't allow fewer rows (due to the != []), so
+      // the SQL limit is good enough.
+      throw new ParameterSetLimitExceededError(limit);
+    }
+
+    const results: sync_rules.ParameterLookupRows[] = [];
+    resultsByLookup.forEach((rows, lookup) => results.push({ lookup, rows }));
+    return results;
   }
 
   async *getBucketDataBatch(
@@ -648,7 +680,7 @@ export class PostgresSyncRulesStorage
       .first();
 
     if (syncRulesRow == null) {
-      throw new Error('Cannot find sync rules status');
+      throw new Error('Cannot find replication stream status');
     }
 
     return {
@@ -841,7 +873,7 @@ export class PostgresSyncRulesStorage
 
     if (doc == null) {
       // Abort the connections - clients will have to retry later.
-      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active sync rules available');
+      throw new framework.ServiceError(framework.ErrorCode.PSYNC_S2302, 'No active replication stream available');
     }
 
     const sink = new LastValueSink<string>(undefined);
@@ -868,7 +900,7 @@ export class PostgresSyncRulesStorage
         continue;
       }
       if (Number(notification.active_checkpoint.id) != doc.id) {
-        // Active sync rules changed - abort and restart the stream
+        // Active replication stream changed - abort and restart the stream
         break;
       }
 
@@ -898,7 +930,15 @@ class PostgresReplicationCheckpoint implements storage.ReplicationCheckpoint {
     public readonly lsn: string | null
   ) {}
 
-  getParameterSets(lookups: sync_rules.ScopedParameterLookup[]): Promise<sync_rules.SqliteJsonRow[]> {
-    return this.storage.getParameterSets(this, lookups);
+  getParameterSets(
+    lookups: sync_rules.ScopedParameterLookup[],
+    limit: number
+  ): Promise<sync_rules.ParameterLookupRows[]> {
+    return this.storage.getParameterSets(this, lookups, limit);
   }
 }
+
+const parameterSetsRow = t.object({
+  index: bigint,
+  bucket_parameters: t.string
+});

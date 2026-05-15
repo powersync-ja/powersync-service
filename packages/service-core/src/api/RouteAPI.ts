@@ -43,7 +43,7 @@ export interface RouteAPI {
    * Generates replication table information from a given pattern of tables.
    *
    * @param tablePatterns A set of table patterns which typically come from
-   *          the tables listed in sync rules definitions.
+   *          the tables listed in sync config definitions.
    *
    * @param sqlSyncRules
    * @returns A result of all the tables and columns which should be replicated
@@ -76,7 +76,7 @@ export interface RouteAPI {
 
   /**
    * @returns The schema for tables inside the connected database. This is typically
-   *          used to validate sync rules.
+   *          used to validate sync config.
    */
   getConnectionSchema(): Promise<types.DatabaseSchema[]>;
 
@@ -92,7 +92,7 @@ export interface RouteAPI {
   shutdown(): Promise<void>;
 
   /**
-   * Get the default schema (or database) when only a table name is specified in sync rules.
+   * Get the default schema (or database) when only a table name is specified in sync config.
    */
   getParseSyncRulesOptions(): ParseSyncRulesOptions;
 }

@@ -1,5 +1,10 @@
 import { isMongoServerError, mongo, MONGO_OPERATION_TIMEOUT_MS } from '@powersync/lib-service-mongodb';
-import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
+import {
+  logger as defaultLogger,
+  Logger,
+  ReplicationAssertionError,
+  ServiceAssertionError
+} from '@powersync/lib-services-framework';
 import {
   addChecksums,
   InternalOpId,
@@ -88,6 +93,7 @@ export abstract class MongoCompactor {
 
   private _db: VersionedPowerSyncMongo;
   private _storage: AbstractMongoSyncBucketStorage;
+  protected readonly logger: Logger;
 
   protected get db(): VersionedPowerSyncMongo {
     return this._db;
@@ -110,6 +116,7 @@ export abstract class MongoCompactor {
     this.maxOpId = options.maxOpId ?? 0n;
     this.buckets = options.compactBuckets;
     this.signal = options.signal;
+    this.logger = options.logger ?? defaultLogger;
   }
 
   /**
@@ -154,11 +161,11 @@ export abstract class MongoCompactor {
           break;
         }
       }
-      logger.info(
+      this.logger.info(
         `Calculating checksums for batch of ${buckets.length} buckets, estimated count of ${totalCountEstimate}`
       );
       await this.updateChecksumsBatch(checkBuckets);
-      logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
+      this.logger.info(`Updated checksums for batch of ${checkBuckets.length} buckets in ${Date.now() - start}ms`);
       count += checkBuckets.length;
     }
     return { buckets: count };
@@ -314,7 +321,7 @@ export abstract class MongoCompactor {
         break;
       } catch (e) {
         if (retryCount < 3 && isMongoServerError(e)) {
-          logger.warn(`Error compacting bucket ${bucket}, retrying...`, e);
+          this.logger.warn(`Error compacting bucket ${bucket}, retrying...`, e);
           retryCount++;
           await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount));
         } else {
@@ -473,13 +480,13 @@ export abstract class MongoCompactor {
         }
       }
 
-      logger.info(`Processed batch of length ${batch.length} current bucket: ${bucket}`);
+      this.logger.info(`Processed batch of length ${batch.length} current bucket: ${bucket}`);
     }
 
     // Free memory before clearing the bucket.
     currentState.seen.clear();
     if (currentState.lastNotPut != null && currentState.opsSincePut >= 1) {
-      logger.info(
+      this.logger.info(
         `Inserting CLEAR at ${this.group_id}:${bucket}:${currentState.lastNotPut} to remove ${currentState.opsSincePut} operations`
       );
       // Need flush() before clear().
@@ -531,7 +538,7 @@ export abstract class MongoCompactor {
 
   protected async flush(col: SingleBucketStore) {
     if (this.updates.length > 0) {
-      logger.info(`Compacting ${this.updates.length} ops`);
+      this.logger.info(`Compacting ${this.updates.length} ops`);
       await col.collection.bulkWrite(this.updates, {
         // Order is not important. Since checksums are not affected, these operations can happen in any order,
         // and it's fine if the operations are partially applied. Each individual operation is atomic.
@@ -545,7 +552,7 @@ export abstract class MongoCompactor {
 
   private async flushBucketStateUpdates() {
     if (this.bucketStateUpdates.length > 0) {
-      logger.info(`Updating ${this.bucketStateUpdates.length} bucket states`);
+      this.logger.info(`Updating ${this.bucketStateUpdates.length} bucket states`);
       await this.writeBucketStateUpdates();
       this.bucketStateUpdates = [];
     }
@@ -618,7 +625,7 @@ export abstract class MongoCompactor {
               return;
             }
 
-            logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOp?.o}`);
+            this.logger.info(`Flushing CLEAR for ${numberOfOpsToClear} ops at ${lastOp?.o}`);
             await col.collection.deleteMany(
               {
                 _id: {

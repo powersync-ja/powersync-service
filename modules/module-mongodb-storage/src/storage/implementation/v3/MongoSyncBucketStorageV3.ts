@@ -1,7 +1,14 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { InternalOpId, internalToExternalOpId, ProtocolOpId, storage, utils } from '@powersync/service-core';
+import {
+  InternalOpId,
+  internalToExternalOpId,
+  ParameterSetLimitExceededError,
+  ProtocolOpId,
+  storage,
+  utils
+} from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
-import { ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
+import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
@@ -165,13 +172,15 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
 
   protected async getParameterSetsImpl(
     checkpoint: MongoSyncBucketStorageCheckpoint,
-    lookups: ScopedParameterLookup[]
-  ): Promise<SqliteJsonRow[]> {
+    lookups: ScopedParameterLookup[],
+    limit: number
+  ): Promise<ParameterLookupRows[]> {
     return this.db.client.withSession({ snapshot: true }, async (session) => {
       setSessionSnapshotTime(session, checkpoint.snapshotTime);
 
       const buildLookupPipeline = (
-        lookup: ScopedParameterLookup
+        lookup: ScopedParameterLookup,
+        index: number
       ): {
         collection: lib_mongo.mongo.Collection<any>;
         pipeline: lib_mongo.mongo.Document[];
@@ -207,7 +216,8 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
             {
               $project: {
                 _id: 0,
-                bucket_parameters: 1
+                bucket_parameters: 1,
+                index: { $literal: index }
               }
             }
           ]
@@ -215,26 +225,28 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
       };
 
       const [firstLookup, ...remainingLookups] = lookups;
-      const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup);
+      const firstQuery = firstLookup == null ? null : buildLookupPipeline(firstLookup, 0);
       if (firstQuery == null) {
         return [];
       }
 
       const pipeline: lib_mongo.mongo.Document[] = [
         ...firstQuery.pipeline,
-        ...remainingLookups.map((lookup) => {
-          const query = buildLookupPipeline(lookup);
+        ...remainingLookups.map((lookup, indexInRemaining) => {
+          const query = buildLookupPipeline(lookup, indexInRemaining + 1);
           return {
             $unionWith: {
               coll: query.collection.collectionName,
               pipeline: query.pipeline
             }
           };
-        })
+        }),
+        { $unwind: '$bucket_parameters' },
+        { $limit: limit + 1 }
       ];
 
       const rows = await firstQuery.collection
-        .aggregate<{ bucket_parameters: SqliteJsonRow[] }>(pipeline, {
+        .aggregate<{ index: number; bucket_parameters: SqliteJsonRow }>(pipeline, {
           session,
           readConcern: 'snapshot',
           maxTimeMS: lib_mongo.db.MONGO_OPERATION_TIMEOUT_MS
@@ -244,7 +256,15 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
           throw lib_mongo.mapQueryError(e, 'while evaluating parameter queries');
         });
 
-      return rows.flatMap((row) => row.bucket_parameters);
+      if (rows.length > limit) {
+        throw new ParameterSetLimitExceededError(limit);
+      }
+
+      const byLookup = Map.groupBy(rows, (row) => lookups[row.index]);
+
+      const results: ParameterLookupRows[] = [];
+      byLookup.forEach((value, lookup) => results.push({ lookup, rows: value.map((r) => r.bucket_parameters) }));
+      return results;
     });
   }
 

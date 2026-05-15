@@ -30,7 +30,7 @@ import { internal_routes } from '@powersync/service-types';
 export class InstanceClient<C extends sdk.NetworkClient = sdk.NetworkClient> extends sdk.SDKClient<C> {
   /**
    * Get diagnostics and health information from the instance.
-   * Optionally include sync rules content in the response.
+   * Optionally include sync config content in the response.
    *
    * Example:
    * ```typescript

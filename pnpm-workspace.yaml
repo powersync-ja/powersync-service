@@ -8,14 +8,19 @@ packages:
   - '!**/test/**'
 
 catalog:
-  vitest: ^4.1.0
-  '@vitest/ui': ^4.1.0
-  '@vitest/coverage-v8': ^4.1.0
-  typescript: ~5.9.3
+  vitest: ^4.1.5
+  '@vitest/ui': ^4.1.5
+  '@vitest/coverage-v8': ^4.1.5
+  typescript: ~6.0.3
+  uuid: ^14.0.0
+  '@types/uuid': ^11.0.0
 
 allowBuilds:
   # These need install scripts to download/build native modules
   '@mongodb-js/zstd': true
+
+  # We don't need to run these checks: https://github.com/protobufjs/protobuf.js/blob/master/scripts/postinstall.js
+  protobufjs: false
 
 overrides:
   # Override to remove vitest production dependency

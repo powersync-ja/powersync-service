@@ -19,7 +19,7 @@ We effectively store an "index" for exact lookups on parameter query tables.
 The format is in MongoDB storage is:
 
     _id: OpId # auto-incrementing op-id, using the same sequence as checkpoints
-    key: {g: <sync rules group id>, t: <table id>, k: RowReplicationId } # uniquely identifies the source row
+    key: {g: <replication stream id>, t: <table id>, k: RowReplicationId } # uniquely identifies the source row
     lookup: doc # lookup entry for this source row
     bucket_parameters: data # results returned to the parameter query
 
@@ -29,7 +29,7 @@ When a row is deleted, we empty `bucket_parameters` for the same (key, lookup) c
 
 To query, we do:
 
-1. Filter by sync rules version: key.g.
+1. Filter by replication stream id: key.g.
 2. Filter by lookup.
 3. Filter by checkpoint: \_id <= checkpoint.
 4. Return the last parameter data for each (key, lookup) combination (highest \_id)

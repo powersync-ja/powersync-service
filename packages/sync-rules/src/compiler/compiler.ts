@@ -10,7 +10,7 @@ import { StreamQueryParser } from './parser.js';
 import { QuerierGraphBuilder } from './querier_graph.js';
 import { PointLookup, RowEvaluator } from './rows.js';
 import { SqlScope } from './scope.js';
-import { PreparedSubquery } from './sqlite.js';
+import { CommonTableExpression, PreparedSubquery } from './sqlite.js';
 
 export interface SyncStreamsCompilerOptions {
   /**
@@ -145,7 +145,7 @@ export interface IndividualSyncStreamCompiler {
    * Makes a common table expression prepared through {@link SyncStreamsCompiler.commonTableExpression} available when
    * parsing queries for this stream.
    */
-  registerCommonTableExpression(name: string, cte: PreparedSubquery): void;
+  registerCommonTableExpression(name: string, cte: CommonTableExpression): void;
 
   /**
    * Validates and adds a parameter query to this stream.

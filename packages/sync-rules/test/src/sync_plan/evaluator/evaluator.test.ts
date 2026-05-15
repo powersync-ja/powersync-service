@@ -1,9 +1,9 @@
 import { describe, expect } from 'vitest';
 import {
   HydratedSyncRules,
+  ParameterLookupRows,
   ScopedParameterLookup,
   SourceTableInterface,
-  SqliteJsonRow,
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
@@ -232,6 +232,115 @@ streams:
     ]);
   });
 
+  syncTest('multiple inputs for parameter row', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  chat:
+    query: |
+      SELECT messages.*
+      FROM messages
+      JOIN conversations ON conversations.id = messages.conversation
+      JOIN json_each(conversations.members) AS members
+      WHERE auth.user_id() = members.value
+`);
+
+    // This generates multiple parameter lookups (one for each member) with a single output (the conversation id). A
+    // querier would use the connecting user's id to find bucket parameters.
+    const conversations = new TestSourceTable('conversations');
+    expect(
+      desc.evaluateParameterRow(conversations, { id: 'c', members: JSON.stringify(['a', 'b', 'c']) })
+    ).toStrictEqual(
+      ['a', 'b', 'c'].map((id) => ({
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), [id]),
+        bucketParameters: [
+          {
+            '0': 'c'
+          }
+        ]
+      }))
+    );
+  });
+
+  syncTest('multiple outputs for parameter row', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  chat:
+    accept_potentially_dangerous_queries: true
+    query: |
+      SELECT users.*
+      FROM users
+      JOIN conversations
+      JOIN json_each(conversations.members) AS members
+      WHERE users.id = members.value
+        AND conversations.id = subscription.parameter('chat')
+`);
+
+    // On the other hand, this must generate a single lookup with multiple outputs. The chat is the input as part of
+    // the key, and we output one parameter for each member.
+    const conversations = new TestSourceTable('conversations');
+    expect(
+      desc.evaluateParameterRow(conversations, { id: 'chat', members: JSON.stringify(['a', 'b', 'c']) })
+    ).toStrictEqual([
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['chat']),
+        bucketParameters: [
+          {
+            '0': 'a'
+          },
+          {
+            '0': 'b'
+          },
+          {
+            '0': 'c'
+          }
+        ]
+      }
+    ]);
+  });
+
+  syncTest('multiple inputs and outputs for parameter row', ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+streams:
+  chat:
+    query: |
+      SELECT a.*
+      FROM a, b, json_each(b.x) x, json_each(b.y) y
+      WHERE a.x = x.value AND y.value = auth.user_id()
+`);
+
+    const outputs = desc.evaluateParameterRow(new TestSourceTable('b'), { x: '[1,2]', y: '["a", "b"]' });
+    expect(outputs).toStrictEqual([
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['a']),
+        bucketParameters: [
+          {
+            '0': 1
+          },
+          {
+            '0': 2
+          }
+        ]
+      },
+      {
+        lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['b']),
+        bucketParameters: [
+          {
+            '0': 1
+          },
+          {
+            '0': 2
+          }
+        ]
+      }
+    ]);
+  });
+
   syncTest('skips null and binary values', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
@@ -311,8 +420,8 @@ streams:
     expect(querier.staticBuckets[0].source).toBe(streamSource.dataSources[0]);
 
     const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
-      async getParameterSets() {
-        return [{ '0': 'i1' }];
+      async getParameterSets(lookups) {
+        return [{ lookup: lookups[0], rows: [{ '0': 'i1' }] }];
       }
     });
     expect(dynamicBuckets).toHaveLength(1);
@@ -421,17 +530,17 @@ streams:
     expect(querier.staticBuckets.map((e) => e.bucket)).toStrictEqual([]);
     let call = 0;
     const buckets = await querier.queryDynamicBucketDescriptions({
-      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+      getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
         if (call == 0) {
           // First call. Lookup from users.id => users.name
           call++;
           expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
-          return [{ '0': 'name' }];
+          return [{ lookup: lookups[0], rows: [{ '0': 'name' }] }];
         } else if (call == 1) {
           // Second call. Lookup from issues.owned_by => issues.id
           call++;
           expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '1'), ['name'])]);
-          return [{ '0': 'issue' }];
+          return [{ lookup: lookups[0], rows: [{ '0': 'issue' }] }];
         }
 
         throw new Error('Function not implemented.');
@@ -492,7 +601,7 @@ streams:
       // Should not return any streams if the synced_table lookup is empty.
       expect(
         await querier.queryDynamicBucketDescriptions({
-          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
             return [];
           }
@@ -501,9 +610,9 @@ streams:
 
       expect(
         await querier.queryDynamicBucketDescriptions({
-          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
             expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
-            return [{}];
+            return [{ lookup: lookups[0], rows: [{}] }];
           }
         })
       ).toStrictEqual([
@@ -586,9 +695,9 @@ streams:
         for (const hasLookupResult of [false, true]) {
           expect(
             await querier.queryDynamicBucketDescriptions({
-              getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
+              getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
                 expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
-                return hasLookupResult ? [{}] : [];
+                return [{ lookup: lookups[0], rows: hasLookupResult ? [{}] : [] }];
               }
             })
           ).toHaveLength(hasLookupResult ? 1 : 0);
@@ -645,20 +754,20 @@ streams:
 
       expect(
         await querier.queryDynamicBucketDescriptions({
-          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<SqliteJsonRow[]> {
-            for (const lookup of lookups) {
+          getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
+            return lookups.flatMap((lookup) => {
               expect(lookup.values[0]).toStrictEqual('lookup');
               switch (lookup.values[1]) {
                 case '0':
-                  return [{ '0': 'c3', '1': 'c4' }];
+                  return [{ lookup, rows: [{ '0': 'c3', '1': 'c4' }] }];
                 case '1':
-                  return [{ '0': 'c2' }];
+                  return [{ lookup, rows: [{ '0': 'c2' }] }];
                 case '2':
-                  return [{ '0': 'c1' }];
+                  return [{ lookup, rows: [{ '0': 'c1' }] }];
+                default:
+                  return [];
               }
-            }
-
-            return [];
+            });
           }
         })
       ).toStrictEqual([

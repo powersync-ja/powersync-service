@@ -1,4 +1,4 @@
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { logger as defaultLogger, ErrorCode, Logger, ServiceError } from '@powersync/lib-services-framework';
 import {
   CompatibilityContext,
   CompatibilityOption,
@@ -29,7 +29,7 @@ export interface PersistedSyncRulesContentData {
   readonly compiled_plan: SerializedSyncPlan | null;
   readonly slot_name: string;
   /**
-   * True if this is the "active" copy of the sync rules.
+   * True if this is the "active" copy of the sync config.
    */
   readonly active: boolean;
   readonly storageVersion: number;
@@ -49,6 +49,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
   readonly slot_name!: string;
   readonly active!: boolean;
   readonly storageVersion!: number;
+  readonly logger: Logger;
 
   readonly last_checkpoint_lsn!: string | null;
 
@@ -61,6 +62,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
   constructor(data: PersistedSyncRulesContentData) {
     Object.assign(this, data);
+    this.logger = defaultLogger.child({ prefix: `[${this.slot_name}] ` });
   }
 
   /**
@@ -73,7 +75,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
     if (storageConfig == null) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1005,
-        `Unsupported storage version ${this.storageVersion} for sync rules ${this.id}`
+        `Unsupported storage version ${this.storageVersion} for replication stream ${this.id}`
       );
     }
     return storageConfig;

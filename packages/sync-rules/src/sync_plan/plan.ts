@@ -142,7 +142,7 @@ export interface StreamBucketDataSource {
   hashCode: number;
 
   /**
-   * A unique name of this source in all streams compiled from a sync rules file.
+   * A unique name of this source in all streams compiled from a sync config file.
    */
   uniqueName: string;
 

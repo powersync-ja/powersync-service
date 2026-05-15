@@ -16,7 +16,7 @@ export class FileSystemSyncRulesCollector extends SyncRulesCollector {
 
     const { config_path } = runnerConfig;
 
-    // Depending on the container, the sync rules may not actually be present.
+    // Depending on the container, the sync config may not actually be present.
     // Only persist the path here, and load on demand using `loadSyncRules()`.
     return {
       present: true,

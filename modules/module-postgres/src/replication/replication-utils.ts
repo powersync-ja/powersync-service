@@ -7,6 +7,7 @@ import { PatternResult, storage } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { ReplicationIdentity } from './PgRelation.js';
+import { rquery } from './rquery.js';
 
 export interface ReplicaIdentityResult {
   replicationColumns: storage.ColumnDescriptor[];
@@ -234,11 +235,12 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
   );
 
   let rows: BatchedDebugTableRow[];
-  await db.query('BEGIN');
+  await rquery(db, 'BEGIN');
   try {
     // Anonymous DO blocks cannot take bind parameters directly, so pass the
     // pattern payload through transaction-local settings on the pinned connection.
-    const fetched = await db.query(
+    const fetched = await rquery(
+      db,
       {
         statement: `SELECT set_config('powersync.debug.table_patterns', $1, true)`,
         params: [{ type: 'varchar', value: patternPayload }]
@@ -256,10 +258,10 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
     );
 
     rows = pgwire.pgwireRows<BatchedDebugTableRow>(fetched);
-    await db.query('COMMIT');
+    await rquery(db, 'COMMIT');
   } catch (e) {
     try {
-      await db.query('ROLLBACK');
+      await rquery(db, 'ROLLBACK');
     } catch {
       // Ignore rollback errors after a failed transaction.
     }
@@ -343,7 +345,7 @@ export async function getDebugTablesInfo(options: GetDebugTablesInfoOptions): Pr
 export async function cleanUpReplicationSlot(slotName: string, db: pgwire.PgClient): Promise<void> {
   logger.info(`Cleaning up Postgres replication slot: ${slotName}...`);
 
-  await db.query({
+  await rquery(db, {
     statement: 'SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = $1',
     params: [{ type: 'varchar', value: slotName }]
   });

@@ -22,6 +22,7 @@ import {
 } from 'bson';
 import { describe, expect, test } from 'vitest';
 
+import { JsonBufferWriter } from '@module/replication/JsonBufferWriter.js';
 import {
   DirectSourceRowConverter,
   LegacySourceRowConverter,
@@ -54,6 +55,42 @@ const objectId = new ObjectId('66e834cc91d805df11fa0ecb');
 const uuidBytes = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
 const depth21Expected =
   '{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":{"nested":1}}}}}}}}}}}}}}}}}}}}}';
+
+describe('JsonBufferWriter', () => {
+  test('writeQuotedUtf8Slice escapes large control-heavy payloads without corruption', () => {
+    const writer = new JsonBufferWriter(32);
+    const payload = Buffer.alloc(256, 0x01);
+
+    writer.writeQuotedUtf8Slice(payload, 0, payload.length);
+
+    const expected = JSON.stringify(payload.toString('latin1'));
+    expect(writer.toString()).toBe(expected);
+  });
+
+  test('writeQuotedUtf8Slice escapes large control-heavy payloads without corruption (2)', () => {
+    const writer = new JsonBufferWriter(32);
+    const payload1 = Buffer.alloc(512);
+    const payload2 = Buffer.alloc(256, 0x01);
+
+    // This makes sure reset() properly clears the previous data
+    writer.writeQuotedUtf8Slice(payload1, 0, payload1.length);
+    writer.reset();
+    writer.writeQuotedUtf8Slice(payload2, 0, payload2.length);
+
+    const expected = JSON.stringify(payload2.toString('latin1'));
+    expect(writer.toString()).toBe(expected);
+  });
+
+  test('truncate clears discarded bytes', () => {
+    const writer = new JsonBufferWriter(32);
+
+    writer.writeAscii('discarded');
+    writer.truncate(0);
+
+    const { buffer } = writer as unknown as { buffer: Buffer };
+    expect(buffer.subarray(0, 'discarded'.length)).toEqual(Buffer.alloc('discarded'.length));
+  });
+});
 
 const testCases: ConverterCase[] = [
   serializableCase('double', new Double(1.25), placements(1.25, '[1.25]', '{"nested":1.25}')),
@@ -750,6 +787,19 @@ describe('SourceRowConverter.rawToSqliteRow fuzz', () => {
       },
       value: {
         中: ['\\', '"', '\r', '\t', '\u0001']
+      }
+    }) as Buffer;
+
+    expectRowParity(source);
+  });
+
+  test('matches on large escape-heavy nested values serialized from BSON', () => {
+    // For this test to work, this must be larger than the default buffer size
+    const escapeHeavy = '\u0001'.repeat(1024 * 400);
+    const source = BSON.serialize({
+      _id: 'escapes-large',
+      value: {
+        nested: escapeHeavy
       }
     }) as Buffer;
 

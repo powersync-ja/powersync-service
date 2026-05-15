@@ -102,10 +102,10 @@ bucket_definitions:
     });
 
     test('populatePersistentChecksumCache', async () => {
-      // Populate old sync rules version
+      // Populate old replication stream
       const { factory } = await setup();
 
-      // Now populate another version (bucket definition name changed)
+      // Now populate another replication stream (bucket definition name changed)
       const syncRules = await factory.updateSyncRules(
         updateSyncRulesFromYaml(`
 bucket_definitions:
