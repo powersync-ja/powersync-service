@@ -14,7 +14,7 @@ import {
   InstanceDocument,
   SourceTableDocument,
   StorageConfig,
-  SyncRuleDocument,
+  SyncRuleDocumentBase,
   WriteCheckpointDocument
 } from './models.js';
 import {
@@ -41,7 +41,7 @@ export class PowerSyncMongo {
   readonly bucket_data: mongo.Collection<BucketDataDocumentV1>;
   readonly bucket_parameters: mongo.Collection<BucketParameterDocument>;
   readonly op_id_sequence: mongo.Collection<IdSequenceDocument>;
-  readonly sync_rules: mongo.Collection<SyncRuleDocument>;
+  readonly sync_rules: mongo.Collection<SyncRuleDocumentBase>;
   readonly source_tables: mongo.Collection<SourceTableDocument>;
   readonly custom_write_checkpoints: mongo.Collection<CustomWriteCheckpointDocument>;
   readonly write_checkpoints: mongo.Collection<WriteCheckpointDocument>;
@@ -77,6 +77,9 @@ export class PowerSyncMongo {
     this.connection_report_events = this.db.collection('connection_report_events');
   }
 
+  versioned(storageConfig: StorageConfig & { incrementalReprocessing: true }): VersionedPowerSyncMongoV3;
+  versioned(storageConfig: StorageConfig & { incrementalReprocessing: false }): VersionedPowerSyncMongoV1;
+  versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo;
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
     if (storageConfig.incrementalReprocessing) {
       return new VersionedPowerSyncMongoV3(this, storageConfig);

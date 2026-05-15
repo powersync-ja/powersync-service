@@ -1,3 +1,4 @@
+import { SerializedSyncPlan } from '@powersync/service-core';
 import * as bson from 'bson';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import {
@@ -8,6 +9,8 @@ import {
   LEGACY_BUCKET_DATA_DEFINITION_ID,
   SourceKey,
   SourceTableDocument,
+  SyncRuleCheckpointFields,
+  SyncRuleDocumentBase,
   TaggedBucketParameterDocument
 } from '../models.js';
 
@@ -73,6 +76,18 @@ export function taggedBucketParameterDocumentToV1(document: TaggedBucketParamete
 
 export interface SourceTableDocumentV1 extends SourceTableDocument {
   group_id: number;
+}
+
+export interface SyncRuleDocumentV1 extends SyncRuleDocumentBase, SyncRuleCheckpointFields<string | null> {
+  content: string;
+  serialized_plan?: SerializedSyncPlan | null;
+
+  /**
+   * True if initial snapshot has been replicated.
+   *
+   * Can only be false if state == PROCESSING.
+   */
+  snapshot_done: boolean;
 }
 
 export interface BucketStateDocumentV1 extends BucketStateDocumentBase {

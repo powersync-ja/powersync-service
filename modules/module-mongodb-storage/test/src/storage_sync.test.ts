@@ -5,11 +5,21 @@ import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
-import { SyncRuleDocument } from '../../src/storage/implementation/models.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
-import { CurrentBucketV3 } from '../../src/storage/implementation/v3/models.js';
+import {
+  CurrentBucketV3,
+  ReplicationStreamDocumentV3,
+  SyncConfigDefinition
+} from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
+
+const MINIMAL_SYNC_RULES = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id FROM test
+`;
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
@@ -219,14 +229,43 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       bucketCollections.some((collection) => collection.name === `bucket_data_${syncRules.id}_${firstBucket?.def}`)
     ).toBe(true);
 
-    const syncRule = await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id });
-    const ruleMapping: SyncRuleDocument['rule_mapping'] | undefined = syncRule?.rule_mapping;
+    const syncRule = (await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id })) as ReplicationStreamDocumentV3;
+    const syncConfig = await db.syncConfigDefinitions.findOne({ _id: syncRule.sync_configs[0]._id });
+    const ruleMapping: SyncConfigDefinition['rule_mapping'] | undefined = syncConfig?.rule_mapping;
     expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);
 
     const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0] as string | undefined;
     expect(parameterIndexId).toBeDefined();
     const parameterEntry = await db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
+  });
+
+  test.runIf(storageVersion < 3)('can replace processing legacy sync rules', async () => {
+    await using factory = await storageConfig.factory();
+
+    const firstSyncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion })
+    );
+
+    await expect(
+      factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }))
+    ).resolves.toBeDefined();
+
+    const mongoFactory = factory as MongoBucketStorage;
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: firstSyncRules.id }))?.state).toBe(
+      storage.SyncRuleState.STOP
+    );
+  });
+
+  test('can lock newly-created sync rules', async () => {
+    await using factory = await storageConfig.factory();
+
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion, lock: true })
+    );
+
+    expect(syncRules.current_lock?.sync_rules_id).toBe(syncRules.id);
+    await syncRules.current_lock?.release();
   });
 
   test.runIf(storageVersion < 3)('uses a single current_data collection for v1 source records', async () => {
@@ -481,6 +520,35 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 }
 
 describe('sync - mongodb', () => {
+  test('v3 activation stops legacy active sync rules', async () => {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const mongoFactory = factory as MongoBucketStorage;
+
+    const legacySyncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion: storage.LEGACY_STORAGE_VERSION })
+    );
+    const legacyStorage = factory.getInstance(legacySyncRules);
+    await using legacyWriter = await legacyStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await legacyWriter.markAllSnapshotDone('1/1');
+    await legacyWriter.commit('1/1');
+
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.id }))?.state).toBe(
+      storage.SyncRuleState.ACTIVE
+    );
+
+    const v3SyncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion: storage.STORAGE_VERSION_3 })
+    );
+    const v3Storage = factory.getInstance(v3SyncRules);
+    await using v3Writer = await v3Storage.createWriter(test_utils.BATCH_OPTIONS);
+    await v3Writer.markAllSnapshotDone('2/1');
+    await v3Writer.commit('2/1');
+
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.id }))?.state).toBe(
+      storage.SyncRuleState.STOP
+    );
+  });
+
   for (const storageVersion of TEST_STORAGE_VERSIONS) {
     describe(`storage v${storageVersion}`, () => {
       registerSyncStorageTests(INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion);
