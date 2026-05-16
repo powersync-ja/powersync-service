@@ -6,15 +6,14 @@ import { EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules
 import * as bson from 'bson';
 import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
-import { cacheKey } from '../OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
-import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { CurrentDataDocumentV3, SourceTableDocumentV3 } from './models.js';
+import { serializeParameterLookup } from '../document-formats/parameter-lookup.js';
+import { cacheKey } from '../OperationBatch.js';
 
-export class SourceRecordStoreV3 implements SourceRecordStore {
+export class SourceRecordStoreImpl implements SourceRecordStore {
   constructor(
-    private readonly db: VersionedPowerSyncMongoV3,
+    private readonly getCollection: (groupId: number, sourceTableId: bson.ObjectId) => mongo.Collection<any>,
+    private readonly getSourceTables: (groupId: number) => mongo.Collection<any>,
     private readonly groupId: number,
     private readonly mapping: BucketDefinitionMapping
   ) {}
@@ -31,7 +30,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   mapParameterLookups(paramEvaluated: EvaluatedParameters[]): LoadedSourceRecord['lookups'] {
     return paramEvaluated.map((entry) => ({
       indexId: this.mapping.parameterLookupId(entry.lookup.source),
-      lookup: serializeParameterLookupV3(entry.lookup)
+      lookup: serializeParameterLookup(entry.lookup)
     }));
   }
 
@@ -39,20 +38,20 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     id: storage.ReplicaId,
     data: bson.Binary | null,
-    buckets: CurrentDataDocumentV3['buckets'],
-    lookups: CurrentDataDocumentV3['lookups']
+    buckets: any[],
+    lookups: any[]
   ): LoadedSourceRecord {
     return {
       sourceTableId,
       replicaId: id,
       data,
-      buckets: buckets.map((bucket) => ({
+      buckets: buckets.map((bucket: any) => ({
         definitionId: bucket.def,
         bucket: bucket.bucket,
         table: bucket.table,
         id: bucket.id
       })),
-      lookups: lookups.map((lookup) => ({
+      lookups: lookups.map((lookup: any) => ({
         indexId: lookup.i,
         lookup: lookup.l
       })),
@@ -63,25 +62,26 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   async loadSizes(session: mongo.ClientSession, entries: SourceRecordLookupEntry[]): Promise<Map<string, number>> {
     const sizes = new Map<string, number>();
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const filter = {
-        _id: { $in: replicaIds as any[] }
-      } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const sizeCursor: mongo.AggregationCursor<CurrentDataDocumentV3 & { size: number }> = this.db
-        .sourceRecordsV3(this.groupId, sourceTableId)
-        .aggregate(
-          [
-            {
-              $match: filter
-            },
-            {
-              $project: {
-                _id: 1,
-                size: { $bsonSize: '$$ROOT' }
-              }
+      const filter: mongo.Filter<any> = {
+        _id: { $in: replicaIds }
+      };
+      const sizeCursor: mongo.AggregationCursor<any & { size: number }> = this.getCollection(
+        this.groupId,
+        sourceTableId
+      ).aggregate(
+        [
+          {
+            $match: filter
+          },
+          {
+            $project: {
+              _id: 1,
+              size: { $bsonSize: '$$ROOT' }
             }
-          ],
-          { session }
-        );
+          }
+        ],
+        { session }
+      );
       for await (const doc of sizeCursor.stream()) {
         sizes.set(cacheKey(sourceTableId, doc._id), doc.size);
       }
@@ -97,10 +97,10 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     const documents = new Map<string, LoadedSourceRecord>();
     const projection = idsOnly ? { _id: 1 } : undefined;
     for (const [sourceTableId, replicaIds] of this.groupEntries(entries)) {
-      const filter = {
-        _id: { $in: replicaIds as any[] }
-      } as unknown as mongo.Filter<CurrentDataDocumentV3>;
-      const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(filter, { session, projection });
+      const filter: mongo.Filter<any> = {
+        _id: { $in: replicaIds }
+      };
+      const cursor = this.getCollection(this.groupId, sourceTableId).find(filter, { session, projection });
       for await (const doc of cursor.stream()) {
         const loaded = this.createLoadedDocument(
           sourceTableId,
@@ -120,7 +120,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     sourceTableId: bson.ObjectId,
     limit: number
   ): Promise<LoadedSourceRecord[]> {
-    const cursor = this.db.sourceRecordsV3(this.groupId, sourceTableId).find(
+    const cursor = this.getCollection(this.groupId, sourceTableId).find(
       {
         pending_delete: { $exists: false }
       },
@@ -134,7 +134,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
         session
       }
     );
-    return (await cursor.toArray()).map((doc) =>
+    return (await cursor.toArray()).map((doc: any) =>
       this.createLoadedDocument(sourceTableId, doc._id, null, doc.buckets, doc.lookups)
     );
   }
@@ -144,8 +144,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     // Since there may be a lot (100+) of these collections in some cases, we track which
     // ones have dirty deletes in source_tables.
 
-    const dirtySourceTables = await this.db
-      .sourceTablesV3(this.groupId)
+    const dirtySourceTables = await this.getSourceTables(this.groupId)
       .find(
         {
           latest_pending_delete: { $exists: true }
@@ -157,9 +156,9 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
       .toArray();
 
     let deletedCount = 0;
-    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [];
+    const sourceTableUpdates: mongo.AnyBulkWriteOperation<any>[] = [];
     for (const sourceTable of dirtySourceTables) {
-      const collection = this.db.sourceRecordsV3(this.groupId, sourceTable._id);
+      const collection = this.getCollection(this.groupId, sourceTable._id);
       const result = await this.deletePendingDeletes(collection, sourceTable._id, lastCheckpoint, logger);
       deletedCount += result.deletedCount;
 
@@ -182,7 +181,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
     }
 
     if (sourceTableUpdates.length > 0) {
-      await this.db.sourceTablesV3(this.groupId).bulkWrite(sourceTableUpdates, { ordered: false });
+      await this.getSourceTables(this.groupId).bulkWrite(sourceTableUpdates, { ordered: false });
     }
     if (deletedCount > 0) {
       logger.info(`Cleaned up ${deletedCount} pending delete current_data records for checkpoint ${lastCheckpoint}`);
@@ -190,7 +189,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   }
 
   private async deletePendingDeletes(
-    collection: mongo.Collection<CurrentDataDocumentV3>,
+    collection: mongo.Collection<any>,
     sourceTableId: bson.ObjectId,
     lastCheckpoint: bigint,
     logger: Logger

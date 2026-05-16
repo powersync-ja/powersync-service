@@ -14,12 +14,12 @@ import {
   utils
 } from '@powersync/service-core';
 
+import type { AbstractMongoSyncBucketStorage } from './AbstractMongoSyncBucketStorage.js';
 import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 import { BucketDataDoc, BucketKey } from './common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from './common/SingleBucketStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { BucketStateDocumentBase } from './models.js';
-import type { MongoSyncBucketStorage } from './MongoSyncBucketStorage.js';
 import { cacheKey } from './OperationBatch.js';
 
 interface CurrentBucketState {
@@ -91,13 +91,21 @@ export abstract class MongoCompactor {
   protected readonly signal?: AbortSignal;
   protected readonly group_id: number;
 
+  private _db: VersionedPowerSyncMongo;
+  private _storage: AbstractMongoSyncBucketStorage;
   protected readonly logger: Logger;
 
-  constructor(
-    protected readonly storage: MongoSyncBucketStorage,
-    protected readonly db: VersionedPowerSyncMongo,
-    options: MongoCompactOptions
-  ) {
+  protected get db(): VersionedPowerSyncMongo {
+    return this._db;
+  }
+
+  protected get storage(): AbstractMongoSyncBucketStorage {
+    return this._storage;
+  }
+
+  constructor(storage: AbstractMongoSyncBucketStorage, db: VersionedPowerSyncMongo, options: MongoCompactOptions) {
+    this._storage = storage;
+    this._db = db;
     this.group_id = storage.group_id;
     this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
@@ -133,6 +141,7 @@ export abstract class MongoCompactor {
    */
   async populateChecksums(options: { minBucketChanges: number }): Promise<PopulateChecksumCacheResults> {
     let count = 0;
+    // Paginate through dirty buckets in batches until no more buckets meet the criteria.
     while (true) {
       this.signal?.throwIfAborted();
       const buckets = await this.dirtyBucketBatchForChecksums(options);
@@ -162,7 +171,7 @@ export abstract class MongoCompactor {
     return { buckets: count };
   }
 
-  protected async *dirtyBucketBatchesForCollection<TCollectionBucketState extends BucketStateDocumentBase>(
+  public async *dirtyBucketBatchesForCollection<TCollectionBucketState extends BucketStateDocumentBase>(
     collection: mongo.Collection<TCollectionBucketState>,
     lastId: TCollectionBucketState['_id'],
     maxId: TCollectionBucketState['_id'],
@@ -172,6 +181,7 @@ export abstract class MongoCompactor {
     },
     getDefinitionId: (state: TCollectionBucketState) => BucketDefinitionId | null
   ): AsyncGenerator<DirtyBucket[]> {
+    // Paginate through the bucket state collection using cursor-based scanning.
     while (true) {
       // To avoid timeouts from too many buckets not meeting the minBucketChanges criteria, use an aggregation pipeline
       // to scan a fixed batch of buckets at a time, but only return buckets that meet the criteria.
@@ -247,7 +257,7 @@ export abstract class MongoCompactor {
     }
   }
 
-  protected async dirtyBucketBatchForChecksumsForCollection<TBucketState extends BucketStateDocumentBase>(
+  public async dirtyBucketBatchForChecksumsForCollection<TBucketState extends BucketStateDocumentBase>(
     collection: mongo.Collection<TBucketState>,
     filter: mongo.Filter<TBucketState>,
     getDefinitionId: (state: mongo.WithId<TBucketState>) => BucketDefinitionId | null
@@ -304,6 +314,7 @@ export abstract class MongoCompactor {
    */
   protected async compactSingleBucketRetried(bucket: string, definitionId: BucketDefinitionId | null = null) {
     let retryCount = 0;
+    // Retry with exponential backoff up to 3 times on MongoDB errors.
     while (true) {
       try {
         await this.compactSingleBucket(bucket, definitionId);
@@ -343,6 +354,7 @@ export abstract class MongoCompactor {
     // Upper bound is adjusted for each batch.
     let upperBound = bucketContext.maxId;
 
+    // Paginate through bucket data in batches to avoid cursor timeouts.
     while (true) {
       this.signal?.throwIfAborted();
 
@@ -488,13 +500,13 @@ export abstract class MongoCompactor {
     await this.flush(bucketContext);
   }
 
-  protected updateBucketChecksums(state: CurrentBucketState) {
+  protected collectBucketStateUpdates(state: CurrentBucketState): mongo.AnyBulkWriteOperation<BucketStateDocumentBase> {
     if (state.opCount < 0) {
       throw new ServiceAssertionError(
         `Invalid opCount: ${state.opCount} checksum ${state.checksum} opsSincePut: ${state.opsSincePut} maxOpId: ${this.maxOpId}`
       );
     }
-    this.bucketStateUpdates.push({
+    return {
       updateOne: {
         filter: this.bucketStateFilter(state.bucket, state.definitionId),
         update: {
@@ -517,7 +529,11 @@ export abstract class MongoCompactor {
         // We don't create new ones here, to avoid issues with the unique index on bucket_updates.
         upsert: false
       }
-    });
+    };
+  }
+
+  protected updateBucketChecksums(state: CurrentBucketState) {
+    this.bucketStateUpdates.push(this.collectBucketStateUpdates(state));
   }
 
   protected async flush(col: SingleBucketStore) {

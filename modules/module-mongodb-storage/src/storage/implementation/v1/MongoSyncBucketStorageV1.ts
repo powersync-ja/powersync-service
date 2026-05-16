@@ -16,6 +16,7 @@ import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powe
 import * as bson from 'bson';
 import { idPrefixFilter, mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
+import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
 import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
@@ -26,7 +27,6 @@ import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import { MongoPersistedSyncRulesContent } from '../MongoPersistedSyncRulesContent.js';
-import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import { BucketDataDocumentV1, BucketDataKeyV1, BucketStateDocument, loadBucketDataDocumentV1 } from './models.js';
 import { MongoBucketBatchV1 } from './MongoBucketBatchV1.js';
 import { MongoChecksumsV1 } from './MongoChecksumsV1.js';
@@ -34,10 +34,14 @@ import { MongoCompactorV1 } from './MongoCompactorV1.js';
 import { MongoParameterCompactorV1 } from './MongoParameterCompactorV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
-export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
-  // Declare types to be more specific
-  declare readonly db: VersionedPowerSyncMongoV1;
-  declare readonly checksums: MongoChecksumsV1;
+export class MongoSyncBucketStorageV1 extends AbstractMongoSyncBucketStorage {
+  get db(): VersionedPowerSyncMongoV1 {
+    return super.db as VersionedPowerSyncMongoV1;
+  }
+
+  get checksums(): MongoChecksumsV1 {
+    return super.checksums as MongoChecksumsV1;
+  }
 
   constructor(
     factory: MongoBucketStorage,
@@ -304,6 +308,8 @@ export async function* getBucketDataBatchV1(
   const batchLimit = options?.limit ?? storage.DEFAULT_DOCUMENT_BATCH_LIMIT;
   const chunkSizeLimitBytes = options?.chunkLimitBytes ?? storage.DEFAULT_DOCUMENT_CHUNK_LIMIT_BYTES;
 
+  // raw: true returns Buffers, but the driver typing doesn't reflect that
+  // without an explicit cast to FindCursor<Buffer>.
   const cursor = ctx.db.bucket_data.find(
     {
       $or: filters

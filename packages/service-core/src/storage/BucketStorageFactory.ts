@@ -273,4 +273,5 @@ export interface TestStorageConfig {
   factory: TestStorageFactory;
   tableIdStrings: boolean;
   storageVersion?: number;
+  compressedBucketStorage?: boolean;
 }

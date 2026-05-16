@@ -1,3 +1,4 @@
+import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
@@ -61,6 +62,8 @@ export interface MongoBucketBatchOptions {
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
+
+  listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 }
 
 export abstract class MongoBucketBatch
@@ -70,7 +73,10 @@ export abstract class MongoBucketBatch
   protected logger: Logger;
 
   private readonly client: mongo.MongoClient;
-  public readonly db: VersionedPowerSyncMongo;
+  private _db: VersionedPowerSyncMongo;
+  public get db(): VersionedPowerSyncMongo {
+    return this._db;
+  }
   public readonly session: mongo.ClientSession;
   private readonly sync_rules: HydratedSyncRules;
 
@@ -85,6 +91,7 @@ export abstract class MongoBucketBatch
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
   private clearedError = false;
+  private listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 
   private tracer: PerformanceTracer<'storage' | 'evaluate'>;
 
@@ -122,7 +129,7 @@ export abstract class MongoBucketBatch
     super();
     this.logger = options.logger;
     this.client = options.db.client;
-    this.db = options.db;
+    this._db = options.db;
     this.group_id = options.groupId;
     this.last_checkpoint_lsn = options.lastCheckpointLsn;
     this.resumeFromLsn = options.resumeFromLsn;
@@ -133,6 +140,7 @@ export abstract class MongoBucketBatch
     this.mapping = options.mapping;
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
+    this.listSourceRecordCollections = options.listSourceRecordCollections;
     this.batch = new OperationBatch();
 
     this.persisted_op = options.keepaliveOp ?? null;
@@ -154,7 +162,28 @@ export abstract class MongoBucketBatch
 
   protected abstract get sourceRecordStore(): SourceRecordStore;
 
-  protected abstract cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]): Promise<void>;
+  protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
+    if (this.listSourceRecordCollections == null) {
+      return;
+    }
+    const collections = await this.listSourceRecordCollections(this.group_id);
+    const tableIds = new Set(sourceTables.map((t) => mongoTableId(t.id).toHexString()));
+    for (const collection of collections) {
+      const name = collection.collectionName;
+      const prefix = `source_records_${this.group_id}_`;
+      if (name.startsWith(prefix)) {
+        const tableId = name.slice(prefix.length);
+        if (tableIds.has(tableId)) {
+          await collection.drop().catch((error) => {
+            if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
+              return;
+            }
+            throw error;
+          });
+        }
+      }
+    }
+  }
 
   async flush(options?: storage.BatchBucketFlushOptions): Promise<storage.FlushedResult | null> {
     let result: storage.FlushedResult | null = null;

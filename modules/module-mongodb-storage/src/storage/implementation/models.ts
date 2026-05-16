@@ -4,8 +4,12 @@ import { SqliteJsonValue } from '@powersync/service-sync-rules';
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
 import { ParameterIndexId } from './BucketDefinitionMapping.js';
+import type {
+  CurrentDataDocument as CurrentDataDocumentV3,
+  RecordedLookup,
+  SourceTableDocument as SourceTableDocumentV3
+} from './common/models.js';
 import type { CurrentDataDocument, SourceTableDocumentV1 } from './v1/models.js';
-import type { CurrentBucketV3, CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from './v3/models.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -267,10 +271,15 @@ export interface StorageConfig extends storage.StorageVersionConfig {
    * Enables v3 MongoDB storage behavior used for incremental reprocessing.
    */
   incrementalReprocessing: boolean;
+  /**
+   * Enables v3+ MongoDB storage with compressed bucket data.
+   */
+  compressedBucketStorage: boolean;
 }
 
 const LONG_CHECKSUMS_STORAGE_VERSION = 2;
 const INCREMENTAL_REPROCESSING_STORAGE_VERSION = storage.STORAGE_VERSION_3;
+const COMPRESSED_BUCKET_STORAGE_VERSION = storage.STORAGE_VERSION_3;
 
 export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   const baseConfig = storage.STORAGE_VERSION_CONFIG[storageVersion];
@@ -281,7 +290,8 @@ export function getMongoStorageConfig(storageVersion: number): StorageConfig {
   return {
     ...baseConfig,
     longChecksums: storageVersion >= LONG_CHECKSUMS_STORAGE_VERSION,
-    incrementalReprocessing: storageVersion >= INCREMENTAL_REPROCESSING_STORAGE_VERSION
+    incrementalReprocessing: storageVersion >= INCREMENTAL_REPROCESSING_STORAGE_VERSION,
+    compressedBucketStorage: storageVersion >= COMPRESSED_BUCKET_STORAGE_VERSION
   };
 }
 
@@ -329,6 +339,6 @@ export interface InstanceDocument {
 export interface ClientConnectionDocument extends event_types.ClientConnection {}
 
 export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
-export type CommonCurrentBucket = CurrentBucket | CurrentBucketV3;
-export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
+export type CommonCurrentBucket = CurrentBucket;
+export type CommonCurrentLookup = bson.Binary | RecordedLookup;
 export type CommonSourceTableDocument = SourceTableDocumentV1 | SourceTableDocumentV3;

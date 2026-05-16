@@ -1,68 +1,78 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
+import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import {
   BucketDataDocumentGeneric,
   BucketDataDocumentGenericId,
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
-import { BucketDataProperties } from '../models.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { BucketDataDocumentV3, BucketDataKeyV3, loadBucketDataDocumentV3, serializeBucketDataV3 } from './models.js';
+import { BucketDataDocument, BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
+import { BucketDataKey, BucketDataProperties } from '../models.js';
+
+// MongoDB's MinKey/MaxKey are special sentinel values that don't match the bigint type
+// for _id.o in BucketDataDocumentGenericId, so we need an explicit cast.
+function minKeyForBucket(bucket: string): BucketDataDocumentGenericId {
+  return {
+    b: bucket,
+    o: new mongo.MinKey()
+  } as unknown as BucketDataDocumentGenericId;
+}
+
+function maxKeyForBucket(bucket: string): BucketDataDocumentGenericId {
+  return {
+    b: bucket,
+    o: new mongo.MaxKey()
+  } as unknown as BucketDataDocumentGenericId;
+}
 
 export class SingleBucketStoreV3 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
+  private format = new BucketDocumentFormatAdapter();
 
   constructor(
-    private db: VersionedPowerSyncMongoV3,
+    private db: VersionedPowerSyncMongo,
     public readonly key: BucketKey
   ) {
-    this.collection = db.bucketDataV3(
+    // Cast from the version-specific collection type to the generic interface
+    // used across storage versions.
+    this.collection = db.bucketData(
       key.replicationStreamId,
       key.definitionId
     ) as unknown as mongo.Collection<BucketDataDocumentGeneric>;
   }
 
   docId(o: InternalOpId): BucketDataDocumentGenericId {
-    // `satisfies BucketDataKeyV3` checks that we use the correct type for V3 storage
+    // `satisfies BucketDataKey` checks that we use the correct type for V3 storage
     // `as BucketDataDocumentGenericId` does a cast to get the interface virtual type
     return {
       b: this.key.bucket,
       o
-    } satisfies BucketDataKeyV3 as BucketDataDocumentGenericId;
+    } satisfies BucketDataKey as BucketDataDocumentGenericId;
   }
 
   get minId(): BucketDataDocumentGenericId {
-    return {
-      b: this.key.bucket,
-      o: new mongo.MinKey()
-    } as any; // No way to properly type this
+    return minKeyForBucket(this.key.bucket);
   }
 
   get maxId(): BucketDataDocumentGenericId {
-    return {
-      b: this.key.bucket,
-      o: new mongo.MaxKey()
-    } as any; // No way to properly type this
+    return maxKeyForBucket(this.key.bucket);
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return serializeBucketDataV3({ bucketKey: this.key, ...source }) as BucketDataDocumentGeneric;
+    return this.format.toPersistedDocument(this.key, source) as unknown as BucketDataDocumentGeneric;
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    return loadBucketDataDocumentV3(this.key, doc as BucketDataDocumentV3);
+    return this.format.fromPersistedDocument(this.key, doc as unknown as BucketDataDocument);
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    const document = doc as Pick<BucketDataDocumentV3, '_id' | T>;
-    const { _id, ...rest } = document;
-    return {
-      bucketKey: this.key,
-      o: _id.o,
-      ...rest
-    } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
+    return this.format.fromPartialPersistedDocument(
+      this.key,
+      doc as unknown as Pick<BucketDataDocument & BucketDataProperties, '_id' | T>
+    );
   }
 }

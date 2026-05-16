@@ -59,14 +59,23 @@ interface InternalCheckpointChanges extends CheckpointChanges {
  */
 const CHECKPOINT_TIMEOUT_MS = 60_000;
 
-export abstract class MongoSyncBucketStorage
+export abstract class AbstractMongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  readonly db: VersionedPowerSyncMongo;
+  private _db: VersionedPowerSyncMongo;
+
+  get db(): VersionedPowerSyncMongo {
+    return this._db;
+  }
+
   [DO_NOT_LOG] = true;
 
-  readonly checksums: MongoChecksums;
+  private _checksums: MongoChecksums;
+
+  get checksums(): MongoChecksums {
+    return this._checksums;
+  }
 
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
@@ -82,8 +91,8 @@ export abstract class MongoSyncBucketStorage
     options: MongoSyncBucketStorageOptions
   ) {
     super();
-    this.db = factory.db.versioned(sync_rules.getStorageConfig());
-    this.checksums = this.createMongoChecksums(options);
+    this._db = factory.db.versioned(sync_rules.getStorageConfig());
+    this._checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
@@ -772,10 +781,10 @@ export abstract class MongoSyncBucketStorage
 }
 
 class MongoReplicationCheckpoint implements ReplicationCheckpoint {
-  #storage: MongoSyncBucketStorage;
+  #storage: AbstractMongoSyncBucketStorage;
 
   constructor(
-    storage: MongoSyncBucketStorage,
+    storage: AbstractMongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
     public snapshotTime: mongo.Timestamp
@@ -792,7 +801,7 @@ class EmptyReplicationCheckpoint implements ReplicationCheckpoint {
   readonly checkpoint: InternalOpId = 0n;
   readonly lsn: string | null = null;
 
-  async getParameterSets(_lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
+  async getParameterSets(_lookups: ScopedParameterLookup[], _limit: number): Promise<ParameterLookupRows[]> {
     return [];
   }
 }

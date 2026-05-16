@@ -1,4 +1,3 @@
-import { SourceTable } from '@powersync/service-core';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { PersistedBatch } from '../common/PersistedBatch.js';
 import { SourceRecordStore } from '../common/SourceRecordStore.js';
@@ -7,7 +6,9 @@ import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
-  declare public readonly db: VersionedPowerSyncMongoV1;
+  get db(): VersionedPowerSyncMongoV1 {
+    return super.db as VersionedPowerSyncMongoV1;
+  }
 
   private readonly store: SourceRecordStore;
 
@@ -24,9 +25,5 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
   protected get sourceRecordStore(): SourceRecordStore {
     return this.store;
-  }
-
-  protected async cleanupDroppedSourceTables(_tables: SourceTable[]) {
-    // No-op for V1: source records live in a shared collection.
   }
 }
