@@ -662,10 +662,11 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
       }
 
       const aParsed = checkJsonArray(a, '&& is only supported on JSON arrays');
-      const bParsed = checkJsonArray(a, '&& is only supported on JSON arrays');
+      const bParsed = checkJsonArray(b, '&& is only supported on JSON arrays');
 
-      for (const elementInA in aParsed) {
-        if (bParsed.includes(elementInA)) {
+      // Use compare() for SQLite affinity since Array.includes strict equality mismatches bigint vs number.
+      for (const elementInA of aParsed) {
+        if (bParsed.some((v) => compare(v, elementInA) === 0)) {
           return sqliteBool(true);
         }
       }
