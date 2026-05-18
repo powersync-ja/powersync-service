@@ -39,6 +39,12 @@ interface InitResult {
   snapshotLsn: string | null;
 }
 
+interface SnapshotQueueItem {
+  table: SourceTable;
+  ready: Promise<void>;
+  cancelled: boolean;
+}
+
 export class MongoSnapshotter {
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly metrics: MetricsEngine;
@@ -56,7 +62,7 @@ export class MongoSnapshotter {
   private readonly relationCache = new RelationCache(getCacheIdentifier);
 
   private readonly connectionId = 1;
-  private readonly queue = new Set<SourceTable>();
+  private readonly queue = new Set<SnapshotQueueItem>();
   private initialSnapshotDone = Promise.withResolvers<void>();
   private nextItemQueued: PromiseWithResolvers<void> | null = null;
   private lastSnapshotOpId: InternalOpId | null = null;
@@ -173,8 +179,8 @@ export class MongoSnapshotter {
         await this.markSnapshotDone();
       }
       while (!this.abortSignal.aborted) {
-        const table = this.queue.values().next().value;
-        if (table == null) {
+        const item = this.queue.values().next().value;
+        if (item == null) {
           this.initialSnapshotDone.resolve();
           this.nextItemQueued = Promise.withResolvers<void>();
           await this.nextItemQueued.promise;
@@ -182,8 +188,11 @@ export class MongoSnapshotter {
           continue;
         }
 
-        await this.replicateTable(table);
-        this.queue.delete(table);
+        await item.ready;
+        if (!item.cancelled) {
+          await this.replicateTable(item.table);
+        }
+        this.queue.delete(item);
         if (this.queue.size == 0) {
           await this.markSnapshotDone();
         }
@@ -196,16 +205,29 @@ export class MongoSnapshotter {
   }
 
   async queueSnapshot(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
-    await batch.markTableSnapshotRequired(table);
-    this.queueTable(table);
+    const ready = Promise.withResolvers<void>();
+    const item = this.queueTable(table, ready.promise);
+    try {
+      await batch.markTableSnapshotRequired(table);
+      ready.resolve();
+    } catch (e) {
+      item.cancelled = true;
+      ready.resolve();
+      throw e;
+    } finally {
+      this.nextItemQueued?.resolve();
+    }
   }
 
-  private queueTable(table: SourceTable) {
-    this.queue.add(table);
+  private queueTable(table: SourceTable, ready = Promise.resolve()) {
+    const item: SnapshotQueueItem = { table, ready, cancelled: false };
+    this.queue.add(item);
     this.nextItemQueued?.resolve();
+    return item;
   }
 
   private async markSnapshotDone() {
+    let markedDone = false;
     const flushResult = await this.storage.startBatch(
       {
         logger: this.logger,
@@ -215,11 +237,21 @@ export class MongoSnapshotter {
         skipExistingRows: true
       },
       async (batch) => {
+        if (this.queue.size != 0) {
+          return;
+        }
         const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+        if (this.queue.size != 0) {
+          return;
+        }
         await batch.markAllSnapshotDone(checkpoint);
         await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+        markedDone = true;
       }
     );
+    if (!markedDone) {
+      return;
+    }
 
     const lastOp = flushResult?.flushed_op ?? this.lastSnapshotOpId;
     if (lastOp != null) {
