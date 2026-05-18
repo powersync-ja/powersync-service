@@ -21,7 +21,6 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { CommonSourceTableDocument } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
@@ -252,32 +251,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         arrayFilters: this.syncConfigArrayFilters()
       }
     );
-  }
-
-  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
-    return {};
-  }
-
-  protected augmentCreatedSourceTableDocument(
-    createDoc: CommonSourceTableDocument,
-    options: storage.ResolveTableOptions,
-    candidateSourceTable: storage.SourceTable
-  ): void {
-    const bucketDataSourceIds = options.sync_rules.definition.bucketDataSources
-      .filter((source) => source.tableSyncsData(candidateSourceTable))
-      .map((source) => this.mapping.bucketSourceId(source));
-    const parameterLookupSourceIds = options.sync_rules.definition.bucketParameterLookupSources
-      .filter((source) => source.tableSyncsParameters(candidateSourceTable))
-      .map((source) => this.mapping.parameterLookupId(source));
-
-    Object.assign(createDoc, {
-      bucket_data_source_ids: bucketDataSourceIds,
-      parameter_lookup_source_ids: parameterLookupSourceIds
-    });
-  }
-
-  protected async initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void> {
-    await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
   }
 
   protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV3> {

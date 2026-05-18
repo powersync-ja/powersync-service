@@ -1,5 +1,5 @@
 import { ColumnDefinition, ExpressionType, expressionTypeFromPostgresType, SqliteType } from './ExpressionType.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
 import { SourceSchema, SourceSchemaTable } from './types.js';
 
@@ -43,7 +43,7 @@ export interface SourceConnectionDefinition {
   schemas: SourceSchemaDefinition[];
 }
 
-class SourceTableDetails implements SourceTableInterface, SourceSchemaTable {
+class SourceTableDetails implements SourceTableRef, SourceSchemaTable {
   readonly connectionTag: string;
   readonly schema: string;
   readonly name: string;

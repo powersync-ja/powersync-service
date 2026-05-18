@@ -1,5 +1,6 @@
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
-import { SourceTable, storage } from '@powersync/service-core';
+import { ColumnDescriptor, SourceTable, storage } from '@powersync/service-core';
+import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
 import { MongoBucketBatch, MongoBucketBatchOptions } from '../MongoBucketBatch.js';
@@ -34,6 +35,112 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
   protected async cleanupDroppedSourceTables(_tables: SourceTable[]) {
     // No-op for V1: source records live in a shared collection.
+  }
+
+  async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
+    const syncRules = options.syncRules ?? this.sync_rules;
+    const { connection_id, source } = options;
+    const { schema, name, objectId, replicaIdColumns, connectionTag } = source;
+
+    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
+      name: column.name,
+      type: column.type,
+      type_oid: column.typeId
+    }));
+
+    let result: storage.ResolveTablesResult | null = null;
+    await this.db.client.withSession(async (session) => {
+      const col = this.db.commonSourceTables(this.group_id);
+      const filter: any = {
+        group_id: this.group_id,
+        connection_id,
+        schema_name: schema,
+        table_name: name,
+        replica_id_columns2: normalizedReplicaIdColumns
+      };
+      if (objectId != null) {
+        filter.relation_id = objectId;
+      }
+
+      let doc = await col.findOne(filter, { session });
+      if (doc == null) {
+        doc = {
+          _id: options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId(),
+          group_id: this.group_id,
+          connection_id,
+          relation_id: objectId,
+          schema_name: schema,
+          table_name: name,
+          replica_id_columns: null,
+          replica_id_columns2: normalizedReplicaIdColumns,
+          snapshot_done: false,
+          snapshot_status: undefined
+        };
+        await col.insertOne(doc, { session });
+      }
+
+      const sourceTable = new storage.SourceTable({
+        id: doc._id,
+        ref: source,
+        objectId,
+        replicaIdColumns,
+        snapshotComplete: doc.snapshot_done ?? true,
+        ...syncRules.getMatchingSources(source)
+      });
+      sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
+      sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
+      sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
+      sourceTable.snapshotStatus =
+        doc.snapshot_status == null
+          ? undefined
+          : {
+              lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+              totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+              replicatedCount: doc.snapshot_status.replicated_count
+            };
+
+      const truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
+      if (objectId != null) {
+        truncateFilter.push({ relation_id: objectId });
+      }
+      const truncate = await col
+        .find(
+          {
+            group_id: this.group_id,
+            connection_id,
+            _id: { $ne: doc._id },
+            $or: truncateFilter
+          },
+          { session }
+        )
+        .toArray();
+      const dropTables = truncate.map((dropDoc) => {
+        const ref = {
+          connectionTag,
+          schema: dropDoc.schema_name,
+          name: dropDoc.table_name
+        };
+        const table = new storage.SourceTable({
+          id: dropDoc._id,
+          ref,
+          objectId: dropDoc.relation_id,
+          replicaIdColumns:
+            dropDoc.replica_id_columns2?.map(
+              (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
+            ) ?? [],
+          snapshotComplete: dropDoc.snapshot_done ?? true,
+          ...syncRules.getMatchingSources(ref)
+        });
+        table.syncEvent = syncRules.tableTriggersEvent(ref);
+        table.syncData = table.bucketDataSources.length > 0;
+        table.syncParameters = table.parameterLookupSources.length > 0;
+        return table;
+      });
+
+      result = { tables: [sourceTable], dropTables };
+    });
+
+    return result!;
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {

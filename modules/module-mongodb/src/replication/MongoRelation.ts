@@ -17,8 +17,12 @@ import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { MongoLSN } from '../common/MongoLSN.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
-export function getMongoRelation(source: mongo.ChangeStreamNameSpace): storage.SourceEntityDescriptor {
+export function getMongoRelation(
+  source: mongo.ChangeStreamNameSpace,
+  connectionTag: string
+): storage.SourceEntityDescriptor {
   return {
+    connectionTag,
     name: source.coll,
     schema: source.db,
     // Not relevant for MongoDB - we use db + coll name as the identifier

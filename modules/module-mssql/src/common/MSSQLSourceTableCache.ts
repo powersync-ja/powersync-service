@@ -6,7 +6,7 @@ export class MSSQLSourceTableCache {
   private cache = new Map<number | string, MSSQLSourceTable>();
 
   set(table: MSSQLSourceTable): void {
-    this.cache.set(table.sourceTable.objectId!, table);
+    this.cache.set(table.ref.objectId!, table);
   }
 
   /**

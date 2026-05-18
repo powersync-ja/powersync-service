@@ -22,7 +22,6 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as timers from 'timers/promises';
-import * as uuid from 'uuid';
 import { bigint, BIGINT_MAX } from '../types/codecs.js';
 import { models, RequiredOperationBatchLimits } from '../types/types.js';
 import { replicaIdToSubkey } from '../utils/bson.js';
@@ -32,7 +31,6 @@ import * as framework from '@powersync/lib-services-framework';
 import { StatementParam } from '@powersync/service-jpgwire';
 import { wrapWithAbort } from 'ix/asynciterable/operators/withabort.js';
 import * as t from 'ts-codec';
-import { SourceTableDecoded, StoredRelationId } from '../types/models/SourceTable.js';
 import { pick } from '../utils/ts-codec.js';
 import { PostgresBucketBatch } from './batch/PostgresBucketBatch.js';
 import { PostgresWriteCheckpointAPI } from './checkpoints/PostgresWriteCheckpointAPI.js';
@@ -186,168 +184,6 @@ export class PostgresSyncRulesStorage
       checkpointRow?.last_checkpoint ?? 0n,
       checkpointRow?.last_checkpoint_lsn ?? null
     );
-  }
-
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
-
-    const { schema, name: table, objectId, replicaIdColumns } = entity_descriptor;
-
-    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      // The PGWire returns this as a BigInt. We want to store this as JSONB
-      type_oid: typeof column.typeId !== 'undefined' ? Number(column.typeId) : column.typeId
-    }));
-    return this.db.transaction(async (db) => {
-      let sourceTableRow: SourceTableDecoded | null;
-      if (objectId != null) {
-        sourceTableRow = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      } else {
-        sourceTableRow = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND schema_name = ${{ type: 'varchar', value: schema }}
-            AND table_name = ${{ type: 'varchar', value: table }}
-            AND replica_id_columns = ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-        `
-          .decoded(models.SourceTable)
-          .first();
-      }
-
-      if (sourceTableRow == null) {
-        const row = await db.sql`
-          INSERT INTO
-            source_tables (
-              id,
-              group_id,
-              connection_id,
-              relation_id,
-              schema_name,
-              table_name,
-              replica_id_columns
-            )
-          VALUES
-            (
-              ${{ type: 'varchar', value: uuid.v4() }},
-              ${{ type: 'int4', value: group_id }},
-              ${{ type: 'int4', value: connection_id }},
-              --- The objectId can be string | number | undefined, we store it as jsonb value
-              ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
-              ${{ type: 'varchar', value: schema }},
-              ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
-            )
-          RETURNING
-            *
-        `
-          .decoded(models.SourceTable)
-          .first();
-        sourceTableRow = row;
-      }
-
-      const sourceTable = new storage.SourceTable({
-        id: sourceTableRow!.id,
-        connectionTag: connection_tag,
-        objectId: objectId,
-        schema: schema,
-        name: table,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: sourceTableRow!.snapshot_done ?? true
-      });
-      if (!sourceTable.snapshotComplete) {
-        sourceTable.snapshotStatus = {
-          totalEstimatedCount: Number(sourceTableRow!.snapshot_total_estimated_count ?? -1n),
-          replicatedCount: Number(sourceTableRow!.snapshot_replicated_count ?? 0n),
-          lastKey: sourceTableRow!.snapshot_last_key
-        };
-      }
-      sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
-
-      let truncatedTables: SourceTableDecoded[] = [];
-      if (objectId != null) {
-        // relation_id present - check for renamed tables
-        truncatedTables = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-            AND (
-              relation_id = ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }}
-              OR (
-                schema_name = ${{ type: 'varchar', value: schema }}
-                AND table_name = ${{ type: 'varchar', value: table }}
-              )
-            )
-        `
-          .decoded(models.SourceTable)
-          .rows();
-      } else {
-        // relation_id not present - only check for changed replica_id_columns
-        truncatedTables = await db.sql`
-          SELECT
-            *
-          FROM
-            source_tables
-          WHERE
-            group_id = ${{ type: 'int4', value: group_id }}
-            AND connection_id = ${{ type: 'int4', value: connection_id }}
-            AND id != ${{ type: 'varchar', value: sourceTableRow!.id }}
-            AND (
-              schema_name = ${{ type: 'varchar', value: schema }}
-              AND table_name = ${{ type: 'varchar', value: table }}
-            )
-        `
-          .decoded(models.SourceTable)
-          .rows();
-      }
-
-      return {
-        table: sourceTable,
-        dropTables: truncatedTables.map(
-          (doc) =>
-            new storage.SourceTable({
-              id: doc.id,
-              connectionTag: connection_tag,
-              objectId: doc.relation_id?.object_id ?? 0,
-              schema: doc.schema_name,
-              name: doc.table_name,
-              replicaIdColumns:
-                doc.replica_id_columns?.map((c) => ({
-                  name: c.name,
-                  typeOid: c.typeId,
-                  type: c.type
-                })) ?? [],
-              snapshotComplete: doc.snapshot_done ?? true
-            })
-        )
-      };
-    });
   }
 
   async createWriter(options: storage.CreateWriterOptions): Promise<storage.BucketStorageBatch> {

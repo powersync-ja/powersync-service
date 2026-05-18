@@ -1,3 +1,5 @@
+import { SourceTableRef } from '@powersync/service-sync-rules';
+
 export interface ColumnDescriptor {
   name: string;
   /**
@@ -10,7 +12,7 @@ export interface ColumnDescriptor {
   typeId?: number;
 }
 
-export interface SourceEntityDescriptor {
+export interface SourceEntityDescriptor extends SourceTableRef {
   /**
    * The internal id of the source entity structure in the database.
    * If undefined, the schema and name are used as the identifier.

@@ -29,7 +29,7 @@ import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 import type { VersionedPowerSyncMongo } from './db.js';
-import { CommonSourceTableDocument, StorageConfig } from './models.js';
+import { StorageConfig } from './models.js';
 import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
@@ -223,134 +223,6 @@ export abstract class MongoSyncBucketStorage
     await callback(writer);
     await writer.flush();
     return writer.last_flushed_op != null ? { flushed_op: writer.last_flushed_op } : null;
-  }
-
-  protected abstract sourceTableBaseId(): Partial<CommonSourceTableDocument>;
-
-  protected abstract augmentCreatedSourceTableDocument(
-    createDoc: CommonSourceTableDocument,
-    options: storage.ResolveTableOptions,
-    candidateSourceTable: storage.SourceTable
-  ): void;
-
-  protected abstract initializeResolvedSourceRecords(sourceTableId: bson.ObjectId): Promise<void>;
-
-  async resolveTable(options: storage.ResolveTableOptions): Promise<storage.ResolveTableResult> {
-    const { group_id, connection_id, connection_tag, entity_descriptor } = options;
-
-    const { schema, name, objectId, replicaIdColumns } = entity_descriptor;
-
-    const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
-      name: column.name,
-      type: column.type,
-      type_oid: column.typeId
-    }));
-    let result: storage.ResolveTableResult | null = null;
-    let initializeSourceRecordsFor: bson.ObjectId | null = null;
-
-    const baseId = this.sourceTableBaseId();
-    await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(group_id);
-      let filter: Partial<CommonSourceTableDocument> = {
-        ...baseId,
-        connection_id: connection_id,
-        schema_name: schema,
-        table_name: name,
-        replica_id_columns2: normalizedReplicaIdColumns
-      };
-
-      if (objectId != null) {
-        filter.relation_id = objectId;
-      }
-      let doc = await col.findOne(filter, { session });
-      if (doc == null) {
-        const candidateSourceTable = new storage.SourceTable({
-          id: new bson.ObjectId(),
-          connectionTag: connection_tag,
-          objectId: objectId,
-          schema: schema,
-          name: name,
-          replicaIdColumns: replicaIdColumns,
-          snapshotComplete: false
-        });
-        const createDoc: CommonSourceTableDocument = {
-          _id: candidateSourceTable.id as bson.ObjectId,
-          ...(baseId as any),
-          connection_id: connection_id,
-          relation_id: objectId,
-          schema_name: schema,
-          table_name: name,
-          replica_id_columns: null,
-          replica_id_columns2: normalizedReplicaIdColumns,
-          snapshot_done: false,
-          snapshot_status: undefined
-        };
-        this.augmentCreatedSourceTableDocument(createDoc, options, candidateSourceTable);
-        doc = createDoc;
-
-        await col.insertOne(doc, { session });
-        initializeSourceRecordsFor = doc._id;
-      }
-      const sourceTable = new storage.SourceTable({
-        id: doc._id,
-        connectionTag: connection_tag,
-        objectId: objectId,
-        schema: schema,
-        name: name,
-        replicaIdColumns: replicaIdColumns,
-        snapshotComplete: doc.snapshot_done ?? true
-      });
-      sourceTable.syncEvent = options.sync_rules.tableTriggersEvent(sourceTable);
-      sourceTable.syncData = options.sync_rules.tableSyncsData(sourceTable);
-      sourceTable.syncParameters = options.sync_rules.tableSyncsParameters(sourceTable);
-      sourceTable.snapshotStatus =
-        doc.snapshot_status == null
-          ? undefined
-          : {
-              lastKey: doc.snapshot_status.last_key?.buffer ?? null,
-              totalEstimatedCount: doc.snapshot_status.total_estimated_count,
-              replicatedCount: doc.snapshot_status.replicated_count
-            };
-
-      let dropTables: storage.SourceTable[] = [];
-      let truncateFilter = [{ schema_name: schema, table_name: name }] as any[];
-      if (objectId != null) {
-        truncateFilter.push({ relation_id: objectId });
-      }
-      const truncate = await col
-        .find(
-          {
-            ...baseId,
-            connection_id: connection_id,
-            _id: { $ne: doc._id },
-            $or: truncateFilter
-          },
-          { session }
-        )
-        .toArray();
-      dropTables = truncate.map(
-        (doc) =>
-          new storage.SourceTable({
-            id: doc._id,
-            connectionTag: connection_tag,
-            objectId: doc.relation_id,
-            schema: doc.schema_name,
-            name: doc.table_name,
-            replicaIdColumns:
-              doc.replica_id_columns2?.map((c) => ({ name: c.name, typeOid: c.type_oid, type: c.type })) ?? [],
-            snapshotComplete: doc.snapshot_done ?? true
-          })
-      );
-
-      result = {
-        table: sourceTable,
-        dropTables: dropTables
-      };
-    });
-    if (initializeSourceRecordsFor != null) {
-      await this.initializeResolvedSourceRecords(initializeSourceRecordsFor);
-    }
-    return result!;
   }
 
   protected abstract getParameterSetsImpl(

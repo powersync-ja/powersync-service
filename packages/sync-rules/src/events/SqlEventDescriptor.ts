@@ -1,6 +1,6 @@
 import { CompatibilityContext } from '../compatibility.js';
 import { SqlRuleError } from '../errors.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
+import { SourceTableRef } from '../SourceTableRef.js';
 import { QueryParseResult } from '../SqlBucketDescriptor.js';
 import { SyncRulesOptions } from '../SqlSyncRules.js';
 import { TablePattern } from '../TablePattern.js';
@@ -61,7 +61,7 @@ export class SqlEventDescriptor {
     return result;
   }
 
-  tableTriggersEvent(table: SourceTableInterface): boolean {
+  tableTriggersEvent(table: SourceTableRef): boolean {
     return this.sourceQueries.some((query) => query.applies(table));
   }
 }

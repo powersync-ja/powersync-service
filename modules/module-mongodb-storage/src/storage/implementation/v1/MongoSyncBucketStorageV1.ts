@@ -22,7 +22,7 @@ import {
   MongoSyncBucketStorageCheckpoint,
   MongoSyncBucketStorageContext
 } from '../common/MongoSyncBucketStorageContext.js';
-import { CommonSourceTableDocument, SourceKey } from '../models.js';
+import { SourceKey } from '../models.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
@@ -179,18 +179,6 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   ): MongoParameterCompactor {
     return new MongoParameterCompactorV1(this.db, this.group_id, checkpoint, options);
   }
-
-  protected sourceTableBaseId(): Partial<CommonSourceTableDocument> {
-    return { group_id: this.group_id };
-  }
-
-  protected augmentCreatedSourceTableDocument(
-    _createDoc: CommonSourceTableDocument,
-    _options: storage.ResolveTableOptions,
-    _candidateSourceTable: storage.SourceTable
-  ): void {}
-
-  protected async initializeResolvedSourceRecords(_sourceTableId: bson.ObjectId): Promise<void> {}
 
   protected override get versionContext(): MongoSyncBucketStorageContext<VersionedPowerSyncMongoV1> {
     return {
