@@ -16,7 +16,7 @@ import {
   ParameterLookupRows,
   QuerierError,
   ScopedParameterLookup,
-  SourceTableInterface,
+  SourceTableRef,
   SqliteRow,
   StaticSchema,
   StreamParseOptions,
@@ -1180,7 +1180,7 @@ const options: StreamParseOptions = {
 
 const hydrationParams: CreateSourceParams = { hydrationState: versionedHydrationState(1) };
 
-function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
+function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableRef, record: SqliteRow) {
   return bucketIds(debugHydratedMergedSource(stream, hydrationParams).evaluateRow({ sourceTable, record }));
 }
 

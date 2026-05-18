@@ -5,7 +5,7 @@ import {
   ParameterLookupRows,
   PrecompiledSyncConfig,
   ScopedParameterLookup,
-  SourceTableInterface,
+  SourceTableRef,
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
@@ -1170,7 +1170,7 @@ streams:
   });
 });
 
-function evaluateBucketIds(source: HydratedSyncRules, sourceTable: SourceTableInterface, record: SqliteRow) {
+function evaluateBucketIds(source: HydratedSyncRules, sourceTable: SourceTableRef, record: SqliteRow) {
   return source.evaluateRow({ sourceTable, record }).map((r) => r.bucket);
 }
 
