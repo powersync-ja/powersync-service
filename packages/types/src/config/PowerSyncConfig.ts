@@ -182,8 +182,8 @@ export const jwkEC = t
         description: 'Key ID, a unique identifier for the key.'
       })
       .optional(),
-    crv: t.literal('P-256').or(t.literal('P-384')).or(t.literal('P-512')).meta({
-      description: 'The cryptographic curve used with this key (P-256, P-384, or P-512).'
+    crv: t.literal('P-256').or(t.literal('P-384')).or(t.literal('P-521')).meta({
+      description: 'The cryptographic curve used with this key (P-256, P-384, or P-521).'
     }),
     x: t.string.meta({
       description: 'The x coordinate for the Elliptic Curve point, Base64 URL encoded.'

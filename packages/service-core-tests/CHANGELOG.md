@@ -1,5 +1,30 @@
 # @powersync/service-core-tests
 
+## 0.15.5
+
+### Patch Changes
+
+- cdb8993: Add `config.storage_version` configuration option.
+- 040fffd: Improve consistency of logs and error messages
+- Updated dependencies [f20f318]
+- Updated dependencies [9add445]
+- Updated dependencies [17503d1]
+- Updated dependencies [ad9ea06]
+- Updated dependencies [01c29c3]
+- Updated dependencies [8afe719]
+- Updated dependencies [b8f0195]
+- Updated dependencies [cdb8993]
+- Updated dependencies [7c7b525]
+- Updated dependencies [824e229]
+- Updated dependencies [6304a21]
+- Updated dependencies [040fffd]
+- Updated dependencies [9e474d3]
+- Updated dependencies [423822c]
+- Updated dependencies [2b19fc3]
+  - @powersync/service-core@1.21.0
+  - @powersync/service-sync-rules@0.36.0
+  - @powersync/service-jsonbig@0.17.13
+
 ## 0.15.4
 
 ### Patch Changes

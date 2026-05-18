@@ -1,5 +1,40 @@
 # @powersync/service-core
 
+## 1.21.0
+
+### Minor Changes
+
+- 01c29c3: Avoid parameter results loaded from bucket storage exceeding the configured limit.
+- 6304a21: Fail early if too many parameters are requested at once.
+
+### Patch Changes
+
+- f20f318: Upgrade dependencies.
+- 9add445: Fix initSlot phase detection for snapshot failures requiring operator intervention and add WAL budget warnings to diagnostics API.
+- ad9ea06: Fix typo to allow P-521 EC curves in JWKs.
+- 8afe719: When querying parameter rows, track which lookups resulted in which rows.
+- cdb8993: Add `config.storage_version` configuration option.
+- 7c7b525: [MongoDB] Log replication timing info per batch
+- 040fffd: Improve consistency of logs and error messages
+- 2b19fc3: Update first-party uuid dependencies to v14.
+- Updated dependencies [f20f318]
+- Updated dependencies [17503d1]
+- Updated dependencies [ad9ea06]
+- Updated dependencies [01c29c3]
+- Updated dependencies [8afe719]
+- Updated dependencies [b8f0195]
+- Updated dependencies [cdb8993]
+- Updated dependencies [824e229]
+- Updated dependencies [040fffd]
+- Updated dependencies [9e474d3]
+- Updated dependencies [423822c]
+- Updated dependencies [2b19fc3]
+  - @powersync/service-sync-rules@0.36.0
+  - @powersync/lib-services-framework@0.9.4
+  - @powersync/service-types@0.15.2
+  - @powersync/service-jsonbig@0.17.13
+  - @powersync/service-rsocket-router@0.2.20
+
 ## 1.20.5
 
 ### Patch Changes
