@@ -374,11 +374,13 @@ export interface InputParameter {
 
 export interface EvaluateRowOptions extends TableRow {
   /**
-   * Optional: List the specific sources to use.
+   * Recommended: List the specific sources to use.
    *
    * If not provided, uses all matching sources in the sync config. This path is primarily intended for tests.
    *
    * If provided, use only these sources.
+   *
+   * The array identity is used for caching, so it is recommended to use stable arrays here (e.g. from the bucket source definition) for better performance.
    */
   bucketDataSources?: BucketDataSource[];
 }

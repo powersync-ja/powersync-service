@@ -45,6 +45,11 @@ export class HydratedSyncRules {
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
   private readonly hydrationState: HydrationState;
+  private mergedEvaluatorCache = new WeakMap<BucketDataSource[], { evaluateRow: ScopedEvaluateRow }>();
+  private mergedParameterIndexCreatorCache = new WeakMap<
+    ParameterIndexLookupCreator[],
+    { evaluateParameterRow: ScopedEvaluateParameterRow }
+  >();
 
   constructor(params: {
     definition: SyncConfig;
@@ -126,9 +131,14 @@ export class HydratedSyncRules {
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
     let rawResults: EvaluationResult[];
     if (options.bucketDataSources != null) {
-      // TODO: cache these?
-      const e = mergeDataSources(this.hydrationState, options.bucketDataSources);
-      rawResults = e.evaluateRow(options);
+      // This array is generally expected to be stable, so makes for a good cache key.
+      // It is not a strict requirement to use stable arrays, but it can help for performance.
+      let merged = this.mergedEvaluatorCache.get(options.bucketDataSources);
+      if (merged == null) {
+        merged = mergeDataSources(this.hydrationState, options.bucketDataSources);
+        this.mergedEvaluatorCache.set(options.bucketDataSources, merged);
+      }
+      rawResults = merged.evaluateRow(options);
     } else {
       rawResults = this.innerEvaluateRow(options);
     }
@@ -160,9 +170,14 @@ export class HydratedSyncRules {
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
     let rawResults: EvaluatedParametersResult[];
     if (options?.parameterLookupSources != null) {
-      // TODO: cache these?
-      const e = mergeParameterIndexLookupCreators(this.hydrationState, options.parameterLookupSources);
-      rawResults = e.evaluateParameterRow(table, row);
+      // This array is generally expected to be stable, so makes for a good cache key.
+      // It is not a strict requirement to use stable arrays, but it can help for performance.
+      let merged = this.mergedParameterIndexCreatorCache.get(options.parameterLookupSources);
+      if (merged == null) {
+        merged = mergeParameterIndexLookupCreators(this.hydrationState, options.parameterLookupSources);
+        this.mergedParameterIndexCreatorCache.set(options.parameterLookupSources, merged);
+      }
+      rawResults = merged.evaluateParameterRow(table, row);
     } else {
       rawResults = this.innerEvaluateParameterRow(table, row);
     }
