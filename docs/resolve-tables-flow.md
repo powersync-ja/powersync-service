@@ -45,7 +45,7 @@ This is a SourceTableRef with additional metadata used for replication:
 A `SourceTable` is a replicated table with state:
 
 1. It has a specific `SourceTableRef`, but the same ref may have multiple `SourceTable`s.
-2. In stores the specific metadata from the `SourceEntityDescriptor` - any changes would result in a new `SourceTable`.
+2. It stores the specific metadata from the `SourceEntityDescriptor` - any changes would result in a new `SourceTable`.
 3. It tracks snapshot lifecycle state (complete/in-progress, progress markers).
 4. It carries resolved sync participation flags (used for data, parameters, events).
 5. It tracks which sync stream / bucket definitions are used with it.
@@ -91,7 +91,7 @@ Conceptually it does:
 
 Important: one physical table can resolve to multiple `SourceTable` records when sync config definitions have been added over time.
 
-### 4. Detect differences/conflicts (`resolveTablesToDrop`)
+### 4. Detect differences/conflicts
 
 After resolution, the system identifies `SourceTable` records that conflict with the new definition and should be removed.
 
