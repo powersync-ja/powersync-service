@@ -383,7 +383,7 @@ export class CDCPoller {
       }
 
       // One of the replicated tables has been renamed
-      if (table.sourceTable.name !== captureInstanceDetails.sourceTable.name) {
+      if (table.ref.name !== captureInstanceDetails.sourceTable.name) {
         const newTable = this.tableMatchesSyncRules(
           captureInstanceDetails.sourceTable.schema,
           captureInstanceDetails.sourceTable.name

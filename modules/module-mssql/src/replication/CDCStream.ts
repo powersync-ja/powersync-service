@@ -246,7 +246,7 @@ export class CDCStream {
       connection_id: this.connectionId,
       source: table
     });
-    const resolvedTable = new MSSQLSourceTable(resolved.tables);
+    const resolvedTable = new MSSQLSourceTable(table, resolved.tables);
 
     if (!captureInstance) {
       this.logger.warn(
@@ -497,7 +497,7 @@ export class CDCStream {
             for (const table of specificTablesToResnapshot!) {
               await batch.drop(table.getReplicatedSourceTables());
               // Update table in the table cache
-              await this.processTable(batch, this.sourceRefFromTable(table.sourceTable), table.captureInstance, false);
+              await this.processTable(batch, table.ref, table.captureInstance, false);
             }
             break;
           default:
@@ -755,7 +755,7 @@ export class CDCStream {
         await batch.drop(change.table!.getReplicatedSourceTables());
         this.tableCache.delete(change.table!.objectId);
 
-        await this.handleCreateOrUpdateTable(batch, change.table!.sourceTable, change.newCaptureInstance!);
+        await this.handleCreateOrUpdateTable(batch, change.table!.ref, change.newCaptureInstance!);
         break;
       case SchemaChangeType.TABLE_DROP:
         await batch.drop(change.table!.getReplicatedSourceTables());
