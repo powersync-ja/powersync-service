@@ -39,22 +39,6 @@ interface InitResult {
   snapshotLsn: string | null;
 }
 
-interface Deferred<T> {
-  promise: Promise<T>;
-  resolve: (value: T | PromiseLike<T>) => void;
-  reject: (reason?: any) => void;
-}
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: any) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
 export class MongoSnapshotter {
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly metrics: MetricsEngine;
@@ -73,8 +57,8 @@ export class MongoSnapshotter {
 
   private readonly connectionId = 1;
   private readonly queue = new Set<SourceTable>();
-  private initialSnapshotDone = deferred<void>();
-  private nextItemQueued: Deferred<void> | null = null;
+  private initialSnapshotDone = Promise.withResolvers<void>();
+  private nextItemQueued: PromiseWithResolvers<void> | null = null;
   private lastSnapshotOpId: InternalOpId | null = null;
   private lastTouchedAt = performance.now();
 
@@ -192,7 +176,7 @@ export class MongoSnapshotter {
         const table = this.queue.values().next().value;
         if (table == null) {
           this.initialSnapshotDone.resolve();
-          this.nextItemQueued = deferred<void>();
+          this.nextItemQueued = Promise.withResolvers<void>();
           await this.nextItemQueued.promise;
           this.nextItemQueued = null;
           continue;
