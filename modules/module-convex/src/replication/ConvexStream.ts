@@ -19,7 +19,7 @@ import {
 import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { setTimeout as delay } from 'timers/promises';
-import { ConvexListSnapshotResult, ConvexRawDocument, ConvexTableSchema } from '../client/ConvexAPITypes.js';
+import { ConvexListSnapshotResult, ConvexRawDocument } from '../client/ConvexAPITypes.js';
 import { isCursorExpiredError } from '../client/ConvexApiClient.js';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { lsnCursorToDate, parseConvexLsn, ZERO_LSN } from '../common/ConvexLSN.js';
@@ -49,8 +49,6 @@ export class ConvexStream {
 
   private readonly relationCache = new RelationCache(getCacheIdentifier);
   private replicationLag = new ReplicationLagTracker();
-
-  private tableSchemaCache: ConvexTableSchema[] | null = null;
 
   private lastKeepaliveAt = 0;
   private lastTouchedAt = performance.now();
@@ -173,8 +171,6 @@ export class ConvexStream {
       let changesInPage = 0;
       const transactionTimestampsInPage = new Set<string>();
       let sawCheckpointMarker = false;
-      const snapshottedTablesInPage = new Set<string>();
-
       let didMarkOldestUncommitedChange = false;
 
       /**
@@ -206,11 +202,8 @@ export class ConvexStream {
         }
         lastTransactionTimestamp = transactionTimestamp;
 
-        const table = await this.getOrResolveTable(batch, tableName, nextCursor.toString(), snapshottedTablesInPage);
+        const table = await this.getOrResolveTable(batch, tableName, nextCursor.toString());
         if (table == null || !table.syncAny) {
-          continue;
-        }
-        if (snapshottedTablesInPage.has(tableName)) {
           continue;
         }
 
@@ -502,17 +495,7 @@ export class ConvexStream {
       return [];
     }
 
-    const availableTableNames = (await this.getAllTableSchemas()).map((table) => table.tableName);
-
-    const matchedTableNames = availableTableNames
-      .filter((tableName) => {
-        if (tablePattern.isWildcard) {
-          return tableName.startsWith(tablePattern.tablePrefix);
-        }
-        return tableName == tablePattern.name;
-      })
-      .filter((tableName) => !isConvexCheckpointTable(tableName))
-      .sort();
+    const matchedTableNames = await this.resolveTablePattern(tablePattern);
 
     if (!tablePattern.isWildcard && matchedTableNames.length == 0) {
       this.logger.warn(`Table ${tablePattern.schema}.${tablePattern.name} not found`);
@@ -535,8 +518,7 @@ export class ConvexStream {
   private async getOrResolveTable(
     batch: storage.BucketStorageBatch,
     tableName: string,
-    snapshotCursor: string,
-    snapshottedTablesInPage: Set<string>
+    snapshotCursor: string
   ): Promise<SourceTable | null> {
     const descriptor: SourceEntityDescriptor = {
       schema: this.defaultSchema,
@@ -554,20 +536,13 @@ export class ConvexStream {
       return null;
     }
 
-    await this.getAllTableSchemas({ force: true });
-
     let table = await this.processTable(batch, descriptor);
     if (!table.snapshotComplete && table.syncAny) {
-      this.logger.info(`New table discovered while streaming: [${table.qualifiedName}]`);
-      await batch.truncate([table]);
-      table = await batch.updateTableProgress(table, {
-        totalEstimatedCount: -1,
-        replicatedCount: 0,
-        lastKey: null
-      });
+      this.logger.info(
+        `New table discovered while streaming: [${table.qualifiedName}], applying deltas without snapshot`
+      );
+      [table] = await batch.markTableSnapshotDone([table], parseConvexLsn(snapshotCursor));
       this.relationCache.update(table);
-      table = (await this.snapshotTable(batch, table, snapshotCursor)).table;
-      snapshottedTablesInPage.add(tableName);
     }
 
     return table;
@@ -614,6 +589,19 @@ export class ConvexStream {
     return resolved.table;
   }
 
+  private async resolveTablePattern(tablePattern: TablePattern): Promise<string[]> {
+    if (!tablePattern.isWildcard) {
+      return isConvexCheckpointTable(tablePattern.name) ? [] : [tablePattern.name];
+    }
+
+    const schema = await this.connections.client.getJsonSchemas({ signal: this.abortSignal });
+    return schema.tables
+      .map((table) => table.tableName)
+      .filter((tableName) => tableName.startsWith(tablePattern.tablePrefix))
+      .filter((tableName) => !isConvexCheckpointTable(tableName))
+      .sort();
+  }
+
   private async writeChange(
     batch: storage.BucketStorageBatch,
     table: SourceTable,
@@ -653,16 +641,6 @@ export class ConvexStream {
 
   private toSqliteRow(change: ConvexRawDocument) {
     return this.syncRules.applyRowContext<never>(toSqliteInputRow(change));
-  }
-
-  private async getAllTableSchemas(options?: { force?: boolean }): Promise<ConvexTableSchema[]> {
-    if (!options?.force && this.tableSchemaCache != null) {
-      return this.tableSchemaCache;
-    }
-
-    const schema = await this.connections.client.getJsonSchemas({ signal: this.abortSignal });
-    this.tableSchemaCache = schema.tables;
-    return schema.tables;
   }
 
   private touch() {

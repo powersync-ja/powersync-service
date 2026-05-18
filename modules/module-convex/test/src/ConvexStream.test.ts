@@ -1,4 +1,4 @@
-import { ConvexDocumentDeltasResult, ConvexJsonSchemasResult } from '@module/client/ConvexAPITypes.js';
+import { ConvexDocumentDeltasResult } from '@module/client/ConvexAPITypes.js';
 import { parseConvexLsn, ZERO_LSN } from '@module/common/ConvexLSN.js';
 import { BinaryConvexSnapshotProgressCursor } from '@module/replication/ConvexSnapshotProgressCursor.js';
 import { ConvexStream } from '@module/replication/ConvexStream.js';
@@ -177,6 +177,10 @@ describe('ConvexStream', () => {
     const context = createFakeStorage();
     const abortController = new AbortController();
     const snapshotCalls: any[] = [];
+    const getJsonSchemas = vi.fn(async () => ({
+      tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
+      raw: {}
+    }));
     const listSnapshot = vi.fn(async (options: any) => {
       snapshotCalls.push(options ?? {});
       if (options?.tableName == null) {
@@ -208,10 +212,7 @@ describe('ConvexStream', () => {
         connectionId: '1',
         config: { pollingIntervalMs: 1 },
         client: {
-          getJsonSchemas: async () => ({
-            tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
-            raw: {}
-          }),
+          getJsonSchemas,
           listSnapshot,
           getGlobalSnapshotCursor: async (options?: any) => (await listSnapshot(options)).snapshot
         }
@@ -226,6 +227,7 @@ describe('ConvexStream', () => {
     expect(snapshotCalls[1]?.tableName).toBe('users');
     expect(snapshotCalls[1]?.cursor).toBeUndefined();
     expect(snapshotCalls[1]?.snapshot).toBe(CURSOR_100);
+    expect(getJsonSchemas).not.toHaveBeenCalled();
     expect(context.saves.length).toBe(1);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
     expect(context.resumeLsnUpdates.length).toBe(1);
@@ -461,11 +463,6 @@ describe('ConvexStream', () => {
         connectionId: '1',
         config: { pollingIntervalMs: 1 },
         client: {
-          getJsonSchemas: async () => {
-            return {
-              tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }]
-            } satisfies ConvexJsonSchemasResult;
-          },
           documentDeltas: async () => {
             return {
               cursor: CURSOR_102,
@@ -483,7 +480,7 @@ describe('ConvexStream', () => {
     await expect(stream.streamChanges()).rejects.toThrow(/out-of-order _ts values/);
   });
 
-  it('refreshes metadata before snapshotting a newly discovered wildcard-matched table inline', async () => {
+  it('resolves a newly discovered wildcard-matched table from document deltas without snapshotting', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
       resumeFromLsn: parseConvexLsn(CURSOR_100),
@@ -496,12 +493,7 @@ describe('ConvexStream', () => {
       tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }],
       raw: {}
     }));
-    const listSnapshot = vi.fn(async (options: any) => ({
-      snapshot: CURSOR_101,
-      cursor: null,
-      hasMore: false,
-      values: [{ _table: 'projects_archive', _id: 'p1', name: 'From snapshot' }]
-    }));
+    const listSnapshot = vi.fn();
 
     const stream = new ConvexStream({
       abortSignal: abortController.signal,
@@ -523,7 +515,7 @@ describe('ConvexStream', () => {
             return {
               cursor: CURSOR_101,
               hasMore: false,
-              values: [{ _table: 'projects_archive', _id: 'p1', name: 'From delta' }]
+              values: [{ _table: 'projects_archive', _id: 'p1', _ts: CURSOR_101, name: 'From delta' }]
             };
           }
         }
@@ -533,16 +525,11 @@ describe('ConvexStream', () => {
     await stream.streamChanges();
 
     expect(calls).toBeGreaterThan(0);
-    expect(getJsonSchemas).toHaveBeenCalledTimes(2);
-    expect(listSnapshot).toHaveBeenCalledTimes(1);
-    expect(listSnapshot).toHaveBeenCalledWith({
-      tableName: 'projects_archive',
-      snapshot: CURSOR_101.toString(),
-      cursor: undefined,
-      signal: abortController.signal
-    });
+    expect(getJsonSchemas).toHaveBeenCalledTimes(1);
+    expect(listSnapshot).not.toHaveBeenCalled();
     expect(context.saves.length).toBe(1);
-    expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
+    expect(context.saves[0]?.tag).toBe(SaveOperationTag.UPDATE);
+    expect(context.saves[0]?.after.name).toBe('From delta');
     expect(context.saves[0]?.sourceTable.name).toBe('projects_archive');
     expect(context.tables.get('projects_archive')?.snapshotComplete).toBe(true);
   });

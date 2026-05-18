@@ -108,5 +108,10 @@ export default defineSchema({
 
   powersync_checkpoints: defineTable({
     last_updated: v.float64()
+  }),
+
+  // An empty table which only is used to check if the json-schemas endpoint returns data for empty tables.
+  schema_only_probe: defineTable({
+    marker: v.optional(v.string())
   })
 });

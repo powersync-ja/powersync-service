@@ -78,7 +78,7 @@ The content below is written in an agents.md style describing the behavior of `m
   - Start from persisted resume LSN.
   - Poll `document_deltas` using frequency configured in `polling_interval_ms`
   - Always stream globally (no `tableName` filter), then filter locally by selected Sync Streams tables.
-  - If a table is first seen in a `document_deltas` page and matches Sync Streams, snapshot it inline at that page boundary and skip that table's delta rows from the same page, because the snapshot already includes them.
+  - If a table is first seen in a `document_deltas` page and matches Sync Streams, resolve it and apply the delta row directly. Do not snapshot it inline; initial wildcard expansion already discovers schema-defined tables through `json_schemas`, and the delta payload is the source of truth for later writes.
 
 ## 3) Hard Invariants (Do Not Break)
 
@@ -109,13 +109,16 @@ The content below is written in an agents.md style describing the behavior of `m
   - retryable: network, timeout, 429, 5xx.
   - non-retryable: malformed responses, auth/config issues.
 
-## 6) Schema Change Caveat
+## 6) Schema Changes
 
-- Convex `json_schemas` does not provide a schema change token or revision cursor that can be checkpointed.
-- Current behavior uses `json_schemas` for discovery/debug, but does not continuously diff source schema versions.
-- Schema changes are not automatically supported at this point. If Convex schema changes (tables or columns), developers must review and redeploy Sync Streams rules manually so PowerSync re-resolves the schema and re-replicates affected streams.
-- Convex `json_schemas` can omit fields that do not have populated values at the time the schema is fetched. To keep replicated values consistent, stream row conversion does not use `json_schemas` metadata for datatype coercion.
-- Future improvement: cache a canonicalized `json_schemas` hash, poll periodically, and raise diagnostics when schema drift is detected.
+- Conventional schema change handling is mainly used to detect changed replica identity columns, update cached table metadata, drop/rename tables, and trigger a table re-snapshot when DDL changed storage semantics.
+- Convex tables always use `_id` as the replication identity, so there is no equivalent replica identity drift to detect.
+- Stream row conversion uses the JSON document returned by `list_snapshot` and `document_deltas`, not Convex `json_schemas` metadata. Added fields, removed fields, and type changes are therefore replicated through normal document mutations.
+- Convex data migrations are expected to run as writes/mutations over live documents. Those updates should appear in `document_deltas` and be replicated without a schema-driven re-snapshot.
+- Exact table patterns are resolved directly from Sync Streams rules. `json_schemas` is only used for initial wildcard table expansion and API/debug schema previews.
+- A re-snapshot is still required for initial replication, a sync-rule deployment that selects new existing data, or a lost/expired cursor, but not merely because a Convex field was added, removed, or changed type.
+- Table drops are not (yet) detected by continuously diffing `json_schemas`. Validation showed that deleting a table from the Convex dashboard does not emit per-document `_deleted` rows in `document_deltas`, so previously replicated rows can remain synced to clients. Use the dashboard "Clear Table" action before deleting a table, or delete documents through mutation paths that emit document deltas. Otherwise, handle dashboard/schema-only table removal as a sync-rule/deployment state change and clear/re-replicate affected PowerSync state.
+- See [Convex schema change handling](../../docs/convex/schema-change-handling.md) for the detailed rationale and limitations.
 
 ## 7) Datatype Mapping
 

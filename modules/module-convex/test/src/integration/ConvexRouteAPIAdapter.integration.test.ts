@@ -37,6 +37,26 @@ function normalizeSchemaForSnapshot(schema: DatabaseSchema[]): DatabaseSchema[] 
 }
 
 describe.skipIf(!env.CONVEX_DEPLOY_KEY)('ConvexStream ConvexRouteAPIAdapter tests', function () {
+  test('json_schemas lists schema-defined tables without documents', async () => {
+    /**
+     * The Convex stream uses json_schemas for initial wildcard table expansion.
+     * If json_schemas only listed tables that already contain documents, then a
+     * wildcard sync rule could miss an empty-but-schema-defined table at the
+     * initial snapshot boundary and would need a later inline snapshot when the
+     * first delta appears. This verifies that table names are available even
+     * before any documents exist, so new table deltas can be applied directly.
+     */
+    await using context = await ConvexStreamTestContext.open(INITIALIZED_MONGO_STORAGE_FACTORY.factory, {});
+
+    const schemas = await context.connectionManager.client.getJsonSchemas();
+    const tableNames = schemas.tables.map((table) => table.tableName);
+
+    expect(tableNames).toContain('schema_only_probe');
+
+    const page = await context.connectionManager.client.listSnapshot({ tableName: 'schema_only_probe' });
+    expect(page.values).toHaveLength(0);
+  });
+
   test('retrieves the testing Convex schema in the expected service schema format', async () => {
     /**
      * It seems like Convex requires the table to contain populated columns in order to report
