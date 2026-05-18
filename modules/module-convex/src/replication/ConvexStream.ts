@@ -590,16 +590,17 @@ export class ConvexStream {
   }
 
   private async resolveTablePattern(tablePattern: TablePattern): Promise<string[]> {
-    if (!tablePattern.isWildcard) {
-      return isConvexCheckpointTable(tablePattern.name) ? [] : [tablePattern.name];
-    }
-
     const schema = await this.connections.client.getJsonSchemas({ signal: this.abortSignal });
-    return schema.tables
+    const availableTableNames = schema.tables
       .map((table) => table.tableName)
-      .filter((tableName) => tableName.startsWith(tablePattern.tablePrefix))
       .filter((tableName) => !isConvexCheckpointTable(tableName))
       .sort();
+
+    if (!tablePattern.isWildcard) {
+      return availableTableNames.includes(tablePattern.name) ? [tablePattern.name] : [];
+    }
+
+    return availableTableNames.filter((tableName) => tableName.startsWith(tablePattern.tablePrefix));
   }
 
   private async writeChange(

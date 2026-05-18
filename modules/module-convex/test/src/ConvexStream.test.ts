@@ -227,12 +227,57 @@ describe('ConvexStream', () => {
     expect(snapshotCalls[1]?.tableName).toBe('users');
     expect(snapshotCalls[1]?.cursor).toBeUndefined();
     expect(snapshotCalls[1]?.snapshot).toBe(CURSOR_100);
-    expect(getJsonSchemas).not.toHaveBeenCalled();
+    expect(getJsonSchemas).toHaveBeenCalledTimes(1);
     expect(context.saves.length).toBe(1);
     expect(context.saves[0]?.tag).toBe(SaveOperationTag.INSERT);
     expect(context.resumeLsnUpdates.length).toBe(1);
     expect(context.allSnapshotDoneLsns).toEqual([parseConvexLsn(CURSOR_100)]);
     expect(context.commits.at(-1)).toBe(parseConvexLsn(CURSOR_100));
+  });
+
+  it('does not snapshot exact tables missing from json_schemas', async () => {
+    const context = createFakeStorage();
+    const abortController = new AbortController();
+    const listSnapshot = vi.fn(async (options: any) => {
+      if (options?.tableName == null) {
+        return {
+          snapshot: CURSOR_100,
+          cursor: null,
+          hasMore: false,
+          values: []
+        };
+      }
+
+      throw new Error(`Unexpected table snapshot for ${options.tableName}`);
+    });
+
+    const stream = new ConvexStream({
+      abortSignal: abortController.signal,
+      storage: context.storage as any,
+      metrics: {
+        getCounter: () => ({ add: () => {} })
+      } as any,
+      connections: {
+        schema: 'convex',
+        connectionTag: 'default',
+        connectionId: '1',
+        config: { pollingIntervalMs: 1 },
+        client: {
+          getJsonSchemas: async () => ({
+            tables: [],
+            raw: {}
+          }),
+          listSnapshot,
+          getGlobalSnapshotCursor: async (options?: any) => (await listSnapshot(options)).snapshot
+        }
+      } as any
+    });
+
+    await stream.initReplication();
+
+    expect(listSnapshot).toHaveBeenCalledTimes(1);
+    expect(context.saves).toHaveLength(0);
+    expect(context.allSnapshotDoneLsns).toEqual([parseConvexLsn(CURSOR_100)]);
   });
 
   it('keeps bytes fields as base64 strings during snapshot hydration', async () => {
@@ -463,6 +508,9 @@ describe('ConvexStream', () => {
         connectionId: '1',
         config: { pollingIntervalMs: 1 },
         client: {
+          getJsonSchemas: async () => ({
+            tables: [{ tableName: 'users', schema: { type: 'object', properties: {} } }]
+          }),
           documentDeltas: async () => {
             return {
               cursor: CURSOR_102,
