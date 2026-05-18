@@ -1,4 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
+import { ReplicationAbortedError } from '@powersync/lib-services-framework';
 import {
   BucketStorageFactory,
   createCoreReplicationMetrics,
@@ -8,9 +9,11 @@ import {
   OplogEntry,
   ProtocolOpId,
   ReplicationCheckpoint,
+  settledPromise,
   storage,
   SyncRulesBucketStorage,
   TestStorageOptions,
+  unsettledPromise,
   updateSyncRulesFromYaml,
   utils
 } from '@powersync/service-core';
@@ -26,7 +29,7 @@ import { clearTestDb, TEST_CONNECTION_OPTIONS } from './util.js';
 export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
-  private streamPromise?: Promise<PromiseSettledResult<void>>;
+  private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
   private syncRulesContent?: storage.PersistedSyncRulesContent;
   public storage?: SyncRulesBucketStorage;
 
@@ -70,13 +73,13 @@ export class ChangeStreamTestContext {
   /**
    * Abort snapshot and/or replication, without actively closing connections.
    */
-  abort() {
-    this.abortController.abort();
+  abort(cause?: Error) {
+    this.abortController.abort(cause);
   }
 
   async dispose() {
-    this.abort();
-    await this.streamPromise?.catch((e) => e);
+    this.abort(new Error('Disposing test context'));
+    await this.settledReplicationPromise;
     await this.factory[Symbol.asyncDispose]();
     await this.connectionManager.end();
   }
@@ -139,14 +142,23 @@ export class ChangeStreamTestContext {
       // Specifically reduce this from the default for tests on MongoDB <= 6.0, otherwise it can take
       // a long time to abort the stream.
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
-      snapshotChunkLength: this.streamOptions?.snapshotChunkLength
+      snapshotChunkLength: this.streamOptions?.snapshotChunkLength,
+      logger: this.streamOptions?.logger
     };
     this._walStream = new ChangeStream(options);
     return this._walStream!;
   }
 
   async replicateSnapshot() {
-    await this.streamer.initReplication();
+    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
+    try {
+      await Promise.race([unsettledPromise(this.settledReplicationPromise), this.streamer.waitForInitialSnapshot()]);
+    } catch (e) {
+      if (e instanceof ReplicationAbortedError && e.cause != null) {
+        throw e.cause;
+      }
+      throw e;
+    }
   }
 
   /**
@@ -164,21 +176,14 @@ export class ChangeStreamTestContext {
   }
 
   startStreaming() {
-    this.streamPromise = this.streamer
-      .streamChanges()
-      .then(() => ({ status: 'fulfilled', value: undefined }) satisfies PromiseFulfilledResult<void>)
-      .catch((reason) => ({ status: 'rejected', reason }) satisfies PromiseRejectedResult);
-    return this.streamPromise;
+    this.settledReplicationPromise ??= settledPromise(this.streamer.replicate());
+    return this.settledReplicationPromise;
   }
 
   async getCheckpoint(options?: { timeout?: number }) {
     let checkpoint = await Promise.race([
       getClientCheckpoint(this.client, this.db, this.factory, { timeout: options?.timeout ?? 15_000 }),
-      this.streamPromise?.then((e) => {
-        if (e.status == 'rejected') {
-          throw e.reason;
-        }
-      })
+      this.settledReplicationPromise == null ? undefined : unsettledPromise(this.settledReplicationPromise)
     ]);
     if (checkpoint == null) {
       // This indicates an issue with the test setup - streamingPromise completed instead

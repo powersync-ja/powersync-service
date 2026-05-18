@@ -420,12 +420,6 @@ bucket_definitions:
   test('coalesces standalone checkpoints when backlog is buffered', async () => {
     await using context = await openContext();
     await context.updateSyncRules(BASIC_SYNC_RULES);
-    await context.replicateSnapshot();
-    await context.markSnapshotConsistent();
-    await using api = new MongoRouteAPIAdapter({
-      type: 'mongodb',
-      ...TEST_CONNECTION_OPTIONS
-    });
 
     let commitCount = 0;
     // This relies on internals to count how often checkpoints are committed
@@ -437,6 +431,13 @@ bucket_definitions:
           return await originalCommit(...args);
         };
       }
+    });
+
+    await context.replicateSnapshot();
+    await context.markSnapshotConsistent();
+    await using api = new MongoRouteAPIAdapter({
+      type: 'mongodb',
+      ...TEST_CONNECTION_OPTIONS
     });
 
     context.startStreaming();
@@ -567,12 +568,19 @@ bucket_definitions:
     context.startStreaming();
 
     const data = await context.getBucketData('global[]');
-    expect(data).toMatchObject([
-      // An extra op here, since this triggers a snapshot in addition to getting the event.
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
-      test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
-    ]);
+    if (data.length == 3) {
+      expect(data).toMatchObject([
+        // An extra op here, since this triggers a snapshot in addition to getting the event.
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+      ]);
+    } else {
+      expect(data).toMatchObject([
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test1' }),
+        test_utils.putOp('test_data', { id: test_id!.toHexString(), description: 'test2' })
+      ]);
+    }
   });
 
   test('postImages - new collection with postImages disabled', async () => {
@@ -622,7 +630,6 @@ bucket_definitions:
     await collection.insertOne({ description: 'test1', num: 1152921504606846976n });
 
     await context.replicateSnapshot();
-    await context.markSnapshotConsistent();
 
     // Simulate an error
     await context.storage!.reportError(new Error('simulated error'));
@@ -630,10 +637,9 @@ bucket_definitions:
     expect(syncRules).toBeTruthy();
     expect(syncRules?.last_fatal_error).toEqual('simulated error');
 
-    // startStreaming() should automatically clear the error.
-    context.startStreaming();
+    // The next checkpoint should clear the error.
+    await context.getCheckpoint();
 
-    // getBucketData() creates a checkpoint that clears the error, so we don't do that
     // Just wait, and check that the error is cleared automatically.
     await vi.waitUntil(
       async () => {

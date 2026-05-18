@@ -27,6 +27,7 @@ import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
+import { MongoSnapshotter } from './MongoSnapshotter.js';
 import {
   ChangeStreamBatch,
   parseChangeDocument,
@@ -90,7 +91,11 @@ export class ChangeStream {
 
   private readonly maxAwaitTimeMS: number;
 
-  private abort_signal: AbortSignal;
+  private abortController = new AbortController();
+  private abortSignal: AbortSignal = this.abortController.signal;
+
+  private initPromise: Promise<void> | null = null;
+  private snapshotter: MongoSnapshotter;
 
   private relationCache = new RelationCache(getCacheIdentifier);
 
@@ -124,20 +129,28 @@ export class ChangeStream {
     // so we use 90% of the socket timeout value.
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
 
-    this.abort_signal = options.abort_signal;
-    this.abort_signal.addEventListener(
+    this.logger = options.logger ?? this.storage.logger;
+    this.snapshotter = new MongoSnapshotter({
+      ...options,
+      abort_signal: this.abortSignal,
+      logger: this.logger,
+      checkpointStreamId: this.checkpointStreamId
+    });
+
+    options.abort_signal.addEventListener(
       'abort',
       () => {
-        // TODO: Fast abort?
+        this.abortController.abort(options.abort_signal.reason);
       },
       { once: true }
     );
-
-    this.logger = options.logger ?? this.storage.logger;
+    if (options.abort_signal.aborted) {
+      this.abortController.abort(options.abort_signal.reason);
+    }
   }
 
   get stopped() {
-    return this.abort_signal.aborted;
+    return this.abortSignal.aborted;
   }
 
   private get usePostImages() {
@@ -267,7 +280,7 @@ export class ChangeStream {
     const iter = this.rawChangeStreamBatches({
       lsn: firstCheckpointLsn,
       maxAwaitTimeMS: 0,
-      signal: this.abort_signal,
+      signal: this.abortSignal,
       filters
     });
     for await (let { events } of iter) {
@@ -505,8 +518,8 @@ export class ChangeStream {
       bytesReplicatedMetric.add(chunkBytes);
       chunksReplicatedMetric.add(1);
 
-      if (this.abort_signal.aborted) {
-        throw new ReplicationAbortedError(`Aborted initial replication`, this.abort_signal.reason);
+      if (this.abortSignal.aborted) {
+        throw new ReplicationAbortedError(`Aborted initial replication`, this.abortSignal.reason);
       }
 
       // Pre-fetch next batch, so that we can read and write concurrently
@@ -634,19 +647,9 @@ export class ChangeStream {
     const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
     if (snapshotCandidates.length > 0) {
       this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
-      // Truncate tables, in case a previous snapshot was interrupted.
-      await batch.truncate(snapshotCandidates);
-
       for (const tableToSnapshot of snapshotCandidates) {
-        await this.snapshotTable(batch, tableToSnapshot);
+        await this.snapshotter.queueSnapshot(batch, tableToSnapshot);
       }
-      const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-
-      const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, no_checkpoint_before_lsn);
-      const snapshotDoneById = new Map(doneTables.map((table) => [table.id, table]));
-      const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
-      this.relationCache.updateAll(descriptor, tables);
-      return tables;
     }
 
     return result.tables;
@@ -708,38 +711,72 @@ export class ChangeStream {
   }
 
   async replicate() {
+    let streamPromise: Promise<void> | null = null;
+    let loopPromise: Promise<void> | null = null;
     try {
       // If anything errors here, the entire replication process is halted, and
       // all connections automatically closed, including this one.
-      await this.initReplication();
-      await this.streamChanges();
+      this.initPromise = this.initReplication();
+      await this.initPromise;
+      streamPromise = this.streamChanges()
+        .then(() => {
+          throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
+        })
+        .catch((e) => {
+          this.abortController.abort(e);
+          throw e;
+        });
+      loopPromise = this.snapshotter
+        .replicationLoop()
+        .then(() => {
+          throw new ReplicationAssertionError(`Replication snapshotter exited unexpectedly`);
+        })
+        .catch((e) => {
+          this.abortController.abort(e);
+          throw e;
+        });
+
+      const results = await Promise.allSettled([loopPromise, streamPromise]);
+      for (const result of results) {
+        if (result.status == 'rejected' && !(result.reason instanceof ReplicationAbortedError)) {
+          throw result.reason;
+        }
+      }
+      for (const result of results) {
+        if (result.status == 'rejected') {
+          throw result.reason;
+        }
+      }
+      throw new ReplicationAssertionError(`Replication loop exited unexpectedly`);
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
+    } finally {
+      this.abortController.abort();
     }
   }
 
-  async initReplication() {
-    const result = await this.initSlot();
-    await this.setupCheckpointsCollection();
+  public async waitForInitialSnapshot() {
+    if (this.initPromise == null) {
+      throw new ReplicationAssertionError('replicate() must be called before waitForInitialSnapshot()');
+    }
+    await this.initPromise;
+    await this.snapshotter.waitForInitialSnapshot();
+  }
+
+  private async initReplication() {
+    const result = await this.snapshotter.checkSlot();
+    await this.snapshotter.setupCheckpointsCollection();
     if (result.needsInitialSync) {
       if (result.snapshotLsn == null) {
         // Snapshot LSN is not present, so we need to start replication from scratch.
-        await this.storage.clear({ signal: this.abort_signal });
+        await this.storage.clear({ signal: this.abortSignal });
       }
-      const { lastOpId } = await this.initialReplication(result.snapshotLsn);
-      if (lastOpId != null) {
-        // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
-        await this.storage.populatePersistentChecksumCache({
-          signal: this.abort_signal,
-          // No checkpoint yet, but we do have the opId.
-          maxOpId: lastOpId
-        });
-      }
+      await this.snapshotter.queueSnapshotTables(result.snapshotLsn);
     }
   }
 
-  async streamChanges() {
+  private async streamChanges() {
     try {
       await this.streamChangesInternal();
     } catch (e) {
@@ -862,7 +899,7 @@ export class ChangeStream {
         const batchStream = this.rawChangeStreamBatches({
           lsn: resumeFromLsn,
           filters,
-          signal: this.abort_signal,
+          signal: this.abortSignal,
           tracer
         });
 
@@ -888,7 +925,7 @@ export class ChangeStream {
 
           bytesReplicatedMetric.add(eventBatch.byteSize);
           chunksReplicatedMetric.add(1);
-          if (this.abort_signal.aborted) {
+          if (this.abortSignal.aborted) {
             break;
           }
           this.touch();
@@ -922,7 +959,7 @@ export class ChangeStream {
           for (let eventIndex = 0; eventIndex < events.length; eventIndex++) {
             const rawChangeDocument = events[eventIndex];
             const originalChangeDocument = parseChangeDocument(rawChangeDocument);
-            if (this.abort_signal.aborted) {
+            if (this.abortSignal.aborted) {
               break;
             }
 
@@ -1162,6 +1199,8 @@ export class ChangeStream {
         }
       }
     );
+
+    throw new ReplicationAbortedError(`Replication stream aborted`, this.abortSignal.reason);
   }
 
   getReplicationLagMillis(): number | undefined {
