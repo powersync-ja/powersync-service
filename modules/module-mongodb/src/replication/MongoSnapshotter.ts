@@ -242,6 +242,30 @@ export class MongoSnapshotter {
   }
 
   private async markSnapshotDone() {
+    if (this.queue.size != 0) {
+      return;
+    }
+
+    const status = await this.storage.getStatus();
+    if (status.snapshot_done) {
+      return;
+    }
+
+    const lastOp = this.lastSnapshotOpId ?? status.keepalive_op;
+    if (lastOp != null) {
+      // Populate the cache _after_ initial replication, but _before_ we switch to this replication stream.
+      // Keeping snapshot_done false until this completes makes this resumable after interruption.
+      await this.storage.populatePersistentChecksumCache({
+        // No checkpoint yet, but we do have the opId.
+        maxOpId: lastOp,
+        signal: this.abortSignal
+      });
+    }
+
+    if (this.queue.size != 0) {
+      return;
+    }
+
     await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: MongoLSN.ZERO.comparable,
@@ -250,9 +274,6 @@ export class MongoSnapshotter {
       skipExistingRows: true
     });
 
-    if (this.queue.size != 0) {
-      return;
-    }
     // The checkpoint here is a marker - we need to replicate up to at least this
     // point before the data can be considered consistent.
     const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
@@ -264,17 +285,6 @@ export class MongoSnapshotter {
     // issues with order of processing commits(). This is picked up by tests on postgres storage,
     // the issue may be specific to that storage engine.
     await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-
-    const lastOp = flushResult?.flushed_op ?? this.lastSnapshotOpId;
-    if (lastOp != null) {
-      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
-      // TODO: only run this after initial replication, not after each table.
-      await this.storage.populatePersistentChecksumCache({
-        // No checkpoint yet, but we do have the opId.
-        maxOpId: lastOp,
-        signal: this.abortSignal
-      });
-    }
   }
 
   private async replicateTable(tableRequest: SourceTable) {

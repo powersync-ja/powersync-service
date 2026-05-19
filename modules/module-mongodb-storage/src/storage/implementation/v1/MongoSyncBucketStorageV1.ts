@@ -124,7 +124,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
           snapshot_done: 1,
           last_checkpoint_lsn: 1,
           state: 1,
-          snapshot_lsn: 1
+          snapshot_lsn: 1,
+          keepalive_op: 1
         }
       }
     )) as SyncRuleDocumentV1;
@@ -136,7 +137,8 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
       snapshot_done: doc.snapshot_done,
       snapshot_lsn: doc.snapshot_lsn ?? null,
       active: doc.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: doc.last_checkpoint_lsn
+      checkpoint_lsn: doc.last_checkpoint_lsn,
+      keepalive_op: doc.keepalive_op == null ? null : BigInt(doc.keepalive_op)
     };
   }
 

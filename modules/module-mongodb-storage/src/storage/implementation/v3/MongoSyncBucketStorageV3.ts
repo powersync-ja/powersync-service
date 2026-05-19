@@ -215,7 +215,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
 
   protected async getStatusImpl(): Promise<storage.SyncRuleStatus> {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
-      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1 })
+      projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1, keepalive_op: 1 })
     });
     const syncConfig = this.selectedSyncConfig(doc);
     if (doc == null || syncConfig == null) {
@@ -226,7 +226,8 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       snapshot_done: syncConfig.snapshot_done ?? false,
       snapshot_lsn: doc.snapshot_lsn ?? null,
       active: doc.state == storage.SyncRuleState.ACTIVE && syncConfig.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: syncConfig.last_checkpoint_lsn ?? null
+      checkpoint_lsn: syncConfig.last_checkpoint_lsn ?? null,
+      keepalive_op: syncConfig.keepalive_op ?? null
     };
   }
 

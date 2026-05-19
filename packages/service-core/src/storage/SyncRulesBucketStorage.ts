@@ -154,6 +154,10 @@ export interface SyncRuleStatus {
   active: boolean;
   snapshot_done: boolean;
   snapshot_lsn: string | null;
+  /**
+   * Last persisted operation that must be included in the next checkpoint once checkpointing is unblocked.
+   */
+  keepalive_op: util.InternalOpId | null;
 }
 export interface ResolveTablesOptions {
   connection_id: number;
