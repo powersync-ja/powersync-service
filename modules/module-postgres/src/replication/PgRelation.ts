@@ -22,8 +22,9 @@ export function getRelId(source: PgoutputRelation): number {
   return relId;
 }
 
-export function getPgOutputRelation(source: PgoutputRelation): storage.SourceEntityDescriptor {
+export function getPgOutputRelation(source: PgoutputRelation, connectionTag: string): storage.SourceEntityDescriptor {
   return {
+    connectionTag,
     name: source.name,
     schema: source.schema,
     objectId: getRelId(source),

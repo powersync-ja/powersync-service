@@ -1,9 +1,17 @@
 import { StaticSupabaseKeyCollector } from '@/index.js';
+import { configFile } from '@powersync/service-types';
 import * as jose from 'jose';
 import { describe, expect, test } from 'vitest';
 import { CachedKeyCollector } from '../../src/auth/CachedKeyCollector.js';
 import { KeyResult } from '../../src/auth/KeyCollector.js';
-import { KeySpec } from '../../src/auth/KeySpec.js';
+import {
+  EC_ALGORITHMS,
+  HS_ALGORITHMS,
+  KeySpec,
+  OKP_ALGORITHMS,
+  RSA_ALGORITHMS,
+  SUPPORTED_ALGORITHMS
+} from '../../src/auth/KeySpec.js';
 import { KeyStore } from '../../src/auth/KeyStore.js';
 import { RemoteJWKSCollector } from '../../src/auth/RemoteJWKSCollector.js';
 import { StaticKeyCollector } from '../../src/auth/StaticKeyCollector.js';
@@ -51,6 +59,47 @@ const privateKeyECDSA: jose.JWK = {
   d: 'p2HQaJApdgaAemVuVsL1hscCFOTd0r9uGxRnzvAelFU',
   alg: 'ES256'
 };
+
+const EC_ALGORITHM_CURVES = [
+  ['ES256', 'P-256'],
+  ['ES384', 'P-384'],
+  ['ES512', 'P-521']
+] satisfies [string, string][];
+
+const EDDSA_CURVES = ['Ed25519', 'Ed448'];
+
+function roundTripJwkThroughPowerSyncConfig(key: jose.JWK): jose.JWK {
+  const encoded = configFile.strictJwks.encode({
+    keys: [key as configFile.StrictJwk]
+  });
+
+  const decoded = configFile.strictJwks.decode(encoded);
+  return decoded.keys[0] as jose.JWK;
+}
+
+async function signAndVerifyWithKey(alg: string, key: jose.JWK, signKey: jose.KeyLike | Uint8Array) {
+  const parsedKey = roundTripJwkThroughPowerSyncConfig(key);
+  expect(parsedKey).toEqual(key);
+
+  const keys = await StaticKeyCollector.importKeys([parsedKey]);
+  const store = new KeyStore(keys);
+
+  const signedJwt = await new jose.SignJWT({ claim: alg })
+    .setProtectedHeader({ alg, kid: key.kid })
+    .setSubject('f1')
+    .setIssuedAt()
+    .setIssuer('tester')
+    .setAudience('tests')
+    .setExpirationTime('5m')
+    .sign(signKey);
+
+  const verified = await store.verifyJwt(signedJwt, {
+    defaultAudiences: ['tests'],
+    maxAge: '6m'
+  });
+
+  expect(verified.parsedPayload.claim).toEqual(alg);
+}
 
 describe('JWT Auth', () => {
   test('KeyStore basics', async () => {
@@ -206,6 +255,65 @@ describe('JWT Auth', () => {
         maxAge: '6m'
       })
     ).rejects.toThrow('Unexpected token algorithm HS256');
+  });
+
+  describe('supported JWT algorithms', () => {
+    test('covers every declared supported algorithm', () => {
+      const testedAlgorithms = new Set([
+        ...HS_ALGORITHMS,
+        ...RSA_ALGORITHMS,
+        ...EC_ALGORITHM_CURVES.map(([alg]) => alg),
+        ...OKP_ALGORITHMS
+      ]);
+
+      expect([...testedAlgorithms].sort()).toEqual([...SUPPORTED_ALGORITHMS].sort());
+    });
+
+    test.each(HS_ALGORITHMS)('verifies %s tokens', async (alg) => {
+      const secret = await jose.generateSecret(alg);
+      const key = await jose.exportJWK(secret);
+      key.kid = `test-${alg}`;
+      key.alg = alg;
+
+      await signAndVerifyWithKey(alg, key, secret);
+    });
+
+    test.each(RSA_ALGORITHMS)('verifies %s tokens', async (alg) => {
+      const { privateKey, publicKey } = await jose.generateKeyPair(alg);
+      const key = await jose.exportJWK(publicKey);
+      key.kid = `test-${alg}`;
+      key.alg = alg;
+      key.use = 'sig';
+
+      await signAndVerifyWithKey(alg, key, privateKey);
+    });
+
+    test.each(EC_ALGORITHM_CURVES)('verifies %s tokens with curve %s', async (alg, crv) => {
+      expect(EC_ALGORITHMS).toContain(alg);
+
+      const { privateKey, publicKey } = await jose.generateKeyPair(alg);
+      const key = await jose.exportJWK(publicKey);
+      key.kid = `test-${alg}`;
+      key.alg = alg;
+      key.use = 'sig';
+
+      expect(key.crv).toEqual(crv);
+      await signAndVerifyWithKey(alg, key, privateKey);
+    });
+
+    test.each(EDDSA_CURVES)('verifies EdDSA tokens with curve %s', async (crv) => {
+      const alg = 'EdDSA';
+      expect(OKP_ALGORITHMS).toContain(alg);
+
+      const { privateKey, publicKey } = await jose.generateKeyPair(alg, { crv });
+      const key = await jose.exportJWK(publicKey);
+      key.kid = `test-${alg}-${crv}`;
+      key.alg = alg;
+      key.use = 'sig';
+
+      expect(key.crv).toEqual(crv);
+      await signAndVerifyWithKey(alg, key, privateKey);
+    });
   });
 
   test('key selection for key with kid', async () => {

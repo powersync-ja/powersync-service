@@ -1,5 +1,4 @@
 import { logger } from '@powersync/lib-services-framework';
-import { SourceEntityDescriptor } from '@powersync/service-core';
 import { TablePattern } from '@powersync/service-sync-rules';
 import sql from 'mssql';
 import { MSSQLConnectionManager } from '../replication/MSSQLConnectionManager.js';
@@ -139,7 +138,13 @@ export async function getReplicationIdentityColumns(
   };
 }
 
-export type ResolvedTable = Omit<SourceEntityDescriptor, 'replicaIdColumns'>;
+export interface SourceTableChangeRef {
+  objectId: number | string | undefined;
+  schema: string;
+  name: string;
+}
+
+export type ResolvedTable = SourceTableChangeRef;
 
 export async function getTablesFromPattern(
   connectionManager: MSSQLConnectionManager,

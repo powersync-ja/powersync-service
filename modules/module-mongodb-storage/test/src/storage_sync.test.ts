@@ -1,6 +1,6 @@
 import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
-import { RequestParameters } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
@@ -13,8 +13,55 @@ import {
   BucketDataDocument,
   serializeBucketData
 } from '../../src/storage/implementation/document-formats/bucket-document-format.js';
-import { SyncRuleDocument } from '../../src/storage/implementation/models.js';
+import {
+  ReplicationStreamDocumentV3,
+  SyncConfigDefinition
+} from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
+
+const MINIMAL_SYNC_RULES = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT id FROM test
+`;
+
+function sourceDescriptor(
+  name: string,
+  options: {
+    objectId?: string;
+    replicaIdColumns?: string[];
+  } = {}
+): storage.SourceEntityDescriptor {
+  return {
+    connectionTag: storage.SourceTable.DEFAULT_TAG,
+    objectId: options.objectId ?? name,
+    schema: 'public',
+    name,
+    replicaIdColumns: (options.replicaIdColumns ?? ['id']).map((column) => ({
+      name: column,
+      type: 'VARCHAR',
+      typeId: 25
+    }))
+  };
+}
+
+function objectIdGenerator(id: string) {
+  let used = false;
+  return () => {
+    if (used) {
+      throw new Error(`Can only generate a single id using ${id}`);
+    }
+    used = true;
+    return new bson.ObjectId(id);
+  };
+}
+
+function hydratedRulesFor(yaml: string) {
+  const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
+  expect(parsed.errors).toEqual([]);
+  return parsed.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+}
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
   register.registerSyncTests(storageConfig.factory, {
@@ -163,7 +210,317 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(checksumTypes).toEqual([{ _id: 'long', count: 4 }]);
   });
 
-  test.runIf(storageVersion == 3)('uses v3 mongodb model shapes', async () => {
+  test('resolveTables populates matching data and parameter sources', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      by_owner:
+        parameters:
+          - SELECT owner_id FROM test WHERE id = token_parameters.test_id
+        data:
+          - SELECT id, owner_id FROM test WHERE owner_id = bucket.owner_id
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
+
+    expect(sourceTable.bucketDataSources).toHaveLength(1);
+    expect(sourceTable.parameterLookupSources).toHaveLength(1);
+    expect(sourceTable.syncData).toBe(true);
+    expect(sourceTable.syncParameters).toBe(true);
+    expect(sourceTable.syncEvent).toBe(false);
+  });
+
+  test('resolveTables drops old table when table name changes for the same objectId', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        data:
+          - SELECT id FROM "%"
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const before = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('orders', { objectId: 'orders-relation' }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b38342')
+    });
+    const after = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('renamed_orders', { objectId: 'orders-relation' }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b38343')
+    });
+
+    expect(after.tables).toHaveLength(1);
+    expect(after.tables[0].id).not.toEqual(before.tables[0].id);
+    expect(after.tables[0].bucketDataSources).toHaveLength(1);
+    expect(after.tables[0].parameterLookupSources).toHaveLength(0);
+    expect(after.dropTables.map((table) => ({ id: table.id, name: table.name }))).toEqual([
+      { id: before.tables[0].id, name: 'orders' }
+    ]);
+    expect(after.dropTables[0].bucketDataSources).toHaveLength(1);
+    expect(after.dropTables[0].parameterLookupSources).toHaveLength(0);
+  });
+
+  test('resolveTables drops old table when objectId changes for the same table name', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        data:
+          - SELECT id FROM "%"
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const before = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('accounts', { objectId: 'accounts-relation-old' }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b38344')
+    });
+    const after = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('accounts', { objectId: 'accounts-relation-new' }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b38345')
+    });
+
+    expect(after.tables).toHaveLength(1);
+    expect(after.tables[0].id).not.toEqual(before.tables[0].id);
+    expect(after.tables[0].bucketDataSources).toHaveLength(1);
+    expect(after.dropTables.map((table) => ({ id: table.id, objectId: table.objectId }))).toEqual([
+      { id: before.tables[0].id, objectId: 'accounts-relation-old' }
+    ]);
+    expect(after.dropTables[0].bucketDataSources).toHaveLength(1);
+  });
+
+  test('resolveTables drops old table when replica id columns change', async () => {
+    await using factory = await storageConfig.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+    bucket_definitions:
+      global:
+        data:
+          - SELECT id FROM "%"
+    `,
+        { storageVersion }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules);
+
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const before = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('items', { objectId: 'items-relation', replicaIdColumns: ['id'] }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b38346')
+    });
+    const after = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('items', { objectId: 'items-relation', replicaIdColumns: ['tenant_id', 'id'] }),
+      idGenerator: objectIdGenerator('6544e3899293153fa7b38347')
+    });
+
+    expect(after.tables).toHaveLength(1);
+    expect(after.tables[0].id).not.toEqual(before.tables[0].id);
+    expect(after.tables[0].replicaIdColumns.map((column) => column.name)).toEqual(['tenant_id', 'id']);
+    expect(after.tables[0].bucketDataSources).toHaveLength(1);
+    expect(
+      after.dropTables.map((table) => ({ id: table.id, columns: table.replicaIdColumns.map((c) => c.name) }))
+    ).toEqual([{ id: before.tables[0].id, columns: ['id'] }]);
+    expect(after.dropTables[0].bucketDataSources).toHaveLength(1);
+  });
+
+  test.runIf(storageVersion >= 3)(
+    'resolveTables resolves v3 event-only tables without source memberships',
+    async () => {
+      await using factory = await storageConfig.factory();
+      const syncRules = await factory.updateSyncRules(
+        updateSyncRulesFromYaml(
+          `
+    bucket_definitions:
+      by_owner:
+        data:
+          - SELECT id FROM users
+
+    event_definitions:
+      write_checkpoints:
+        payloads:
+          - SELECT user_id, checkpoint FROM checkpoints
+    `,
+          { storageVersion }
+        )
+      );
+      const bucketStorage = factory.getInstance(syncRules);
+
+      await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+      const resolved = await writer.resolveTables({
+        connection_id: 1,
+        source: {
+          connectionTag: storage.SourceTable.DEFAULT_TAG,
+          objectId: 'checkpoints',
+          schema: 'public',
+          name: 'checkpoints',
+          replicaIdColumns: [{ name: 'id', type: 'VARCHAR', typeId: 25 }]
+        },
+        idGenerator: () => new bson.ObjectId('6544e3899293153fa7b38341')
+      });
+
+      expect(resolved.tables).toHaveLength(1);
+      expect(resolved.dropTables).toHaveLength(0);
+      expect(resolved.tables[0].bucketDataSources).toEqual([]);
+      expect(resolved.tables[0].parameterLookupSources).toEqual([]);
+      expect(resolved.tables[0].syncData).toBe(false);
+      expect(resolved.tables[0].syncParameters).toBe(false);
+      expect(resolved.tables[0].syncEvent).toBe(true);
+    }
+  );
+
+  test.runIf(storageVersion >= 3)('resolveTables handles v3 source membership additions and removals', async () => {
+    // Tests the behavior of resolveTables when bucket data sources and parameter index creators are added or removed.
+    // These are not end-to-end tests yet, since we don't have a full incremental reprocessing implementation.
+    // This just tests the specific resolveTables behavior.
+
+    // The same tests should work with sync streams, but legacy bucket_definitions make it easy
+    // to see the distinction between the parameter index queries and the data sources.
+    const fullRulesYaml = `
+    bucket_definitions:
+      by_owner:
+        parameters:
+          - SELECT owner_id FROM memberships WHERE id = token_parameters.test_id
+        data:
+          - SELECT id, owner_id FROM memberships WHERE owner_id = bucket.owner_id
+    `;
+    const dataOnlyRulesYaml = `
+    bucket_definitions:
+      by_owner:
+        parameters:
+          - SELECT token_parameters.owner_id as owner_id
+        data:
+          - SELECT id, owner_id FROM memberships WHERE owner_id = bucket.owner_id
+    `;
+    const parameterOnlyRulesYaml = `
+    bucket_definitions:
+      by_owner:
+        parameters:
+          - SELECT owner_id FROM memberships WHERE id = token_parameters.test_id
+        data: []
+    `;
+    const eventOnlyRulesYaml = `
+    bucket_definitions: {}
+
+    event_definitions:
+      write_checkpoints:
+        payloads:
+          - SELECT id, owner_id FROM memberships
+    `;
+
+    await using factory = await storageConfig.factory();
+    // This does not quite match what actual API usage would look like.
+    // Here we're persisting one sync config, then resolving tables with others.
+    // We're also using the default hydration state for them all.
+    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(fullRulesYaml, { storageVersion }));
+    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const fullRules = hydratedRulesFor(fullRulesYaml);
+    const dataOnlyRules = hydratedRulesFor(dataOnlyRulesYaml);
+    const parameterOnlyRules = hydratedRulesFor(parameterOnlyRulesYaml);
+    const eventOnlyRules = hydratedRulesFor(eventOnlyRulesYaml);
+    const source = sourceDescriptor('memberships', { objectId: 'memberships-relation' });
+    const dataOnlyTableId = new bson.ObjectId('6544e3899293153fa7b38348');
+    const addedParameterTableId = new bson.ObjectId('6544e3899293153fa7b38349');
+    const removedDataTableId = new bson.ObjectId('6544e3899293153fa7b3834a');
+
+    const dataOnly = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => dataOnlyTableId,
+      syncRules: dataOnlyRules
+    });
+    expect(dataOnly.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
+    expect(dataOnly.dropTables.map((table) => table.id)).toEqual([]);
+    expect(dataOnly.tables[0].bucketDataSources).toHaveLength(1);
+    expect(dataOnly.tables[0].parameterLookupSources).toHaveLength(0);
+
+    const addedParameter = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => addedParameterTableId,
+      syncRules: fullRules
+    });
+    // Adding a definition always creates a new SourceTable
+    expect(addedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId, addedParameterTableId]);
+    expect(addedParameter.tables.map((table) => table.bucketDataSources.length).sort()).toEqual([0, 1]);
+    expect(addedParameter.tables.map((table) => table.parameterLookupSources.length).sort()).toEqual([0, 1]);
+    expect(addedParameter.dropTables.map((table) => table.id)).toEqual([]);
+
+    const removedParameter = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => {
+        throw new Error('data-only resolve should reuse existing v3 source table');
+      },
+      syncRules: dataOnlyRules
+    });
+    expect(removedParameter.tables.map((table) => table.id)).toEqual([dataOnlyTableId]);
+    // Now this sourceTable is unused & dropped
+    expect(removedParameter.dropTables.map((table) => table.id)).toEqual([addedParameterTableId]);
+    expect(removedParameter.tables[0].bucketDataSources).toHaveLength(1);
+    expect(removedParameter.tables[0].parameterLookupSources).toHaveLength(0);
+    await writer.drop(removedParameter.dropTables);
+
+    const removedData = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => removedDataTableId,
+      syncRules: parameterOnlyRules
+    });
+
+    // This goes from dataOnlyRules -> parameterOnlyRules, which adds one definition and removes another.
+    // This generates a new SourceTable again, and removes all others.
+    expect(removedData.tables.map((table) => table.id)).toEqual([removedDataTableId]);
+    expect(removedData.dropTables.map((table) => table.id)).toEqual([dataOnlyTableId]);
+    expect(removedData.tables[0].bucketDataSources).toHaveLength(0);
+    expect(removedData.tables[0].parameterLookupSources).toHaveLength(1);
+    await writer.drop(removedData.dropTables);
+
+    const eventOnly = await writer.resolveTables({
+      connection_id: 1,
+      source,
+      idGenerator: () => {
+        throw new Error('resolve should reuse existing v3 source table');
+      },
+      syncRules: eventOnlyRules
+    });
+
+    // Event-only table can re-use any existing table.
+    expect(eventOnly.tables.map((table) => table.id)).toEqual([removedDataTableId]);
+    expect(eventOnly.dropTables.map((table) => table.id)).toEqual([]);
+    expect(eventOnly.tables[0].bucketDataSources).toHaveLength(0);
+    expect(eventOnly.tables[0].parameterLookupSources).toHaveLength(0);
+    expect(eventOnly.tables[0].syncData).toBe(false);
+    expect(eventOnly.tables[0].syncParameters).toBe(false);
+    expect(eventOnly.tables[0].syncEvent).toBe(true);
+  });
+
+  test.runIf(storageVersion >= 3)('uses v3 mongodb model shapes', async () => {
     await using factory = await storageConfig.factory();
     const syncRules = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
@@ -225,14 +582,43 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       bucketCollections.some((collection) => collection.name === `bucket_data_${syncRules.id}_${firstBucket?.def}`)
     ).toBe(true);
 
-    const syncRule = await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id });
-    const ruleMapping: SyncRuleDocument['rule_mapping'] | undefined = syncRule?.rule_mapping;
+    const syncRule = (await mongoFactory.db.sync_rules.findOne({ _id: syncRules.id })) as ReplicationStreamDocumentV3;
+    const syncConfig = await db.syncConfigDefinitions.findOne({ _id: syncRule.sync_configs[0]._id });
+    const ruleMapping: SyncConfigDefinition['rule_mapping'] | undefined = syncConfig?.rule_mapping;
     expect(Object.keys(ruleMapping?.definitions ?? {})).not.toHaveLength(0);
 
     const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0] as string | undefined;
     expect(parameterIndexId).toBeDefined();
     const parameterEntry = await db.parameterIndex(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
+  });
+
+  test.runIf(storageVersion < 3)('can replace processing legacy sync rules', async () => {
+    await using factory = await storageConfig.factory();
+
+    const firstSyncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion })
+    );
+
+    await expect(
+      factory.updateSyncRules(updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion }))
+    ).resolves.toBeDefined();
+
+    const mongoFactory = factory as MongoBucketStorage;
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: firstSyncRules.id }))?.state).toBe(
+      storage.SyncRuleState.STOP
+    );
+  });
+
+  test('can lock newly-created sync rules', async () => {
+    await using factory = await storageConfig.factory();
+
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion, lock: true })
+    );
+
+    expect(syncRules.current_lock?.sync_rules_id).toBe(syncRules.id);
+    await syncRules.current_lock?.release();
   });
 
   test.runIf(storageVersion < 3)('uses a single current_data collection for v1 source records', async () => {
@@ -490,6 +876,35 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 }
 
 describe('sync - mongodb', () => {
+  test('v3 activation stops legacy active sync rules', async () => {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const mongoFactory = factory as MongoBucketStorage;
+
+    const legacySyncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion: storage.LEGACY_STORAGE_VERSION })
+    );
+    const legacyStorage = factory.getInstance(legacySyncRules);
+    await using legacyWriter = await legacyStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await legacyWriter.markAllSnapshotDone('1/1');
+    await legacyWriter.commit('1/1');
+
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.id }))?.state).toBe(
+      storage.SyncRuleState.ACTIVE
+    );
+
+    const v3SyncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(MINIMAL_SYNC_RULES, { storageVersion: storage.STORAGE_VERSION_3 })
+    );
+    const v3Storage = factory.getInstance(v3SyncRules);
+    await using v3Writer = await v3Storage.createWriter(test_utils.BATCH_OPTIONS);
+    await v3Writer.markAllSnapshotDone('2/1');
+    await v3Writer.commit('2/1');
+
+    expect((await mongoFactory.db.sync_rules.findOne({ _id: legacySyncRules.id }))?.state).toBe(
+      storage.SyncRuleState.STOP
+    );
+  });
+
   for (const storageVersion of TEST_STORAGE_VERSIONS) {
     describe(`storage v${storageVersion}`, () => {
       registerSyncStorageTests(INITIALIZED_MONGO_STORAGE_FACTORY, storageVersion);

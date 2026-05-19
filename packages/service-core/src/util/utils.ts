@@ -39,6 +39,14 @@ export function escapeIdentifier(identifier: string) {
   return `"${identifier.replace(/"/g, '""').replace(/\./g, '"."')}"`;
 }
 
+/**
+ *  Sanitized name of the entity in the format of "{schema}.{entity name}"
+ *  Suitable for safe use in Postgres queries and in log output.
+ */
+export function qualifiedName(ref: sync_rules.SourceTableRef) {
+  return `${escapeIdentifier(ref.schema)}.${escapeIdentifier(ref.name)}`;
+}
+
 export function hashData(type: string, id: string, data: string): number {
   const hash = crypto.createHash('sha256');
   hash.update(`put.${type}.${id}.${data}`);

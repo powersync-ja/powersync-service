@@ -4,7 +4,7 @@ import { BaseSqlDataQuery, BaseSqlDataQueryOptions, RowValueExtractor } from './
 import { CompatibilityContext } from './compatibility.js';
 import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError } from './sql_support.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
@@ -190,7 +190,7 @@ export class SqlDataQuery extends BaseSqlDataQuery {
     this.filter = options.filter;
   }
 
-  evaluateRow(table: SourceTableInterface, row: SqliteRow): UnscopedEvaluationResult[] {
+  evaluateRow(table: SourceTableRef, row: SqliteRow): UnscopedEvaluationResult[] {
     return this.evaluateRowWithOptions({
       table,
       row,

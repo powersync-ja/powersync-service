@@ -8,7 +8,7 @@ import {
   ParameterLookupScope,
   QuerierError,
   ScopedParameterLookup,
-  SourceTableInterface,
+  SourceTableRef,
   SqlParameterQuery,
   UnscopedParameterLookup
 } from '../../src/index.js';
@@ -24,7 +24,7 @@ import {
 } from './util.js';
 
 describe('parameter queries', () => {
-  const table = (name: string): SourceTableInterface => ({
+  const table = (name: string): SourceTableRef => ({
     connectionTag: 'default',
     name,
     schema: PARSE_OPTIONS.defaultSchema

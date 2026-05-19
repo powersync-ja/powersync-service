@@ -16,7 +16,7 @@ import {
   ParameterLookupRows,
   QuerierError,
   ScopedParameterLookup,
-  SourceTableInterface,
+  SourceTableRef,
   SqliteRow,
   StaticSchema,
   StreamParseOptions,
@@ -521,6 +521,23 @@ describe('streams', () => {
           }
         })
       ).toStrictEqual(['1#stream|0["issue_id"]']);
+    });
+
+    test('token array against literal (request filter)', async () => {
+      // Regression test for the parameter-only && path: the left-hand array must only
+      // satisfy the filter when it intersects the literal right-hand array.
+      const desc = parseStream(`SELECT * FROM comments WHERE auth.parameters() -> 'tags' && '["foo"]'`);
+
+      expect(await queryBucketIds(desc, { tokenPayload: { sub: 'u1', tags: ['foo'] } })).toStrictEqual([
+        '1#stream|0[]'
+      ]);
+      expect(await queryBucketIds(desc, { tokenPayload: { sub: 'u1', tags: ['bar', 'foo'] } })).toStrictEqual([
+        '1#stream|0[]'
+      ]);
+      expect(await queryBucketIds(desc, { tokenPayload: { sub: 'u1', tags: ['bar'] } })).toStrictEqual([]);
+      expect(await queryBucketIds(desc, { tokenPayload: { sub: 'u1', tags: [] } })).toStrictEqual([]);
+      // Index-like string must not satisfy the filter.
+      expect(await queryBucketIds(desc, { tokenPayload: { sub: 'u1', tags: ['0'] } })).toStrictEqual([]);
     });
   });
 
@@ -1163,7 +1180,7 @@ const options: StreamParseOptions = {
 
 const hydrationParams: CreateSourceParams = { hydrationState: versionedHydrationState(1) };
 
-function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableInterface, record: SqliteRow) {
+function evaluateBucketIds(stream: SyncStream, sourceTable: SourceTableRef, record: SqliteRow) {
   return bucketIds(debugHydratedMergedSource(stream, hydrationParams).evaluateRow({ sourceTable, record }));
 }
 

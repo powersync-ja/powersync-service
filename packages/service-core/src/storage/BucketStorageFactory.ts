@@ -170,6 +170,11 @@ export interface UpdateSyncRulesOptions {
   };
   lock?: boolean;
   storageVersion?: number;
+
+  /**
+   * Only relevant if the result is used. This does not affect the persisted config.
+   */
+  defaultSchema?: string;
 }
 
 export interface SerializedSyncPlan {
@@ -196,7 +201,7 @@ export function updateSyncRulesFromYaml(
   const config = SqlSyncRules.fromYaml(content, {
     // No schema-based validation at this point
     schema: undefined,
-    defaultSchema: 'not_applicable', // Not needed for validation
+    defaultSchema: options?.defaultSchema ?? 'not_applicable', // Not needed for validation
     throwOnError: options?.validate ?? false
   });
 

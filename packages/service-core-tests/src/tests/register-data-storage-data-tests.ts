@@ -826,7 +826,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const sourceTable = test_utils.makeTestTable('test', ['id', 'description'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
 
     // Pre-setup
     await writer.markAllSnapshotDone('1/1');
@@ -939,7 +939,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const sourceTable = test_utils.makeTestTable('test', ['id', 'description'], config);
+    const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id', 'description'], config);
 
     // Pre-setup
     await writer.markAllSnapshotDone('1/1');

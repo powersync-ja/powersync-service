@@ -5,6 +5,7 @@ import { InternalOpId } from '../util/utils.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { SourceTable, TableSnapshotStatus } from './SourceTable.js';
 import { BatchedCustomWriteCheckpointOptions } from './storage-index.js';
+import { ResolveTablesOptions, ResolveTablesResult } from './SyncRulesBucketStorage.js';
 
 export const DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS: ResolvedBucketBatchCommitOptions = {
   createEmptyCheckpoints: true,
@@ -94,6 +95,8 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
+
+  resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
 
   /**
    * Queues the creation of a custom Write Checkpoint. This will be persisted after operations are flushed.

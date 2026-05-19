@@ -1,9 +1,11 @@
 import { describe, expect } from 'vitest';
 import {
+  DEFAULT_HYDRATION_STATE,
   HydratedSyncRules,
   ParameterLookupRows,
+  PrecompiledSyncConfig,
   ScopedParameterLookup,
-  SourceTableInterface,
+  SourceTableRef,
   SqliteRow,
   SqliteValue
 } from '../../../../src/index.js';
@@ -549,6 +551,392 @@ streams:
     expect(buckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
   });
 
+  syncTest('preserves correlation across lookup output columns', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      # Buckets are parameterized by the joined a.c1/a.c2 values. The b table is
+      # only used to discover which pairs are visible to the current user.
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c2 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups): Promise<ParameterLookupRows[]> {
+        // Equivalent source data:
+        //
+        //   b.c1 | b.c2 | b.u
+        //   -----+------+------
+        //   A    | 1    | user1
+        //   B    | 2    | user1
+        //
+        // getParameterSets() returns the two output columns for each matching b
+        // row. These values must stay grouped per row: (A, 1) and (B, 2).
+        // Treating column 0 and column 1 as independent value sets would create
+        // impossible pairs such as (A, 2) or (B, 1).
+        expect(lookups.map((l) => l.values)).toEqual([['lookup', '0', 'user1']]);
+        return [
+          {
+            lookup: lookups[0],
+            rows: [
+              { '0': 'A', '1': 1 },
+              { '0': 'B', '1': 2 }
+            ]
+          }
+        ];
+      }
+    });
+
+    // Bucket parameter order is c2, c1 for this compiled plan, so the two valid
+    // joined pairs above become [1, "A"] and [2, "B"].
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual(['stream|0[1,"A"]', 'stream|0[2,"B"]']);
+  });
+
+  syncTest('preserves correlation across lookup stages', async ({ sync }) => {
+    const compiled = sync.prepareWithoutHydration(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b, c WHERE a.id1 = b.id1 AND a.c1 = c.c1 AND b.c1 = c.c1 AND b.c2 = c.c2 AND c.u = auth.user_id()
+`) as PrecompiledSyncConfig;
+    const desc = compiled.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups): Promise<ParameterLookupRows[]> {
+        const results: ParameterLookupRows[] = [];
+
+        for (const lookup of lookups) {
+          const lookupId = Number(lookup.values[1]);
+          const definition = compiled.plan.parameterIndexes[lookupId];
+
+          if (definition.sourceTable.name === 'c') {
+            // On table c: Output c1, c2 values
+            results.push({
+              lookup,
+              rows: [
+                { '0': 'c1-1', '1': 'c2-1' },
+                { '0': 'c1-2', '1': 'c2-2' },
+                { '0': 'c1-3', '1': 'c2-3' }
+              ]
+            });
+          } else if (definition.sourceTable.name === 'b') {
+            // On table b: Output id1 value which we copy from table c
+            const [c1, c2] = lookup.values.slice(2) as string[];
+            // Inputs should be a valid (c1-x, c2-x) pair.
+            expect(c1.charAt(3)).toStrictEqual(c2.charAt(3));
+
+            results.push({ lookup, rows: [{ '0': `id-${c1.charAt(3)}` }] });
+          } else {
+            throw new Error('unexpected lookup');
+          }
+        }
+
+        return results;
+      }
+    });
+
+    // Duplicates do not need to be removed here, but they must not make lookup
+    // columns independent and create impossible pairs like [2, "A"].
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
+      'stream|0["id-1","c1-1"]',
+      'stream|0["id-2","c1-2"]',
+      'stream|0["id-3","c1-3"]'
+    ]);
+  });
+
+  syncTest('preserves correlation across duplicate lookup output rows', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c2 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups).toHaveLength(1);
+        return [
+          {
+            lookup: lookups[0],
+            rows: [
+              { '0': 'A', '1': 1 },
+              { '0': 'A', '1': 1 },
+              { '0': 'B', '1': 2 }
+            ]
+          }
+        ];
+      }
+    });
+
+    // Duplicates do not need to be removed here, but they must not make lookup
+    // columns independent and create impossible pairs like [2, "A"].
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
+      'stream|0[1,"A"]',
+      'stream|0[1,"A"]',
+      'stream|0[2,"B"]'
+    ]);
+  });
+
+  syncTest('preserves correlation across bigint lookup output columns', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c2 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        expect(lookups).toHaveLength(1);
+        return [
+          {
+            lookup: lookups[0],
+            rows: [
+              { '0': 'A', '1': 9007199254740993n },
+              { '0': 'B', '1': 9007199254740995n }
+            ]
+          }
+        ];
+      }
+    });
+
+    expect(dynamicBuckets.map((bucket) => bucket.bucket)).toStrictEqual([
+      'stream|0[9007199254740993,"A"]',
+      'stream|0[9007199254740995,"B"]'
+    ]);
+  });
+
+  syncTest('preserves lookup row bindings inside intersections', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c1 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups) {
+        // Column-wise intersection would see c1 values {A, B} and c2 values
+        // {B, A}, then incorrectly emit A and B. There is no single b row where
+        // both values are equal, so no a.c1 bucket can satisfy the join.
+        expect(lookups).toHaveLength(1);
+        return [
+          {
+            lookup: lookups[0],
+            rows: [
+              { '0': 'A', '1': 'B' },
+              { '0': 'B', '1': 'A' }
+            ]
+          }
+        ];
+      }
+    });
+
+    expect(dynamicBuckets).toStrictEqual([]);
+  });
+
+  syncTest('cross-combines independent lookup output rows', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b, c WHERE a.c1 = b.c1 AND a.c2 = c.c2 AND b.u = auth.user_id() AND c.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+      async getParameterSets(lookups, debugDefinition): Promise<ParameterLookupRows[]> {
+        expect(lookups).toHaveLength(1);
+
+        if (debugDefinition.endsWith(' on b')) {
+          return [{ lookup: lookups[0], rows: [{ '0': 'A' }, { '0': 'B' }] }];
+        } else if (debugDefinition.endsWith(' on c')) {
+          return [{ lookup: lookups[0], rows: [{ '0': 1 }, { '0': 2 }] }];
+        }
+
+        throw new Error(`Unexpected lookup: ${debugDefinition}`);
+      }
+    });
+
+    expect(dynamicBuckets.map((bucket) => bucket.bucket).sort()).toStrictEqual([
+      'stream|0[1,"A"]',
+      'stream|0[1,"B"]',
+      'stream|0[2,"A"]',
+      'stream|0[2,"B"]'
+    ]);
+  });
+
+  syncTest('preserves valid intersection when duplicate lookup values have different provenance', async ({ sync }) => {
+    const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b WHERE a.c1 = b.c1 AND a.c1 = b.c2 AND b.u = auth.user_id()
+`);
+
+    const { querier, errors } = desc.getBucketParameterQuerier({
+      globalParameters: requestParameters({ sub: 'user1' }),
+      hasDefaultStreams: false,
+      streams: {
+        stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+      }
+    });
+    expect(errors).toStrictEqual([]);
+
+    async function checkWithParameters(...results: { c1: string; c2: string }[]): Promise<string[]> {
+      const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+        async getParameterSets(lookups) {
+          expect(lookups).toHaveLength(1);
+
+          return [
+            {
+              lookup: lookups[0],
+              rows: results.map(({ c1, c2 }) => ({ '0': c1, '1': c2 }))
+            }
+          ];
+        }
+      });
+
+      return dynamicBuckets.map((bucket) => bucket.bucket);
+    }
+
+    expect(await checkWithParameters({ c1: 'A', c2: 'A' })).toStrictEqual(['stream|0["A"]']);
+    expect(await checkWithParameters({ c1: 'A', c2: 'B' })).toStrictEqual([]);
+    expect(await checkWithParameters({ c1: 'A', c2: 'A' }, { c1: 'A', c2: 'B' })).toStrictEqual(['stream|0["A"]']);
+    expect(await checkWithParameters({ c1: 'A', c2: 'C' }, { c1: 'A', c2: 'B' })).toStrictEqual([]);
+    expect(await checkWithParameters({ c1: 'A', c2: 'A' }, { c1: 'A', c2: 'B' }, { c1: 'B', c2: 'B' })).toStrictEqual([
+      'stream|0["A"]',
+      'stream|0["B"]'
+    ]);
+  });
+
+  syncTest(
+    'preserves valid intersection when duplicate lookup values have overlapping provenance',
+    async ({ sync }) => {
+      const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  stream:
+      query: SELECT a.* FROM a, b, c WHERE a.c1 = b.c1 AND a.c1 = b.c2 AND b.x = c.x AND a.y = c.y
+`);
+
+      const { querier, errors } = desc.getBucketParameterQuerier({
+        globalParameters: requestParameters({ sub: 'user1' }),
+        hasDefaultStreams: false,
+        streams: {
+          stream: [{ priorityOverride: null, opaque_id: 0, parameters: {} }]
+        }
+      });
+      expect(errors).toStrictEqual([]);
+
+      async function checkWithParameters(...results: { c1: string; c2: string }[]): Promise<string[]> {
+        const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+          async getParameterSets(lookups, debugContext) {
+            if (debugContext.endsWith('on c')) {
+              expect(lookups).toHaveLength(1);
+
+              return [
+                {
+                  lookup: lookups[0],
+                  rows: [{ '0': 'x', '1': 'y' }]
+                }
+              ];
+            }
+
+            expect(lookups).toHaveLength(1);
+            return [
+              {
+                lookup: lookups[0],
+                rows: results.map(({ c1, c2 }) => ({ '0': c1, '1': c2 }))
+              }
+            ];
+          }
+        });
+
+        return dynamicBuckets.map((bucket) => bucket.bucket);
+      }
+
+      expect(await checkWithParameters({ c1: 'A', c2: 'A' })).toStrictEqual(['stream|0["y","A"]']);
+      expect(await checkWithParameters({ c1: 'A', c2: 'B' })).toStrictEqual([]);
+      expect(await checkWithParameters({ c1: 'A', c2: 'A' }, { c1: 'A', c2: 'B' })).toStrictEqual([
+        'stream|0["y","A"]'
+      ]);
+      expect(await checkWithParameters({ c1: 'A', c2: 'C' }, { c1: 'A', c2: 'B' })).toStrictEqual([]);
+      expect(await checkWithParameters({ c1: 'A', c2: 'A' }, { c1: 'A', c2: 'B' }, { c1: 'B', c2: 'B' })).toStrictEqual(
+        ['stream|0["y","A"]', 'stream|0["y","B"]']
+      );
+    }
+  );
+
   syncTest('multiple IN operators', ({ sync }) => {
     const desc = sync.prepareSyncStreams(`
 config:
@@ -697,7 +1085,7 @@ streams:
             await querier.queryDynamicBucketDescriptions({
               getParameterSets: async function (lookups: ScopedParameterLookup[]): Promise<ParameterLookupRows[]> {
                 expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
-                return [{ lookup: lookups[0], rows: hasLookupResult ? [{}] : [] }];
+                return [{ lookup: lookups[0], rows: hasLookupResult ? [{ '0': 'post_id' }] : [] }];
               }
             })
           ).toHaveLength(hasLookupResult ? 1 : 0);
@@ -782,7 +1170,7 @@ streams:
   });
 });
 
-function evaluateBucketIds(source: HydratedSyncRules, sourceTable: SourceTableInterface, record: SqliteRow) {
+function evaluateBucketIds(source: HydratedSyncRules, sourceTable: SourceTableRef, record: SqliteRow) {
   return source.evaluateRow({ sourceTable, record }).map((r) => r.bucket);
 }
 

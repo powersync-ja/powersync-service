@@ -17,7 +17,7 @@ import { isJsonValue, normalizeParameterValue } from '../utils.js';
 import { NodeLocation } from 'pgsql-ast-parser';
 import { ParameterIndexLookupCreator } from '../BucketSource.js';
 import { HydrationState, ParameterLookupScope } from '../HydrationState.js';
-import { SourceTableInterface } from '../SourceTableInterface.js';
+import { SourceTableRef } from '../SourceTableRef.js';
 import { SubqueryEvaluator } from './parameter.js';
 import { cartesianProduct } from './utils.js';
 import { StreamVariant } from './variant.js';
@@ -566,7 +566,7 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
    * @param sourceTable A table we depend on in a subquery.
    * @param row Row data to index.
    */
-  evaluateParameterRow(sourceTable: SourceTableInterface, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
+  evaluateParameterRow(sourceTable: SourceTableRef, row: SqliteRow): UnscopedEvaluatedParametersResult[] {
     if (this.parameterTable.matches(sourceTable)) {
       // Theoretically we're doing duplicate work by doing this for each innerVariant in a subquery.
       // In practice, we don't have more than one innerVariant per subquery right now, so this is fine.
@@ -592,7 +592,7 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
     return [];
   }
 
-  tableSyncsParameters(table: SourceTableInterface): boolean {
+  tableSyncsParameters(table: SourceTableRef): boolean {
     return this.parameterTable.matches(table);
   }
 }

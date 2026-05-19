@@ -5,6 +5,7 @@ import {
   ParameterLookupRows,
   ScopedParameterLookup
 } from '@powersync/service-sync-rules';
+import * as bson from 'bson';
 import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
@@ -25,11 +26,6 @@ export interface SyncRulesBucketStorage
 
   readonly factory: BucketStorageFactory;
   readonly logger: Logger;
-
-  /**
-   * Resolve a table, keeping track of it internally.
-   */
-  resolveTable(options: ResolveTableOptions): Promise<ResolveTableResult>;
 
   /**
    * Create a new writer.
@@ -157,17 +153,21 @@ export interface SyncRuleStatus {
   snapshot_done: boolean;
   snapshot_lsn: string | null;
 }
-export interface ResolveTableOptions {
-  group_id: number;
+export interface ResolveTablesOptions {
   connection_id: number;
-  connection_tag: string;
-  entity_descriptor: SourceEntityDescriptor;
-
-  sync_rules: HydratedSyncRules;
+  source: SourceEntityDescriptor;
+  /**
+   * For tests only - custom id generator for stable ids.
+   */
+  idGenerator?: () => string | bson.ObjectId;
+  /**
+   * For tests only - override the sync rules used.
+   */
+  syncRules?: HydratedSyncRules;
 }
 
-export interface ResolveTableResult {
-  table: SourceTable;
+export interface ResolveTablesResult {
+  tables: SourceTable[];
   dropTables: SourceTable[];
 }
 

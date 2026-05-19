@@ -5,7 +5,7 @@ import { BucketDataSource } from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { RequestFunctionCall } from './request_functions.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { SyncRulesOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
 import { CustomSqliteValue } from './types/custom_sqlite_value.js';
@@ -372,13 +372,24 @@ export interface InputParameter {
   parametersToLookupValue(parameters: ParameterValueSet): SqliteValue;
 }
 
-export interface EvaluateRowOptions extends TableRow {}
+export interface EvaluateRowOptions extends TableRow {
+  /**
+   * Recommended: List the specific sources to use.
+   *
+   * If not provided, uses all matching sources in the sync config. This path is primarily intended for tests.
+   *
+   * If provided, use only these sources.
+   *
+   * The array identity is used for caching, so it is recommended to use stable arrays here (e.g. from the bucket source definition) for better performance.
+   */
+  bucketDataSources?: BucketDataSource[];
+}
 
 /**
  * A row associated with the table it's coming from.
  */
 export interface TableRow<R = SqliteRow> {
-  sourceTable: SourceTableInterface;
+  sourceTable: SourceTableRef;
   record: R;
 }
 

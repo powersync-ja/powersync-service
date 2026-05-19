@@ -1,7 +1,6 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { bson, ColumnDescriptor, SourceTable } from '@powersync/service-core';
 import sql from 'mssql';
-import { MSSQLSourceTable } from '../common/MSSQLSourceTable.js';
 import { MSSQLBaseType } from '../types/mssql-data-types.js';
 import { escapeIdentifier } from '../utils/mssql.js';
 
@@ -23,7 +22,7 @@ export interface MSSQLSnapshotQuery {
 export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
   public constructor(
     private readonly transaction: sql.Transaction,
-    private readonly table: MSSQLSourceTable
+    private readonly qualifiedTableName: string
   ) {}
 
   public async initialize(): Promise<void> {}
@@ -36,7 +35,7 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
       metadataRequest.on('error', reject);
     });
 
-    metadataRequest.query(`SELECT TOP(0) * FROM ${this.table.toQualifiedName()}`);
+    metadataRequest.query(`SELECT TOP(0) * FROM ${this.qualifiedTableName}`);
 
     const columnMetadata: sql.IColumnMetadata = await metadataPromise;
     yield columnMetadata;
@@ -44,7 +43,7 @@ export class SimpleSnapshotQuery implements MSSQLSnapshotQuery {
     const request = this.transaction.request();
     const stream = request.toReadableStream();
 
-    request.query(`SELECT * FROM ${this.table.toQualifiedName()}`);
+    request.query(`SELECT * FROM ${this.qualifiedTableName}`);
 
     // MSSQL only streams one row at a time
     for await (const row of stream) {
@@ -84,8 +83,7 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
     MSSQLBaseType.BIGINT
   ];
 
-  static supports(table: SourceTable | MSSQLSourceTable): boolean {
-    const sourceTable = table instanceof MSSQLSourceTable ? table.sourceTable : table;
+  static supports(sourceTable: SourceTable): boolean {
     if (sourceTable.replicaIdColumns.length != 1) {
       return false;
     }
@@ -99,11 +97,12 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
 
   public constructor(
     private readonly transaction: sql.Transaction,
-    private readonly table: MSSQLSourceTable,
+    private readonly qualifiedTableName: string,
+    sourceTable: SourceTable,
     private readonly batchSize: number = 10_000,
     lastKeySerialized: Uint8Array | null
   ) {
-    this.key = table.sourceTable.replicaIdColumns[0];
+    this.key = sourceTable.replicaIdColumns[0];
 
     if (lastKeySerialized != null) {
       this.lastKey = this.deserializeKey(lastKeySerialized);
@@ -126,7 +125,7 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
       metadataRequest.on('recordset', resolve);
       metadataRequest.on('error', reject);
     });
-    metadataRequest.query(`SELECT TOP(0) * FROM ${this.table.toQualifiedName()}`);
+    metadataRequest.query(`SELECT TOP(0) * FROM ${this.qualifiedTableName}`);
 
     const columnMetadata: sql.IColumnMetadata = await metadataPromise;
 
@@ -142,7 +141,7 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
     const request = this.transaction.request();
     const stream = request.toReadableStream();
     if (this.lastKey == null) {
-      request.query(`SELECT TOP(${this.batchSize}) * FROM ${this.table.toQualifiedName()} ORDER BY ${escapedKeyName}`);
+      request.query(`SELECT TOP(${this.batchSize}) * FROM ${this.qualifiedTableName} ORDER BY ${escapedKeyName}`);
     } else {
       if (this.key.typeId == null) {
         throw new Error(`typeId required for primary key ${this.key.name}`);
@@ -150,7 +149,7 @@ export class BatchedSnapshotQuery implements MSSQLSnapshotQuery {
       request
         .input('lastKey', this.lastKey)
         .query(
-          `SELECT TOP(${this.batchSize}) * FROM ${this.table.toQualifiedName()} WHERE ${escapedKeyName} > @lastKey ORDER BY ${escapedKeyName}`
+          `SELECT TOP(${this.batchSize}) * FROM ${this.qualifiedTableName} WHERE ${escapedKeyName} > @lastKey ORDER BY ${escapedKeyName}`
         );
     }
 

@@ -10,7 +10,7 @@ import {
   GetQuerierOptions,
   PendingQueriers
 } from './index.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { AvailableTable, SqlTools } from './sql_filters.js';
 import { checkUnsupportedFeatures, isClauseError, sqliteBool } from './sql_support.js';
 import { TablePattern } from './TablePattern.js';
@@ -227,7 +227,7 @@ export class TableValuedFunctionSqlParameterQuery {
     return new Set<TablePattern>();
   }
 
-  tableSyncsParameters(_table: SourceTableInterface): boolean {
+  tableSyncsParameters(_table: SourceTableRef): boolean {
     return false;
   }
 

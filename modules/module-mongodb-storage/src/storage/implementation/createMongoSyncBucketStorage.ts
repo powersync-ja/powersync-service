@@ -1,7 +1,7 @@
 import { storage } from '@powersync/service-core';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
 import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './AbstractMongoSyncBucketStorage.js';
-import { MongoPersistedSyncRulesContent } from './MongoPersistedSyncRulesContent.js';
+import { MongoPersistedSyncRulesContentV1 } from './MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorageV1 } from './v1/MongoSyncBucketStorageV1.js';
 import { MongoSyncBucketStorageV3 } from './v3/MongoSyncBucketStorageV3.js';
 
@@ -12,7 +12,7 @@ export type { AbstractMongoSyncBucketStorage };
 export function createMongoSyncBucketStorage(
   factory: MongoBucketStorage,
   group_id: number,
-  sync_rules: MongoPersistedSyncRulesContent,
+  sync_rules: MongoPersistedSyncRulesContentV1,
   slot_name: string,
   writeCheckpointMode: storage.WriteCheckpointMode | undefined,
   options: MongoSyncBucketStorageOptions
