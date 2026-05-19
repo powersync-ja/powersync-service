@@ -52,12 +52,16 @@ function createFakeStorage(options?: {
 
     const table = new SourceTable({
       id: `${nextTableId++}`,
-      connectionTag: 'default',
+      ref: {
+        connectionTag: 'default',
+        schema: 'convex',
+        name
+      },
       objectId: name,
-      schema: 'convex',
-      name,
       replicaIdColumns: [{ name: '_id' }],
-      snapshotComplete: tableOptions?.snapshotComplete ?? false
+      snapshotComplete: tableOptions?.snapshotComplete ?? false,
+      bucketDataSources: [],
+      parameterLookupSources: []
     });
     if (tableOptions?.snapshotStatus) {
       table.snapshotStatus = {
@@ -130,12 +134,36 @@ function createFakeStorage(options?: {
     }
   };
 
+  const syncRules = {
+    getSourceTables: () => options?.sourcePatterns ?? [new TablePattern('convex', 'users')],
+    applyRowContext: (row: Record<string, unknown>) => row,
+    getMatchingSources: () => ({
+      bucketDataSources: [],
+      parameterLookupSources: []
+    }),
+    tableTriggersEvent: () => false
+  };
+
+  for (const sourceTable of tables.values()) {
+    sourceTable.syncData = true;
+    sourceTable.syncParameters = false;
+    sourceTable.syncEvent = false;
+  }
+
+  batch.resolveTables = vi.fn(async ({ source }: any) => {
+    const resolvedTable = getOrCreateTable(source.name);
+    resolvedTable.syncData = true;
+    resolvedTable.syncParameters = false;
+    resolvedTable.syncEvent = false;
+    return {
+      tables: [resolvedTable],
+      dropTables: []
+    };
+  });
+
   const storage = {
     group_id: 1,
-    getParsedSyncRules: () => ({
-      getSourceTables: () => options?.sourcePatterns ?? [new TablePattern('convex', 'users')],
-      applyRowContext: (row: Record<string, unknown>) => row
-    }),
+    getParsedSyncRules: () => syncRules,
     async getStatus() {
       return {
         active: true,
@@ -143,20 +171,18 @@ function createFakeStorage(options?: {
         checkpoint_lsn: options?.snapshotDone ? parseConvexLsn(CURSOR_100) : null,
         snapshot_lsn: options?.snapshotLsn ?? null
       };
-    },
+    }
+  };
+  Object.assign(storage, {
     clear: vi.fn(async () => undefined),
     populatePersistentChecksumCache: vi.fn(async () => ({ buckets: 0 })),
-    resolveTable: vi.fn(async ({ entity_descriptor }: any) => ({
-      table: getOrCreateTable(entity_descriptor.name),
-      dropTables: []
-    })),
     createWriter: vi.fn(async (_options: any) => batch),
     startBatch: vi.fn(async (_options: any, callback: (batch: any) => Promise<void>) => {
       await callback(batch);
       return { flushed_op: 1n };
     }),
     reportError: vi.fn(async () => undefined)
-  };
+  });
 
   return {
     storage,

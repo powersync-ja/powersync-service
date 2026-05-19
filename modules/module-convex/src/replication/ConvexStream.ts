@@ -202,8 +202,8 @@ export class ConvexStream {
         }
         lastTransactionTimestamp = transactionTimestamp;
 
-        const table = await this.getOrResolveTable(batch, tableName, nextCursor.toString());
-        if (table == null || !table.syncAny) {
+        const tables = await this.getOrResolveTables(batch, tableName, nextCursor.toString());
+        if (tables == null || tables.length == 0) {
           continue;
         }
 
@@ -220,16 +220,22 @@ export class ConvexStream {
           didMarkOldestUncommitedChange = true;
         }
 
-        const changed = await this.writeChange(batch, table, change);
-        if (!changed) {
-          continue;
+        let wroteChange = false;
+        for (const table of tables) {
+          if (!table.syncAny) {
+            continue;
+          }
+          const changed = await this.writeChange(batch, table, change);
+          wroteChange = wroteChange || changed;
         }
 
-        // Convex assigns one _ts commit timestamp to every write in a mutation.
-        // document_deltas may return multiple mutations in one page, so transaction
-        // metrics are counted by distinct _ts values, not by delta pages.
-        changesInPage += 1;
-        transactionTimestampsInPage.add(transactionTimestamp.toString());
+        if (wroteChange) {
+          // Convex assigns one _ts commit timestamp to every write in a mutation.
+          // document_deltas may return multiple mutations in one page, so transaction
+          // metrics are counted by distinct _ts values, not by delta pages.
+          changesInPage += 1;
+          transactionTimestampsInPage.add(transactionTimestamp.toString());
+        }
       }
 
       if (changesInPage > 0) {
@@ -472,12 +478,20 @@ export class ConvexStream {
   }
 
   private async resolveAllSourceTables(batch: storage.BucketStorageBatch): Promise<SourceTable[]> {
-    const sourceTables = this.syncRules.getSourceTables();
+    const sourceTablePatterns = this.syncRules.getSourceTables();
     const resolved: SourceTable[] = [];
+    const seenSourceTableIds = new Set<string>();
 
-    for (const tablePattern of sourceTables) {
+    for (const tablePattern of sourceTablePatterns) {
       const tables = await this.resolveQualifiedTableNames(batch, tablePattern);
-      resolved.push(...tables);
+      for (const table of tables) {
+        const id = `${table.id}`;
+        if (seenSourceTableIds.has(id)) {
+          continue;
+        }
+        seenSourceTableIds.add(id);
+        resolved.push(table);
+      }
     }
 
     return resolved;
@@ -503,49 +517,54 @@ export class ConvexStream {
 
     const resolved: SourceTable[] = [];
     for (const tableName of matchedTableNames) {
-      const table = await this.processTable(batch, {
+      const tables = await this.processTables(batch, {
+        connectionTag: this.connections.connectionTag,
         schema: this.defaultSchema,
         name: tableName,
         objectId: tableName,
         replicaIdColumns: [{ name: '_id' }]
       });
-      resolved.push(table);
+      resolved.push(...tables);
     }
 
     return resolved;
   }
 
-  private async getOrResolveTable(
+  private async getOrResolveTables(
     batch: storage.BucketStorageBatch,
     tableName: string,
     snapshotCursor: string
-  ): Promise<SourceTable | null> {
+  ): Promise<SourceTable[] | null> {
+    if (!this.isTableSelectedBySyncRules(tableName)) {
+      return null;
+    }
+
     const descriptor: SourceEntityDescriptor = {
       schema: this.defaultSchema,
+      connectionTag: this.connections.connectionTag,
       name: tableName,
       objectId: tableName,
       replicaIdColumns: [{ name: '_id' }]
     };
 
-    const existing = this.relationCache.get(descriptor);
+    const existing = this.relationCache.getAll(descriptor);
     if (existing) {
       return existing;
     }
 
-    if (!this.isTableSelectedBySyncRules(tableName)) {
-      return null;
-    }
-
-    let table = await this.processTable(batch, descriptor);
-    if (!table.snapshotComplete && table.syncAny) {
+    let tables = await this.processTables(batch, descriptor);
+    const snapshotCandidates = tables.filter((table) => !table.snapshotComplete && table.syncAny);
+    if (snapshotCandidates.length > 0) {
       this.logger.info(
-        `New table discovered while streaming: [${table.qualifiedName}], applying deltas without snapshot`
+        `New table discovered while streaming: [${descriptor.schema}.${descriptor.name}], applying deltas without snapshot`
       );
-      [table] = await batch.markTableSnapshotDone([table], parseConvexLsn(snapshotCursor));
-      this.relationCache.update(table);
+      const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, parseConvexLsn(snapshotCursor));
+      const doneTableById = new Map(doneTables.map((table) => [table.id, table]));
+      tables = tables.map((table) => doneTableById.get(table.id) ?? table);
+      this.relationCache.updateAll(descriptor, tables);
     }
 
-    return table;
+    return tables;
   }
 
   private isTableSelectedBySyncRules(tableName: string): boolean {
@@ -569,24 +588,21 @@ export class ConvexStream {
     return false;
   }
 
-  private async processTable(
+  private async processTables(
     batch: storage.BucketStorageBatch,
     descriptor: SourceEntityDescriptor
-  ): Promise<SourceTable> {
-    const resolved = await this.storage.resolveTable({
-      group_id: this.storage.group_id,
+  ): Promise<SourceTable[]> {
+    const resolved = await batch.resolveTables({
       connection_id: Number.parseInt(this.connections.connectionId) || 1,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      sync_rules: this.syncRules
+      source: descriptor
     });
 
     if (resolved.dropTables.length > 0) {
       await batch.drop(resolved.dropTables);
     }
 
-    this.relationCache.update(resolved.table);
-    return resolved.table;
+    this.relationCache.updateAll(descriptor, resolved.tables);
+    return resolved.tables;
   }
 
   private async resolveTablePattern(tablePattern: TablePattern): Promise<string[]> {
@@ -657,7 +673,8 @@ export class ConvexStream {
 }
 
 function getCacheIdentifier(source: SourceEntityDescriptor | SourceTable): string {
-  return `${source.schema}.${source.name}`;
+  const connectionTag = source instanceof SourceTable ? source.ref.connectionTag : source.connectionTag;
+  return `${connectionTag}.${source.schema}.${source.name}`;
 }
 
 function readTableName(change: ConvexRawDocument): string | null {

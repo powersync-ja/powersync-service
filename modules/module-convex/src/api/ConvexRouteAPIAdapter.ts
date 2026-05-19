@@ -1,10 +1,4 @@
-import {
-  api,
-  ParseSyncRulesOptions,
-  ReplicationHeadCallback,
-  ReplicationLagOptions,
-  SourceTable
-} from '@powersync/service-core';
+import { api, ParseSyncRulesOptions, ReplicationHeadCallback, ReplicationLagOptions } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
@@ -201,23 +195,19 @@ function createTableInfo(options: {
   const tableName =
     options.tableName ??
     (options.tablePattern.isWildcard ? options.tablePattern.tablePrefix : options.tablePattern.name);
-  const sourceTable = new SourceTable({
-    id: tableName,
+  const ref = {
     connectionTag: options.connectionTag,
-    objectId: tableName,
     schema: options.tablePattern.schema,
-    name: tableName,
-    replicaIdColumns: [{ name: '_id' }],
-    snapshotComplete: true
-  });
+    name: tableName
+  } satisfies sync_rules.SourceTableRef;
 
   return {
     schema: options.tablePattern.schema,
     name: tableName,
     pattern: options.tablePattern.isWildcard ? options.tablePattern.tablePattern : undefined,
     replication_id: ['_id'],
-    data_queries: options.syncRules.tableSyncsData(sourceTable),
-    parameter_queries: options.syncRules.tableSyncsParameters(sourceTable),
+    data_queries: options.syncRules.tableSyncsData(ref),
+    parameter_queries: options.syncRules.tableSyncsParameters(ref),
     errors: options.errors ?? []
   };
 }
