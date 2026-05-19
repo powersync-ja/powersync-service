@@ -167,6 +167,8 @@ export abstract class MongoBucketBatch
 
   abstract markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
+  abstract markSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+
   abstract markTableSnapshotRequired(table: storage.SourceTable): Promise<void>;
 
   abstract markTableSnapshotDone(

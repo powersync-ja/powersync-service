@@ -296,7 +296,7 @@ export class MongoSnapshotter {
     if (this.queue.size != 0) {
       return;
     }
-    await writer.markAllSnapshotDone(checkpoint);
+    await writer.markSnapshotDone(checkpoint);
     // KLUDGE: We need to create an extra checkpoint _after_ marking the snapshot done, to fix
     // issues with order of processing commits(). This is picked up by tests on postgres storage,
     // the issue may be specific to that storage engine.

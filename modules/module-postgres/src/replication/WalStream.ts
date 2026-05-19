@@ -604,7 +604,7 @@ WHERE  oid = $1::regclass`,
         const rs = await rquery(db, `select pg_current_wal_lsn() as lsn`);
         const noCommitBefore = rs.rows[0].decodeWithoutCustomTypes(0);
 
-        await batch.markAllSnapshotDone(noCommitBefore);
+        await batch.markSnapshotDone(noCommitBefore);
         await batch.commit(ZERO_LSN);
       }
     );

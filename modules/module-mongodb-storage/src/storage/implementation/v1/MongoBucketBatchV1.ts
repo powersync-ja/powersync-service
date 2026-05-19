@@ -318,6 +318,24 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    await this.db.sync_rules.updateOne(
+      {
+        _id: this.group_id
+      },
+      {
+        $set: {
+          snapshot_done: true,
+          last_keepalive_ts: new Date()
+        },
+        $max: {
+          no_checkpoint_before: no_checkpoint_before_lsn
+        }
+      },
+      { session: this.session }
+    );
+  }
+
+  async markSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
       const count = await this.db.commonSourceTables(this.group_id).countDocuments(
@@ -333,21 +351,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         );
       }
 
-      await this.db.sync_rules.updateOne(
-        {
-          _id: this.group_id
-        },
-        {
-          $set: {
-            snapshot_done: true,
-            last_keepalive_ts: new Date()
-          },
-          $max: {
-            no_checkpoint_before: no_checkpoint_before_lsn
-          }
-        },
-        { session: this.session }
-      );
+      await this.markAllSnapshotDone(no_checkpoint_before_lsn);
     });
   }
 

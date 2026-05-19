@@ -97,7 +97,23 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
 
   markTableSnapshotDone(tables: SourceTable[], no_checkpoint_before_lsn?: string): Promise<SourceTable[]>;
   markTableSnapshotRequired(table: SourceTable): Promise<void>;
+
+  /**
+   * Mark the full replication snapshot as done without validating individual source table snapshot state.
+   *
+   * This is primarily intended for storage tests and setup helpers that manually construct storage state.
+   * Replicators should use `markSnapshotDone()` instead, because that validates that all known source tables
+   * have completed snapshotting before allowing checkpoints to be unblocked.
+   */
   markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+
+  /**
+   * Mark the full replication snapshot as done after validating that all known source tables have completed snapshotting.
+   *
+   * Replicators should use this method when completing an initial snapshot. The validation prevents races where
+   * new source tables are marked as requiring a snapshot while global snapshot finalization is running.
+   */
+  markSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 

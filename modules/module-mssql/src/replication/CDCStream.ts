@@ -535,7 +535,7 @@ export class CDCStream {
         // This will not create a consistent checkpoint yet, but will persist the op.
         // Actual checkpoint will be created when streaming replication caught up.
         const postSnapshotLSN = await getLatestLSN(this.connections);
-        await batch.markAllSnapshotDone(postSnapshotLSN.toString());
+        await batch.markSnapshotDone(postSnapshotLSN.toString());
         await batch.commit(snapshotLSN!);
 
         if (tablesToSnapshot.length > 0) {

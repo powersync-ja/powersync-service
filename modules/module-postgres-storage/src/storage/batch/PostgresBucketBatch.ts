@@ -686,6 +686,27 @@ export class PostgresBucketBatch
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
     await this.db.transaction(async (db) => {
+      await db.sql`
+        UPDATE sync_rules
+        SET
+          snapshot_done = TRUE,
+          last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
+          no_checkpoint_before = CASE
+            WHEN no_checkpoint_before IS NULL
+            OR no_checkpoint_before < ${{ type: 'varchar', value: no_checkpoint_before_lsn }} THEN ${{
+          type: 'varchar',
+          value: no_checkpoint_before_lsn
+        }}
+            ELSE no_checkpoint_before
+          END
+        WHERE
+          id = ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    });
+  }
+
+  async markSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    await this.db.transaction(async (db) => {
       const snapshotRequiredCount = await db.sql`
         SELECT
           COUNT(*) AS count
