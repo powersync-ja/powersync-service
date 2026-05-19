@@ -1,10 +1,5 @@
 import { storage } from '@powersync/service-core';
-import {
-  ParameterIndexLookupCreator,
-  SourceTableInterface,
-  SqliteRow,
-  TablePattern
-} from '@powersync/service-sync-rules';
+import { ParameterIndexLookupCreator, SourceTableRef, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { bucketRequest } from '../test-utils/general-utils.js';
 
@@ -36,10 +31,10 @@ const EMPTY_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
   getSourceTables(): Set<TablePattern> {
     return new Set();
   },
-  evaluateParameterRow(_sourceTable: SourceTableInterface, _row: SqliteRow) {
+  evaluateParameterRow(_sourceTable: SourceTableRef, _row: SqliteRow) {
     return [];
   },
-  tableSyncsParameters(_table: SourceTableInterface): boolean {
+  tableSyncsParameters(_table: SourceTableRef): boolean {
     return false;
   }
 };

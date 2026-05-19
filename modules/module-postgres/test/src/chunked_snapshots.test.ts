@@ -154,6 +154,7 @@ function defineBatchTests({ factory, storageVersion }: StorageVersionTestContext
     const reduced = reduceBucket(data);
 
     const movedRow = reduced.find((row) => row.object_id == String(options.moveToJs));
+    expect(movedRow).not.toBeUndefined();
     expect(movedRow?.data).toEqual(JSON.stringify({ id: options.moveToJs, description: largeDescription }));
 
     expect(reduced.length).toEqual(2001);

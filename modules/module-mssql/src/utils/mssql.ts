@@ -308,7 +308,7 @@ export async function getDebugTableInfo(options: GetDebugTableInfoOptions): Prom
   }
 
   const idColumns = idColumnsResult?.columns ?? [];
-  const sourceTable: sync_rules.SourceTableInterface = {
+  const sourceTable: sync_rules.SourceTableRef = {
     connectionTag: connectionManager.connectionTag,
     schema: schema,
     name: table.name

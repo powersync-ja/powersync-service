@@ -1,4 +1,4 @@
-import { GetIntanceOptions, storage } from '@powersync/service-core';
+import { GetIntanceOptions, LEGACY_STORAGE_VERSION, storage } from '@powersync/service-core';
 
 import { DO_NOT_LOG, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { v4 as uuid } from 'uuid';
@@ -6,14 +6,22 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
+import { ObjectId } from 'bson';
 import { generateSlotName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
-import { getMongoStorageConfig, SyncRuleDocument } from './implementation/models.js';
+import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
-import { MongoPersistedSyncRulesContent } from './implementation/MongoPersistedSyncRulesContent.js';
+import {
+  MongoPersistedSyncRulesContentV1,
+  MongoPersistedSyncRulesContentV3
+} from './implementation/MongoPersistedSyncRulesContent.js';
+import { syncRuleStateUpdatePipeline } from './implementation/SyncRuleStateUpdate.js';
+import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
+import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
+import { ReplicationStreamDocumentV3, SyncConfigDefinition } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
@@ -54,11 +62,11 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
     }
-    const storageConfig = (syncRules as MongoPersistedSyncRulesContent).getStorageConfig();
+    const storageConfig = (syncRules as MongoPersistedSyncRulesContentV1).getStorageConfig();
     const storage = createMongoSyncBucketStorage(
       this,
       id,
-      syncRules as MongoPersistedSyncRulesContent,
+      syncRules as MongoPersistedSyncRulesContentV1,
       slot_name,
       undefined,
       {
@@ -110,11 +118,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           _id: next.id,
           state: storage.SyncRuleState.PROCESSING
         },
-        {
-          $set: {
-            state: storage.SyncRuleState.STOP
-          }
-        }
+        syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP)
       );
       await this.db.notifyCheckpoint();
     } else if (next == null && active?.id == sync_rules_group_id) {
@@ -130,11 +134,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           _id: active.id,
           state: storage.SyncRuleState.ACTIVE
         },
-        {
-          $set: {
-            state: storage.SyncRuleState.ERRORED
-          }
-        }
+        syncRuleStateUpdatePipeline(storage.SyncRuleState.ERRORED)
       );
       await this.db.notifyCheckpoint();
     } else if (next != null && active?.id == sync_rules_group_id) {
@@ -145,30 +145,30 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           _id: active.id,
           state: storage.SyncRuleState.ACTIVE
         },
-        {
-          $set: {
-            state: storage.SyncRuleState.ERRORED
-          }
-        }
+        syncRuleStateUpdatePipeline(storage.SyncRuleState.ERRORED)
       );
       await this.db.notifyCheckpoint();
     }
   }
 
-  async updateSyncRules(options: storage.UpdateSyncRulesOptions): Promise<MongoPersistedSyncRulesContent> {
-    const storageVersion =
-      options.storageVersion ?? options.config.parsed.config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
-    const storageConfig = getMongoStorageConfig(storageVersion);
+  private async updateSyncRulesV3(
+    options: storage.UpdateSyncRulesOptions,
+    storageVersion: number,
+    storageConfig: StorageConfig
+  ): Promise<MongoPersistedSyncRulesContentV3> {
+    let rules: MongoPersistedSyncRulesContentV3 | undefined = undefined;
+    const versioned = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
 
-    let rules: MongoPersistedSyncRulesContent | undefined = undefined;
+    const session = this.session;
 
-    await this.session.withTransaction(async () => {
+    await session.withTransaction(async () => {
       // Only have a single replication stream with PROCESSING.
       await this.db.sync_rules.updateMany(
         {
           state: storage.SyncRuleState.PROCESSING
         },
-        { $set: { state: storage.SyncRuleState.STOP } }
+        syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
+        { session }
       );
 
       const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
@@ -182,14 +182,107 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         },
         {
           upsert: true,
-          returnDocument: 'after'
+          returnDocument: 'after',
+          session
         }
       );
 
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
-      const doc: SyncRuleDocument = {
+      const mapping = BucketDefinitionMapping.fromParsedSyncRules(options.config.parsed);
+
+      const syncConfigDoc: SyncConfigDefinition = {
+        _id: new ObjectId(),
+        replication_stream_id: id,
+        created_at: new Date(),
+        storage_version: storageVersion,
+        content: options.config.yaml,
+        serialized_plan: options.config.plan,
+        rule_mapping: mapping.serialize()
+      };
+      await versioned.syncConfigDefinitions.insertOne(syncConfigDoc, { session });
+
+      const doc: ReplicationStreamDocumentV3 = {
+        _id: id,
+        storage_version: storageVersion,
+        sync_configs: [
+          {
+            _id: syncConfigDoc._id,
+            state: storage.SyncRuleState.PROCESSING,
+            keepalive_op: null,
+            last_checkpoint: null,
+            last_checkpoint_lsn: null,
+            no_checkpoint_before: null,
+            snapshot_done: false
+          }
+        ],
+        snapshot_lsn: undefined,
+        state: storage.SyncRuleState.PROCESSING,
+        slot_name: slot_name,
+        last_checkpoint_ts: null,
+        last_fatal_error: null,
+        last_fatal_error_ts: null,
+        last_keepalive_ts: null
+      };
+
+      await this.db.sync_rules.insertOne(doc, { session });
+      await this.db.notifyCheckpoint();
+      rules = new MongoPersistedSyncRulesContentV3(this.db, doc, syncConfigDoc);
+      if (options.lock) {
+        // The lock is persisted on rules.current_lock
+        await rules.lock(session);
+      }
+    });
+
+    return rules!;
+  }
+
+  async updateSyncRules(
+    options: storage.UpdateSyncRulesOptions
+  ): Promise<MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3> {
+    const storageVersion =
+      options.storageVersion ?? options.config.parsed.config.storageVersion ?? storage.CURRENT_STORAGE_VERSION;
+
+    const storageConfig = getMongoStorageConfig(storageVersion);
+    if (storageConfig.incrementalReprocessing) {
+      return this.updateSyncRulesV3(options, storageVersion, storageConfig);
+    }
+
+    let rules: MongoPersistedSyncRulesContentV1 | undefined = undefined;
+
+    const session = this.session;
+
+    await session.withTransaction(async () => {
+      // Only have a single replication stream with PROCESSING.
+      await this.db.sync_rules.updateMany(
+        {
+          state: storage.SyncRuleState.PROCESSING
+        },
+        syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
+        { session }
+      );
+
+      const id_doc = await this.db.op_id_sequence.findOneAndUpdate(
+        {
+          _id: 'sync_rules'
+        },
+        {
+          $inc: {
+            op_id: 1n
+          }
+        },
+        {
+          upsert: true,
+          returnDocument: 'after',
+          session
+        }
+      );
+
+      const id = Number(id_doc!.op_id);
+      const slot_name = generateSlotName(this.slot_name_prefix, id);
+
+      const doc: SyncRuleDocumentV1 = {
         _id: id,
         storage_version: storageVersion,
         content: options.config.yaml,
@@ -207,47 +300,68 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         last_fatal_error_ts: null,
         last_keepalive_ts: null
       };
-      if (storageConfig.incrementalReprocessing) {
-        const parsed = options.config.parsed;
-        doc.rule_mapping = BucketDefinitionMapping.fromParsedSyncRules(parsed).serialize();
-      }
-      await this.db.sync_rules.insertOne(doc);
+
+      await this.db.sync_rules.insertOne(doc, { session });
       await this.db.notifyCheckpoint();
-      rules = new MongoPersistedSyncRulesContent(this.db, doc);
+      rules = new MongoPersistedSyncRulesContentV1(this.db, doc);
       if (options.lock) {
-        const lock = await rules.lock();
+        // The lock is persisted on rules.current_lock
+        await rules.lock(session);
       }
     });
 
     return rules!;
   }
 
-  async getActiveSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
+  async getActiveSyncRulesContent(): Promise<
+    MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 | null
+  > {
     const doc = await this.db.sync_rules.findOne(
       {
         state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
       },
       { sort: { _id: -1 }, limit: 1 }
     );
+
+    return this.getSyncRulesContent(doc, [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED]);
+  }
+
+  private async getSyncRulesContent(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
     if (doc == null) {
       return null;
     }
+    const storageConfig = getMongoStorageConfig(doc.storage_version ?? LEGACY_STORAGE_VERSION);
 
-    return new MongoPersistedSyncRulesContent(this.db, doc);
+    if (storageConfig.incrementalReprocessing) {
+      const v3 = doc as ReplicationStreamDocumentV3;
+      const active = v3.sync_configs.find((c) => stateFilter.includes(c.state));
+      if (active == null) {
+        return null;
+      }
+
+      // TODO: cache the config. It could specifically help for the main replication loop
+      // that checks for active replication streams.
+      // It is not a major bottleneck though, since it only runs once every couple of seconds at most.
+      const db = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
+      const syncConfigDoc = await db.syncConfigDefinitions.findOne({ _id: active._id });
+      if (syncConfigDoc == null) {
+        return null;
+      }
+      return new MongoPersistedSyncRulesContentV3(this.db, v3, syncConfigDoc);
+    }
+
+    return new MongoPersistedSyncRulesContentV1(this.db, doc as SyncRuleDocumentV1);
   }
 
-  async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContent | null> {
+  async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 | null> {
     const doc = await this.db.sync_rules.findOne(
       {
         state: storage.SyncRuleState.PROCESSING
       },
       { sort: { _id: -1 }, limit: 1 }
     );
-    if (doc == null) {
-      return null;
-    }
 
-    return new MongoPersistedSyncRulesContent(this.db, doc);
+    return this.getSyncRulesContent(doc, [storage.SyncRuleState.PROCESSING]);
   }
 
   async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
@@ -257,9 +371,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       })
       .toArray();
 
-    return docs.map((doc) => {
-      return new MongoPersistedSyncRulesContent(this.db, doc);
-    });
+    return (
+      await Promise.all(
+        docs.map((doc) => {
+          return this.getSyncRulesContent(doc, [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE]);
+        })
+      )
+    ).filter((r) => r != null);
   }
 
   async getStoppedSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
@@ -269,9 +387,13 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       })
       .toArray();
 
-    return docs.map((doc) => {
-      return new MongoPersistedSyncRulesContent(this.db, doc);
-    });
+    return (
+      await Promise.all(
+        docs.map((doc) => {
+          return this.getSyncRulesContent(doc, [storage.SyncRuleState.STOP]);
+        })
+      )
+    ).filter((d) => d != null);
   }
 
   async getActiveStorage(): Promise<MongoSyncBucketStorage | null> {

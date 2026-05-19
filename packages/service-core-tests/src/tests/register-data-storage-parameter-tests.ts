@@ -786,7 +786,6 @@ streams:
         return parameter_sets;
       }
     });
-    console.log('whatabuckets', buckets);
     expect(buckets).toHaveLength(1);
     expect(buckets).toMatchObject([
       {
@@ -999,8 +998,8 @@ streams:
     const syncConfig = parsedSyncRules.sync_rules.config;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const paramATable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config);
-    const paramBTable = await test_utils.resolveTestTable(writer, 'param_b', ['id'], config);
+    const paramATable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
+    const paramBTable = await test_utils.resolveTestTable(writer, 'param_b', ['id'], config, 2);
     const replicaId = test_utils.rid('id');
 
     // Insert the same row into param_a and param_b
@@ -1095,8 +1094,8 @@ streams:
     const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-    const tableB = await test_utils.resolveTestTable(writer, 'b', ['id'], config);
-    const tableC = await test_utils.resolveTestTable(writer, 'c', ['id'], config);
+    const tableB = await test_utils.resolveTestTable(writer, 'b', ['id'], config, 1);
+    const tableC = await test_utils.resolveTestTable(writer, 'c', ['id'], config, 2);
 
     await writer.markAllSnapshotDone('1/1');
     await writer.save({

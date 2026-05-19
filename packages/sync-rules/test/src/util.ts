@@ -14,12 +14,12 @@ import {
   RequestParameters,
   ScopedParameterLookup,
   SourceSchema,
-  SourceTableInterface,
+  SourceTableRef,
   StaticSchema,
   TablePattern
 } from '../../src/index.js';
 
-export class TestSourceTable implements SourceTableInterface {
+export class TestSourceTable implements SourceTableRef {
   readonly connectionTag = DEFAULT_TAG;
   readonly schema = 'test_schema';
 
@@ -100,7 +100,7 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
   evaluateRow(options) {
     throw new Error('Function not implemented.');
   },
-  tableSyncsData: function (table: SourceTableInterface): boolean {
+  tableSyncsData: function (table: SourceTableRef): boolean {
     throw new Error('Function not implemented.');
   },
   resolveResultSets: function (schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {

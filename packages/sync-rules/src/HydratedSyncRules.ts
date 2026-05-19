@@ -7,6 +7,7 @@ import {
   EvaluationError,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
+  HydrationState,
   isEvaluatedParameters,
   isEvaluatedRow,
   isEvaluationError,
@@ -22,8 +23,13 @@ import {
   SqliteValue,
   SyncConfig
 } from './index.js';
-import { SourceTableInterface } from './SourceTableInterface.js';
+import { SourceTableRef } from './SourceTableRef.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
+
+export interface MatchingSources {
+  bucketDataSources: BucketDataSource[];
+  parameterLookupSources: ParameterIndexLookupCreator[];
+}
 
 /**
  * Hydrated sync config is sync config definitions along with persisted state. Currently, the persisted state
@@ -38,6 +44,12 @@ export class HydratedSyncRules {
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
+  private readonly hydrationState: HydrationState;
+  private mergedEvaluatorCache = new WeakMap<BucketDataSource[], { evaluateRow: ScopedEvaluateRow }>();
+  private mergedParameterIndexCreatorCache = new WeakMap<
+    ParameterIndexLookupCreator[],
+    { evaluateParameterRow: ScopedEvaluateParameterRow }
+  >();
 
   constructor(params: {
     definition: SyncConfig;
@@ -48,6 +60,7 @@ export class HydratedSyncRules {
     compatibility?: CompatibilityContext;
   }) {
     const hydrationState = params.createParams.hydrationState;
+    this.hydrationState = hydrationState;
 
     this.definition = params.definition;
     this.innerEvaluateRow = mergeDataSources(hydrationState, params.bucketDataSources).evaluateRow;
@@ -72,16 +85,30 @@ export class HydratedSyncRules {
     return this.definition.getSourceTables();
   }
 
-  tableTriggersEvent(table: SourceTableInterface): boolean {
+  tableTriggersEvent(table: SourceTableRef): boolean {
     return this.definition.tableTriggersEvent(table);
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     return this.definition.tableSyncsData(table);
   }
 
-  tableSyncsParameters(table: SourceTableInterface): boolean {
+  tableSyncsParameters(table: SourceTableRef): boolean {
     return this.definition.tableSyncsParameters(table);
+  }
+
+  getMatchingSources(source: SourceTableRef): MatchingSources {
+    const table: SourceTableRef = {
+      connectionTag: source.connectionTag,
+      schema: source.schema,
+      name: source.name
+    };
+    return {
+      bucketDataSources: this.definition.bucketDataSources.filter((source) => source.tableSyncsData(table)),
+      parameterLookupSources: this.definition.bucketParameterLookupSources.filter((source) =>
+        source.tableSyncsParameters(table)
+      )
+    };
   }
 
   applyRowContext<MaybeToast extends undefined = never>(
@@ -102,7 +129,19 @@ export class HydratedSyncRules {
   }
 
   evaluateRowWithErrors(options: EvaluateRowOptions): { results: EvaluatedRow[]; errors: EvaluationError[] } {
-    const rawResults: EvaluationResult[] = this.innerEvaluateRow(options);
+    let rawResults: EvaluationResult[];
+    if (options.bucketDataSources != null) {
+      // This array is generally expected to be stable, so makes for a good cache key.
+      // It is not a strict requirement to use stable arrays, but it can help for performance.
+      let merged = this.mergedEvaluatorCache.get(options.bucketDataSources);
+      if (merged == null) {
+        merged = mergeDataSources(this.hydrationState, options.bucketDataSources);
+        this.mergedEvaluatorCache.set(options.bucketDataSources, merged);
+      }
+      rawResults = merged.evaluateRow(options);
+    } else {
+      rawResults = this.innerEvaluateRow(options);
+    }
     const results = rawResults.filter(isEvaluatedRow) as EvaluatedRow[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
 
@@ -112,8 +151,12 @@ export class HydratedSyncRules {
   /**
    * Throws errors.
    */
-  evaluateParameterRow(table: SourceTableInterface, row: SqliteRow): EvaluatedParameters[] {
-    const { results, errors } = this.evaluateParameterRowWithErrors(table, row);
+  evaluateParameterRow(
+    table: SourceTableRef,
+    row: SqliteRow,
+    options?: { parameterLookupSources?: ParameterIndexLookupCreator[] }
+  ): EvaluatedParameters[] {
+    const { results, errors } = this.evaluateParameterRowWithErrors(table, row, options);
     if (errors.length > 0) {
       throw new Error(errors[0].error);
     }
@@ -121,10 +164,23 @@ export class HydratedSyncRules {
   }
 
   evaluateParameterRowWithErrors(
-    table: SourceTableInterface,
-    row: SqliteRow
+    table: SourceTableRef,
+    row: SqliteRow,
+    options?: { parameterLookupSources?: ParameterIndexLookupCreator[] }
   ): { results: EvaluatedParameters[]; errors: EvaluationError[] } {
-    const rawResults: EvaluatedParametersResult[] = this.innerEvaluateParameterRow(table, row);
+    let rawResults: EvaluatedParametersResult[];
+    if (options?.parameterLookupSources != null) {
+      // This array is generally expected to be stable, so makes for a good cache key.
+      // It is not a strict requirement to use stable arrays, but it can help for performance.
+      let merged = this.mergedParameterIndexCreatorCache.get(options.parameterLookupSources);
+      if (merged == null) {
+        merged = mergeParameterIndexLookupCreators(this.hydrationState, options.parameterLookupSources);
+        this.mergedParameterIndexCreatorCache.set(options.parameterLookupSources, merged);
+      }
+      rawResults = merged.evaluateParameterRow(table, row);
+    } else {
+      rawResults = this.innerEvaluateParameterRow(table, row);
+    }
     const results = rawResults.filter(isEvaluatedParameters) as EvaluatedParameters[];
     const errors = rawResults.filter(isEvaluationError) as EvaluationError[];
     return { results, errors };

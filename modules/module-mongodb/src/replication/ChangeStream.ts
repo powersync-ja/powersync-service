@@ -187,14 +187,14 @@ export class ChangeStream {
     }
 
     for (let collection of collections) {
-      const table = await this.handleRelation(
+      const tables = await this.handleRelation(
         batch,
-        getMongoRelation({ db: schema, coll: collection.name }),
+        getMongoRelation({ db: schema, coll: collection.name }, this.connections.connectionTag),
         // This is done as part of the initial setup - snapshot is handled elsewhere
         { snapshot: false, collectionInfo: collection }
       );
 
-      result.push(table);
+      result.push(...tables);
     }
 
     return result;
@@ -548,12 +548,12 @@ export class ChangeStream {
     await nextChunkPromise;
   }
 
-  private async getRelation(
+  private async getRelations(
     batch: storage.BucketStorageBatch,
     descriptor: SourceEntityDescriptor,
     options: { snapshot: boolean }
-  ): Promise<SourceTable> {
-    const existing = this.relationCache.get(descriptor);
+  ): Promise<SourceTable[]> {
+    const existing = this.relationCache.getAll(descriptor);
     if (existing != null) {
       return existing;
     }
@@ -612,14 +612,11 @@ export class ChangeStream {
     }
 
     const snapshot = options.snapshot;
-    const result = await this.storage.resolveTable({
-      group_id: this.group_id,
+    const result = await batch.resolveTables({
       connection_id: this.connection_id,
-      connection_tag: this.connections.connectionTag,
-      entity_descriptor: descriptor,
-      sync_rules: this.sync_rules
+      source: descriptor
     });
-    this.relationCache.update(result.table);
+    this.relationCache.updateAll(descriptor, result.tables);
 
     // Drop conflicting collections.
     // This is generally not expected for MongoDB source dbs, so we log an error.
@@ -634,20 +631,25 @@ export class ChangeStream {
     // 1. Snapshot is requested (false for initial snapshot, since that process handles it elsewhere)
     // 2. Snapshot is not already done, AND:
     // 3. The table is used in sync config.
-    const shouldSnapshot = snapshot && !result.table.snapshotComplete && result.table.syncAny;
-    if (shouldSnapshot) {
+    const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
+    if (snapshotCandidates.length > 0) {
       this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
-      // Truncate this table, in case a previous snapshot was interrupted.
-      await batch.truncate([result.table]);
+      // Truncate tables, in case a previous snapshot was interrupted.
+      await batch.truncate(snapshotCandidates);
 
-      await this.snapshotTable(batch, result.table);
+      for (const tableToSnapshot of snapshotCandidates) {
+        await this.snapshotTable(batch, tableToSnapshot);
+      }
       const no_checkpoint_before_lsn = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
-      const [table] = await batch.markTableSnapshotDone([result.table], no_checkpoint_before_lsn);
-      return table;
+      const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, no_checkpoint_before_lsn);
+      const snapshotDoneById = new Map(doneTables.map((table) => [table.id, table]));
+      const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
+      this.relationCache.updateAll(descriptor, tables);
+      return tables;
     }
 
-    return result.table;
+    return result.tables;
   }
 
   async writeChange(
@@ -1071,15 +1073,16 @@ export class ChangeStream {
                 waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
               }
 
-              const rel = getMongoRelation(changeDocument.ns);
-              const table = await this.getRelation(batch, rel, {
+              const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
+              const tables = await this.getRelations(batch, rel, {
                 // In most cases, we should not need to snapshot this. But if this is the first time we see the collection
                 // for whatever reason, then we do need to snapshot it.
                 // This may result in some duplicate operations when a collection is created for the first time after
                 // sync config was deployed.
                 snapshot: true
               });
-              if (table.syncAny) {
+              const tablesToReplicate = tables.filter((table) => table.syncAny);
+              if (tablesToReplicate.length > 0) {
                 this.replicationLag.trackUncommittedChange(
                   changeDocument.clusterTime == null ? null : timestampToDate(changeDocument.clusterTime)
                 );
@@ -1094,27 +1097,31 @@ export class ChangeStream {
                   transactionsReplicatedMetric.add(1);
                 }
 
-                await this.writeChange(batch, table, changeDocument);
+                for (const table of tablesToReplicate) {
+                  await this.writeChange(batch, table, changeDocument);
+                }
               }
             } else if (changeDocument.operationType == 'drop') {
-              const rel = getMongoRelation(changeDocument.ns);
-              const table = await this.getRelation(batch, rel, {
+              const rel = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
+              const tables = await this.getRelations(batch, rel, {
                 // We're "dropping" this collection, so never snapshot it.
                 snapshot: false
               });
-              if (table.syncAny) {
-                await batch.drop([table]);
-                this.relationCache.delete(table);
+              const tablesToDrop = tables.filter((table) => table.syncAny);
+              if (tablesToDrop.length > 0) {
+                await batch.drop(tablesToDrop);
+                this.relationCache.delete(rel);
               }
             } else if (changeDocument.operationType == 'rename') {
-              const relFrom = getMongoRelation(changeDocument.ns);
-              const relTo = getMongoRelation(changeDocument.to);
-              const tableFrom = await this.getRelation(batch, relFrom, {
+              const relFrom = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
+              const relTo = getMongoRelation(changeDocument.to, this.connections.connectionTag);
+              const tablesFrom = await this.getRelations(batch, relFrom, {
                 // We're "dropping" this collection, so never snapshot it.
                 snapshot: false
               });
-              if (tableFrom.syncAny) {
-                await batch.drop([tableFrom]);
+              const tablesToDrop = tablesFrom.filter((table) => table.syncAny);
+              if (tablesToDrop.length > 0) {
+                await batch.drop(tablesToDrop);
                 this.relationCache.delete(relFrom);
               }
               // Here we do need to snapshot the new table

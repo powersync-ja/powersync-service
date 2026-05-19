@@ -1,7 +1,7 @@
 import { BucketDataSource } from '../../BucketSource.js';
 import { idFromData } from '../../cast.js';
 import { ColumnDefinition } from '../../ExpressionType.js';
-import { SourceTableInterface } from '../../SourceTableInterface.js';
+import { SourceTableRef } from '../../SourceTableRef.js';
 import { TablePattern } from '../../TablePattern.js';
 import {
   EvaluateRowOptions,
@@ -58,7 +58,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     return this.sourceTables;
   }
 
-  private *sourcesForTable(table: SourceTableInterface) {
+  private *sourcesForTable(table: SourceTableRef) {
     for (const source of this.sources) {
       if (source.tablePattern.matches(table)) {
         yield source;
@@ -66,7 +66,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     }
   }
 
-  tableSyncsData(table: SourceTableInterface): boolean {
+  tableSyncsData(table: SourceTableRef): boolean {
     return !this.sourcesForTable(table).next().done;
   }
 

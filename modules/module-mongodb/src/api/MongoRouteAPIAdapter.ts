@@ -1,6 +1,6 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
-import { api, ParseSyncRulesOptions, ReplicationHeadCallback, SourceTable } from '@powersync/service-core';
+import { api, ParseSyncRulesOptions, ReplicationHeadCallback } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 
@@ -137,23 +137,19 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
       if (tablePattern.isWildcard) {
         patternResult.tables = [];
         for (let collection of collections) {
-          const sourceTable = new SourceTable({
-            id: '', // not used
+          const ref: sync_rules.SourceTableRef = {
             connectionTag: this.connectionTag,
-            objectId: collection.name,
-            schema: schema,
-            name: collection.name,
-            replicaIdColumns: [],
-            snapshotComplete: true
-          });
+            schema,
+            name: collection.name
+          };
           let errors: service_types.ReplicationError[] = [];
           if (collection.type == 'view') {
             errors.push({ level: 'warning', message: `Collection ${schema}.${tablePattern.name} is a view` });
           } else {
             errors.push(...validatePostImages(schema, collection));
           }
-          const syncData = sqlSyncRules.tableSyncsData(sourceTable);
-          const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
+          const syncData = sqlSyncRules.tableSyncsData(ref);
+          const syncParameters = sqlSyncRules.tableSyncsParameters(ref);
           patternResult.tables.push({
             schema,
             name: collection.name,
@@ -164,18 +160,14 @@ export class MongoRouteAPIAdapter implements api.RouteAPI {
           });
         }
       } else {
-        const sourceTable = new SourceTable({
-          id: '', // not used
+        const ref: sync_rules.SourceTableRef = {
           connectionTag: this.connectionTag,
-          objectId: tablePattern.name,
-          schema: schema,
-          name: tablePattern.name,
-          replicaIdColumns: [],
-          snapshotComplete: true
-        });
+          schema,
+          name: tablePattern.name
+        };
 
-        const syncData = sqlSyncRules.tableSyncsData(sourceTable);
-        const syncParameters = sqlSyncRules.tableSyncsParameters(sourceTable);
+        const syncData = sqlSyncRules.tableSyncsData(ref);
+        const syncParameters = sqlSyncRules.tableSyncsParameters(ref);
         const collection = collections[0];
 
         let errors: service_types.ReplicationError[] = [];
