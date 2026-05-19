@@ -686,6 +686,25 @@ export class PostgresBucketBatch
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
     await this.db.transaction(async (db) => {
+      const snapshotRequiredCount = await db.sql`
+        SELECT
+          COUNT(*) AS count
+        FROM
+          source_tables
+        WHERE
+          group_id = ${{ type: 'int4', value: this.group_id }}
+          AND snapshot_done = FALSE
+      `
+        .decoded(t.object({ count: bigint }))
+        .first();
+      if ((snapshotRequiredCount?.count ?? 0n) > 0n) {
+        throw new ReplicationAssertionError(
+          `Cannot mark snapshot done while ${snapshotRequiredCount?.count} source table${
+            snapshotRequiredCount?.count == 1n ? '' : 's'
+          } still require snapshotting`
+        );
+      }
+
       await db.sql`
         UPDATE sync_rules
         SET

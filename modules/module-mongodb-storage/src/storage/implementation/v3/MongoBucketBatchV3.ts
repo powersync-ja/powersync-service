@@ -486,25 +486,41 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id,
-        'sync_configs._id': this.syncConfigId
-      },
-      {
-        $set: {
-          'sync_configs.$[config].snapshot_done': true,
-          last_keepalive_ts: new Date()
+    await this.withTransaction(async () => {
+      // Protect against race conditions
+      const count = await this.db.commonSourceTables(this.group_id).countDocuments(
+        {
+          group_id: this.group_id,
+          snapshot_done: false
         },
-        $max: {
-          'sync_configs.$[config].no_checkpoint_before': no_checkpoint_before_lsn
-        }
-      },
-      {
-        session: this.session,
-        arrayFilters: [{ 'config._id': this.syncConfigId }]
+        { session: this.session }
+      );
+      if (count > 0) {
+        throw new ReplicationAssertionError(
+          `Cannot mark snapshot done while ${count} source table${count == 1 ? '' : 's'} still require snapshotting`
+        );
       }
-    );
+
+      await this.db.sync_rules.updateOne(
+        {
+          _id: this.group_id,
+          'sync_configs._id': this.syncConfigId
+        },
+        {
+          $set: {
+            'sync_configs.$[config].snapshot_done': true,
+            last_keepalive_ts: new Date()
+          },
+          $max: {
+            'sync_configs.$[config].no_checkpoint_before': no_checkpoint_before_lsn
+          }
+        },
+        {
+          session: this.session,
+          arrayFilters: [{ 'config._id': this.syncConfigId }]
+        }
+      );
+    });
   }
 
   async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {

@@ -318,21 +318,37 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
-    await this.db.sync_rules.updateOne(
-      {
-        _id: this.group_id
-      },
-      {
-        $set: {
-          snapshot_done: true,
-          last_keepalive_ts: new Date()
+    await this.withTransaction(async () => {
+      // Protect against race conditions
+      const count = await this.db.commonSourceTables(this.group_id).countDocuments(
+        {
+          group_id: this.group_id,
+          snapshot_done: false
         },
-        $max: {
-          no_checkpoint_before: no_checkpoint_before_lsn
-        }
-      },
-      { session: this.session }
-    );
+        { session: this.session }
+      );
+      if (count > 0) {
+        throw new ReplicationAssertionError(
+          `Cannot mark snapshot done while ${count} source table${count == 1 ? '' : 's'} still require snapshotting`
+        );
+      }
+
+      await this.db.sync_rules.updateOne(
+        {
+          _id: this.group_id
+        },
+        {
+          $set: {
+            snapshot_done: true,
+            last_keepalive_ts: new Date()
+          },
+          $max: {
+            no_checkpoint_before: no_checkpoint_before_lsn
+          }
+        },
+        { session: this.session }
+      );
+    });
   }
 
   async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {
