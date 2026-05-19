@@ -118,11 +118,16 @@ export class MongoSnapshotter {
         changeStreamPreAndPostImages: { enabled: true }
       });
     } else if (this.usePostImages && collection.options?.changeStreamPreAndPostImages?.enabled != true) {
+      // Drop + create requires less permissions than collMod,
+      // and we don't care about the data in this collection.
       await this.defaultDb.dropCollection(CHECKPOINTS_COLLECTION);
       await this.defaultDb.createCollection(CHECKPOINTS_COLLECTION, {
         changeStreamPreAndPostImages: { enabled: true }
       });
     } else {
+      // Clear the collection on startup, to keep it clean
+      // We never query this collection directly, and don't want to keep the data around.
+      // We only use this to get data into the oplog/changestream.
       await this.defaultDb.collection(CHECKPOINTS_COLLECTION).deleteMany({});
     }
   }
@@ -140,14 +145,19 @@ export class MongoSnapshotter {
       },
       async (batch) => {
         if (snapshotLsn == null) {
+          // First replication attempt - get a snapshot and store the timestamp
           snapshotLsn = await this.getSnapshotLsn();
           await batch.setResumeLsn(snapshotLsn);
           this.logger.info(`Marking snapshot at ${snapshotLsn}`);
         } else {
           this.logger.info(`Resuming snapshot at ${snapshotLsn}`);
+          // Check that the snapshot is still valid.
           await this.validateSnapshotLsn(snapshotLsn);
         }
 
+        // Start by resolving all tables.
+        // This checks postImage configuration, and that should fail as
+        // early as possible.
         const allSourceTables: SourceTable[] = [];
         for (const tablePattern of this.syncRules.getSourceTables()) {
           allSourceTables.push(...(await this.resolveQualifiedTableNames(batch, tablePattern)));
@@ -179,6 +189,7 @@ export class MongoSnapshotter {
   async replicationLoop() {
     try {
       if (this.queue.size == 0) {
+        // Special case where we start with no tables to snapshot
         await this.markSnapshotDone();
       }
       while (!this.abortSignal.aborted) {
@@ -202,6 +213,7 @@ export class MongoSnapshotter {
       }
       throw new ReplicationAbortedError(`Replication snapshotter aborted`, this.abortSignal.reason);
     } catch (e) {
+      // If initial snapshot already completed, this has no effect
       this.initialSnapshotDone.reject(e);
       throw e;
     }
@@ -230,35 +242,35 @@ export class MongoSnapshotter {
   }
 
   private async markSnapshotDone() {
-    let markedDone = false;
-    const flushResult = await this.storage.startBatch(
-      {
-        logger: this.logger,
-        zeroLSN: MongoLSN.ZERO.comparable,
-        defaultSchema: this.defaultDb.databaseName,
-        storeCurrentData: false,
-        skipExistingRows: true
-      },
-      async (batch) => {
-        if (this.queue.size != 0) {
-          return;
-        }
-        const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-        if (this.queue.size != 0) {
-          return;
-        }
-        await batch.markAllSnapshotDone(checkpoint);
-        await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
-        markedDone = true;
-      }
-    );
-    if (!markedDone) {
+    await using writer = await this.storage.createWriter({
+      logger: this.logger,
+      zeroLSN: MongoLSN.ZERO.comparable,
+      defaultSchema: this.defaultDb.databaseName,
+      storeCurrentData: false,
+      skipExistingRows: true
+    });
+
+    if (this.queue.size != 0) {
       return;
     }
+    // The checkpoint here is a marker - we need to replicate up to at least this
+    // point before the data can be considered consistent.
+    const checkpoint = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+    if (this.queue.size != 0) {
+      return;
+    }
+    await writer.markAllSnapshotDone(checkpoint);
+    // KLUDGE: We need to create an extra checkpoint _after_ marking the snapshot done, to fix
+    // issues with order of processing commits(). This is picked up by tests on postgres storage,
+    // the issue may be specific to that storage engine.
+    await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
     const lastOp = flushResult?.flushed_op ?? this.lastSnapshotOpId;
     if (lastOp != null) {
+      // Populate the cache _after_ initial replication, but _before_ we switch to this sync rules.
+      // TODO: only run this after initial replication, not after each table.
       await this.storage.populatePersistentChecksumCache({
+        // No checkpoint yet, but we do have the opId.
         maxOpId: lastOp,
         signal: this.abortSignal
       });
@@ -277,6 +289,7 @@ export class MongoSnapshotter {
         tracer: new PerformanceTracer('MongoDB snapshot table')
       },
       async (batch) => {
+        // Get fresh table info, in case it was updated while queuing
         const tables = await this.handleRelation(
           batch,
           getMongoRelation({ db: tableRequest.schema, coll: tableRequest.name }, this.connections.connectionTag),
@@ -291,6 +304,7 @@ export class MongoSnapshotter {
         const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
         await batch.markTableSnapshotDone([table], noCheckpointBefore);
 
+        // This commit ensures we set keepalive_op.
         const resumeLsn = batch.resumeFromLsn ?? MongoLSN.ZERO.comparable;
         await batch.commit(resumeLsn);
       }
@@ -313,6 +327,7 @@ export class MongoSnapshotter {
     const nameFilter = tablePattern.isWildcard
       ? new RegExp('^' + escapeRegExp(tablePattern.tablePrefix))
       : tablePattern.name;
+    // Check if the collection exists
     const collections = await this.client
       .db(schema)
       .listCollections({ name: nameFilter }, { nameOnly: false })
@@ -364,6 +379,7 @@ export class MongoSnapshotter {
     while (true) {
       const { docs: docBatch, lastKey, bytes: chunkBytes } = await nextChunkPromise;
       if (docBatch.length == 0) {
+        // No more data - stop iterating
         break;
       }
       bytesReplicatedMetric.add(chunkBytes);
@@ -373,9 +389,11 @@ export class MongoSnapshotter {
         throw new ReplicationAbortedError(`Aborted initial replication`, this.abortSignal.reason);
       }
 
+      // Pre-fetch next batch, so that we can read and write concurrently
       nextChunkPromise = query.nextChunk();
       for (const buffer of docBatch) {
         const { row, replicaId } = this.sourceRowConverter.rawToSqliteRow(buffer);
+        // This auto-flushes when the batch reaches its size limit
         await batch.save({
           tag: SaveOperationTag.INSERT,
           sourceTable: table,
@@ -386,6 +404,7 @@ export class MongoSnapshotter {
         });
       }
 
+      // Important: flush before marking progress
       const result = await batch.flush();
       if (result?.flushed_op != null) {
         this.lastSnapshotOpId = result.flushed_op;
@@ -407,6 +426,7 @@ export class MongoSnapshotter {
       );
       this.touch();
     }
+    // In case the loop was interrupted, make sure we await the last promise.
     await nextChunkPromise;
   }
 
@@ -417,6 +437,9 @@ export class MongoSnapshotter {
   ): Promise<SourceTable[]> {
     if (options.collectionInfo != null) {
       await this.checkPostImages(descriptor.schema, options.collectionInfo);
+    } else {
+      // If collectionInfo is null, the collection may have been dropped.
+      // Ignore the postImages check in this case.
     }
 
     const result = await batch.resolveTables({
@@ -426,6 +449,8 @@ export class MongoSnapshotter {
     });
     this.relationCache.updateAll(descriptor, result.tables);
 
+    // Drop conflicting collections.
+    // This is generally not expected for MongoDB source dbs, so we log an error.
     if (result.dropTables.length > 0) {
       this.logger.error(
         `Conflicting collections found for ${JSON.stringify(descriptor)}. Dropping: ${result.dropTables.map((t) => t.id).join(', ')}`
@@ -446,6 +471,7 @@ export class MongoSnapshotter {
 
   private async checkPostImages(db: string, collectionInfo: mongo.CollectionInfo) {
     if (!this.usePostImages) {
+      // Nothing to check
       return;
     }
 
@@ -463,6 +489,7 @@ export class MongoSnapshotter {
 
   private async getSnapshotLsn(): Promise<string> {
     const hello = await this.defaultDb.command({ hello: 1 });
+    // Basic sanity check
     if (hello.msg == 'isdbgrid') {
       throw new ServiceError(
         ErrorCode.PSYNC_S1341,
@@ -474,6 +501,18 @@ export class MongoSnapshotter {
         'Standalone MongoDB instances are not supported - use a replicaset.'
       );
     }
+
+    // Open a change stream just to get a resume token for later use.
+    // We could use clusterTime from the hello command, but that won't tell us if the
+    // snapshot isn't valid anymore.
+    // If we just use the first resumeToken from the stream, we get two potential issues:
+    // 1. The resumeToken may just be a wrapped clusterTime, which does not detect changes
+    //    in source db or other stream issues.
+    // 2. The first actual change we get may have the same clusterTime, causing us to incorrect
+    //    skip that event.
+    // Instead, we create a new checkpoint document, and wait until we get that document back in the stream.
+    // To avoid potential race conditions with the checkpoint creation, we create a new checkpoint document
+    // periodically until the timeout is reached.
 
     const LSN_TIMEOUT_SECONDS = 60;
     const LSN_CREATE_INTERVAL_SECONDS = 1;
@@ -520,12 +559,16 @@ export class MongoSnapshotter {
       }
     }
 
+    // Could happen if there is a very large replication lag?
     throw new ServiceError(
       ErrorCode.PSYNC_S1301,
       `Timeout after while waiting for checkpoint document for ${LSN_TIMEOUT_SECONDS}s. Streamed events = ${eventsSeen}, batches = ${batchesSeen}`
     );
   }
 
+  /**
+   * Given a snapshot LSN, validate that we can read from it, by opening a change stream.
+   */
   private async validateSnapshotLsn(lsn: string) {
     const stream = this.rawChangeStreamBatches({
       lsn,
@@ -590,6 +633,9 @@ export class MongoSnapshotter {
 
     let fullDocument: 'required' | 'updateLookup';
     if (this.usePostImages) {
+      // 'read_only' or 'auto_configure'
+      // Configuration happens during snapshot, or when we see new
+      // collections.
       fullDocument = 'required';
     } else {
       fullDocument = 'updateLookup';
@@ -604,17 +650,22 @@ export class MongoSnapshotter {
       { $changeStreamSplitLargeEvent: {} }
     ];
 
+    // Only one of these options can be supplied at a time.
     if (resumeAfter) {
       streamOptions.resumeAfter = resumeAfter;
     } else {
+      // Legacy: We don't persist lsns without resumeTokens anymore, but we do still handle the
+      // case if we have an old one.
       streamOptions.startAtOperationTime = startAfter;
     }
 
     let watchDb: mongo.Db;
     if (options.filters.multipleDatabases) {
+      // Requires readAnyDatabase@admin on Atlas
       watchDb = this.client.db('admin');
       streamOptions.allChangesForCluster = true;
     } else {
+      // Same general result, but requires less permissions than the above
       watchDb = this.defaultDb;
     }
 
@@ -631,6 +682,7 @@ export class MongoSnapshotter {
   private touch() {
     if (performance.now() - this.lastTouchedAt > 1_000) {
       this.lastTouchedAt = performance.now();
+      // Update the probes, but don't wait for it
       container.probes.touch().catch((e) => {
         this.logger.error(`Failed to touch the container probe: ${e.message}`, e);
       });
