@@ -234,6 +234,22 @@ export class MongoSnapshotter {
     }
   }
 
+  async snapshotTables(
+    batch: storage.BucketStorageBatch,
+    tables: storage.SourceTable[]
+  ): Promise<storage.SourceTable[]> {
+    for (const table of tables) {
+      await this.snapshotTable(batch, table);
+    }
+    const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+
+    const doneTables = await batch.markTableSnapshotDone(tables, noCheckpointBefore);
+    for (const table of doneTables) {
+      this.relationCache.update(table);
+    }
+    return doneTables;
+  }
+
   private queueTable(table: SourceTable, ready = Promise.resolve()) {
     const item: SnapshotQueueItem = { table, ready, cancelled: false };
     this.queue.add(item);

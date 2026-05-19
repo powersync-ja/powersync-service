@@ -301,8 +301,16 @@ export class ChangeStream {
     const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
     if (snapshotCandidates.length > 0) {
       this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
-      for (const tableToSnapshot of snapshotCandidates) {
-        await this.snapshotter.queueSnapshot(batch, tableToSnapshot);
+      if (this.supportsConcurrentSnapshots) {
+        for (const tableToSnapshot of snapshotCandidates) {
+          await this.snapshotter.queueSnapshot(batch, tableToSnapshot);
+        }
+      } else {
+        const doneTables = await this.snapshotter.snapshotTables(batch, snapshotCandidates);
+        const snapshotDoneById = new Map(doneTables.map((table) => [table.id, table]));
+        const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
+        this.relationCache.updateAll(descriptor, tables);
+        return tables;
       }
     }
 
