@@ -32,6 +32,7 @@ export interface MongoSnapshotterOptions {
   snapshotChunkLength?: number;
   logger?: Logger;
   checkpointStreamId: mongo.ObjectId;
+  storageHooks?: storage.StorageHooks;
 }
 
 interface InitResult {
@@ -58,6 +59,7 @@ export class MongoSnapshotter {
   private readonly abortSignal: AbortSignal;
   private readonly logger: Logger;
   private readonly checkpointStreamId: mongo.ObjectId;
+  private readonly storageHooks: storage.StorageHooks | undefined;
   private readonly changeStreamTimeout: number;
   private readonly relationCache = new RelationCache(getCacheIdentifier);
 
@@ -79,6 +81,7 @@ export class MongoSnapshotter {
     this.abortSignal = options.abortSignal;
     this.logger = options.logger ?? options.storage.logger;
     this.checkpointStreamId = options.checkpointStreamId;
+    this.storageHooks = options.storageHooks;
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
     this.syncRules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
@@ -270,6 +273,7 @@ export class MongoSnapshotter {
         defaultSchema: this.defaultDb.databaseName,
         storeCurrentData: false,
         skipExistingRows: true,
+        hooks: this.storageHooks,
         tracer: new PerformanceTracer('MongoDB snapshot table')
       },
       async (batch) => {

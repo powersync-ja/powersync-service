@@ -216,6 +216,7 @@ export class PostgresSyncRulesStorage
       skip_existing_rows: options.skipExistingRows ?? false,
       batch_limits: this.options.batchLimits,
       markRecordUnavailable: options.markRecordUnavailable,
+      hooks: options.hooks,
       storageConfig: this.storageConfig
     });
     this.iterateListeners((cb) => cb.batchStarted?.(writer));

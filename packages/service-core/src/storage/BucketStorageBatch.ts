@@ -24,6 +24,11 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
   last_flushed_op: InternalOpId | null;
 
   /**
+   * True for snapshot batches that should skip rows already present in current_data.
+   */
+  readonly skipExistingRows: boolean;
+
+  /**
    * Save an op, and potentially flush.
    *
    * This can be an insert, update or delete op.

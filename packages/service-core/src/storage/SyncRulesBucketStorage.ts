@@ -198,9 +198,16 @@ export interface CreateWriterOptions extends ParseSyncRulesOptions {
    */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 
+  hooks?: StorageHooks;
+
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 
   logger?: Logger;
+}
+
+export interface StorageHooks {
+  beforeBatchFlush?: (batch: BucketStorageBatch) => Promise<void>;
+  afterBatchFlush?: (batch: BucketStorageBatch) => Promise<void>;
 }
 
 /**

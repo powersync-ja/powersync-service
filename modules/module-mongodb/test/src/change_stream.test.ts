@@ -3,7 +3,7 @@ import { setTimeout } from 'node:timers/promises';
 import { describe, expect, test, vi } from 'vitest';
 
 import { mongo } from '@powersync/lib-service-mongodb';
-import { createWriteCheckpoint } from '@powersync/service-core';
+import { createWriteCheckpoint, storage } from '@powersync/service-core';
 import { test_utils } from '@powersync/service-core-tests';
 
 import { MongoRouteAPIAdapter } from '@module/api/MongoRouteAPIAdapter.js';
@@ -92,6 +92,74 @@ bucket_definitions:
       test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test1', num: 1152921504606846976n }),
       test_utils.putOp('test_data', { id: test_id.toHexString(), description: 'test2', num: 1152921504606846976n })
     ]);
+  });
+
+  test('does not resurrect rows deleted while snapshotting', async () => {
+    // Special case for testing:
+    // 1. Row A exists.
+    // 2. Start a snapshot and streaming.
+    // 3. Row A is deleted.
+    // 4. Streaming sees the delete, writes the delete.
+    // 5. Snapshot still sees row A and writes it.
+    // The streaming delete should win, using skipExistingRows. For that to work, we rely on soft deletes.
+    // To trigger this case, we need the delete to trigger and process the delete in between the snapshot read and the snapshot write, which we can do using beforeBatchFlush.
+
+    let collection!: mongo.Collection;
+    let testId!: mongo.ObjectId;
+    let interceptedSnapshotFlush = false;
+    let sourceDeleteWritten = false;
+    let sourceDeleteFlushBatch: storage.BucketStorageBatch | undefined;
+    const streamDeleteFlushed = Promise.withResolvers<void>();
+
+    await using context = await openContext({
+      streamOptions: {
+        snapshotChunkLength: 1,
+        storageHooks: {
+          beforeBatchFlush: async (batch) => {
+            if (!batch.skipExistingRows && sourceDeleteWritten && sourceDeleteFlushBatch == null) {
+              sourceDeleteFlushBatch = batch;
+            }
+
+            // skipExistingRows means we're busy with snapshotting.
+            if (!batch.skipExistingRows || interceptedSnapshotFlush) {
+              return;
+            }
+
+            interceptedSnapshotFlush = true;
+            await collection.deleteOne({ _id: testId });
+            sourceDeleteWritten = true;
+            await Promise.race([
+              streamDeleteFlushed.promise,
+              setTimeout(10_000).then(() => {
+                throw new Error('Timed out waiting for streamed delete to flush');
+              })
+            ]);
+          },
+          afterBatchFlush: async (batch) => {
+            if (batch == sourceDeleteFlushBatch) {
+              streamDeleteFlushed.resolve();
+            }
+          }
+        }
+      }
+    });
+    const { db } = context;
+    await context.updateSyncRules(BASIC_SYNC_RULES);
+
+    await db.createCollection('test_data', {
+      changeStreamPreAndPostImages: { enabled: false }
+    });
+    testId = new mongo.ObjectId();
+    collection = db.collection('test_data');
+    await collection.insertOne({ _id: testId, description: 'stale snapshot row' });
+
+    await context.replicateSnapshot();
+
+    expect(interceptedSnapshotFlush).toBe(true);
+    await context.getCheckpoint();
+
+    const data = await context.getBucketData('global[]');
+    expect(data).toEqual([]);
   });
 
   test('updateLookup - no fullDocument available', async () => {

@@ -207,6 +207,7 @@ export abstract class MongoSyncBucketStorage
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
+      hooks: options.hooks,
       syncConfigId: state.syncConfigId,
       tracer: options.tracer
     };

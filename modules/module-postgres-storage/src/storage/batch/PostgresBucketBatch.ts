@@ -51,6 +51,7 @@ export interface PostgresBucketBatchOptions {
   batch_limits: RequiredOperationBatchLimits;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  hooks: storage.StorageHooks | undefined;
   storageConfig: storage.StorageVersionConfig;
 }
 
@@ -88,6 +89,7 @@ export class PostgresBucketBatch
   public last_flushed_op: InternalOpId | null = null;
 
   public resumeFromLsn: string | null;
+  public readonly skipExistingRows: boolean;
 
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
@@ -100,6 +102,7 @@ export class PostgresBucketBatch
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  private hooks: storage.StorageHooks | undefined;
   private needsActivation = true;
   private clearedError = false;
   private readonly storageConfig: storage.StorageVersionConfig;
@@ -112,9 +115,11 @@ export class PostgresBucketBatch
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
     this.resumeFromLsn = options.resumeFromLsn;
+    this.skipExistingRows = options.skip_existing_rows;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
     this.markRecordUnavailable = options.markRecordUnavailable;
+    this.hooks = options.hooks;
     this.batch = null;
     this.persisted_op = null;
     this.storageConfig = options.storageConfig;
@@ -457,6 +462,8 @@ export class PostgresBucketBatch
       return null;
     }
 
+    await this.hooks?.beforeBatchFlush?.(this);
+
     let resumeBatch: OperationBatch | null = null;
 
     const lastOp = await this.withReplicationTransaction(async (db) => {
@@ -474,6 +481,7 @@ export class PostgresBucketBatch
 
     this.persisted_op = lastOp;
     this.last_flushed_op = lastOp;
+    await this.hooks?.afterBatchFlush?.(this);
     return { flushed_op: lastOp };
   }
 

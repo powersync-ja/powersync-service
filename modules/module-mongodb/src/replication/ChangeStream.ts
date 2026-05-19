@@ -53,6 +53,8 @@ export interface ChangeStreamOptions {
    */
   snapshotChunkLength?: number;
 
+  storageHooks?: storage.StorageHooks;
+
   logger?: Logger;
 }
 
@@ -103,6 +105,8 @@ export class ChangeStream {
 
   private changeStreamTimeout: number;
 
+  private storageHooks: storage.StorageHooks | undefined;
+
   private readonly sourceRowConverter: SourceRowConverter;
 
   constructor(options: ChangeStreamOptions) {
@@ -112,6 +116,7 @@ export class ChangeStream {
     this.connections = options.connections;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
+    this.storageHooks = options.storageHooks;
     this.client = this.connections.client;
     this.defaultDb = this.connections.db;
     this.sync_rules = options.storage.getParsedSyncRules({
@@ -522,6 +527,7 @@ export class ChangeStream {
         defaultSchema: this.defaultDb.databaseName,
         // We get a complete postimage for every change, so we don't need to store the current data.
         storeCurrentData: false,
+        hooks: this.storageHooks,
         tracer
       },
       async (batch) => {
