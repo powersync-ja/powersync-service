@@ -27,7 +27,7 @@ export interface MongoSnapshotterOptions {
   connections: MongoManager;
   storage: storage.SyncRulesBucketStorage;
   metrics: MetricsEngine;
-  abort_signal: AbortSignal;
+  abortSignal: AbortSignal;
   maxAwaitTimeMS?: number;
   snapshotChunkLength?: number;
   logger?: Logger;
@@ -76,7 +76,7 @@ export class MongoSnapshotter {
     this.defaultDb = options.connections.db;
     this.maxAwaitTimeMS = options.maxAwaitTimeMS ?? 10_000;
     this.snapshotChunkLength = options.snapshotChunkLength ?? 6_000;
-    this.abortSignal = options.abort_signal;
+    this.abortSignal = options.abortSignal;
     this.logger = options.logger ?? options.storage.logger;
     this.checkpointStreamId = options.checkpointStreamId;
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);

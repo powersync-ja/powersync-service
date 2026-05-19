@@ -126,7 +126,7 @@ export class ChangeStream {
     this.logger = options.logger ?? this.storage.logger;
     this.snapshotter = new MongoSnapshotter({
       ...options,
-      abort_signal: this.abortSignal,
+      abortSignal: this.abortSignal,
       logger: this.logger,
       checkpointStreamId: this.checkpointStreamId
     });
