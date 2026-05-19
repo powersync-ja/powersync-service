@@ -207,6 +207,16 @@ export class CDCStream {
     const tables: MSSQLSourceTable[] = [];
     for (const matchedTable of matchedTables) {
       const captureInstanceDetails = captureInstances.get(matchedTable.objectId as number);
+      if (!captureInstanceDetails) {
+        // Match Postgres publication handling: If the source table cannot stream changes yet,
+        // don't resolve it into storage. Once CDC is enabled, the schema poller detects the
+        // new capture instance and resolves/snapshots it then.
+        this.logger.info(
+          `Skipping ${tablePattern.schema}.${matchedTable.name} - not enabled for CDC. This table will not be replicated until CDC is enabled for it.`
+        );
+        continue;
+      }
+
       // TODO: Check RLS settings for table
 
       const replicaIdColumns = await getReplicationIdentityColumns({
@@ -224,7 +234,7 @@ export class CDCStream {
           objectId: matchedTable.objectId,
           replicaIdColumns: replicaIdColumns.columns
         },
-        captureInstanceDetails?.instances[0] ?? null,
+        captureInstanceDetails.instances[0],
         false
       );
 
@@ -280,16 +290,6 @@ export class CDCStream {
     }
 
     return resolvedTable;
-  }
-
-  private sourceRefFromTable(table: storage.SourceTable): SourceEntityDescriptor {
-    return {
-      connectionTag: table.ref.connectionTag,
-      schema: table.ref.schema,
-      name: table.ref.name,
-      objectId: table.objectId,
-      replicaIdColumns: table.replicaIdColumns
-    };
   }
 
   private async snapshotTableInTx(
