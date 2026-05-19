@@ -21,7 +21,7 @@ import {
 import { syncRuleStateUpdatePipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
-import { ReplicationStreamDocumentV3, SyncConfigDefinition } from './storage-index.js';
+import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
@@ -337,7 +337,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
     if (storageConfig.incrementalReprocessing) {
       const v3 = doc as ReplicationStreamDocumentV3;
-      const active = v3.sync_configs.find((c) => stateFilter.includes(c.state));
+      const active = v3.sync_configs.find((c: SyncRuleConfigStateV3) => stateFilter.includes(c.state));
       if (active == null) {
         return null;
       }

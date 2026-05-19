@@ -19,7 +19,9 @@ function sameStringArray(left: string[], right: string[]) {
 }
 
 export class MongoBucketBatchV3 extends MongoBucketBatch {
-  declare public readonly db: VersionedPowerSyncMongoV3;
+  get db(): VersionedPowerSyncMongoV3 {
+    return this._db as VersionedPowerSyncMongoV3;
+  }
 
   private readonly store: SourceRecordStore;
   private readonly syncConfigId: bson.ObjectId;

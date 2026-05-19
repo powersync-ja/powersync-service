@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
-import { BaseVersionedPowerSyncMongo } from '../common/VersionedPowerSyncMongoBase.js';
+import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
 import { CommonSourceTableDocument } from '../models.js';
 import {
   BucketDataDocumentV3,
@@ -11,7 +11,7 @@ import {
   SyncConfigDefinition
 } from './models.js';
 
-export class VersionedPowerSyncMongoV3 extends BaseVersionedPowerSyncMongo {
+export class VersionedPowerSyncMongoV3 extends VersionedPowerSyncMongo {
   get syncConfigDefinitions() {
     return this.db.collection<SyncConfigDefinition>('sync_config');
   }

@@ -8,7 +8,7 @@ import { retryOnMongoMaxTimeMSExpired } from '../../../utils/util.js';
 import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { cacheKey } from '../OperationBatch.js';
 import { LoadedSourceRecord, SourceRecordLookupEntry, SourceRecordStore } from '../common/SourceRecordStore.js';
-import { serializeParameterLookupV3 } from './MongoParameterLookupV3.js';
+import { serializeParameterLookup } from '../document-formats/parameter-lookup.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { CurrentDataDocumentV3, SourceTableDocumentV3 } from './models.js';
 
@@ -31,7 +31,7 @@ export class SourceRecordStoreV3 implements SourceRecordStore {
   mapParameterLookups(paramEvaluated: EvaluatedParameters[]): LoadedSourceRecord['lookups'] {
     return paramEvaluated.map((entry) => ({
       indexId: this.mapping.parameterLookupId(entry.lookup.source),
-      lookup: serializeParameterLookupV3(entry.lookup)
+      lookup: serializeParameterLookup(entry.lookup)
     }));
   }
 

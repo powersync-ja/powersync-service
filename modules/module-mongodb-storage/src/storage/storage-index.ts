@@ -20,5 +20,6 @@ export * from './implementation/MongoStorageProvider.js';
 export * from './implementation/MongoSyncRulesLock.js';
 export * from './implementation/OperationBatch.js';
 export * from './implementation/v1/models.js';
+export { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './implementation/v3/models.js';
 export * from './MongoBucketStorage.js';
 export * from './MongoReportStorage.js';

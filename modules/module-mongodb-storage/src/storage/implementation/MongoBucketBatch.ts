@@ -72,7 +72,7 @@ export abstract class MongoBucketBatch
   protected logger: Logger;
 
   private readonly client: mongo.MongoClient;
-  private _db: VersionedPowerSyncMongo;
+  protected _db: VersionedPowerSyncMongo;
   public get db(): VersionedPowerSyncMongo {
     return this._db;
   }

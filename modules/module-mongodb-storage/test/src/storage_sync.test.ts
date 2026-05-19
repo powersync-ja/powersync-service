@@ -9,6 +9,7 @@ import type { VersionedPowerSyncMongo } from '../../src/storage/implementation/c
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { CurrentBucket } from '../../src/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
+import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import {
   BucketDataDocument,
   serializeBucketData
@@ -569,8 +570,8 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'global["user-1"]').bucket]);
 
     const mongoFactory = factory as MongoBucketStorage;
-    const db = (bucketStorage as AbstractMongoSyncBucketStorage).db as VersionedPowerSyncMongo;
-    const currentDataCollections = await db.listSourceRecordCollections(syncRules.id);
+    const db = (bucketStorage as AbstractMongoSyncBucketStorage).db as VersionedPowerSyncMongoV3;
+    const currentDataCollections = await db.listSourceRecordCollectionsV3(syncRules.id);
     const currentData = await currentDataCollections[0]?.findOne({});
     const firstBucket: CurrentBucket | undefined = currentData?.buckets[0] as CurrentBucket | undefined;
     expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
@@ -589,7 +590,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0] as string | undefined;
     expect(parameterIndexId).toBeDefined();
-    const parameterEntry = await db.parameterIndex(syncRules.id, parameterIndexId!).findOne({});
+    const parameterEntry = await db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 
