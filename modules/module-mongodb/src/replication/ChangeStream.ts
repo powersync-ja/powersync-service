@@ -382,7 +382,7 @@ export class ChangeStream {
           throw e;
         });
       if (!this.supportsConcurrentSnapshots) {
-        await this.snapshotter.waitForInitialSnapshot();
+        await Promise.race([this.snapshotter.waitForInitialSnapshot(), loopPromise]);
       }
       streamPromise = this.streamChanges()
         .then(() => {
