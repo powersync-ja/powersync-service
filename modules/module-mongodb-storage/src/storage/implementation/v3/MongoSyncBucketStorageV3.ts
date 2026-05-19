@@ -29,10 +29,7 @@ import {
   MongoPersistedSyncRulesContentV1,
   MongoPersistedSyncRulesContentV3
 } from '../MongoPersistedSyncRulesContent.js';
-import {
-  ReplicationStreamDocumentV3,
-  SyncRuleConfigStateV3
-} from './models.js';
+import { ReplicationStreamDocumentV3, SyncRuleConfigStateV3 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';

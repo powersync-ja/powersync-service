@@ -5,7 +5,6 @@ import { POWERSYNC_VERSION, storage } from '@powersync/service-core';
 import { DO_NOT_LOG } from '@powersync/lib-services-framework';
 import { MongoStorageConfig } from '../../types/types.js';
 import { BaseVersionedPowerSyncMongo } from './common/VersionedPowerSyncMongoBase.js';
-import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 import {
   CheckpointEventDocument,
   ClientConnectionDocument,
@@ -25,6 +24,7 @@ import {
   CurrentDataDocument
 } from './v1/models.js';
 import { VersionedPowerSyncMongoV1 } from './v1/VersionedPowerSyncMongoV1.js';
+import { VersionedPowerSyncMongoV3 } from './v3/VersionedPowerSyncMongoV3.js';
 
 export interface PowerSyncMongoOptions {
   /**
