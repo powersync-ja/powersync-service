@@ -82,12 +82,13 @@ export function makeLookupFunction(lookupOptions: LookupOptions): net.LookupFunc
  */
 export function validateIpHostname(hostname: string, options: LookupOptions): void {
   const { reject_ip_ranges: reject_ranges } = options;
-  if (!ip.isValid(hostname)) {
+  // `URL.hostname` exposes IPv6 literals wrapped in brackets (e.g. `[::1]`);
+  // normalize so the IP check recognizes them.
+  const ipaddr = hostWithoutPort(hostname);
+  if (!ip.isValid(ipaddr)) {
     // Treat as a DNS name.
     return;
   }
-
-  const ipaddr = hostname;
 
   const parsed = ip.parse(ipaddr);
   const rejectLocal = reject_ranges.includes('local');
@@ -118,6 +119,31 @@ export function validateIpHostname(hostname: string, options: LookupOptions): vo
     // Do not connect to any reserved IPs, including loopback and private ranges
     throw new ServiceError(ErrorCode.PSYNC_S2203, `IPs in this range are not supported: ${ipaddr}`);
   }
+}
+
+/**
+ * Return the bare hostname from a `host[:port]`-style authority string.
+ *
+ * Accepts `hostname`, `hostname:port`, `[::1]`, `[::1]:port`, and bare IPv6 literals like `::1`.
+ */
+export function hostWithoutPort(host: string): string {
+  if (host.startsWith('[')) {
+    const end = host.indexOf(']');
+    if (end > 0) {
+      return host.substring(1, end);
+    }
+    return host;
+  }
+  const firstColon = host.indexOf(':');
+  const lastColon = host.lastIndexOf(':');
+  if (firstColon !== lastColon) {
+    // Multiple colons => bare IPv6 literal; no port suffix possible.
+    return host;
+  }
+  if (firstColon > 0 && /^\d+$/.test(host.substring(firstColon + 1))) {
+    return host.substring(0, firstColon);
+  }
+  return host;
 }
 
 /**
