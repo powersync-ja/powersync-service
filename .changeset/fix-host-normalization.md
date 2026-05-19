@@ -1,5 +1,7 @@
 ---
 '@powersync/lib-services-framework': patch
+'@powersync/lib-service-mongodb': patch
+'@powersync/service-core': patch
 ---
 
-Normalize host strings in `validateIpHostname` before IP validation. Adds `hostWithoutPort`, which strips port suffixes and unwraps bracketed IPv6 literals, so values produced by `URL.hostname` and the `uri.hosts` entries returned by `mongodb-connection-string-url` are recognized as IPs.
+Normalize socket addresses to bare hostnames before IP-range validation, so direct-IP literals with any port form are recognized as IPs.
