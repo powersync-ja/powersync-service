@@ -110,6 +110,7 @@ bucket_definitions:
     let sourceDeleteWritten = false;
     let sourceDeleteFlushBatch: storage.BucketStorageBatch | undefined;
     const streamDeleteFlushed = Promise.withResolvers<void>();
+    const supportsConcurrentSnapshots = storage.STORAGE_VERSION_CONFIG[storageVersion]?.softDeleteCurrentData == true;
 
     await using context = await openContext({
       streamOptions: {
@@ -128,6 +129,9 @@ bucket_definitions:
             interceptedSnapshotFlush = true;
             await collection.deleteOne({ _id: testId });
             sourceDeleteWritten = true;
+            if (!supportsConcurrentSnapshots) {
+              return;
+            }
             await Promise.race([
               streamDeleteFlushed.promise,
               setTimeout(10_000).then(() => {
@@ -159,7 +163,7 @@ bucket_definitions:
     await context.getCheckpoint();
 
     const data = await context.getBucketData('global[]');
-    expect(data).toEqual([]);
+    expect(test_utils.reduceBucket(data).slice(1)).toEqual([]);
   });
 
   test('updateLookup - no fullDocument available', async () => {

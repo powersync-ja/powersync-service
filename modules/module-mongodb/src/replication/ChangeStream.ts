@@ -160,6 +160,10 @@ export class ChangeStream {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
   }
 
+  private get supportsConcurrentSnapshots() {
+    return this.storage.storageConfig.softDeleteCurrentData;
+  }
+
   private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
     const sourceTables = this.sync_rules.getSourceTables();
 
@@ -368,18 +372,21 @@ export class ChangeStream {
       // all connections automatically closed, including this one.
       this.initPromise = this.initReplication();
       await this.initPromise;
-      streamPromise = this.streamChanges()
+      loopPromise = this.snapshotter
+        .replicationLoop()
         .then(() => {
-          throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
+          throw new ReplicationAssertionError(`Replication snapshotter exited unexpectedly`);
         })
         .catch((e) => {
           this.abortController.abort(e);
           throw e;
         });
-      loopPromise = this.snapshotter
-        .replicationLoop()
+      if (!this.supportsConcurrentSnapshots) {
+        await this.snapshotter.waitForInitialSnapshot();
+      }
+      streamPromise = this.streamChanges()
         .then(() => {
-          throw new ReplicationAssertionError(`Replication snapshotter exited unexpectedly`);
+          throw new ReplicationAssertionError(`Replication stream exited unexpectedly`);
         })
         .catch((e) => {
           this.abortController.abort(e);

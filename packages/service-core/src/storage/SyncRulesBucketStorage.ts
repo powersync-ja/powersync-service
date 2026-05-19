@@ -13,6 +13,7 @@ import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
+import { StorageVersionConfig } from './StorageVersionConfig.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 /**
@@ -23,6 +24,7 @@ export interface SyncRulesBucketStorage
     SyncStorageWriteCheckpointAPI {
   readonly group_id: number;
   readonly slot_name: string;
+  readonly storageConfig: StorageVersionConfig;
 
   readonly factory: BucketStorageFactory;
   readonly logger: Logger;
