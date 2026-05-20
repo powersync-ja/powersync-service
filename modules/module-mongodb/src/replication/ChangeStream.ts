@@ -93,6 +93,9 @@ export class ChangeStream {
   private initPromise: Promise<void> | null = null;
   private snapshotter: MongoSnapshotter;
 
+  /**
+   * We use the relationCache _only_ for caching static SourceTable info, not for snapshot status.
+   */
   private relationCache = new RelationCache(getCacheIdentifier);
 
   private replicationLag = new ReplicationLagTracker();
@@ -222,6 +225,7 @@ export class ChangeStream {
   ): Promise<SourceTable[]> {
     const existing = this.relationCache.getAll(descriptor);
     if (existing != null) {
+      // We do this even when it's an empty result: Empty means nothing to sync, and we don't need to re-resolve.
       return existing;
     }
 
@@ -309,11 +313,7 @@ export class ChangeStream {
         // Truncate in case a previous inline snapshot was interrupted after flushing rows, but before
         // recording snapshot progress. Without this, resuming can replay already-flushed rows on v1/v2 storage.
         await batch.truncate(snapshotCandidates);
-        const doneTables = await this.snapshotter.snapshotTables(batch, snapshotCandidates);
-        const snapshotDoneById = new Map(doneTables.map((table) => [table.id, table]));
-        const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
-        this.relationCache.updateAll(descriptor, tables);
-        return tables;
+        await this.snapshotter.snapshotTables(batch, snapshotCandidates);
       }
     }
 
@@ -816,8 +816,8 @@ export class ChangeStream {
               const tablesToDrop = tables.filter((table) => table.syncAny);
               if (tablesToDrop.length > 0) {
                 await batch.drop(tablesToDrop);
-                this.relationCache.delete(rel);
               }
+              this.relationCache.delete(rel);
             } else if (changeDocument.operationType == 'rename') {
               const relFrom = getMongoRelation(changeDocument.ns, this.connections.connectionTag);
               const relTo = getMongoRelation(changeDocument.to, this.connections.connectionTag);
@@ -828,8 +828,8 @@ export class ChangeStream {
               const tablesToDrop = tablesFrom.filter((table) => table.syncAny);
               if (tablesToDrop.length > 0) {
                 await batch.drop(tablesToDrop);
-                this.relationCache.delete(relFrom);
               }
+              this.relationCache.delete(relFrom);
               // Here we do need to snapshot the new table
               const collection = await this.getCollectionInfo(relTo.schema, relTo.name);
               await this.handleRelation(batch, relTo, {
