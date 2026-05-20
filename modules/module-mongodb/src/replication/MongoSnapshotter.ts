@@ -4,7 +4,6 @@ import {
   InternalOpId,
   MetricsEngine,
   PerformanceTracer,
-  RelationCache,
   SaveOperationTag,
   SourceEntityDescriptor,
   SourceTable,
@@ -17,7 +16,7 @@ import { MongoLSN } from '../common/MongoLSN.js';
 import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
-import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
+import { createCheckpoint, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
 import { ChunkedSnapshotQuery } from './MongoSnapshotQuery.js';
 import { ChangeStreamBatch, parseChangeDocument, rawChangeStream } from './RawChangeStream.js';
 import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
@@ -61,7 +60,6 @@ export class MongoSnapshotter {
   private readonly checkpointStreamId: mongo.ObjectId;
   private readonly storageHooks: storage.StorageHooks | undefined;
   private readonly changeStreamTimeout: number;
-  private readonly relationCache = new RelationCache(getCacheIdentifier);
 
   private readonly connectionId = 1;
   private readonly queue = new Set<SnapshotQueueItem>();
@@ -169,7 +167,6 @@ export class MongoSnapshotter {
       const updated = await writer.updateTableProgress(table, {
         totalEstimatedCount: count
       });
-      this.relationCache.update(updated);
       this.queueTable(updated);
       this.logger.info(
         `To replicate: ${updated.qualifiedName}: ${updated.snapshotStatus?.replicatedCount}/~${updated.snapshotStatus?.totalEstimatedCount}`
@@ -239,9 +236,6 @@ export class MongoSnapshotter {
     const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
 
     const doneTables = await batch.markTableSnapshotDone(tables, noCheckpointBefore);
-    for (const table of doneTables) {
-      this.relationCache.update(table);
-    }
     return doneTables;
   }
 
@@ -439,7 +433,6 @@ export class MongoSnapshotter {
         replicatedCount: at,
         totalEstimatedCount
       });
-      this.relationCache.update(table);
 
       const duration = performance.now() - lastBatch;
       lastBatch = performance.now();
@@ -469,7 +462,6 @@ export class MongoSnapshotter {
       source: descriptor,
       syncRules: this.syncRules
     });
-    this.relationCache.updateAll(descriptor, result.tables);
 
     // Drop conflicting collections.
     // This is generally not expected for MongoDB source dbs, so we log an error.
