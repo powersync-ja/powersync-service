@@ -163,10 +163,6 @@ export class ChangeStream {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
   }
 
-  private get supportsConcurrentSnapshots() {
-    return this.storage.storageConfig.softDeleteCurrentData;
-  }
-
   private getSourceNamespaceFilters(): { $match: any; multipleDatabases: boolean } {
     const sourceTables = this.sync_rules.getSourceTables();
 
@@ -305,16 +301,7 @@ export class ChangeStream {
     const snapshotCandidates = result.tables.filter((table) => snapshot && !table.snapshotComplete && table.syncAny);
     if (snapshotCandidates.length > 0) {
       this.logger.info(`New collection: ${descriptor.schema}.${descriptor.name}`);
-      if (this.supportsConcurrentSnapshots) {
-        for (const tableToSnapshot of snapshotCandidates) {
-          await this.snapshotter.queueSnapshot(batch, tableToSnapshot);
-        }
-      } else {
-        // Truncate in case a previous inline snapshot was interrupted after flushing rows, but before
-        // recording snapshot progress. Without this, resuming can replay already-flushed rows on v1/v2 storage.
-        await batch.truncate(snapshotCandidates);
-        await this.snapshotter.snapshotTables(batch, snapshotCandidates);
-      }
+      await this.snapshotter.snapshotTables(batch, snapshotCandidates);
     }
 
     return result.tables;
@@ -392,7 +379,7 @@ export class ChangeStream {
           this.abortController.abort(e);
           throw e;
         });
-      if (!this.supportsConcurrentSnapshots) {
+      if (!this.snapshotter.supportsConcurrentSnapshots) {
         await Promise.race([this.snapshotter.waitForInitialSnapshot(), loopPromise]);
       }
       streamPromise = this.streamChanges()

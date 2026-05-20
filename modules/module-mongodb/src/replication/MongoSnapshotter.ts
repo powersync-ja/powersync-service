@@ -99,6 +99,10 @@ export class MongoSnapshotter {
     return this.connections.options.postImages == PostImagesOption.AUTO_CONFIGURE;
   }
 
+  public get supportsConcurrentSnapshots() {
+    return this.storage.storageConfig.softDeleteCurrentData;
+  }
+
   async checkSlot(): Promise<InitResult> {
     const status = await this.storage.getStatus();
     if (status.snapshot_done && status.checkpoint_lsn) {
@@ -211,7 +215,7 @@ export class MongoSnapshotter {
     }
   }
 
-  async queueSnapshot(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
+  private async queueSnapshot(batch: storage.BucketStorageBatch, table: storage.SourceTable) {
     const ready = Promise.withResolvers<void>();
     const item = this.queueTable(table, ready.promise);
     try {
@@ -226,13 +230,31 @@ export class MongoSnapshotter {
     }
   }
 
+  /**
+   * Snapshot tables.
+   *
+   * If concurrency is supported, the snapshots are queued and processed in the background.
+   * Otherwise, snapshots are processed inline.
+   */
   async snapshotTables(batch: storage.BucketStorageBatch, tables: storage.SourceTable[]): Promise<void> {
-    for (const table of tables) {
-      await this.snapshotTable(batch, table);
-    }
-    const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+    if (this.supportsConcurrentSnapshots) {
+      // Queue concurrent snapshots
+      for (const tableToSnapshot of tables) {
+        await this.queueSnapshot(batch, tableToSnapshot);
+      }
+    } else {
+      // No concurrency supported - snapshot inline
+      // Truncate in case a previous inline snapshot was interrupted after flushing rows, but before
+      // recording snapshot progress. Without this, resuming can replay already-flushed rows on v1/v2 storage.
+      await batch.truncate(tables);
 
-    await batch.markTableSnapshotDone(tables, noCheckpointBefore);
+      for (const table of tables) {
+        await this.snapshotTable(batch, table);
+      }
+      const noCheckpointBefore = await createCheckpoint(this.client, this.defaultDb, STANDALONE_CHECKPOINT_ID);
+
+      await batch.markTableSnapshotDone(tables, noCheckpointBefore);
+    }
   }
 
   private queueTable(table: SourceTable, ready = Promise.resolve()) {
