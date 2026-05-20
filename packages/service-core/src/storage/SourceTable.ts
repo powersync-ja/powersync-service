@@ -38,13 +38,6 @@ export interface TableSnapshotStatus {
 export class SourceTable {
   static readonly DEFAULT_TAG = DEFAULT_TAG;
 
-  static idsEqual(left: SourceTableId, right: SourceTableId) {
-    if (left instanceof bson.ObjectId && right instanceof bson.ObjectId) {
-      return left.equals(right);
-    }
-    return String(left) == String(right);
-  }
-
   /**
    * True if the table is used in sync config for data queries.
    *
