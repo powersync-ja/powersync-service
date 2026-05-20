@@ -306,6 +306,9 @@ export class ChangeStream {
           await this.snapshotter.queueSnapshot(batch, tableToSnapshot);
         }
       } else {
+        // Truncate in case a previous inline snapshot was interrupted after flushing rows, but before
+        // recording snapshot progress. Without this, resuming can replay already-flushed rows on v1/v2 storage.
+        await batch.truncate(snapshotCandidates);
         const doneTables = await this.snapshotter.snapshotTables(batch, snapshotCandidates);
         const snapshotDoneById = new Map(doneTables.map((table) => [table.id, table]));
         const tables = result.tables.map((table) => snapshotDoneById.get(table.id) ?? table);
