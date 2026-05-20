@@ -165,6 +165,8 @@ export abstract class MongoBucketBatch
 
   abstract setResumeLsn(lsn: string): Promise<void>;
 
+  abstract getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null>;
+
   abstract markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
 
   abstract markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void>;

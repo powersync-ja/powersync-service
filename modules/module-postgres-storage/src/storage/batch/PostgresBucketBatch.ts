@@ -305,6 +305,57 @@ export class PostgresBucketBatch
     });
   }
 
+  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    const row = await this.db.sql`
+      SELECT
+        *
+      FROM
+        source_tables
+      WHERE
+        group_id = ${{ type: 'int4', value: this.group_id }}
+        AND id = ${{ type: 'varchar', value: table.id.toString() }}
+    `
+      .decoded(models.SourceTable)
+      .first();
+
+    if (row == null) {
+      return null;
+    }
+
+    return this.sourceTableFromRow(row, table.ref.connectionTag, this.sync_rules);
+  }
+
+  private sourceTableFromRow(
+    row: SourceTableDecoded,
+    connectionTag: string,
+    syncRules: sync_rules.HydratedSyncRules
+  ): storage.SourceTable {
+    const ref = { connectionTag, schema: row.schema_name, name: row.table_name };
+    const sourceTable = new storage.SourceTable({
+      id: row.id,
+      ref,
+      objectId: row.relation_id?.object_id,
+      replicaIdColumns:
+        row.replica_id_columns?.map(
+          (c) => ({ name: c.name, typeId: c.typeId, type: c.type }) satisfies ColumnDescriptor
+        ) ?? [],
+      snapshotComplete: row.snapshot_done ?? true,
+      ...syncRules.getMatchingSources(ref)
+    });
+
+    if (!sourceTable.snapshotComplete) {
+      sourceTable.snapshotStatus = {
+        totalEstimatedCount: Number(row.snapshot_total_estimated_count ?? -1n),
+        replicatedCount: Number(row.snapshot_replicated_count ?? 0n),
+        lastKey: row.snapshot_last_key
+      };
+    }
+    sourceTable.syncEvent = syncRules.tableTriggersEvent(ref);
+    sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
+    sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
+    return sourceTable;
+  }
+
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     // TODO maybe share with abstract class
     const { after, before, sourceTable, tag } = record;

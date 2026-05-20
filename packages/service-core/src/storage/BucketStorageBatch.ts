@@ -120,6 +120,11 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
 
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
+  /**
+   * Get the current status for an existing source table without creating or resolving a replacement table.
+   */
+  getSourceTableStatus(table: SourceTable): Promise<SourceTable | null>;
+
   resolveTables(options: ResolveTablesOptions): Promise<ResolveTablesResult>;
 
   /**

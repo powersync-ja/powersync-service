@@ -23,6 +23,8 @@ describe('change stream', () => {
 });
 
 function defineChangeStreamTests({ factory, storageVersion }: StorageVersionTestContext) {
+  const supportsConcurrentSnapshots = storageVersion >= 3;
+
   const openContext = (options?: Parameters<typeof ChangeStreamTestContext.open>[1]) => {
     return ChangeStreamTestContext.open(factory, { ...options, storageVersion });
   };
@@ -110,7 +112,6 @@ bucket_definitions:
     let sourceDeleteWritten = false;
     let sourceDeleteFlushBatch: storage.BucketStorageBatch | undefined;
     const streamDeleteFlushed = Promise.withResolvers<void>();
-    const supportsConcurrentSnapshots = storage.STORAGE_VERSION_CONFIG[storageVersion]?.softDeleteCurrentData == true;
 
     await using context = await openContext({
       streamOptions: {
@@ -469,6 +470,119 @@ bucket_definitions:
       test_utils.putOp('test_data2', { id: test_id, description: 'test1' })
     ]);
   });
+
+  test.runIf(supportsConcurrentSnapshots)(
+    'collection recreated while queued snapshot is waiting does not stall checkpoints',
+    async () => {
+      // This is a regression test for a specific timing issue in concurrent snapshot logic.
+      // Regression flow:
+      // 1. Create test_b and wait until streaming has queued a concurrent snapshot for its source table.
+      // 2. Pause that queued snapshot before it reads storage state.
+      // 3. Drop test_b and wait until streaming has deleted the queued source table row from storage.
+      // 4. Recreate the test_b collection, but do not insert replacement data yet. This leaves the collection
+      //    visible to namespace-based resolution without giving normal streaming an insert event that could
+      //    discover and queue the replacement source table.
+      // 5. Release the stale queued snapshot and wait for a checkpoint. The old implementation re-resolved by
+      //    namespace here, created a new source table row, then skipped it because its id did not match the
+      //    queued id. That left snapshot_done=false with no queue item to finish it, stalling checkpoints.
+      // 6. After the checkpoint proves the stale snapshot did not orphan a source table, insert replacement data
+      //    and verify normal streaming still replicates it.
+      const testBSnapshotStarted = Promise.withResolvers<void>();
+      const releaseTestBSnapshot = Promise.withResolvers<void>();
+      let pausedTestBSnapshot = false;
+      let queuedTestBTable: storage.SourceTable | null = null;
+      let waitForStreamingFlush: PromiseWithResolvers<void> | null = null;
+      const waitFor = async (promise: Promise<void>, description: string) => {
+        await Promise.race([
+          promise,
+          setTimeout(10_000).then(() => {
+            throw new Error(`Timed out waiting for ${description}`);
+          })
+        ]);
+      };
+
+      await using context = await openContext({
+        streamOptions: {
+          snapshotChunkLength: 1,
+          snapshotHooks: {
+            beforeSnapshotStarted: async (table) => {
+              if (table.name != 'test_b' || pausedTestBSnapshot) {
+                return;
+              }
+
+              queuedTestBTable = table;
+              pausedTestBSnapshot = true;
+              testBSnapshotStarted.resolve();
+              await releaseTestBSnapshot.promise;
+            }
+          },
+          storageHooks: {
+            afterBatchFlush: async (batch) => {
+              if (batch.skipExistingRows) {
+                return;
+              }
+
+              waitForStreamingFlush?.resolve();
+            }
+          }
+        }
+      });
+      const { db } = context;
+      const waitForSourceTableDropped = async (table: storage.SourceTable) => {
+        const deadline = Date.now() + 10_000;
+        while (Date.now() < deadline) {
+          await using writer = await context.storage!.createWriter(test_utils.BATCH_OPTIONS);
+          if ((await writer.getSourceTableStatus(table)) == null) {
+            return;
+          }
+          await setTimeout(50);
+        }
+        throw new Error('Timed out waiting for test_b source table to be dropped');
+      };
+      const syncRuleContent = `
+bucket_definitions:
+  global:
+    data:
+      - SELECT _id as id, description FROM "test_%"
+`;
+      await context.updateSyncRules(syncRuleContent);
+      await context.replicateSnapshot();
+      context.startStreaming();
+
+      try {
+        await db.createCollection('test_a');
+        const testA = await db.collection('test_a').insertOne({ description: 'test a' });
+
+        await db.createCollection('test_b');
+        waitForStreamingFlush = Promise.withResolvers<void>();
+        await db.collection('test_b').insertOne({ description: 'old test b' });
+        await waitFor(waitForStreamingFlush.promise, 'old test_b streaming flush');
+        await waitFor(testBSnapshotStarted.promise, 'test_b snapshot to start');
+
+        if (queuedTestBTable == null) {
+          throw new Error('test_b snapshot started without a queued source table');
+        }
+
+        await db.collection('test_b').drop();
+        await waitForSourceTableDropped(queuedTestBTable);
+
+        await db.createCollection('test_b');
+        releaseTestBSnapshot.resolve();
+        await context.getCheckpoint({ timeout: 10_000 });
+
+        const result = await db.collection('test_b').insertOne({ description: 'new test b' });
+
+        const data = await context.getBucketData('global[]', undefined, { timeout: 10_000 });
+        const reduced = test_utils.reduceBucket(data).slice(1);
+        expect(reduced).toMatchObject([
+          test_utils.putOp('test_a', { id: testA.insertedId.toHexString(), description: 'test a' }),
+          test_utils.putOp('test_b', { id: result.insertedId.toHexString(), description: 'new test b' })
+        ]);
+      } finally {
+        releaseTestBSnapshot.resolve();
+      }
+    }
+  );
 
   test('initial sync', async () => {
     await using context = await openContext();

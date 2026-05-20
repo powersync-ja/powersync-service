@@ -26,7 +26,7 @@ import { PostImagesOption } from '../types/types.js';
 import { escapeRegExp } from '../utils.js';
 import { MongoManager } from './MongoManager.js';
 import { createCheckpoint, getCacheIdentifier, getMongoRelation, STANDALONE_CHECKPOINT_ID } from './MongoRelation.js';
-import { MongoSnapshotter } from './MongoSnapshotter.js';
+import { MongoSnapshotter, MongoSnapshotterHooks } from './MongoSnapshotter.js';
 import {
   ChangeStreamBatch,
   parseChangeDocument,
@@ -54,6 +54,7 @@ export interface ChangeStreamOptions {
   snapshotChunkLength?: number;
 
   storageHooks?: storage.StorageHooks;
+  snapshotHooks?: MongoSnapshotterHooks;
 
   logger?: Logger;
 }

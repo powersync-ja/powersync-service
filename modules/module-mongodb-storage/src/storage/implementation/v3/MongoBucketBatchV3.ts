@@ -280,6 +280,17 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     };
   }
 
+  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    const doc = (await this.db
+      .commonSourceTables(this.group_id)
+      .findOne({ _id: mongoTableId(table.id) }, { session: this.session })) as SourceTableDocumentV3 | null;
+    if (doc == null) {
+      return null;
+    }
+
+    return this.sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules);
+  }
+
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 

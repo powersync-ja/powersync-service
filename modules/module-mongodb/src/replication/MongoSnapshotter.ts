@@ -32,6 +32,11 @@ export interface MongoSnapshotterOptions {
   logger?: Logger;
   checkpointStreamId: mongo.ObjectId;
   storageHooks?: storage.StorageHooks;
+  snapshotHooks?: MongoSnapshotterHooks;
+}
+
+export interface MongoSnapshotterHooks {
+  beforeSnapshotStarted?: (table: SourceTable) => Promise<void>;
 }
 
 interface InitResult {
@@ -59,6 +64,7 @@ export class MongoSnapshotter {
   private readonly logger: Logger;
   private readonly checkpointStreamId: mongo.ObjectId;
   private readonly storageHooks: storage.StorageHooks | undefined;
+  private readonly snapshotHooks: MongoSnapshotterHooks | undefined;
   private readonly changeStreamTimeout: number;
 
   private readonly connectionId = 1;
@@ -80,6 +86,7 @@ export class MongoSnapshotter {
     this.logger = options.logger ?? options.storage.logger;
     this.checkpointStreamId = options.checkpointStreamId;
     this.storageHooks = options.storageHooks;
+    this.snapshotHooks = options.snapshotHooks;
     this.changeStreamTimeout = Math.ceil(this.client.options.socketTimeoutMS * 0.9);
     this.syncRules = options.storage.getParsedSyncRules({
       defaultSchema: this.defaultDb.databaseName
@@ -315,6 +322,8 @@ export class MongoSnapshotter {
   }
 
   private async replicateTable(tableRequest: SourceTable) {
+    await this.snapshotHooks?.beforeSnapshotStarted?.(tableRequest);
+
     await using writer = await this.storage.createWriter({
       logger: this.logger,
       zeroLSN: MongoLSN.ZERO.comparable,
@@ -324,13 +333,10 @@ export class MongoSnapshotter {
       hooks: this.storageHooks,
       tracer: new PerformanceTracer('MongoDB snapshot table')
     });
-    // Get fresh table info, in case it was updated while queuing
-    const tables = await this.handleRelation(
-      writer,
-      getMongoRelation({ db: tableRequest.schema, coll: tableRequest.name }, this.connections.connectionTag),
-      { collectionInfo: undefined }
-    );
-    const table = tables.find((candidate) => SourceTable.idsEqual(candidate.id, tableRequest.id));
+    // Get fresh table info, in case it was updated while queuing.
+    // This deliberately does not resolve by namespace, since that could recreate a replacement source table
+    // for a dropped/recreated collection and leave the original queued snapshot with no owner.
+    const table = await writer.getSourceTableStatus(tableRequest);
     if (table == null || table.snapshotComplete) {
       return;
     }

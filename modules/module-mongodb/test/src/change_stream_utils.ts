@@ -144,6 +144,7 @@ export class ChangeStreamTestContext {
       maxAwaitTimeMS: this.streamOptions?.maxAwaitTimeMS ?? 200,
       snapshotChunkLength: this.streamOptions?.snapshotChunkLength,
       storageHooks: this.streamOptions?.storageHooks,
+      snapshotHooks: this.streamOptions?.snapshotHooks,
       logger: this.streamOptions?.logger
     };
     this._walStream = new ChangeStream(options);
