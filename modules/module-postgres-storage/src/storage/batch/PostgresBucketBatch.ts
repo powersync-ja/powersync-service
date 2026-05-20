@@ -705,7 +705,7 @@ export class PostgresBucketBatch
     });
   }
 
-  async markSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.db.transaction(async (db) => {
       const snapshotRequiredCount = await db.sql`
         SELECT
@@ -719,11 +719,15 @@ export class PostgresBucketBatch
         .decoded(t.object({ count: bigint }))
         .first();
       if ((snapshotRequiredCount?.count ?? 0n) > 0n) {
-        throw new ReplicationAssertionError(
-          `Cannot mark snapshot done while ${snapshotRequiredCount?.count} source table${
-            snapshotRequiredCount?.count == 1n ? '' : 's'
-          } still require snapshotting`
-        );
+        if (options?.throwOnConflict ?? true) {
+          throw new ReplicationAssertionError(
+            `Cannot mark snapshot done while ${snapshotRequiredCount?.count} source table${
+              snapshotRequiredCount?.count == 1n ? '' : 's'
+            } still require snapshotting`
+          );
+        } else {
+          return;
+        }
       }
 
       await db.sql`

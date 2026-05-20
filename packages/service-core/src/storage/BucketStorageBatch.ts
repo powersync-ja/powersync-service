@@ -112,8 +112,11 @@ export interface BucketStorageBatch extends ObserverClient<BucketBatchStorageLis
    *
    * Replicators should use this method when completing an initial snapshot. The validation prevents races where
    * new source tables are marked as requiring a snapshot while global snapshot finalization is running.
+   *
+   * If `throwOnConflict` is false, this will instead return early without throwing if there are source tables that still require snapshotting.
+   * Use that only in cases where concurrency is expected, and can automatically retry/continue.
    */
-  markSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+  markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void>;
 
   updateTableProgress(table: SourceTable, progress: Partial<TableSnapshotStatus>): Promise<SourceTable>;
 
