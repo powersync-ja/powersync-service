@@ -484,6 +484,17 @@ describe('JWT Auth', () => {
           }
         })
     ).toThrowError('IPs in this range are not supported');
+
+    // `URL.hostname` exposes IPv6 literals wrapped in brackets; ensure they are
+    // handled like other direct-IP cases.
+    expect(
+      () =>
+        new RemoteJWKSCollector('https://[::1]/.well-known/jwks.json', {
+          lookupOptions: {
+            reject_ip_ranges: ['local']
+          }
+        })
+    ).toThrowError('IPs in this range are not supported');
   });
 
   test('http not blocking local IPs', async () => {

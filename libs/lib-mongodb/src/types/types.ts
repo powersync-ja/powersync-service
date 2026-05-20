@@ -1,5 +1,6 @@
 import {
   ErrorCode,
+  hostnameFromSocketAddress,
   LookupOptions,
   makeMultiHostnameLookupFunction,
   ServiceError
@@ -145,7 +146,8 @@ export function normalizeMongoConfig(options: BaseMongoConfigDecoded): Normalize
   const lookupOptions: LookupOptions = {
     reject_ip_ranges: options.reject_ip_ranges ?? []
   };
-  const lookup = makeMultiHostnameLookupFunction(uri.hosts, lookupOptions);
+  const hostnames = uri.hosts.map(hostnameFromSocketAddress);
+  const lookup = makeMultiHostnameLookupFunction(hostnames, lookupOptions);
 
   // Parse connection parameters from URL query string
   const connectionParams = parseMongoConnectionParams(uri.searchParams);
