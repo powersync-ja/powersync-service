@@ -405,17 +405,7 @@ export class ChangeStream {
         });
 
       const results = await Promise.allSettled([loopPromise, streamPromise]);
-      for (const result of results) {
-        if (result.status == 'rejected' && !(result.reason instanceof ReplicationAbortedError)) {
-          throw result.reason;
-        }
-      }
-      for (const result of results) {
-        if (result.status == 'rejected') {
-          throw result.reason;
-        }
-      }
-      throw new ReplicationAssertionError(`Replication loop exited unexpectedly`);
+      throw replicationLoopError(results);
     } catch (e) {
       await this.storage.reportError(e);
       throw e;
@@ -897,4 +887,27 @@ function transactionKey(doc: Pick<mongo.ChangeStreamDocument, 'lsid' | 'txnNumbe
     return null;
   }
   return `${doc.lsid.id.toString('hex')}:${doc.txnNumber}`;
+}
+
+/**
+ * Prioritize errors that are _not_ ReplicationAbortedError. Any error on either loopPromise or
+ * streamPromise aborts the other one, which then results in a ReplicationAbortedError, hiding the
+ * original cause.
+ */
+function replicationLoopError(results: PromiseSettledResult<any>[]): unknown {
+  // 1. Prioritize not ReplicationAbortedError.
+  for (const result of results) {
+    if (result.status == 'rejected' && !(result.reason instanceof ReplicationAbortedError)) {
+      return result.reason;
+    }
+  }
+  // 2. Fallback to ReplicationAbortedError.
+  for (const result of results) {
+    if (result.status == 'rejected') {
+      // At this point only ReplicationAbortedError remains
+      return result.reason;
+    }
+  }
+  // 3. Should never happen, but we cover this case.
+  return new ReplicationAssertionError(`Replication loop exited unexpectedly`);
 }
