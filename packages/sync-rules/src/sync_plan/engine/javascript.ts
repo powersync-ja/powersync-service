@@ -162,7 +162,10 @@ class ExpressionToJavaScriptFunction
       case '+':
         return operand;
       case 'not':
-        return (input) => sqliteNot(operand(input));
+        return (input) => {
+          const value = operand(input);
+          return value == null ? null : sqliteNot(value);
+        };
       // case '~':
       // case '-':
       //   throw new Error(`unary operator not supported: ${expr.operator}`);

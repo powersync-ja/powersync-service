@@ -75,7 +75,7 @@ function defineEngineTests(
   test('not null', () => {
     expect(
       prepare({ outputs: [{ type: 'unary', operator: 'not', operand: { type: 'lit_null' } }] }).evaluate([])
-    ).toStrictEqual([[isJavaScript ? 1n : null]]);
+    ).toStrictEqual([[null]]);
   });
 
   test('literal double', () => {
