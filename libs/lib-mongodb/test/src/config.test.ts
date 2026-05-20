@@ -148,6 +148,81 @@ describe('config', () => {
     expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
   });
 
+  test('Should reject an IP host with an explicit port', async () => {
+    let err: ServiceError | undefined;
+    try {
+      normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://127.0.0.1:27017/powersync_test',
+        reject_ip_ranges: ['127.0.0.1/0']
+      });
+    } catch (e) {
+      err = e as ServiceError;
+    }
+
+    expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
+  });
+
+  test('Should reject an IP host with an empty explicit port', async () => {
+    let err: ServiceError | undefined;
+    try {
+      normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://127.0.0.1:/powersync_test',
+        reject_ip_ranges: ['127.0.0.1/0']
+      });
+    } catch (e) {
+      err = e as ServiceError;
+    }
+
+    expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
+  });
+
+  test('Should reject IP hosts with explicit ports in a replica-set host list', async () => {
+    let err: ServiceError | undefined;
+    try {
+      normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://10.0.0.1:27017,127.0.0.1:27018/powersync_test?replicaSet=rs0',
+        reject_ip_ranges: ['127.0.0.1/0']
+      });
+    } catch (e) {
+      err = e as ServiceError;
+    }
+
+    expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
+  });
+
+  test('Should reject a bracketed IPv6 host with an explicit port', async () => {
+    let err: ServiceError | undefined;
+    try {
+      normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://[::1]:27017/powersync_test',
+        reject_ip_ranges: ['::1/128']
+      });
+    } catch (e) {
+      err = e as ServiceError;
+    }
+
+    expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
+  });
+
+  test('Should reject a bracketed IPv6 host with an empty explicit port', async () => {
+    let err: ServiceError | undefined;
+    try {
+      normalizeMongoConfig({
+        type: 'mongodb',
+        uri: 'mongodb://[::1]:/powersync_test',
+        reject_ip_ranges: ['::1/128']
+      });
+    } catch (e) {
+      err = e as ServiceError;
+    }
+
+    expect(err?.toJSON().code).toEqual(ErrorCode.PSYNC_S2203);
+  });
+
   test('Should make a lookup function for multiple hosts', async () => {
     const lookup = normalizeMongoConfig({
       type: 'mongodb',
