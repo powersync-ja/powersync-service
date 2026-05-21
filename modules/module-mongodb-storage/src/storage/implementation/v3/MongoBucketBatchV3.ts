@@ -282,6 +282,17 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     };
   }
 
+  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    const doc = (await this.db
+      .commonSourceTables(this.group_id)
+      .findOne({ _id: mongoTableId(table.id) }, { session: this.session })) as SourceTableDocumentV3 | null;
+    if (doc == null) {
+      return null;
+    }
+
+    return this.sourceTableFromDocument(doc, table.ref.connectionTag, this.sync_rules);
+  }
+
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
     const { createEmptyCheckpoints } = { ...storage.DEFAULT_BUCKET_BATCH_COMMIT_OPTIONS, ...options };
 
@@ -507,6 +518,29 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         arrayFilters: [{ 'config._id': this.syncConfigId }]
       }
     );
+  }
+
+  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
+    await this.withTransaction(async () => {
+      // Protect against race conditions
+      const count = await this.db.sourceTables(this.group_id).countDocuments(
+        {
+          snapshot_done: false
+        },
+        { session: this.session }
+      );
+      if (count > 0) {
+        if (options?.throwOnConflict ?? true) {
+          throw new ReplicationAssertionError(
+            `Cannot mark snapshot done while ${count} source table${count == 1 ? '' : 's'} still require snapshotting`
+          );
+        } else {
+          return;
+        }
+      }
+
+      await this.markAllSnapshotDone(no_checkpoint_before_lsn);
+    });
   }
 
   async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {

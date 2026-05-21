@@ -86,6 +86,7 @@ export abstract class AbstractMongoSyncBucketStorage
   private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
+  public readonly storageConfig: StorageConfig;
   #storageInitialized = false;
 
   constructor(
@@ -97,7 +98,8 @@ export abstract class AbstractMongoSyncBucketStorage
     options: MongoSyncBucketStorageOptions
   ) {
     super();
-    this._db = factory.db.versioned(sync_rules.getStorageConfig());
+    this.storageConfig = options.storageConfig;
+    this._db = factory.db.versioned(this.storageConfig);
     this._checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
@@ -216,6 +218,7 @@ export abstract class AbstractMongoSyncBucketStorage
       storeCurrentData: options.storeCurrentData,
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
+      hooks: options.hooks,
       syncConfigId: state.syncConfigId,
       tracer: options.tracer
     };

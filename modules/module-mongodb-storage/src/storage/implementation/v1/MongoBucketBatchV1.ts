@@ -9,7 +9,7 @@ import { SourceRecordStore } from '../common/SourceRecordStore.js';
 import { PersistedBatchV1 } from './PersistedBatchV1.js';
 import { SourceRecordStoreV1 } from './SourceRecordStoreV1.js';
 import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
-import { SyncRuleDocumentV1 } from './models.js';
+import { SourceTableDocumentV1, SyncRuleDocumentV1 } from './models.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
   get db(): VersionedPowerSyncMongoV1 {
@@ -142,6 +142,48 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     });
 
     return result!;
+  }
+
+  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    const doc = (await this.db.commonSourceTables(this.group_id).findOne(
+      {
+        group_id: this.group_id,
+        _id: mongoTableId(table.id)
+      },
+      { session: this.session }
+    )) as SourceTableDocumentV1 | null;
+    if (doc == null) {
+      return null;
+    }
+
+    const ref = {
+      connectionTag: table.ref.connectionTag,
+      schema: doc.schema_name,
+      name: doc.table_name
+    };
+    const sourceTable = new storage.SourceTable({
+      id: doc._id,
+      ref,
+      objectId: doc.relation_id,
+      replicaIdColumns:
+        doc.replica_id_columns2?.map(
+          (c) => ({ name: c.name, typeId: c.type_oid, type: c.type }) satisfies ColumnDescriptor
+        ) ?? [],
+      snapshotComplete: doc.snapshot_done ?? true,
+      ...this.sync_rules.getMatchingSources(ref)
+    });
+    sourceTable.syncEvent = this.sync_rules.tableTriggersEvent(ref);
+    sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
+    sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
+    sourceTable.snapshotStatus =
+      doc.snapshot_status == null
+        ? undefined
+        : {
+            lastKey: doc.snapshot_status.last_key?.buffer ?? null,
+            totalEstimatedCount: doc.snapshot_status.total_estimated_count,
+            replicatedCount: doc.snapshot_status.replicated_count
+          };
+    return sourceTable;
   }
 
   async commit(lsn: string, options?: storage.BucketBatchCommitOptions): Promise<storage.CheckpointResult> {
@@ -334,6 +376,30 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       },
       { session: this.session }
     );
+  }
+
+  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
+    await this.withTransaction(async () => {
+      // Protect against race conditions
+      const count = await this.db.commonSourceTables(this.group_id).countDocuments(
+        {
+          group_id: this.group_id,
+          snapshot_done: false
+        },
+        { session: this.session }
+      );
+      if (count > 0) {
+        if (options?.throwOnConflict ?? true) {
+          throw new ReplicationAssertionError(
+            `Cannot mark snapshot done while ${count} source table${count == 1 ? '' : 's'} still require snapshotting`
+          );
+        } else {
+          return;
+        }
+      }
+
+      await this.markAllSnapshotDone(no_checkpoint_before_lsn);
+    });
   }
 
   async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {

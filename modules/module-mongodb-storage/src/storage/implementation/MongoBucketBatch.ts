@@ -57,6 +57,7 @@ export interface MongoBucketBatchOptions {
   skipExistingRows: boolean;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  hooks: storage.StorageHooks | undefined;
 
   logger: Logger;
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
@@ -83,12 +84,13 @@ export abstract class MongoBucketBatch
 
   private readonly slot_name: string;
   private readonly storeCurrentData: boolean;
-  private readonly skipExistingRows: boolean;
+  public readonly skipExistingRows: boolean;
   protected readonly mapping: BucketDefinitionMapping;
 
   private batch: OperationBatch | null = null;
   private write_checkpoint_batch: storage.CustomWriteCheckpointOptions[] = [];
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  private hooks: storage.StorageHooks | undefined;
   private clearedError = false;
   private listSourceRecordCollections?: (groupId: number) => Promise<mongo.Collection<any>[]>;
 
@@ -139,6 +141,7 @@ export abstract class MongoBucketBatch
     this.skipExistingRows = options.skipExistingRows;
     this.markRecordUnavailable = options.markRecordUnavailable;
     this.listSourceRecordCollections = options.listSourceRecordCollections;
+    this.hooks = options.hooks;
     this.batch = new OperationBatch();
 
     this.persisted_op = options.keepaliveOp ?? null;
@@ -191,7 +194,11 @@ export abstract class MongoBucketBatch
 
   abstract setResumeLsn(lsn: string): Promise<void>;
 
+  abstract getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null>;
+
   abstract markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void>;
+
+  abstract markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void>;
 
   abstract markTableSnapshotRequired(table: storage.SourceTable): Promise<void>;
 
@@ -220,6 +227,8 @@ export abstract class MongoBucketBatch
 
     using _ = this.tracer.span('storage', 'flush');
 
+    await this.hooks?.beforeBatchFlush?.(this);
+
     await this.withReplicationTransaction(`Flushing ${batch?.length ?? 0} ops`, async (session, opSeq) => {
       if (batch != null) {
         resumeBatch = await this.replicateBatch(session, batch, opSeq, options);
@@ -243,6 +252,7 @@ export abstract class MongoBucketBatch
 
     this.persisted_op = last_op;
     this.last_flushed_op = last_op;
+    await this.hooks?.afterBatchFlush?.(this);
     return { flushed_op: last_op };
   }
 

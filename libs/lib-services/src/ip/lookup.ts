@@ -14,13 +14,15 @@ export interface LookupOptions {
  *
  * If one of the hostnames is an IP, this synchronously validates it.
  *
+ * Each entry must be a normalized hostname (no port, no IPv6 brackets); pass
+ * socket-address inputs through {@link hostnameFromSocketAddress} first.
+ *
  * @returns a function to use as the `lookup` option in `net.connect`.
  */
 export function makeMultiHostnameLookupFunction(
   hostnames: string[],
   lookupOptions: LookupOptions
 ): net.LookupFunction | undefined {
-  // If any of the hostnames are IPs, validate them synchronously
   for (let host of hostnames) {
     validateIpHostname(host, lookupOptions);
   }
@@ -32,6 +34,9 @@ export function makeMultiHostnameLookupFunction(
  * Generate a custom DNS lookup function, that rejects specific IP ranges.
  *
  * If hostname is an IP, this synchronously validates it.
+ *
+ * `hostname` must be normalized (no port, no IPv6 brackets); pass socket-address
+ * inputs through {@link hostnameFromSocketAddress} first.
  *
  * @returns a function to use as the `lookup` option in `net.connect`.
  */
@@ -73,12 +78,11 @@ export function makeLookupFunction(lookupOptions: LookupOptions): net.LookupFunc
 }
 
 /**
- * Validate IPs synchronously.
+ * Validate IPs synchronously. If the hostname is not an IP, this does nothing.
  *
- * If the hostname is not an ip, this does nothing.
- *
- * @param hostname IP or DNS name
- * @param options
+ * `hostname` must be normalized (no port, no IPv6 brackets); pass socket-address
+ * inputs through {@link hostnameFromSocketAddress} first, otherwise `[::1]` or
+ * `host:port` will fail `ip.isValid` and silently fall through to the DNS path.
  */
 export function validateIpHostname(hostname: string, options: LookupOptions): void {
   const { reject_ip_ranges: reject_ranges } = options;
@@ -87,9 +91,7 @@ export function validateIpHostname(hostname: string, options: LookupOptions): vo
     return;
   }
 
-  const ipaddr = hostname;
-
-  const parsed = ip.parse(ipaddr);
+  const parsed = ip.parse(hostname);
   const rejectLocal = reject_ranges.includes('local');
   const rejectSubnets = reject_ranges.filter((range) => range != 'local');
 
@@ -101,7 +103,7 @@ export function validateIpHostname(hostname: string, options: LookupOptions): vo
 
   if (ip.subnetMatch(parsed, reject) == 'blocked') {
     // Ranges explicitly blocked, e.g. private IPv6 ranges
-    throw new ServiceError(ErrorCode.PSYNC_S2203, `IPs in this range are not supported: ${ipaddr}`);
+    throw new ServiceError(ErrorCode.PSYNC_S2203, `IPs in this range are not supported: ${hostname}`);
   }
 
   if (!rejectLocal) {
@@ -116,8 +118,22 @@ export function validateIpHostname(hostname: string, options: LookupOptions): vo
     return;
   } else {
     // Do not connect to any reserved IPs, including loopback and private ranges
-    throw new ServiceError(ErrorCode.PSYNC_S2203, `IPs in this range are not supported: ${ipaddr}`);
+    throw new ServiceError(ErrorCode.PSYNC_S2203, `IPs in this range are not supported: ${hostname}`);
   }
+}
+
+/**
+ * Normalize a socket address (`host[:port]`, with IPv6 hosts optionally bracketed)
+ * to a bare hostname. Used for `URL.host`/`URL.hostname` and
+ * `mongodb-connection-string-url`'s `uri.hosts` entries. Non-IP input is returned
+ * unchanged (downstream falls through to the DNS path).
+ */
+export function hostnameFromSocketAddress(socketAddress: string): string {
+  const parsed = net.SocketAddress.parse(socketAddress);
+  if (parsed != null) {
+    return parsed.address;
+  }
+  return socketAddress;
 }
 
 /**
