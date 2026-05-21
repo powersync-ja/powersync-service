@@ -109,6 +109,23 @@ function defineEngineTests(
     expect(stmt.evaluate([3])).toStrictEqual([[isJavaScript ? '3' : '3.0']]);
   });
 
+  test('signed string casts', () => {
+    const integerStmt = prepare({
+      outputs: [{ type: 'cast', operand: { type: 'data', source: 1 }, cast_as: 'integer' }]
+    });
+    const numericStmt = prepare({
+      outputs: [{ type: 'cast', operand: { type: 'data', source: 1 }, cast_as: 'numeric' }]
+    });
+
+    expect(integerStmt.evaluate(['-12abc'])).toStrictEqual([[-12n]]);
+    expect(integerStmt.evaluate(['+12abc'])).toStrictEqual([[12n]]);
+    expect(integerStmt.evaluate(['-12.9abc'])).toStrictEqual([[-12n]]);
+    expect(numericStmt.evaluate(['-12.5abc'])).toStrictEqual([[-12.5]]);
+    expect(numericStmt.evaluate(['-.5abc'])).toStrictEqual([[-0.5]]);
+    expect(numericStmt.evaluate(['+1.2e2abc'])).toStrictEqual([[isJavaScript ? 120 : 120n]]);
+    expect(numericStmt.evaluate(['-1.2e2abc'])).toStrictEqual([[isJavaScript ? -120 : -120n]]);
+  });
+
   test('unary not', () => {
     const stmt = prepare({ outputs: [{ type: 'unary', operator: 'not', operand: { type: 'data', source: 1 } }] });
 
