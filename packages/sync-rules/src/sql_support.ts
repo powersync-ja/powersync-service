@@ -57,8 +57,8 @@ export function sqliteBool(value: SqliteValue | boolean): 1n | 0n {
   }
 }
 
-export function sqliteNot(value: SqliteValue | boolean) {
-  return sqliteBool(!sqliteBool(value));
+export function sqliteNot(value: SqliteValue | boolean, strictNullBooleanSemantics = false) {
+  return strictNullBooleanSemantics && value == null ? null : sqliteBool(!sqliteBool(value));
 }
 
 /**
@@ -112,12 +112,17 @@ export function composeParameterValues<T extends Record<string, ParameterValueCl
   };
 }
 
-export function compileStaticOperator(op: string, left: RowValueClause, right: RowValueClause): RowValueClause {
+export function compileStaticOperator(
+  op: string,
+  left: RowValueClause,
+  right: RowValueClause,
+  strictNullBooleanSemantics = false
+): RowValueClause {
   return {
     evaluate: (tables) => {
       const leftValue = left.evaluate(tables);
       const rightValue = right.evaluate(tables);
-      return evaluateOperator(op, leftValue, rightValue);
+      return evaluateOperator(op, leftValue, rightValue, strictNullBooleanSemantics);
     },
     getColumnDefinition(schema) {
       const typeLeft = left.getColumnDefinition(schema)?.type ?? ExpressionType.NONE;
@@ -131,14 +136,14 @@ export function compileStaticOperator(op: string, left: RowValueClause, right: R
   };
 }
 
-export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
+export function andFilters(a: CompiledClause, b: CompiledClause, strictNullBooleanSemantics = false): CompiledClause {
   // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
   // clause.
   if (isRowValueClause(a) && isRowValueClause(b)) {
     return composeRowValues({
       values: { a, b },
       compose(values) {
-        return sqliteBool(sqliteBool(values.a) && sqliteBool(values.b));
+        return evaluateOperator('AND', values.a, values.b, strictNullBooleanSemantics);
       },
       getColumnDefinition() {
         return { name: 'and', type: ExpressionType.INTEGER };
@@ -150,7 +155,7 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
       values: { a, b },
       key: 'and',
       compose(values) {
-        return sqliteBool(sqliteBool(values.a) && sqliteBool(values.b));
+        return evaluateOperator('AND', values.a, values.b, strictNullBooleanSemantics);
       }
     });
   }
@@ -201,14 +206,14 @@ export function andFilters(a: CompiledClause, b: CompiledClause): CompiledClause
   } satisfies ParameterMatchClause;
 }
 
-export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause {
+export function orFilters(a: CompiledClause, b: CompiledClause, strictNullBooleanSemantics = false): CompiledClause {
   // Optimizations: If the two clauses both only depend on row or parameter data, we can merge them into a single
   // clause.
   if (isRowValueClause(a) && isRowValueClause(b)) {
     return composeRowValues({
       values: { a, b },
       compose(values) {
-        return sqliteBool(sqliteBool(values.a) || sqliteBool(values.b));
+        return evaluateOperator('OR', values.a, values.b, strictNullBooleanSemantics);
       },
       getColumnDefinition() {
         return { name: 'or', type: ExpressionType.INTEGER };
@@ -220,7 +225,7 @@ export function orFilters(a: CompiledClause, b: CompiledClause): CompiledClause 
       values: { a, b },
       key: 'or',
       compose(values) {
-        return sqliteBool(sqliteBool(values.a) || sqliteBool(values.b));
+        return evaluateOperator('OR', values.a, values.b, strictNullBooleanSemantics);
       }
     });
   }

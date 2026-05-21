@@ -66,12 +66,19 @@ export class CompatibilityOption {
     null
   );
 
+  static strictNullBooleanSemantics = new CompatibilityOption(
+    'strict_null_boolean_semantics',
+    'Evaluate boolean NOT, AND and OR with SQLite-compatible NULL semantics.',
+    CompatibilityEdition.COMPILED_STREAMS
+  );
+
   static byName: Record<string, CompatibilityOption> = Object.freeze({
     timestamps_iso8601: this.timestampsIso8601,
     versioned_bucket_ids: this.versionedBucketIds,
     fixed_json_extract: this.fixedJsonExtract,
     custom_postgres_types: this.customTypes,
-    unstable_sqlite_expression_engine: this.sqliteExpressionEngine
+    unstable_sqlite_expression_engine: this.sqliteExpressionEngine,
+    strict_null_boolean_semantics: this.strictNullBooleanSemantics
   });
 }
 

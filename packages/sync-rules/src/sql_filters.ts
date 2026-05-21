@@ -2,7 +2,7 @@ import { JSONBig } from '@powersync/service-jsonbig';
 import { Expr, ExprRef, FromCall, Name, NodeLocation, QName, QNameAliased, SelectedColumn } from 'pgsql-ast-parser';
 import { nil } from 'pgsql-ast-parser/src/utils.js';
 import { BucketPriority, isValidPriority } from './BucketDescription.js';
-import { CompatibilityContext } from './compatibility.js';
+import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
 import { SqlRuleError } from './errors.js';
 import { ExpressionType } from './ExpressionType.js';
 import { REQUEST_FUNCTIONS, RequestFunctionCall, SqlParameterFunction } from './request_functions.js';
@@ -30,6 +30,7 @@ import {
   isRowValueClause,
   isStaticValueClause,
   orFilters,
+  sqliteNot,
   toBooleanParameterSetClause
 } from './sql_support.js';
 import { TablePattern } from './TablePattern.js';
@@ -184,6 +185,7 @@ export class SqlTools {
   readonly parameterFunctions: Record<string, Record<string, SqlParameterFunction>>;
   readonly compatibilityContext: CompatibilityContext;
   readonly functions: ReturnType<typeof generateSqlFunctions>;
+  readonly strictNullBooleanSemantics: boolean;
 
   schema?: QuerySchema;
 
@@ -204,6 +206,9 @@ export class SqlTools {
     this.supportsParameterExpressions = options.supportsParameterExpressions ?? false;
     this.parameterFunctions = options.parameterFunctions ?? { request: REQUEST_FUNCTIONS };
     this.compatibilityContext = options.compatibilityContext;
+    this.strictNullBooleanSemantics = this.compatibilityContext.isEnabled(
+      CompatibilityOption.strictNullBooleanSemantics
+    );
 
     this.functions = generateSqlFunctions(this.compatibilityContext);
   }
@@ -295,13 +300,13 @@ export class SqlTools {
 
       if (op == 'AND') {
         try {
-          return andFilters(leftFilter, rightFilter);
+          return andFilters(leftFilter, rightFilter, this.strictNullBooleanSemantics);
         } catch (e) {
           return this.error(e.message, expr);
         }
       } else if (op == 'OR') {
         try {
-          return orFilters(leftFilter, rightFilter);
+          return orFilters(leftFilter, rightFilter, this.strictNullBooleanSemantics);
         } catch (e) {
           return this.error(e.message, expr);
         }
@@ -343,7 +348,12 @@ export class SqlTools {
 
         if (isRowValueClause(otherFilter)) {
           // 1. row value = row value
-          return compileStaticOperator(op, leftFilter as RowValueClause, rightFilter as RowValueClause);
+          return compileStaticOperator(
+            op,
+            leftFilter as RowValueClause,
+            rightFilter as RowValueClause,
+            this.strictNullBooleanSemantics
+          );
         } else if (isParameterValueClause(otherFilter)) {
           return this.parameterMatchClause(staticFilter, otherFilter);
         } else if (isParameterMatchClause(otherFilter)) {
@@ -365,7 +375,10 @@ export class SqlTools {
     } else if (expr.type == 'unary') {
       if (expr.op == 'NOT') {
         const clause = this.compileClause(expr.operand);
-        return this.composeFunction(OPERATOR_NOT, [clause], [expr.operand]);
+        const operatorNot = this.strictNullBooleanSemantics
+          ? { ...OPERATOR_NOT, call: (value: SqliteValue) => sqliteNot(value, true) }
+          : OPERATOR_NOT;
+        return this.composeFunction(operatorNot, [clause], [expr.operand]);
       } else if (expr.op == 'IS NULL') {
         const clause = this.compileClause(expr.operand);
         return this.composeFunction(OPERATOR_IS_NULL, [clause], [expr.operand]);

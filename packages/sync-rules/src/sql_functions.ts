@@ -598,7 +598,12 @@ function isNumeric(a: SqliteValue): a is number | bigint {
   return typeof a == 'number' || typeof a == 'bigint';
 }
 
-export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): SqliteValue {
+export function evaluateOperator(
+  op: string,
+  a: SqliteValue,
+  b: SqliteValue,
+  strictNullBooleanSemantics = false
+): SqliteValue {
   switch (op) {
     case '=':
     case '!=':
@@ -644,9 +649,9 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
     case '||':
       return concat(a, b);
     case 'AND':
-      return sqliteBool(sqliteBool(a) && sqliteBool(b));
+      return strictNullBooleanSemantics ? evaluateBooleanAnd(a, b) : sqliteBool(sqliteBool(a) && sqliteBool(b));
     case 'OR':
-      return sqliteBool(sqliteBool(a) || sqliteBool(b));
+      return strictNullBooleanSemantics ? evaluateBooleanOr(a, b) : sqliteBool(sqliteBool(a) || sqliteBool(b));
     case 'IN': {
       if (a == null || b == null) {
         return null;
@@ -675,6 +680,32 @@ export function evaluateOperator(op: string, a: SqliteValue, b: SqliteValue): Sq
     default:
       throw new Error(`Operator not supported: ${op}`);
   }
+}
+
+function evaluateBooleanAnd(a: SqliteValue, b: SqliteValue): SqliteValue {
+  const aBool = sqliteBool(a);
+  const bBool = sqliteBool(b);
+
+  if ((a != null && aBool === SQLITE_FALSE) || (b != null && bBool === SQLITE_FALSE)) {
+    return SQLITE_FALSE;
+  }
+  if (a == null || b == null) {
+    return null;
+  }
+  return sqliteBool(aBool && bBool);
+}
+
+function evaluateBooleanOr(a: SqliteValue, b: SqliteValue): SqliteValue {
+  const aBool = sqliteBool(a);
+  const bBool = sqliteBool(b);
+
+  if ((a != null && aBool === SQLITE_TRUE) || (b != null && bBool === SQLITE_TRUE)) {
+    return SQLITE_TRUE;
+  }
+  if (a == null || b == null) {
+    return null;
+  }
+  return sqliteBool(aBool || bBool);
 }
 
 export function checkJsonArray(value: SqliteValue, errorMessage: string): SqliteJsonValue[] {

@@ -2,6 +2,7 @@ import {
   cast,
   compare,
   CompatibilityContext,
+  CompatibilityOption,
   ExpressionType,
   generateSqlFunctions,
   SQLITE_FALSE,
@@ -39,22 +40,25 @@ import {
 export function javaScriptExpressionEngine(compatibility: CompatibilityContext): ScalarExpressionEngine {
   const tableValued = generateTableValuedFunctions(compatibility);
   const regularFunctions = generateSqlFunctions(compatibility);
-  const compiler = new ExpressionToJavaScriptFunction({
-    named: {
-      ...regularFunctions.named,
-      ps_json_contains: {
-        debugName: 'ps_json_contains',
-        call: function (...args: SqliteValue[]): SqliteValue {
-          return evaluateOperator('IN', args[0], args[1]);
-        },
-        getReturnType: function (args: ExpressionType[]): ExpressionType {
-          return ExpressionType.INTEGER;
+  const compiler = new ExpressionToJavaScriptFunction(
+    {
+      named: {
+        ...regularFunctions.named,
+        ps_json_contains: {
+          debugName: 'ps_json_contains',
+          call: function (...args: SqliteValue[]): SqliteValue {
+            return evaluateOperator('IN', args[0], args[1]);
+          },
+          getReturnType: function (args: ExpressionType[]): ExpressionType {
+            return ExpressionType.INTEGER;
+          }
         }
-      }
+      },
+      jsonExtractJson: regularFunctions.operatorJsonExtractJson,
+      jsonExtractSql: regularFunctions.operatorJsonExtractSql
     },
-    jsonExtractJson: regularFunctions.operatorJsonExtractJson,
-    jsonExtractSql: regularFunctions.operatorJsonExtractSql
-  });
+    compatibility.isEnabled(CompatibilityOption.strictNullBooleanSemantics)
+  );
 
   return {
     prepareEvaluator({ outputs = [], filters = [], tableValuedFunctions = [] }): ScalarExpressionEvaluator {
@@ -134,7 +138,10 @@ interface KnownFunctions {
 class ExpressionToJavaScriptFunction
   implements ExpressionVisitor<number | TableValuedFunctionOutput, ExpressionImplementation, null>
 {
-  constructor(readonly functions: KnownFunctions) {}
+  constructor(
+    readonly functions: KnownFunctions,
+    readonly strictNullBooleanSemantics: boolean
+  ) {}
 
   compile(expr: SqlExpression<number | TableValuedFunctionOutput>): ExpressionImplementation {
     return visitExpr(this, expr, null);
@@ -162,10 +169,7 @@ class ExpressionToJavaScriptFunction
       case '+':
         return operand;
       case 'not':
-        return (input) => {
-          const value = operand(input);
-          return value == null ? null : sqliteNot(value);
-        };
+        return (input) => sqliteNot(operand(input), this.strictNullBooleanSemantics);
       // case '~':
       // case '-':
       //   throw new Error(`unary operator not supported: ${expr.operator}`);
@@ -177,7 +181,7 @@ class ExpressionToJavaScriptFunction
     const right = this.compile(expr.right);
     const operator = expr.operator.toUpperCase();
 
-    return (input) => evaluateOperator(operator, left(input), right(input));
+    return (input) => evaluateOperator(operator, left(input), right(input), this.strictNullBooleanSemantics);
   }
 
   visitBetweenExpression(expr: BetweenExpression<number | TableValuedFunctionOutput>): ExpressionImplementation {

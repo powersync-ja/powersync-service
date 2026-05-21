@@ -75,7 +75,7 @@ function defineEngineTests(
   test('not null', () => {
     expect(
       prepare({ outputs: [{ type: 'unary', operator: 'not', operand: { type: 'lit_null' } }] }).evaluate([])
-    ).toStrictEqual([[null]]);
+    ).toStrictEqual([[isJavaScript ? 1n : null]]);
   });
 
   test('literal double', () => {
@@ -141,7 +141,29 @@ function defineEngineTests(
 
     expectBinary(1, 'or', null, 1n);
     expectBinary(1, 'or', 0n, 1n);
+    expectBinary(0n, 'or', null, isJavaScript ? 0n : null);
+    expectBinary(null, 'or', 0n, isJavaScript ? 0n : null);
     expectBinary(1, 'and', 0n, 0n);
+    expectBinary(1, 'and', null, isJavaScript ? 0n : null);
+    expectBinary(null, 'and', 1, isJavaScript ? 0n : null);
+    expectBinary(0n, 'and', null, 0n);
+  });
+
+  test('strict null boolean semantics', () => {
+    compatibility = new CompatibilityContext({ edition: CompatibilityEdition.COMPILED_STREAMS });
+    try {
+      expect(
+        prepare({ outputs: [{ type: 'unary', operator: 'not', operand: { type: 'lit_null' } }] }).evaluate([])
+      ).toStrictEqual([[null]]);
+
+      expectBinary(0n, 'or', null, null);
+      expectBinary(null, 'or', 0n, null);
+      expectBinary(1, 'and', null, null);
+      expectBinary(null, 'and', 1, null);
+      expectBinary(0n, 'and', null, 0n);
+    } finally {
+      compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+    }
   });
 
   test('?1 between ?2 and ?3', () => {
