@@ -13,6 +13,7 @@ import { BucketStorageFactory } from './BucketStorageFactory.js';
 import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
+import { StorageVersionConfig } from './StorageVersionConfig.js';
 import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 
 /**
@@ -23,6 +24,7 @@ export interface SyncRulesBucketStorage
     SyncStorageWriteCheckpointAPI {
   readonly group_id: number;
   readonly slot_name: string;
+  readonly storageConfig: StorageVersionConfig;
 
   readonly factory: BucketStorageFactory;
   readonly logger: Logger;
@@ -152,6 +154,10 @@ export interface SyncRuleStatus {
   active: boolean;
   snapshot_done: boolean;
   snapshot_lsn: string | null;
+  /**
+   * Last persisted operation that must be included in the next checkpoint once checkpointing is unblocked.
+   */
+  keepalive_op: util.InternalOpId | null;
 }
 export interface ResolveTablesOptions {
   connection_id: number;
@@ -198,9 +204,16 @@ export interface CreateWriterOptions extends ParseSyncRulesOptions {
    */
   markRecordUnavailable?: BucketStorageMarkRecordUnavailable;
 
+  hooks?: StorageHooks;
+
   tracer?: PerformanceTracer<'storage' | 'evaluate'>;
 
   logger?: Logger;
+}
+
+export interface StorageHooks {
+  beforeBatchFlush?: (batch: BucketStorageBatch) => Promise<void>;
+  afterBatchFlush?: (batch: BucketStorageBatch) => Promise<void>;
 }
 
 /**
