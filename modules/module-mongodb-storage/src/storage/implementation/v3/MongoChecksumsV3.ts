@@ -122,9 +122,6 @@ export class MongoChecksumsV3 extends MongoChecksums {
           $or: filters
         }
       },
-      // $sort by _id
-      { $sort: { _id: 1 } },
-      // Add per-bucket start threshold
       {
         $addFields: {
           bucket_start: {
