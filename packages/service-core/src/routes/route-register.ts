@@ -1,4 +1,5 @@
 import type fastify from 'fastify';
+import * as zlib from 'node:zlib';
 import * as uuid from 'uuid';
 
 import { errors, HTTPMethod, logger, RouteNotFound, router, ServiceError } from '@powersync/lib-services-framework';
@@ -102,6 +103,38 @@ export function registerFastifyRoutes(
 export function registerFastifyNotFoundHandler(app: fastify.FastifyInstance) {
   app.setNotFoundHandler(async (request, reply) => {
     await respond(reply, serviceErrorToResponse(new RouteNotFound(request.originalUrl, request.method)));
+  });
+}
+
+/**
+ * Registers a custom error handler so uncaught errors surface with the same schema as other service errors,
+ * and the synthesised body honours any negotiated `Content-Encoding`.
+ */
+export function registerFastifyErrorHandler(app: fastify.FastifyInstance) {
+  app.setErrorHandler(async (error, _request, reply) => {
+    const serviceError = errors.asServiceError(error);
+    logger.error(`Request failed`, serviceError);
+
+    const response = serviceErrorToResponse(serviceError);
+    const json = JSON.stringify(response.data);
+
+    // Fastify's default error handler clears `content-type` and `content-length` from `kReplyHeaders`
+    // but leaves `content-encoding` intact, so we honour or strip it ourselves.
+    const encoding = reply.getHeader('content-encoding');
+    let body: string | Buffer = json;
+    if (encoding === 'gzip') {
+      body = zlib.gzipSync(Buffer.from(json));
+    } else if (encoding === 'zstd') {
+      body = zlib.zstdCompressSync(Buffer.from(json));
+    } else {
+      reply.removeHeader('content-encoding');
+    }
+
+    reply
+      .code(response.status)
+      .header('content-type', 'application/json; charset=utf-8')
+      .header('content-length', Buffer.byteLength(body))
+      .send(body);
   });
 }
 
