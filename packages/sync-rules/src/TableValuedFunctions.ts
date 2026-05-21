@@ -1,5 +1,5 @@
 import { CompatibilityContext, CompatibilityOption } from './compatibility.js';
-import { SqliteJsonValue, SqliteRow, SqliteValue } from './types.js';
+import { SqliteRow, SqliteValue } from './types.js';
 import { jsonValueToSqlite } from './utils.js';
 
 export interface TableValuedFunction {
@@ -22,25 +22,32 @@ function jsonEachImplementation(fixedJsonBehavior: boolean): TableValuedFunction
       } else if (typeof valueString !== 'string') {
         throw new Error(`Expected json_each to be called with a string, got ${valueString}`);
       }
-      let values: SqliteJsonValue[] = [];
+      let value: unknown;
       try {
         // FIXME: This should use JsonBig to parse integers as bigints.
-        values = JSON.parse(valueString);
+        value = JSON.parse(valueString);
       } catch (e) {
         throw new Error('Expected JSON string');
       }
-      if (!Array.isArray(values)) {
-        throw new Error(`Expected an array, got ${valueString}`);
+
+      if (Array.isArray(value)) {
+        return value.map((v, key) => ({
+          key,
+          value: jsonValueToSqlite(fixedJsonBehavior, v)
+        }));
       }
 
-      return values.map((v) => {
-        return {
+      if (typeof value == 'object' && value != null) {
+        return Object.entries(value).map(([key, v]) => ({
+          key,
           value: jsonValueToSqlite(fixedJsonBehavior, v)
-        };
-      });
+        }));
+      }
+
+      return [{ key: null, value: jsonValueToSqlite(fixedJsonBehavior, value) }];
     },
-    detail: 'Each element of a JSON array',
-    documentation: 'Returns each element of a JSON array as a separate row.'
+    detail: 'Each element of a JSON value',
+    documentation: 'Returns each element of a JSON array or object as a separate row.'
   };
 }
 

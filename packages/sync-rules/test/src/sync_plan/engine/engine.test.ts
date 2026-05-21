@@ -234,6 +234,28 @@ function defineEngineTests(
     ]);
   });
 
+  test('SELECT key, value FROM json_each(?) for objects and scalars', () => {
+    const fn: TableValuedFunction = {
+      name: 'json_each',
+      inputs: [{ type: 'data', source: 1 }]
+    };
+
+    const stmt = prepare({
+      outputs: [
+        { type: 'data', source: { function: fn, column: 'key' } },
+        { type: 'data', source: { function: fn, column: 'value' } }
+      ],
+      tableValuedFunctions: [fn]
+    });
+
+    expect(stmt.evaluate([JSON.stringify({ a: 1, b: true, c: null })])).toStrictEqual([
+      ['a', isJavaScript ? 1 : 1n],
+      ['b', 1n],
+      ['c', isJavaScript ? 'null' : null]
+    ]);
+    expect(stmt.evaluate(['42'])).toStrictEqual([[null, isJavaScript ? 42 : 42n]]);
+  });
+
   test('filters and multiple sources', () => {
     // SELECT a.value, b.value FROM json_each(?1) a, json_each(?2) b where length(a.value || b.value) > 5
     const a: TableValuedFunction = {
