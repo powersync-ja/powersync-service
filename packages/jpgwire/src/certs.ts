@@ -1,15 +1,16 @@
 import * as fs from 'fs/promises';
-import { resolve } from 'path';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 export const DEFAULT_CERTS = await loadDefaultCertificates();
 
 async function loadDefaultCertificates() {
-  const dir = new URL('../ca', import.meta.url).pathname;
+  const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '../ca');
   const files = await fs.readdir(dir);
   let sum = '';
   for (let file of files) {
     if (file.endsWith('.pem')) {
-      sum += (await fs.readFile(resolve(dir, file), 'utf-8')) + '\n';
+      sum += (await fs.readFile(path.resolve(dir, file), 'utf-8')) + '\n';
     }
   }
   return sum;
