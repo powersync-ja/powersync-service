@@ -426,36 +426,26 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
       const hasLaterDefinitionGroups = groupIndex < definitionGroups.length - 1;
       const bucketMap = new Map(requests.map((request) => [request.bucket, request.start]));
       const filters = Array.from(bucketMap.entries()).map(([bucket, start]) => ({
-        '_id.b': bucket,
-        '_id.o': { $gt: start }
-        // MongoDB Filter<T> doesn't accept dotted field paths like '_id.o' in its type.
+        _id: {
+          $gt: { b: bucket, o: start },
+          $lte: { b: bucket, o: new bson.MaxKey() }
+        },
+        min_op: { $lte: end }
+        // MongoDB Filter<T> doesn't accept compound _id ranges or dotted field paths in its type.
       })) as unknown as lib_mongo.mongo.Filter<BucketDataDocument>[];
-
-      const minStart = Array.from(bucketMap.values()).reduce((min, val) => (val < min ? val : min));
 
       const collection = this.db.bucketData<BucketDataDocument>(this.group_id, definitionId);
       const formatAdapter = new BucketDocumentFormatAdapter();
       // MongoDB Filter<T> doesn't accept the $or operator in its type.
       const filter = { $or: filters } as unknown as lib_mongo.mongo.Filter<BucketDataDocument>;
       const context = { replicationStreamId: this.group_id, definitionId };
-      const startOpId = minStart;
-      const endOpId = end;
       const limit = remainingLimit;
 
-      const { filter: rangeFilter, cursorOptions } = formatAdapter.buildBucketDataQuery({
-        startOpId,
-        endOpId,
-        remainingLimit: limit
-      });
-
-      const combinedFilter = {
-        // MongoDB Filter<T> doesn't accept the $and operator in its type.
-        $and: [filter, rangeFilter]
-      } as unknown as lib_mongo.mongo.Filter<BucketDataDocument>;
+      const cursorOptions: { limit?: number; batchSize?: number } = {};
 
       // raw: true returns Buffers, but the driver typing doesn't reflect that
       // without an explicit cast to FindCursor<Buffer>.
-      const cursor = collection.find(combinedFilter, {
+      const cursor = collection.find(filter, {
         session: undefined,
         sort: { _id: 1 },
         raw: true,
@@ -484,7 +474,7 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
           rows,
           remainingLimit,
           limitReached: docLimitReached
-        } = extractRowsFromDocument(doc, context, bucketMap, endOpId, sharedRemainingLimit, formatAdapter);
+        } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit, formatAdapter);
         data.push(...rows);
         documentOpCounts.push(rows.length);
         documentSizes.push(raw.byteLength);
