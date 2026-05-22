@@ -1667,6 +1667,51 @@ bucket_definitions:
     expect(moveOps.length).toBeLessThan(20);
   });
 
+  test('5. scoped delete does not remove sandwiched non-processable docs', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+    // Doc1: processable (has ops <= maxOpId=300), _id.o = 300
+    const doc1 = serializeBucketData(BUCKET, [
+      makeOp(200, 'A', 'a1', ctx, sourceTableId),
+      makeOp(300, 'B', 'b1', ctx, sourceTableId)
+    ]);
+    // Doc2: NON-processable (all ops > maxOpId=300), _id.o = 350
+    // This doc is sandwiched between doc1 (_id.o=300) and doc3 (_id.o=500)
+    // in _id.o sort order. A continuous range delete [200, 500] would
+    // incorrectly catch this doc.
+    const doc2 = serializeBucketData(BUCKET, [
+      makeOp(340, 'X', 'x_sandwich', ctx, sourceTableId),
+      makeOp(350, 'Y', 'y_sandwich', ctx, sourceTableId)
+    ]);
+    // Doc3: processable (has ops <= maxOpId=300), _id.o = 400
+    const doc3 = serializeBucketData(BUCKET, [
+      makeOp(250, 'C', 'c1', ctx, sourceTableId),
+      makeOp(400, 'D', 'd1', ctx, sourceTableId)
+    ]);
+
+    await insertDocs(collection, [doc1, doc2, doc3]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 400n);
+
+    await bucketStorage.compact({
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      maxOpId: 300n,
+      signal: null as any
+    });
+
+    // The sandwiched document (doc2, ops 340+350) must survive because ALL
+    // its ops are > maxOpId — it should not be touched by compaction.
+    const opsAfter = await readAllOps(collection);
+    const sandwichOps = opsAfter.filter(
+      (op) => op.row_id === 'X' || op.row_id === 'Y'
+    );
+    expect(sandwichOps.length).toBe(2);
+    expect(sandwichOps.every((op) => op.op === 'PUT')).toBe(true);
+  });
+
   // TODO: This test requires a hook in the streaming compactor to abort after
   // the first batch completes. Implementation needed:
   //   - The streaming compactSingleBucket must check `this.signal?.throwIfAborted()`
