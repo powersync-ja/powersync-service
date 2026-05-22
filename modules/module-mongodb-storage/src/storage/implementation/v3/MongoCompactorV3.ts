@@ -120,110 +120,200 @@ export class MongoCompactorV3 extends MongoCompactor {
     }
 
     const resolvedDefinitionId = bucketContext.key.definitionId;
-
-    // 1. Read all documents in the bucket sorted by max op_id ascending
-    const docs = await this.db
-      .bucketData(this.group_id, resolvedDefinitionId)
-      .find({ '_id.b': bucket })
-      .sort({ '_id.o': 1 })
-      .toArray();
-
-    if (docs.length == 0) {
-      return;
-    }
-
-    this.signal?.throwIfAborted();
-
-    // 2. Load all operations from all documents
+    const collection = this.db.bucketData(this.group_id, resolvedDefinitionId);
     const context = { replicationStreamId: this.group_id, definitionId: resolvedDefinitionId };
-    const allOps: BucketDataDoc[] = [];
 
-    for (const doc of docs) {
-      for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocument)) {
-        if (op.o > this.maxOpId) {
-          continue;
-        }
-        allOps.push(op);
-      }
-    }
+    const lowerBound = bucketContext.minId;
+    let upperBound = bucketContext.maxId;
 
-    if (allOps.length == 0) {
-      return;
-    }
+    let totalChecksum = 0;
+    let totalOpCount = 0;
+    let totalOpBytes = 0;
 
-    this.signal?.throwIfAborted();
-
-    // 3. Deduplicate: iterate newest-to-oldest, keep only the latest PUT/REMOVE
-    //    per row. Superseded ops become MOVE tombstones (same op_id, same checksum,
-    //    stripped data) to preserve bucket-level checksum integrity.
-    //    Three outcomes per slot:
-    //      - Superseded PUT/REMOVE → MOVE tombstone
-    //      - Latest PUT/REMOVE per row → kept as-is
-    //      - Existing MOVE/CLEAR → passed through unchanged
     const seen = new Map<string, bigint>();
-    const surviving = new Array<BucketDataDoc>(allOps.length);
+    let trackingSize = 0;
 
-    for (let i = allOps.length - 1; i >= 0; i--) {
-      const op = allOps[i];
+    while (true) {
+      this.signal?.throwIfAborted();
 
-      if (op.op == 'PUT' || op.op == 'REMOVE') {
-        const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
-        const targetOp = seen.get(key);
-        if (targetOp != null) {
-          surviving[i] = {
-            ...op,
-            op: 'MOVE',
-            target_op: targetOp,
-            table: undefined,
-            row_id: undefined,
-            source_table: undefined,
-            source_key: undefined,
-            data: null
-          };
-        } else {
-          seen.set(utils.flatstr(key), op.o);
-          surviving[i] = op;
-        }
-      } else {
-        surviving[i] = op;
-      }
-    }
-
-    const survivingOps = surviving;
-
-    this.signal?.throwIfAborted();
-
-    // 4. Re-chunk surviving operations by 1MB data-size threshold.
-    const chunks = chunkBucketData(survivingOps);
-    const newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
-
-    // 5. Replace old documents with new chunked documents in a transaction.
-    const session = this.db.client.startSession();
-    try {
-      await session.withTransaction(
-        async () => {
-          await bucketContext.collection.deleteMany({ '_id.b': bucket }, { session });
-          if (newDocs.length > 0) {
-            await bucketContext.collection.insertMany(newDocs as unknown as BucketDataDocumentGeneric[], { session });
+      const pipeline: mongo.Document[] = [
+        {
+          $match: {
+            '_id.b': bucket,
+            _id: {
+              $gte: lowerBound,
+              $lt: upperBound
+            },
+            '_id.o': { $lt: upperBound.o }
           }
         },
+        { $sort: { _id: -1 } },
+        { $limit: this.moveBatchQueryLimit },
         {
-          writeConcern: { w: 'majority' },
-          readConcern: { level: 'snapshot' }
+          $project: {
+            _id: 1,
+            min_op: 1,
+            checksum: 1,
+            count: 1,
+            size: 1,
+            target_op: 1,
+            ops: 1,
+            bsonSize: { $bsonSize: '$$ROOT' }
+          }
         }
-      );
-    } finally {
-      await session.endSession();
-    }
+      ];
 
-    // 6. Update bucket state with new aggregates.
-    let totalChecksum = 0;
-    let totalOpBytes = 0;
-    for (const chunk of chunks) {
-      for (const op of chunk) {
-        totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
-        totalOpBytes += op.data?.length ?? 0;
+      const rawBatch = await collection
+        .aggregate<BucketDataDocument & { bsonSize: number | bigint }>(pipeline, {
+          batchSize: this.moveBatchQueryLimit + 1
+        })
+        .toArray();
+
+      if (rawBatch.length == 0) {
+        break;
       }
+
+      let cumulativeBytes = 0;
+      let batchCutIndex = rawBatch.length;
+
+      for (let i = 0; i < rawBatch.length; i++) {
+        cumulativeBytes += Number(rawBatch[i].bsonSize);
+        if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
+          batchCutIndex = i;
+          break;
+        }
+      }
+
+      const batchDocs = rawBatch.slice(0, batchCutIndex);
+
+      // Decode ops from batch documents, filtering out ops above maxOpId.
+      // Track which documents have at least one op <= maxOpId — only those
+      // are included in the scoped delete range.
+      const batchOps: BucketDataDoc[] = [];
+      const processableDocs: (BucketDataDocument & { bsonSize: number | bigint })[] = [];
+
+      for (const doc of batchDocs) {
+        let hasRelevantOp = false;
+        for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocument)) {
+          if (op.o <= this.maxOpId) {
+            batchOps.push(op);
+            hasRelevantOp = true;
+          }
+        }
+        if (hasRelevantOp) {
+          processableDocs.push(doc);
+        }
+      }
+
+      if (processableDocs.length == 0) {
+        // No documents with relevant ops in this batch; paginate to next batch
+        upperBound = batchDocs[batchDocs.length - 1]._id as typeof upperBound;
+        if (batchCutIndex >= rawBatch.length && rawBatch.length < this.moveBatchQueryLimit) {
+          break;
+        }
+        continue;
+      }
+
+      // Use the processable docs' min/max _id.o for the scoped delete range
+      const batchMaxOp = processableDocs[0]._id.o;
+      const batchMinOp = processableDocs[processableDocs.length - 1]._id.o;
+
+      if (batchOps.length == 0) {
+        upperBound = batchDocs[batchDocs.length - 1]._id as typeof upperBound;
+        continue;
+      }
+
+      // Sort ops by o descending for newest-first dedup
+      batchOps.sort((a, b) => (b.o > a.o ? 1 : b.o < a.o ? -1 : 0));
+
+      // Dedup: process newest-to-oldest
+      const surviving: BucketDataDoc[] = [];
+
+      for (const op of batchOps) {
+        if (op.op == 'PUT' || op.op == 'REMOVE') {
+          const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
+          const targetOp = seen.get(key);
+          if (targetOp != null) {
+            surviving.push({
+              ...op,
+              op: 'MOVE',
+              target_op: targetOp,
+              table: undefined,
+              row_id: undefined,
+              source_table: undefined,
+              source_key: undefined,
+              data: null
+            });
+          } else {
+            if (trackingSize < this.idLimitBytes) {
+              seen.set(utils.flatstr(key), op.o);
+              trackingSize += key.length + 140;
+            }
+            surviving.push(op);
+          }
+        } else {
+          surviving.push(op);
+        }
+      }
+
+      // Reverse back to ascending order for rechunking
+      surviving.reverse();
+
+      // Rechunk surviving ops
+      const chunks = chunkBucketData(surviving);
+      const newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
+
+      // Scoped replace in a bounded transaction
+      const session = this.db.client.startSession();
+      try {
+        await session.withTransaction(
+          async () => {
+            await bucketContext.collection.deleteMany(
+              {
+                _id: {
+                  $gte: { b: bucket, o: batchMinOp },
+                  $lte: { b: bucket, o: batchMaxOp }
+                },
+                '_id.o': { $lte: batchMaxOp }
+              } as any,
+              { session }
+            );
+            if (newDocs.length > 0) {
+              await bucketContext.collection.insertMany(newDocs as unknown as BucketDataDocumentGeneric[], { session });
+            }
+          },
+          {
+            writeConcern: { w: 'majority' },
+            readConcern: { level: 'snapshot' }
+          }
+        );
+      } finally {
+        await session.endSession();
+      }
+
+      // Accumulate bucket state
+      for (const chunk of chunks) {
+        for (const op of chunk) {
+          totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
+          totalOpBytes += op.data?.length ?? 0;
+        }
+      }
+      totalOpCount += surviving.length;
+
+      // Update upperBound for next batch pagination
+      upperBound = rawBatch[batchCutIndex - 1]._id as typeof upperBound;
+
+      if (batchCutIndex < rawBatch.length) {
+        // We cut the batch short due to byte limit — don't advance past cut point
+        // The upperBound is already set to the last doc we processed
+      } else {
+        // Processed all docs in the raw batch — check if we got fewer than the limit
+        if (rawBatch.length < this.moveBatchQueryLimit) {
+          break;
+        }
+      }
+
+      this.logger.info(`Compacted batch of ${batchDocs.length} documents for bucket ${bucket}`);
     }
 
     this.updateBucketChecksums({
@@ -234,7 +324,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       lastNotPut: null,
       opsSincePut: 0,
       checksum: totalChecksum,
-      opCount: survivingOps.length,
+      opCount: totalOpCount,
       opBytes: totalOpBytes
     });
     if (this.bucketStateUpdates.length > 0) {
@@ -242,8 +332,6 @@ export class MongoCompactorV3 extends MongoCompactor {
       this.bucketStateUpdates = [];
     }
 
-    logger.info(
-      `Compacted bucket ${bucket}: ${allOps.length} ops → ${survivingOps.length} ops in ${newDocs.length} documents`
-    );
+    logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
   }
 }

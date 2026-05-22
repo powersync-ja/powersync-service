@@ -63,6 +63,7 @@ export interface MongoCompactOptions extends storage.CompactOptions {}
 const DEFAULT_CLEAR_BATCH_LIMIT = 5000;
 const DEFAULT_MOVE_BATCH_LIMIT = 2000;
 const DEFAULT_MOVE_BATCH_QUERY_LIMIT = 10_000;
+const DEFAULT_MOVE_BATCH_BYTE_LIMIT = 64 * 1024 * 1024;
 const DEFAULT_MIN_BUCKET_CHANGES = 10;
 const DEFAULT_MIN_CHANGE_RATIO = 0.1;
 const DIRTY_BUCKET_SCAN_BATCH_SIZE = 2_000;
@@ -83,6 +84,7 @@ export abstract class MongoCompactor {
   protected readonly idLimitBytes: number;
   protected readonly moveBatchLimit: number;
   protected readonly moveBatchQueryLimit: number;
+  protected readonly moveBatchByteLimit: number;
   protected readonly clearBatchLimit: number;
   protected readonly minBucketChanges: number;
   protected readonly minChangeRatio: number;
@@ -110,6 +112,7 @@ export abstract class MongoCompactor {
     this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;
+    this.moveBatchByteLimit = options.moveBatchByteLimit ?? DEFAULT_MOVE_BATCH_BYTE_LIMIT;
     this.clearBatchLimit = options.clearBatchLimit ?? DEFAULT_CLEAR_BATCH_LIMIT;
     this.minBucketChanges = options.minBucketChanges ?? DEFAULT_MIN_BUCKET_CHANGES;
     this.minChangeRatio = options.minChangeRatio ?? DEFAULT_MIN_CHANGE_RATIO;
