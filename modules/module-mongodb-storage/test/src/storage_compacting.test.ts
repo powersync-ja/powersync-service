@@ -1394,3 +1394,332 @@ bucket_definitions:
     expect(putOpsInDoc.length).toBe(4);
   });
 });
+
+/**
+ * Phase 1.6 streaming compactor tests
+ *
+ * These tests exercise batched compaction behavior that does not exist yet.
+ * The current V3 compactor (MongoCompactorV3.compactSingleBucket) loads all
+ * documents in one pass and ignores moveBatchQueryLimit / memoryLimitMB.
+ * The streaming compactor will process documents in batches, respect
+ * moveBatchQueryLimit for pagination, and enforce memoryLimitMB on the seen
+ * map to bound memory usage.
+ *
+ * Tests 2 and 3 are expected to FAIL with the current implementation.
+ * Test 4 is skipped pending an internal hook for batch-level abort.
+ */
+describe('Phase 1.6 streaming compactor', () => {
+  const BUCKET = 'global[]';
+  const TABLE = 'items';
+
+  async function setupV3() {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  global:
+    data: [SELECT id as id, description FROM items]
+`,
+        { storageVersion: 3 }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const sourceTableId = new bson.ObjectId();
+
+    const ctx = {
+      replicationStreamId: bucketStorage.group_id,
+      definitionId,
+      bucket: BUCKET
+    };
+
+    return { bucketStorage, syncRules, db, collection, bucketStateCollection, sourceTableId, ctx };
+  }
+
+  function makeOp(
+    opId: number,
+    rowId: string,
+    data: string,
+    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
+    sourceTableId: bson.ObjectId,
+    overrides?: { op?: 'PUT' | 'REMOVE' }
+  ): BucketDataDoc {
+    return {
+      bucketKey: {
+        replicationStreamId: ctx.replicationStreamId,
+        definitionId: ctx.definitionId,
+        bucket: ctx.bucket
+      },
+      o: BigInt(opId),
+      op: overrides?.op ?? 'PUT',
+      source_table: sourceTableId,
+      source_key: test_utils.rid(rowId),
+      table: TABLE,
+      row_id: rowId,
+      checksum: BigInt(opId * 7),
+      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data }),
+      target_op: null
+    };
+  }
+
+  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
+    await collection.insertMany(docs);
+  }
+
+  async function insertBucketState(bucketStateCollection: any, definitionId: string, lastOp: bigint) {
+    await bucketStateCollection.insertOne({
+      _id: { d: definitionId, b: BUCKET },
+      last_op: lastOp,
+      estimate_since_compact: { count: 10, bytes: 100 }
+    });
+  }
+
+  async function readAllOps(
+    collection: any
+  ): Promise<{ row_id: string | undefined; o: bigint; op: string; target_op: bigint | undefined }[]> {
+    const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    return docs.flatMap((d: any) =>
+      d.ops.map((op: any) => ({
+        row_id: op.row_id ?? undefined,
+        o: op.o,
+        op: op.op,
+        target_op: op.target_op ?? undefined
+      }))
+    );
+  }
+
+  test('1. multi-batch compaction preserves checksum and creates MOVE tombstones', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+    // 6 documents, 3-4 ops each, 3 rows with 2 versions spread across documents.
+    // Rows A, B, C each have old+new versions:
+    //   A: new@24 (Doc1), old@10 (Doc4)
+    //   B: new@20 (Doc2), old@6  (Doc5)
+    //   C: new@16 (Doc3), old@2  (Doc6)
+    // With moveBatchQueryLimit=2, the streaming compactor must process
+    // 2 documents per batch (3 batches total) and still produce correct output.
+    const doc1 = serializeBucketData(BUCKET, [
+      makeOp(21, 'D', 'd1', ctx, sourceTableId),
+      makeOp(22, 'E', 'e1', ctx, sourceTableId),
+      makeOp(23, 'F', 'f1', ctx, sourceTableId),
+      makeOp(24, 'A', 'a_new', ctx, sourceTableId)
+    ]);
+    const doc2 = serializeBucketData(BUCKET, [
+      makeOp(18, 'G', 'g1', ctx, sourceTableId),
+      makeOp(19, 'H', 'h1', ctx, sourceTableId),
+      makeOp(20, 'B', 'b_new', ctx, sourceTableId)
+    ]);
+    const doc3 = serializeBucketData(BUCKET, [
+      makeOp(14, 'I', 'i1', ctx, sourceTableId),
+      makeOp(15, 'J', 'j1', ctx, sourceTableId),
+      makeOp(16, 'C', 'c_new', ctx, sourceTableId)
+    ]);
+    const doc4 = serializeBucketData(BUCKET, [
+      makeOp(10, 'A', 'a_old', ctx, sourceTableId),
+      makeOp(11, 'K', 'k1', ctx, sourceTableId),
+      makeOp(12, 'L', 'l1', ctx, sourceTableId)
+    ]);
+    const doc5 = serializeBucketData(BUCKET, [
+      makeOp(6, 'B', 'b_old', ctx, sourceTableId),
+      makeOp(7, 'M', 'm1', ctx, sourceTableId),
+      makeOp(8, 'N', 'n1', ctx, sourceTableId)
+    ]);
+    const doc6 = serializeBucketData(BUCKET, [
+      makeOp(2, 'C', 'c_old', ctx, sourceTableId),
+      makeOp(3, 'O', 'o1', ctx, sourceTableId),
+      makeOp(4, 'P', 'p1', ctx, sourceTableId)
+    ]);
+    await insertDocs(collection, [doc1, doc2, doc3, doc4, doc5, doc6]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 24n);
+
+    // Compute checksum before compaction
+    const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+    const checksumBefore = docsBefore.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+
+    // Compact with moveBatchQueryLimit=2 to force 3 batches of 2 documents each
+    await bucketStorage.compact({
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 2,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      maxOpId: 24n,
+      signal: null as any
+    });
+
+    // Verify checksum preserved
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+    expect(checksumAfter).toBe(checksumBefore);
+
+    // Verify MOVE tombstones for superseded old versions (A@10, B@6, C@2)
+    const allOps = await readAllOps(collection);
+    const moveOps = allOps.filter((op) => op.op === 'MOVE');
+    expect(moveOps.length).toBe(3);
+    expect(moveOps.map((op) => op.o).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))).toEqual([2n, 6n, 10n]);
+
+    // Verify the newer version of each duplicated row survives as PUT
+    const putOps = allOps.filter((op) => op.op === 'PUT');
+    expect(putOps.length).toBe(16);
+    const putRowIds = putOps.map((op) => op.row_id).sort();
+    expect(putRowIds).toContain('A');
+    expect(putRowIds).toContain('B');
+    expect(putRowIds).toContain('C');
+  });
+
+  test('2. scoped delete isolation - ops above maxOpId preserved', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+    // Insert ops in _id.o range 100-500 via direct document insertion
+    const doc1 = serializeBucketData(BUCKET, [
+      makeOp(100, 'A', 'a1', ctx, sourceTableId),
+      makeOp(200, 'B', 'b1', ctx, sourceTableId),
+      makeOp(300, 'C', 'c1', ctx, sourceTableId)
+    ]);
+    const doc2 = serializeBucketData(BUCKET, [
+      makeOp(400, 'D', 'd1', ctx, sourceTableId),
+      makeOp(500, 'E', 'e1', ctx, sourceTableId)
+    ]);
+    // One extra document with _id.o=600 — clearly outside the batch range
+    const docOutside = serializeBucketData(BUCKET, [makeOp(600, 'F', 'f_outside', ctx, sourceTableId)]);
+
+    await insertDocs(collection, [doc1, doc2, docOutside]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 600n);
+
+    // Run compaction with maxOpId=500n
+    await bucketStorage.compact({
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 2,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      maxOpId: 500n,
+      signal: null as any
+    });
+
+    // The document at _id.o=600 must still be present and unmodified after compaction.
+    // The streaming compactor should only touch documents containing ops <= maxOpId.
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    const op600 = allOpsAfter.find((op) => op.o === 600n);
+    expect(op600).toBeDefined();
+    expect(op600!.op).toBe('PUT');
+    expect(op600!.row_id).toBe('F');
+  });
+
+  test('3. seen map overflow - some old ops pass through without tombstoning', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+    // 20 rows, each with 2 versions (old + new). 40 ops total.
+    // memoryLimitMB=0.001 → idLimitBytes ≈ 1048 bytes.
+    // The seen map adds ~140 bytes per entry (key.length + 140), so it can hold ~7 entries
+    // before overflowing. The streaming compactor processes ops newest-first; after ~7 rows
+    // are tracked, the seen map overflows and subsequent old-version ops are not tombstoned.
+    const rows = Array.from({ length: 20 }, (_, i) => `row${i + 1}`);
+    const allOps: BucketDataDoc[] = [];
+
+    // Old versions at op_ids 1-20 (processed last by descending-order compactor)
+    for (let i = 0; i < 20; i++) {
+      allOps.push(makeOp(i + 1, rows[i], `old_${rows[i]}`, ctx, sourceTableId));
+    }
+    // New versions at op_ids 21-40 (processed first by descending-order compactor)
+    for (let i = 0; i < 20; i++) {
+      allOps.push(makeOp(i + 21, rows[i], `new_${rows[i]}`, ctx, sourceTableId));
+    }
+
+    // Single document containing all ops
+    const doc = serializeBucketData(BUCKET, allOps);
+    await insertDocs(collection, [doc]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 40n);
+
+    // Compute checksum before compaction
+    const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+    const checksumBefore = docsBefore.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+
+    await bucketStorage.compact({
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 100,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      maxOpId: 40n,
+      memoryLimitMB: 0.001,
+      signal: null as any
+    });
+
+    // Bucket checksum must be correct even with overflow — old ops that pass through
+    // as PUT still contribute their original checksum.
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+    expect(checksumAfter).toBe(checksumBefore);
+
+    // With seen map overflow, fewer than 20 old-version ops become MOVE tombstones.
+    // Some old-version ops pass through as PUT because the seen map was full when
+    // the compactor encountered them.
+    // This assertion will FAIL with the current V3 compactor, which deduplicates
+    // all ops in an unbounded Map (no overflow), producing exactly 20 MOVE tombstones.
+    const opsAfter = await readAllOps(collection);
+    const moveOps = opsAfter.filter((op) => op.op === 'MOVE');
+    expect(moveOps.length).toBeLessThan(20);
+  });
+
+  // TODO: This test requires a hook in the streaming compactor to abort after
+  // the first batch completes. Implementation needed:
+  //   - The streaming compactSingleBucket must check `this.signal?.throwIfAborted()`
+  //     between batch iterations (not just at the start of each batch).
+  //   - To test "abort after first batch", the compactor needs an onBatchComplete
+  //     callback, or we need to instrument the signal to fire at the right time.
+  //   - With a setTimeout-based abort, timing is unreliable in CI.
+  test.skip('4. abort between batches - committed batches persisted', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+    // Create enough documents for multi-batch with moveBatchQueryLimit=2
+    const doc1 = serializeBucketData(BUCKET, [
+      makeOp(10, 'A', 'a1', ctx, sourceTableId),
+      makeOp(20, 'B', 'b1', ctx, sourceTableId)
+    ]);
+    const doc2 = serializeBucketData(BUCKET, [
+      makeOp(30, 'C', 'c1', ctx, sourceTableId),
+      makeOp(40, 'D', 'd1', ctx, sourceTableId)
+    ]);
+    const doc3 = serializeBucketData(BUCKET, [
+      makeOp(50, 'E', 'e1', ctx, sourceTableId),
+      makeOp(60, 'F', 'f1', ctx, sourceTableId)
+    ]);
+
+    await insertDocs(collection, [doc1, doc2, doc3]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 60n);
+
+    const controller = new AbortController();
+
+    // Abort after the first batch of 2 documents processes.
+    // This requires the streaming compactor to invoke a callback or
+    // check the signal between batches — not just at the top of the loop.
+    // Once implemented, this can use an onBatchComplete callback or
+    // the compactor can accept a test-only hook.
+    setTimeout(() => controller.abort(), 0);
+
+    await expect(
+      bucketStorage.compact({
+        clearBatchLimit: 200,
+        moveBatchLimit: 10,
+        moveBatchQueryLimit: 2,
+        minBucketChanges: 1,
+        minChangeRatio: 0,
+        maxOpId: 60n,
+        signal: controller.signal
+      })
+    ).rejects.toThrow();
+
+    // Previously committed batches should be persisted.
+    // At least some ops should survive from the first batch that completed
+    // before the abort signal fired.
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const allOps = docsAfter.flatMap((d: any) => d.ops);
+    expect(allOps.length).toBeGreaterThan(0);
+  });
+});
