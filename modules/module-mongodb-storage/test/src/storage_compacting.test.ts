@@ -1014,3 +1014,204 @@ bucket_definitions:
     expect(surviving[3]).toMatchObject({ row_id: 'C', o: 40n, op: 'PUT' });
   });
 });
+
+describe('V3 MOVE tombstone properties', () => {
+  const BUCKET = 'global[]';
+  const TABLE = 'items';
+
+  async function setupV3() {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  global:
+    data: [SELECT id as id, description FROM items]
+`,
+        { storageVersion: 3 }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const sourceTableId = new bson.ObjectId();
+
+    const ctx = {
+      replicationStreamId: bucketStorage.group_id,
+      definitionId,
+      bucket: BUCKET
+    };
+
+    return { bucketStorage, syncRules, db, collection, bucketStateCollection, sourceTableId, ctx };
+  }
+
+  function makeOp(
+    opId: number,
+    rowId: string,
+    data: string,
+    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
+    sourceTableId: bson.ObjectId,
+    overrides?: { op?: 'PUT' | 'REMOVE' }
+  ): BucketDataDoc {
+    return {
+      bucketKey: {
+        replicationStreamId: ctx.replicationStreamId,
+        definitionId: ctx.definitionId,
+        bucket: ctx.bucket
+      },
+      o: BigInt(opId),
+      op: overrides?.op ?? 'PUT',
+      source_table: sourceTableId,
+      source_key: test_utils.rid(rowId),
+      table: TABLE,
+      row_id: rowId,
+      checksum: BigInt(opId * 7),
+      data: overrides?.op === 'REMOVE' ? null : JSON.stringify({ id: rowId, description: data }),
+      target_op: null
+    };
+  }
+
+  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
+    await collection.insertMany(docs);
+  }
+
+  async function insertBucketState(bucketStateCollection: any, definitionId: string, lastOp: bigint) {
+    await bucketStateCollection.insertOne({
+      _id: { d: definitionId, b: BUCKET },
+      last_op: lastOp,
+      estimate_since_compact: { count: 10, bytes: 100 }
+    });
+  }
+
+  async function compact(bucketStorage: AbstractMongoSyncBucketStorage, maxOpId: bigint) {
+    await bucketStorage.compact({
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      maxOpId,
+      signal: null as any
+    });
+  }
+
+  test('checksum preserved across compaction with superseded ops', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const ops = [
+      makeOp(10, 'A', 'a1', ctx, sourceTableId),
+      makeOp(20, 'B', 'b1', ctx, sourceTableId),
+      makeOp(30, 'A', 'a2', ctx, sourceTableId),
+      makeOp(40, 'C', 'c1', ctx, sourceTableId),
+      makeOp(50, 'B', 'b2', ctx, sourceTableId)
+    ];
+    const doc1 = serializeBucketData(BUCKET, ops);
+    await insertDocs(collection, [doc1]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 50n);
+
+    const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+    const checksumBefore = docsBefore.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+
+    await compact(bucketStorage, 50n);
+
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+
+    expect(checksumAfter).toBe(checksumBefore);
+
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    expect(allOpsAfter.length).toBe(5);
+    const moveOps = allOpsAfter.filter((op) => op.op === 'MOVE');
+    expect(moveOps.length).toBe(2);
+    expect(moveOps.map((op) => op.o).sort()).toEqual([10n, 20n]);
+  });
+
+  test('checksum preserved across compaction with multiple documents', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const ops1 = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
+    const ops2 = [makeOp(30, 'C', 'c1', ctx, sourceTableId), makeOp(40, 'A', 'a2', ctx, sourceTableId)];
+    const ops3 = [makeOp(50, 'D', 'd1', ctx, sourceTableId), makeOp(60, 'B', 'b2', ctx, sourceTableId)];
+    await insertDocs(collection, [
+      serializeBucketData(BUCKET, ops1),
+      serializeBucketData(BUCKET, ops2),
+      serializeBucketData(BUCKET, ops3)
+    ]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 60n);
+
+    const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+    const checksumBefore = docsBefore.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+
+    await compact(bucketStorage, 60n);
+
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+
+    expect(checksumAfter).toBe(checksumBefore);
+  });
+
+  test('tombstones have null data and pack densely after rechunking', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const ops = [
+      makeOp(10, 'A', 'x'.repeat(500_000), ctx, sourceTableId),
+      makeOp(20, 'B', 'y'.repeat(500_000), ctx, sourceTableId),
+      makeOp(30, 'A', 'z'.repeat(500_000), ctx, sourceTableId)
+    ];
+    const doc1 = serializeBucketData(BUCKET, ops);
+    await insertDocs(collection, [doc1]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 30n);
+
+    await compact(bucketStorage, 30n);
+
+    const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const allOps = docs.flatMap((d) => d.ops);
+    const moveOps = allOps.filter((op) => op.op === 'MOVE');
+    expect(moveOps.length).toBe(1);
+    expect(moveOps[0].o).toBe(10n);
+    expect(moveOps[0].data).toBeNull();
+
+    const putOps = allOps.filter((op) => op.op === 'PUT');
+    expect(putOps.length).toBe(2);
+    expect(putOps.every((op) => op.data != null)).toBe(true);
+
+    expect(docs.length).toBe(1);
+    const moveSize = 0;
+    const putSize = putOps.reduce((sum, op) => sum + (op.data?.length ?? 0), 0);
+    expect(docs[0].size).toBe(putSize + moveSize);
+  });
+
+  test('tombstones and survivors end up in same document after rechunking', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+    const ops1 = [
+      makeOp(10, 'A', 'a1', ctx, sourceTableId),
+      makeOp(20, 'B', 'b1', ctx, sourceTableId),
+      makeOp(30, 'C', 'c1', ctx, sourceTableId)
+    ];
+    const ops2 = [makeOp(40, 'D', 'd1', ctx, sourceTableId), makeOp(50, 'A', 'a2', ctx, sourceTableId)];
+    await insertDocs(collection, [serializeBucketData(BUCKET, ops1), serializeBucketData(BUCKET, ops2)]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 50n);
+
+    const checksumBefore = (await collection.find({ '_id.b': BUCKET }).toArray()).reduce(
+      (sum, d) => addChecksums(sum, Number(d.checksum)),
+      0
+    );
+
+    await compact(bucketStorage, 50n);
+
+    const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const checksumAfter = docs.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+    expect(checksumAfter).toBe(checksumBefore);
+
+    const allOps = docs.flatMap((d) => d.ops);
+    expect(allOps.length).toBe(5);
+    const moveOp = allOps.find((op) => op.op === 'MOVE');
+    expect(moveOp).toMatchObject({ o: 10n, data: null });
+
+    expect(docs.length).toBe(1);
+
+    const moveOpsInDoc = docs[0].ops.filter((op) => op.op === 'MOVE');
+    const putOpsInDoc = docs[0].ops.filter((op) => op.op === 'PUT');
+    expect(moveOpsInDoc.length).toBe(1);
+    expect(putOpsInDoc.length).toBe(4);
+  });
+});
