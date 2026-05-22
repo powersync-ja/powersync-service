@@ -153,8 +153,13 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     this.signal?.throwIfAborted();
 
-    // 3. Filter superseded operations using the same row_id logic as v3.
-    //    We iterate newest-to-oldest and keep only the latest PUT/REMOVE per row.
+    // 3. Deduplicate: iterate newest-to-oldest, keep only the latest PUT/REMOVE
+    //    per row. Superseded ops become MOVE tombstones (same op_id, same checksum,
+    //    stripped data) to preserve bucket-level checksum integrity.
+    //    Three outcomes per slot:
+    //      - Superseded PUT/REMOVE → MOVE tombstone
+    //      - Latest PUT/REMOVE per row → kept as-is
+    //      - Existing MOVE/CLEAR → passed through unchanged
     const seen = new Map<string, bigint>();
     const surviving = new Array<BucketDataDoc>(allOps.length);
 

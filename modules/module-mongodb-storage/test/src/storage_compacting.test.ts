@@ -1148,6 +1148,12 @@ bucket_definitions:
     const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
 
     expect(checksumAfter).toBe(checksumBefore);
+
+    const allOpsAfter = docsAfter.flatMap((d) => d.ops);
+    expect(allOpsAfter.length).toBe(6);
+    const moveOps = allOpsAfter.filter((op) => op.op === 'MOVE');
+    expect(moveOps.length).toBe(2);
+    expect(moveOps.map((op) => op.o).sort()).toEqual([10n, 20n]);
   });
 
   test('tombstones have null data and pack densely after rechunking', async () => {
@@ -1175,9 +1181,8 @@ bucket_definitions:
     expect(putOps.every((op) => op.data != null)).toBe(true);
 
     expect(docs.length).toBe(1);
-    const moveSize = 0;
     const putSize = putOps.reduce((sum, op) => sum + (op.data?.length ?? 0), 0);
-    expect(docs[0].size).toBe(putSize + moveSize);
+    expect(docs[0].size).toBe(putSize);
   });
 
   test('tombstones and survivors end up in same document after rechunking', async () => {
