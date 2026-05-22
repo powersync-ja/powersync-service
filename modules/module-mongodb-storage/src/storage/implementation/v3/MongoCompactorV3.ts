@@ -214,14 +214,11 @@ export class MongoCompactorV3 extends MongoCompactor {
         continue;
       }
 
-      // Use the processable docs' min/max _id.o for the scoped delete range
-      const batchMaxOp = processableDocs[0]._id.o;
-      const batchMinOp = processableDocs[processableDocs.length - 1]._id.o;
-
-      if (batchOps.length == 0) {
-        upperBound = batchDocs[batchDocs.length - 1]._id as typeof upperBound;
-        continue;
-      }
+      // Scoped replace in a bounded transaction.
+      // Delete by individual _id values instead of a continuous range.
+      // A continuous range could catch non-processable documents (all ops > maxOpId)
+      // that happen to fall between processable documents in _id.o sort order.
+      const idsToDelete = processableDocs.map((d) => d._id);
 
       // Sort ops by o descending for newest-first dedup
       batchOps.sort((a, b) => (b.o > a.o ? 1 : b.o < a.o ? -1 : 0));
@@ -263,18 +260,13 @@ export class MongoCompactorV3 extends MongoCompactor {
       const chunks = chunkBucketData(surviving);
       const newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
 
-      // Scoped replace in a bounded transaction
       const session = this.db.client.startSession();
       try {
         await session.withTransaction(
           async () => {
             await bucketContext.collection.deleteMany(
               {
-                _id: {
-                  $gte: { b: bucket, o: batchMinOp },
-                  $lte: { b: bucket, o: batchMaxOp }
-                },
-                '_id.o': { $lte: batchMaxOp }
+                _id: { $in: idsToDelete }
               } as any,
               { session }
             );

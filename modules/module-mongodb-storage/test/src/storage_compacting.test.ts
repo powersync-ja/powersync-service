@@ -1705,9 +1705,7 @@ bucket_definitions:
     // The sandwiched document (doc2, ops 340+350) must survive because ALL
     // its ops are > maxOpId — it should not be touched by compaction.
     const opsAfter = await readAllOps(collection);
-    const sandwichOps = opsAfter.filter(
-      (op) => op.row_id === 'X' || op.row_id === 'Y'
-    );
+    const sandwichOps = opsAfter.filter((op) => op.row_id === 'X' || op.row_id === 'Y');
     expect(sandwichOps.length).toBe(2);
     expect(sandwichOps.every((op) => op.op === 'PUT')).toBe(true);
   });
