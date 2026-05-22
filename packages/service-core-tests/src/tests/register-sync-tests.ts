@@ -1193,12 +1193,17 @@ bucket_definitions:
     expect(lines2).toMatchSnapshot();
 
     if (options.compressedBucketStorage) {
-      // v3+ drops superseded ops during compaction instead of converting them to CLEAR.
-      // The in-flight checkpoint is completed with no data; the client will start
-      // a fresh sync to receive the updated state.
+      // v3+ converts superseded ops to MOVE tombstones during compaction.
+      // The client receives MOVE ops for the superseded operations, followed
+      // by a checkpoint_complete.
       expect(lines2[0]).toEqual({
-        checkpoint_complete: expect.objectContaining({
-          last_op_id: '2'
+        data: expect.objectContaining({
+          has_more: false,
+          data: expect.arrayContaining([
+            expect.objectContaining({
+              op: 'MOVE'
+            })
+          ])
         })
       });
     } else {

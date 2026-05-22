@@ -2506,6 +2506,26 @@ exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 1
 exports[`sync - mongodb > storage v3 > compacting data - invalidate checkpoint 2`] = `
 [
   {
+    "data": {
+      "after": "0",
+      "bucket": "1#mybucket[]",
+      "data": [
+        {
+          "checksum": 920318466,
+          "op": "MOVE",
+          "op_id": "1",
+        },
+        {
+          "checksum": 3280762209,
+          "op": "MOVE",
+          "op_id": "2",
+        },
+      ],
+      "has_more": false,
+      "next_after": "2",
+    },
+  },
+  {
     "checkpoint_complete": {
       "last_op_id": "2",
     },

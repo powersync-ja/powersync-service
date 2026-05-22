@@ -512,7 +512,7 @@ bucket_definitions:
     }
   });
 
-  test('6. compaction survivor integrity - superseded ops removed', async () => {
+  test('6. compaction survivor integrity - superseded ops become MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
     const ops = [
       makeOp(10, 'A', 'a1', ctx, sourceTableId),
@@ -527,9 +527,14 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     const allOps = docs.flatMap((d) => d.ops);
-    const aOps = allOps.filter((op) => op.row_id === 'A');
-    expect(aOps.length).toBe(1);
-    expect(aOps[0].o).toBe(30n);
+    const moveOps = allOps.filter((op) => op.op === 'MOVE');
+    expect(moveOps.length).toBe(1);
+    expect(moveOps[0].o).toBe(10n);
+    expect(moveOps[0].checksum).toBe(ops[0].checksum);
+    expect(moveOps[0].data).toBeNull();
+    const putOps = allOps.filter((op) => op.op === 'PUT');
+    expect(putOps.length).toBe(2);
+    expect(docs[0].target_op).toBe(30n);
   });
 
   test('6. compaction survivor integrity - MOVE ops preserved', async () => {
@@ -548,8 +553,8 @@ bucket_definitions:
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     const allOps = docs.flatMap((d) => d.ops);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
-    expect(moveOps.length).toBe(1);
-    expect(moveOps[0].o).toBe(20n);
+    expect(moveOps.length).toBe(2);
+    expect(moveOps.map((op) => op.o).sort()).toEqual([10n, 20n]);
   });
 
   test('6. compaction survivor integrity - CLEAR ops preserved', async () => {
@@ -571,7 +576,7 @@ bucket_definitions:
     expect(clearOps.length).toBe(1);
   });
 
-  test('7. empty document cleanup - superseded PUT removed, REMOVE survives', async () => {
+  test('7. superseded PUT becomes MOVE tombstone, REMOVE survives', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
     const ops = [
       makeOp(10, 'A', 'a1', ctx, sourceTableId),
@@ -590,6 +595,9 @@ bucket_definitions:
     const removeOps = allOps.filter((op) => op.op === 'REMOVE');
     expect(removeOps.length).toBe(1);
     expect(removeOps[0].o).toBe(20n);
+    const moveOps = allOps.filter((op) => op.op === 'MOVE');
+    expect(moveOps.length).toBe(1);
+    expect(moveOps[0].o).toBe(10n);
   });
 
   test('7. empty bucket compact is a no-op', async () => {
@@ -821,16 +829,18 @@ bucket_definitions:
 
   async function readAllOps(collection: any): Promise<{ row_id: string; o: bigint; op: string }[]> {
     const docs = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
-    return docs.flatMap((d: any) => d.ops.map((op: any) => ({ row_id: op.row_id!, o: op.o, op: op.op })));
+    return docs.flatMap((d: any) =>
+      d.ops.map((op: any) => ({ row_id: op.row_id!, o: op.o, op: op.op, target_op: op.target_op ?? undefined }))
+    );
   }
 
   async function readAllDocs(collection: any): Promise<BucketDataDocument[]> {
     return collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
   }
 
-  test('1. superseded ops removed from middle document', async () => {
+  test('1. superseded ops become MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
-    // Doc1: [A@10, B@20, A@30] — A@10 superseded by A@30
+    // Doc1: [A@10, B@20, A@30] — A@10 superseded by A@30, becomes MOVE tombstone
     const ops = [
       makeOp(10, 'A', 'a1', ctx, sourceTableId),
       makeOp(20, 'B', 'b1', ctx, sourceTableId),
@@ -843,12 +853,13 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(2);
-    expect(surviving[0]).toMatchObject({ row_id: 'B', o: 20n });
-    expect(surviving[1]).toMatchObject({ row_id: 'A', o: 30n });
+    expect(surviving).toHaveLength(3);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ row_id: 'B', o: 20n, op: 'PUT' });
+    expect(surviving[2]).toMatchObject({ row_id: 'A', o: 30n, op: 'PUT' });
   });
 
-  test('2. first op in document superseded', async () => {
+  test('2. first op in document superseded becomes MOVE tombstone', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     // Doc1: [A@10, B@20, C@30], Doc2: [A@40] — A@10 superseded by A@40
     const ops1 = [
@@ -865,13 +876,14 @@ bucket_definitions:
     await compact(bucketStorage, 40n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(3);
-    expect(surviving[0]).toMatchObject({ row_id: 'B', o: 20n });
-    expect(surviving[1]).toMatchObject({ row_id: 'C', o: 30n });
-    expect(surviving[2]).toMatchObject({ row_id: 'A', o: 40n });
+    expect(surviving).toHaveLength(4);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ row_id: 'B', o: 20n, op: 'PUT' });
+    expect(surviving[2]).toMatchObject({ row_id: 'C', o: 30n, op: 'PUT' });
+    expect(surviving[3]).toMatchObject({ row_id: 'A', o: 40n, op: 'PUT' });
   });
 
-  test('3. last op in document superseded', async () => {
+  test('3. last op in document superseded becomes MOVE tombstone', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     // Doc1: [A@10, B@20], Doc2: [C@30, A@40] — A@10 superseded by A@40
     const ops1 = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
@@ -884,16 +896,16 @@ bucket_definitions:
     await compact(bucketStorage, 40n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(3);
-    expect(surviving[0]).toMatchObject({ row_id: 'B', o: 20n });
-    expect(surviving[1]).toMatchObject({ row_id: 'C', o: 30n });
-    expect(surviving[2]).toMatchObject({ row_id: 'A', o: 40n });
+    expect(surviving).toHaveLength(4);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ row_id: 'B', o: 20n, op: 'PUT' });
+    expect(surviving[2]).toMatchObject({ row_id: 'C', o: 30n, op: 'PUT' });
+    expect(surviving[3]).toMatchObject({ row_id: 'A', o: 40n, op: 'PUT' });
   });
 
-  test('4. all ops in all documents superseded', async () => {
+  test('4. cascading superseded ops become MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
-    // Doc1: [A@10, A@20] — A@10 superseded by A@20; A@20 is last, so only it survives
-    // Then we add A@30 as REMOVE — A@20 also superseded, all ops for row removed
+    // Doc1: [A@10, A@20] — A@10 superseded by A@20; A@20 superseded by A@30 REMOVE
     const ops1 = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'A', 'a2', ctx, sourceTableId)];
     const ops2 = [makeOp(30, 'A', 'a3', ctx, sourceTableId, { op: 'REMOVE' })];
     const doc1 = serializeBucketData(BUCKET, ops1);
@@ -904,13 +916,15 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(1);
-    expect(surviving[0]).toMatchObject({ row_id: 'A', o: 30n, op: 'REMOVE' });
+    expect(surviving).toHaveLength(3);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ op: 'MOVE', o: 20n });
+    expect(surviving[2]).toMatchObject({ row_id: 'A', o: 30n, op: 'REMOVE' });
   });
 
-  test('5. one surviving op per document', async () => {
+  test('5. one surviving PUT per document plus MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
-    // Doc1: [A@10, B@20], Doc2: [C@30, A@40] — A@10 superseded
+    // Doc1: [A@10, B@20], Doc2: [C@30, A@40] — A@10 superseded, becomes MOVE
     const ops1 = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
     const ops2 = [makeOp(30, 'C', 'c1', ctx, sourceTableId), makeOp(40, 'A', 'a2', ctx, sourceTableId)];
     const doc1 = serializeBucketData(BUCKET, ops1);
@@ -921,16 +935,17 @@ bucket_definitions:
     await compact(bucketStorage, 40n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(3);
-    expect(surviving[0]).toMatchObject({ row_id: 'B', o: 20n });
-    expect(surviving[1]).toMatchObject({ row_id: 'C', o: 30n });
-    expect(surviving[2]).toMatchObject({ row_id: 'A', o: 40n });
+    expect(surviving).toHaveLength(4);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ row_id: 'B', o: 20n, op: 'PUT' });
+    expect(surviving[2]).toMatchObject({ row_id: 'C', o: 30n, op: 'PUT' });
+    expect(surviving[3]).toMatchObject({ row_id: 'A', o: 40n, op: 'PUT' });
   });
 
-  test('6. multiple small surviving ops from different documents', async () => {
+  test('6. multiple superseded ops from different documents become MOVE tombstones', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
-    // 3 small docs, each with 2 ops, only 1 survives per doc
-    // Doc1: [A@10, B@20] — A@10 superseded by later A
+    // 3 small docs, each with 2 ops, A@10 superseded by A@40
+    // Doc1: [A@10, B@20] — A@10 becomes MOVE
     // Doc2: [C@30, A@40] — C@30 survives (A@40 is latest A)
     // Doc3: [D@50, E@60] — D@50, E@60 survive
     const ops1 = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
@@ -945,11 +960,16 @@ bucket_definitions:
     await compact(bucketStorage, 60n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(5);
-    expect(surviving.map((s) => s.row_id)).toEqual(['B', 'C', 'A', 'D', 'E']);
+    expect(surviving).toHaveLength(6);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ row_id: 'B', o: 20n, op: 'PUT' });
+    expect(surviving[2]).toMatchObject({ row_id: 'C', o: 30n, op: 'PUT' });
+    expect(surviving[3]).toMatchObject({ row_id: 'A', o: 40n, op: 'PUT' });
+    expect(surviving[4]).toMatchObject({ row_id: 'D', o: 50n, op: 'PUT' });
+    expect(surviving[5]).toMatchObject({ row_id: 'E', o: 60n, op: 'PUT' });
   });
 
-  test('7. superseded op at document boundary', async () => {
+  test('7. superseded op at document boundary becomes MOVE tombstone', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     // Doc1: [A@10, B@20, C@30], Doc2: [D@40, A@50] — A@10 superseded by A@50
     const ops1 = [
@@ -966,14 +986,15 @@ bucket_definitions:
     await compact(bucketStorage, 50n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(4);
-    expect(surviving[0]).toMatchObject({ row_id: 'B', o: 20n });
-    expect(surviving[1]).toMatchObject({ row_id: 'C', o: 30n });
-    expect(surviving[2]).toMatchObject({ row_id: 'D', o: 40n });
-    expect(surviving[3]).toMatchObject({ row_id: 'A', o: 50n });
+    expect(surviving).toHaveLength(5);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ row_id: 'B', o: 20n, op: 'PUT' });
+    expect(surviving[2]).toMatchObject({ row_id: 'C', o: 30n, op: 'PUT' });
+    expect(surviving[3]).toMatchObject({ row_id: 'D', o: 40n, op: 'PUT' });
+    expect(surviving[4]).toMatchObject({ row_id: 'A', o: 50n, op: 'PUT' });
   });
 
-  test('8. same row_id ops spanning document boundary', async () => {
+  test('8. same row_id ops spanning document boundary produces MOVE tombstone', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
     // Doc1: [A@10, B@20], Doc2: [A@30, C@40] — A@10 superseded by A@30
     const ops1 = [makeOp(10, 'A', 'a1', ctx, sourceTableId), makeOp(20, 'B', 'b1', ctx, sourceTableId)];
@@ -986,9 +1007,10 @@ bucket_definitions:
     await compact(bucketStorage, 40n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(3);
-    expect(surviving[0]).toMatchObject({ row_id: 'B', o: 20n });
-    expect(surviving[1]).toMatchObject({ row_id: 'A', o: 30n });
-    expect(surviving[2]).toMatchObject({ row_id: 'C', o: 40n });
+    expect(surviving).toHaveLength(4);
+    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
+    expect(surviving[1]).toMatchObject({ row_id: 'B', o: 20n, op: 'PUT' });
+    expect(surviving[2]).toMatchObject({ row_id: 'A', o: 30n, op: 'PUT' });
+    expect(surviving[3]).toMatchObject({ row_id: 'C', o: 40n, op: 'PUT' });
   });
 });

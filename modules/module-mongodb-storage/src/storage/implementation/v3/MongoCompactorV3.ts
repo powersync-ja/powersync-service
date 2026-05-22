@@ -156,48 +156,35 @@ export class MongoCompactorV3 extends MongoCompactor {
     // 3. Filter superseded operations using the same row_id logic as v3.
     //    We iterate newest-to-oldest and keep only the latest PUT/REMOVE per row.
     const seen = new Map<string, bigint>();
-    const surviving = new Array<BucketDataDoc | null>(allOps.length);
+    const surviving = new Array<BucketDataDoc>(allOps.length);
 
     for (let i = allOps.length - 1; i >= 0; i--) {
       const op = allOps[i];
 
       if (op.op == 'PUT' || op.op == 'REMOVE') {
         const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
-        if (seen.has(key)) {
-          // Superseded by a newer operation for the same row — drop it.
-          surviving[i] = null;
+        const targetOp = seen.get(key);
+        if (targetOp != null) {
+          surviving[i] = {
+            ...op,
+            op: 'MOVE',
+            target_op: targetOp,
+            table: undefined,
+            row_id: undefined,
+            source_table: undefined,
+            source_key: undefined,
+            data: null
+          };
         } else {
           seen.set(utils.flatstr(key), op.o);
           surviving[i] = op;
         }
       } else {
-        // MOVE / CLEAR — preserve (these only exist if compaction was run before).
         surviving[i] = op;
       }
     }
 
-    const survivingOps = surviving.filter((op): op is BucketDataDoc => op != null);
-
-    if (survivingOps.length == 0) {
-      // Nothing left — delete all old documents.
-      await bucketContext.collection.deleteMany({ '_id.b': bucket });
-      this.updateBucketChecksums({
-        bucket,
-        definitionId: resolvedDefinitionId,
-        seen: new Map(),
-        trackingSize: 0,
-        lastNotPut: null,
-        opsSincePut: 0,
-        checksum: 0,
-        opCount: 0,
-        opBytes: 0
-      });
-      if (this.bucketStateUpdates.length > 0) {
-        await this.writeBucketStateUpdates();
-        this.bucketStateUpdates = [];
-      }
-      return;
-    }
+    const survivingOps = surviving;
 
     this.signal?.throwIfAborted();
 
