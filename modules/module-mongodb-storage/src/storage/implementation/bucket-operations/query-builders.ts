@@ -18,8 +18,11 @@ export function createBucketFilter<
       },
       $lte: {
         b: request.bucket,
-        o: request.end
+        o: new bson.MaxKey()
       }
+    },
+    min_op: {
+      $lte: request.end
     }
   };
 }

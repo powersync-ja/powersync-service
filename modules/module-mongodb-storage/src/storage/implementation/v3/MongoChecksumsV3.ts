@@ -132,10 +132,19 @@ export class MongoChecksumsV3 extends MongoChecksums {
               })),
               default: new bson.MinKey()
             }
+          },
+          bucket_end: {
+            $switch: {
+              branches: Array.from(requests.entries()).map(([bucket, req]) => ({
+                case: { $eq: ['$_id.b', bucket] },
+                then: req.end
+              })),
+              default: new bson.MaxKey()
+            }
           }
         }
       },
-      // Determine if document is fully included
+      // Determine if document is fully included within [start, end] range
       {
         $project: {
           _id: 1,
@@ -144,7 +153,10 @@ export class MongoChecksumsV3 extends MongoChecksums {
           count: 1,
           ops: 1,
           bucket_start: 1,
-          is_fully_included: { $gt: ['$min_op', '$bucket_start'] }
+          bucket_end: 1,
+          is_fully_included: {
+            $and: [{ $gt: ['$min_op', '$bucket_start'] }, { $lte: ['$_id.o', '$bucket_end'] }]
+          }
         }
       },
       // Compute included checksum, count, and clear op detection
@@ -161,7 +173,9 @@ export class MongoChecksumsV3 extends MongoChecksums {
                     input: {
                       $filter: {
                         input: '$ops',
-                        cond: { $gt: ['$$this.o', '$bucket_start'] }
+                        cond: {
+                          $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
+                        }
                       }
                     },
                     in: '$$this.checksum'
@@ -178,7 +192,9 @@ export class MongoChecksumsV3 extends MongoChecksums {
                 $size: {
                   $filter: {
                     input: '$ops',
-                    cond: { $gt: ['$$this.o', '$bucket_start'] }
+                    cond: {
+                      $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
+                    }
                   }
                 }
               }
@@ -190,7 +206,9 @@ export class MongoChecksumsV3 extends MongoChecksums {
                 input: {
                   $filter: {
                     input: '$ops',
-                    cond: { $gt: ['$$this.o', '$bucket_start'] }
+                    cond: {
+                      $and: [{ $gt: ['$$this.o', '$bucket_start'] }, { $lte: ['$$this.o', '$bucket_end'] }]
+                    }
                   }
                 },
                 in: { $cond: [{ $eq: ['$$this.op', 'CLEAR'] }, 1, 0] }
