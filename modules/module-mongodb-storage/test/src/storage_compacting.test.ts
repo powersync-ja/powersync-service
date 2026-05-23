@@ -745,6 +745,180 @@ bucket_definitions:
   });
 });
 
+describe('V3 checksum pipeline straddling', () => {
+  const BUCKET = 'global[]';
+  const TABLE = 'items';
+
+  async function setup() {
+    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
+    const syncRules = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+bucket_definitions:
+  global:
+    data: [SELECT id as id, description FROM items]
+`,
+        { storageVersion: 3 }
+      )
+    );
+    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
+    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const sourceTableId = new bson.ObjectId();
+    const ctx = {
+      replicationStreamId: bucketStorage.group_id,
+      definitionId,
+      bucket: BUCKET
+    };
+
+    return { bucketStorage, syncRules, db, collection, bucketStateCollection, definitionId, sourceTableId, ctx };
+  }
+
+  function makeOp(
+    opId: number,
+    rowId: string,
+    data: string,
+    ctx: { replicationStreamId: number; definitionId: string; bucket: string },
+    sourceTableId: bson.ObjectId
+  ): BucketDataDoc {
+    return {
+      bucketKey: {
+        replicationStreamId: ctx.replicationStreamId,
+        definitionId: ctx.definitionId,
+        bucket: ctx.bucket
+      },
+      o: BigInt(opId),
+      op: 'PUT',
+      source_table: sourceTableId,
+      source_key: test_utils.rid(rowId),
+      table: TABLE,
+      row_id: rowId,
+      checksum: BigInt(opId * 7),
+      data: JSON.stringify({ id: rowId, description: data }),
+      target_op: null
+    };
+  }
+
+  test('partial checksum with start straddling multi-op document', async () => {
+    const { bucketStorage, syncRules, collection, bucketStateCollection, definitionId, sourceTableId, ctx } =
+      await setup();
+
+    // Single document with ops 10-60, min_op=10, _id.o=60
+    const ops = [
+      makeOp(10, 'A', 'a1', ctx, sourceTableId),
+      makeOp(20, 'B', 'b1', ctx, sourceTableId),
+      makeOp(30, 'C', 'c1', ctx, sourceTableId),
+      makeOp(40, 'D', 'd1', ctx, sourceTableId),
+      makeOp(50, 'E', 'e1', ctx, sourceTableId),
+      makeOp(60, 'F', 'f1', ctx, sourceTableId)
+    ];
+    const doc = serializeBucketData(BUCKET, ops);
+    await collection.insertMany([doc]);
+
+    // Set compacted_state.op_id = 30 to create a partial range starting at 30.
+    // The pipeline will query ops where o > 30 and o <= 60.
+    // The document has min_op=10 < 30, so it's partially included.
+    // The pipeline must $filter ops to only sum those with o > 30 (ops 40, 50, 60).
+    const fullChecksum = ops.reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
+    const partialChecksum = ops
+      .filter((op) => op.o > 30n)
+      .reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
+
+    // Partial and full must differ, otherwise the document is fully included and no straddling occurs.
+    expect(partialChecksum).not.toBe(fullChecksum);
+
+    await bucketStateCollection.insertOne({
+      _id: { d: definitionId, b: BUCKET },
+      last_op: 30n,
+      compacted_state: {
+        op_id: 30n,
+        count: 3,
+        checksum: BigInt(
+          ops.filter((op) => op.o <= 30n).reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0)
+        ),
+        bytes: null
+      },
+      estimate_since_compact: { count: 3, bytes: 100 }
+    });
+
+    const request: storage.BucketChecksumRequest = {
+      bucket: BUCKET,
+      source: {
+        uniqueName: 'global',
+        bucketParameters: [],
+        getSourceTables: () => new Set(),
+        tableSyncsData: () => false,
+        evaluateRow: () => [],
+        inferSchema: () => ({ objects: {} }),
+        bucketQuery: () => ({ ast: {} as any, parameters: [] })
+      } as any
+    };
+
+    const result = await bucketStorage.getChecksums(60n, [request]);
+    const checksumResult = result.get(BUCKET)!;
+
+    // The total checksum should be: compacted (ops 10,20,30) + partial (ops 40,50,60)
+    expect(checksumResult.checksum).toBe(fullChecksum);
+    expect(checksumResult.count).toBe(6);
+  });
+
+  test('partial checksum with end straddling multi-op document', async () => {
+    const { bucketStorage, collection, bucketStateCollection, definitionId, sourceTableId, ctx } = await setup();
+
+    // Document with ops 40-60, _id.o=60, min_op=40
+    const ops = [
+      makeOp(40, 'D', 'd1', ctx, sourceTableId),
+      makeOp(50, 'E', 'e1', ctx, sourceTableId),
+      makeOp(60, 'F', 'f1', ctx, sourceTableId)
+    ];
+    const doc = serializeBucketData(BUCKET, ops);
+    await collection.insertMany([doc]);
+
+    // No compacted_state — start from beginning, so the full document is in range.
+    // Request checksums with checkpoint=45 (falls between ops 40 and 50).
+    // createBucketFilter produces _id.o <= 45.
+    // This document has _id.o=60 > 45, so the filter excludes it.
+    // But the document contains op 40 which should be included (40 <= 45).
+    const checksumUpTo45 = ops
+      .filter((op) => op.o <= 45n)
+      .reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
+
+    const checksumAllOps = ops.reduce((sum, op) => addChecksums(sum, Number(op.checksum)), 0);
+
+    // The straddling is real: op 40 is <= 45 but the document's _id.o=60 is > 45
+    expect(checksumUpTo45).not.toBe(checksumAllOps);
+
+    await bucketStateCollection.insertOne({
+      _id: { d: definitionId, b: BUCKET },
+      last_op: 0n,
+      estimate_since_compact: { count: 0, bytes: 0 }
+    });
+
+    const request: storage.BucketChecksumRequest = {
+      bucket: BUCKET,
+      source: {
+        uniqueName: 'global',
+        bucketParameters: [],
+        getSourceTables: () => new Set(),
+        tableSyncsData: () => false,
+        evaluateRow: () => [],
+        inferSchema: () => ({ objects: {} }),
+        bucketQuery: () => ({ ast: {} as any, parameters: [] })
+      } as any
+    };
+
+    const result = await bucketStorage.getChecksums(45n, [request]);
+    const checksumResult = result.get(BUCKET)!;
+
+    // If createBucketFilter's _id.o <= 45 excludes this document,
+    // the checksum will be 0 instead of checksumUpTo45.
+    expect(checksumResult.checksum).toBe(checksumUpTo45);
+    expect(checksumResult.count).toBe(1);
+  });
+});
+
 describe('V3 compaction boundaries', () => {
   const BUCKET = 'global[]';
   const TABLE = 'items';
