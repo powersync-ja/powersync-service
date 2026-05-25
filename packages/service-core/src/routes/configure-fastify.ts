@@ -1,6 +1,10 @@
 import type fastify from 'fastify';
 
-import { registerFastifyNotFoundHandler, registerFastifyRoutes } from './route-register.js';
+import {
+  registerFastifyErrorHandler,
+  registerFastifyNotFoundHandler,
+  registerFastifyRoutes
+} from './route-register.js';
 
 import * as system from '../system/system-index.js';
 
@@ -65,6 +69,9 @@ export function configureFastifyServer(server: fastify.FastifyInstance, options:
       logger: options.logger
     };
   };
+
+  // Set on the outer server so both child scopes inherit.
+  registerFastifyErrorHandler(server);
 
   /**
    * Fastify creates an encapsulated context for each `.register` call.
