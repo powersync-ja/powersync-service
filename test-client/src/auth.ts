@@ -1,3 +1,4 @@
+import { YamlEnvTag } from '@powersync/service-core';
 import * as jose from 'jose';
 import * as fs from 'node:fs/promises';
 import * as yaml from 'yaml';
@@ -31,7 +32,7 @@ export async function getCredentials(options: CredentialsOptions): Promise<Crede
     }
   } else if (options.config != null) {
     const file = await fs.readFile(options.config, 'utf-8');
-    const parsed = await yaml.parse(file);
+    const parsed = await yaml.parse(file, { customTags: [YamlEnvTag] });
     const keys = (parsed.client_auth?.jwks?.keys ?? []).filter((key: any) => key.alg == 'HS256');
     if (keys.length == 0) {
       throw new Error('No HS256 key found in the config');
