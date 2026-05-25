@@ -2,7 +2,7 @@ import type fastify from 'fastify';
 import * as zlib from 'node:zlib';
 import * as uuid from 'uuid';
 
-import { errors, HTTPMethod, logger, RouteNotFound, router, ServiceError } from '@powersync/lib-services-framework';
+import { errors, HTTPMethod, logger, RouteNotFound, router } from '@powersync/lib-services-framework';
 import { FastifyReply } from 'fastify';
 import { Context, ContextProvider, RequestEndpoint, RequestEndpointHandlerPayload } from './router.js';
 
@@ -106,48 +106,84 @@ export function registerFastifyNotFoundHandler(app: fastify.FastifyInstance) {
   });
 }
 
-/**
- * Registers a custom error handler so uncaught errors surface with the same schema as other service errors,
- * and the synthesised body honours any negotiated `Content-Encoding`.
- */
+/** Registers a custom error handler that emits service-error JSON honouring any negotiated `Content-Encoding`. */
 export function registerFastifyErrorHandler(app: fastify.FastifyInstance) {
-  app.setErrorHandler(async (error, _request, reply) => {
-    const serviceError = errors.asServiceError(error);
-    logger.error(`Request failed`, serviceError);
+  app.setErrorHandler<Error>(async (error, _request, reply) => {
+    if (reply.raw.headersSent) {
+      // Headers already flushed - reply.code/header would throw ERR_HTTP_HEADERS_SENT.
+      reply.raw.destroy(error);
+      return;
+    }
 
-    const response = serviceErrorToResponse(serviceError);
-    const json = JSON.stringify(response.data);
+    const { status, data } = fastifyErrorToResponse(error);
+    if (status >= 500) {
+      logger.error('Request failed', error);
+    } else {
+      logger.warn(`Request failed: ${error.message}`, {
+        status,
+        code: data.error.code
+      });
+    }
 
-    // Fastify's default error handler clears `content-type` and `content-length` from `kReplyHeaders`
-    // but leaves `content-encoding` intact, so we honour or strip it ourselves.
+    const json = JSON.stringify(data);
+
+    // Fastify's default handler leaves `content-encoding` intact when it rewrites the body.
     const encoding = reply.getHeader('content-encoding');
     let body: string | Buffer = json;
     if (encoding === 'gzip') {
-      body = zlib.gzipSync(Buffer.from(json));
+      body = zlib.gzipSync(json);
     } else if (encoding === 'zstd') {
-      body = zlib.zstdCompressSync(Buffer.from(json));
+      body = zlib.zstdCompressSync(json);
     } else {
       reply.removeHeader('content-encoding');
     }
 
     reply
-      .code(response.status)
+      .code(status)
       .header('content-type', 'application/json; charset=utf-8')
       .header('content-length', Buffer.byteLength(body))
       .send(body);
   });
 }
 
-function serviceErrorToResponse(error: ServiceError): router.RouterResponse {
+type ErrorResponseData = { error: errors.ErrorData };
+
+function serviceErrorToResponse(serviceError: errors.ServiceError): router.RouterResponse<ErrorResponseData> {
   return new router.RouterResponse({
-    status: error.errorData.status || 500,
+    status: serviceError.errorData.status || 500,
     headers: {
       'Content-Type': 'application/json'
     },
     data: {
-      error: error.errorData
+      error: serviceError.errorData
     }
   });
+}
+
+function fastifyErrorToResponse(error: any): router.RouterResponse<ErrorResponseData> {
+  // Preserve 4xx status from Fastify built-ins (validation, invalid JSON body, etc.) instead of collapsing to 500.
+  if (
+    typeof error?.statusCode === 'number' &&
+    error.statusCode >= 400 &&
+    error.statusCode < 500 &&
+    typeof error.code === 'string'
+  ) {
+    return new router.RouterResponse({
+      status: error.statusCode,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      data: {
+        error: {
+          name: error.name,
+          code: error.code,
+          status: error.statusCode,
+          description: error.message
+        }
+      }
+    });
+  }
+  return serviceErrorToResponse(errors.asServiceError(error));
 }
 
 async function respond(reply: FastifyReply, response: router.RouterResponse) {
