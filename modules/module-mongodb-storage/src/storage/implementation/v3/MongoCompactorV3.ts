@@ -130,6 +130,9 @@ export class MongoCompactorV3 extends MongoCompactor {
     let totalOpCount = 0;
     let totalOpBytes = 0;
 
+    let lastNotPut: bigint | null = null;
+    let opsSincePut = 0;
+
     const seen = new Map<string, bigint>();
     let trackingSize = 0;
 
@@ -170,6 +173,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         .toArray();
 
       if (rawBatch.length == 0) {
+        // No more documents in this bucket — compaction complete.
         break;
       }
 
@@ -179,6 +183,8 @@ export class MongoCompactorV3 extends MongoCompactor {
       for (let i = 0; i < rawBatch.length; i++) {
         cumulativeBytes += Number(rawBatch[i].bsonSize);
         if (cumulativeBytes > this.moveBatchByteLimit && i > 0) {
+          // Byte limit exceeded; cut batch at current index. Always include
+          // at least one document (i > 0 guard) to guarantee forward progress.
           batchCutIndex = i;
           break;
         }
@@ -207,10 +213,14 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       if (processableDocs.length == 0) {
         // No documents with relevant ops in this batch; paginate to next batch
+        // without performing any writes. This handles batches where all documents
+        // contain only ops above maxOpId.
         upperBound = batchDocs[batchDocs.length - 1]._id as typeof upperBound;
         if (batchCutIndex >= rawBatch.length && rawBatch.length < this.moveBatchQueryLimit) {
+          // Entire remaining bucket is non-processable — compaction complete.
           break;
         }
+        // Skip dedup, rechunking, and transaction for this batch.
         continue;
       }
 
@@ -241,15 +251,34 @@ export class MongoCompactorV3 extends MongoCompactor {
               source_key: undefined,
               data: null
             });
+            if (lastNotPut == null) {
+              lastNotPut = op.o;
+            }
+            opsSincePut += 1;
           } else {
             if (trackingSize < this.idLimitBytes) {
               seen.set(utils.flatstr(key), op.o);
               trackingSize += key.length + 140;
             }
             surviving.push(op);
+            if (op.op == 'PUT') {
+              lastNotPut = null;
+              opsSincePut = 0;
+            } else {
+              if (lastNotPut == null) {
+                lastNotPut = op.o;
+              }
+              opsSincePut += 1;
+            }
           }
         } else {
           surviving.push(op);
+          if (op.op != 'CLEAR') {
+            if (lastNotPut == null) {
+              lastNotPut = op.o;
+            }
+            opsSincePut += 1;
+          }
         }
       }
 
@@ -299,7 +328,8 @@ export class MongoCompactorV3 extends MongoCompactor {
         // We cut the batch short due to byte limit — don't advance past cut point
         // The upperBound is already set to the last doc we processed
       } else {
-        // Processed all docs in the raw batch — check if we got fewer than the limit
+        // Processed all docs in the raw batch. If we got fewer than the query
+        // limit, there are no more documents in this bucket — compaction complete.
         if (rawBatch.length < this.moveBatchQueryLimit) {
           break;
         }
@@ -313,8 +343,8 @@ export class MongoCompactorV3 extends MongoCompactor {
       definitionId: resolvedDefinitionId,
       seen: new Map(),
       trackingSize: 0,
-      lastNotPut: null,
-      opsSincePut: 0,
+      lastNotPut: lastNotPut,
+      opsSincePut: opsSincePut,
       checksum: totalChecksum,
       opCount: totalOpCount,
       opBytes: totalOpBytes
