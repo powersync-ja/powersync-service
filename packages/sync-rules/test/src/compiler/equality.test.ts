@@ -30,6 +30,22 @@ describe('equality', () => {
   });
 });
 
+describe('parameterValueEquality', () => {
+  test('strings', () => {
+    expectEqual(StableHasher.parameterValueEquality, 'foo', 'foo');
+    expectNotEqual(StableHasher.parameterValueEquality, 'foo', 'bar');
+  });
+
+  test('numbers', () => {
+    expectEqual(StableHasher.parameterValueEquality, 42, 42);
+    expectNotEqual(StableHasher.parameterValueEquality, 1, 2);
+    expectEqual(StableHasher.parameterValueEquality, -0, 0);
+
+    expectEqual(StableHasher.parameterValueEquality, 42n, 42n);
+    expectNotEqual(StableHasher.parameterValueEquality, 10, 10n);
+  });
+});
+
 test('map', () => {
   const map = new HashMap(listEquality(stringEquality));
 
