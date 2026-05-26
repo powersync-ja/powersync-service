@@ -271,10 +271,10 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
 
     return {
-      bucketDataSources: syncRules.definition.bucketDataSources.filter((source) =>
+      bucketDataSources: syncRules.bucketDataSources.filter((source) =>
         bucketDataSourceIds.has(this.mapping.bucketSourceId(source))
       ),
-      parameterLookupSources: syncRules.definition.bucketParameterLookupSources.filter((source) =>
+      parameterLookupSources: syncRules.bucketParameterLookupSources.filter((source) =>
         parameterLookupSourceIds.has(this.mapping.parameterLookupId(source))
       )
     };

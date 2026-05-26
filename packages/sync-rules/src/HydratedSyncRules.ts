@@ -1,6 +1,7 @@
 import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
 import {
   BucketParameterQuerier,
+  BucketSource,
   CompatibilityContext,
   EvaluatedParameters,
   EvaluatedRow,
@@ -42,8 +43,14 @@ export class HydratedSyncRules {
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-  readonly definition: SyncConfig;
   readonly definitions: SyncConfig[];
+
+  /**
+   * Bucket data sources from underlying SyncConfig definitions.
+   */
+  readonly bucketDataSources: BucketDataSource[];
+  readonly bucketParameterLookupSources: ParameterIndexLookupCreator[];
+  readonly bucketSourceDefinitions: BucketSource[];
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
@@ -73,19 +80,19 @@ export class HydratedSyncRules {
     }
 
     this.definitions = [...definitions];
-    this.definition = this.definitions[0];
     this.compatibility = assertSharedCompatibility(this.definitions, params.compatibility);
 
-    const bucketDataSources =
+    this.bucketDataSources =
       params.bucketDataSources ?? definitions.flatMap((definition) => definition.bucketDataSources);
-    const bucketParameterIndexLookupCreators =
+    this.bucketParameterLookupSources =
       params.bucketParameterIndexLookupCreators ??
       definitions.flatMap((definition) => definition.bucketParameterLookupSources);
+    this.bucketSourceDefinitions = definitions.flatMap((definition) => definition.bucketSources);
 
-    this.innerEvaluateRow = mergeDataSources(hydrationState, bucketDataSources).evaluateRow;
+    this.innerEvaluateRow = mergeDataSources(hydrationState, this.bucketDataSources).evaluateRow;
     this.innerEvaluateParameterRow = mergeParameterIndexLookupCreators(
       hydrationState,
-      bucketParameterIndexLookupCreators
+      this.bucketParameterLookupSources
     ).evaluateParameterRow;
 
     if (params.eventDescriptors) {
@@ -94,9 +101,7 @@ export class HydratedSyncRules {
       this.eventDescriptors = definitions.flatMap((definition) => definition.eventDescriptors);
     }
 
-    this.bucketSources = definitions.flatMap((definition) =>
-      definition.bucketSources.map((source) => source.hydrate(params.createParams))
-    );
+    this.bucketSources = this.bucketSourceDefinitions.map((source) => source.hydrate(params.createParams));
   }
 
   // These methods do not depend on hydration, so we can multiplex them across definitions.
@@ -134,12 +139,8 @@ export class HydratedSyncRules {
     }
 
     const matchingSources = {
-      bucketDataSources: this.definitions.flatMap((definition) =>
-        definition.bucketDataSources.filter((source) => source.tableSyncsData(table))
-      ),
-      parameterLookupSources: this.definitions.flatMap((definition) =>
-        definition.bucketParameterLookupSources.filter((source) => source.tableSyncsParameters(table))
-      )
+      bucketDataSources: this.bucketDataSources.filter((source) => source.tableSyncsData(table)),
+      parameterLookupSources: this.bucketParameterLookupSources.filter((source) => source.tableSyncsParameters(table))
     };
     this.matchingSourcesCache.set(key, matchingSources);
     return matchingSources;

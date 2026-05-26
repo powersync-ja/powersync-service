@@ -285,7 +285,7 @@ export class BucketChecksumState {
       const streamNameToIndex = new Map<string, number>();
       this.streamNameToIndex = streamNameToIndex;
 
-      for (const source of this.parameterState.syncRules.definition.bucketSources) {
+      for (const source of this.parameterState.syncRules.bucketSourceDefinitions) {
         if (this.parameterState.isSubscribedToStream(source)) {
           streamNameToIndex.set(source.name, subscriptions.length);
 
