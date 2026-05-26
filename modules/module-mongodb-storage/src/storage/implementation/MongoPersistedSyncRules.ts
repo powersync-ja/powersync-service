@@ -5,7 +5,7 @@ import {
   BucketDataSource,
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   HydrationState,
   ParameterIndexLookupCreator,
   SyncConfigWithErrors,
@@ -39,7 +39,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     }
   }
 
-  hydratedSyncRules(): HydratedSyncRules {
+  hydratedSyncRules(): HydratedSyncConfig {
     return this.sync_rules.config.hydrate({ hydrationState: this.hydrationState });
   }
 }

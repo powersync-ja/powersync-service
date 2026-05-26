@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_HYDRATION_STATE } from '../../src/HydrationState.js';
-import { HydratedSyncRules, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
+import { HydratedSyncConfig, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
 import { ASSETS, lookupScope, PARSE_OPTIONS, USERS } from './util.js';
 
 describe('hydrated sync rules', () => {
@@ -28,7 +28,7 @@ bucket_definitions:
       PARSE_OPTIONS
     );
 
-    const hydrated = new HydratedSyncRules({
+    const hydrated = new HydratedSyncConfig({
       definitions: [first, second],
       createParams: hydrationParams
     });
@@ -101,7 +101,7 @@ bucket_definitions:
       PARSE_OPTIONS
     );
 
-    const hydrated = new HydratedSyncRules({
+    const hydrated = new HydratedSyncConfig({
       definitions: [first, second],
       createParams: hydrationParams
     });
@@ -160,7 +160,7 @@ bucket_definitions:
 
     expect(
       () =>
-        new HydratedSyncRules({
+        new HydratedSyncConfig({
           definitions: [legacy, edition2],
           createParams: hydrationParams
         })

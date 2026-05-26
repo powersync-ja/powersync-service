@@ -1,7 +1,7 @@
 import { describe, expect } from 'vitest';
 import {
   DEFAULT_HYDRATION_STATE,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   ParameterLookupRows,
   PrecompiledSyncConfig,
   ScopedParameterLookup,
@@ -1170,7 +1170,7 @@ streams:
   });
 });
 
-function evaluateBucketIds(source: HydratedSyncRules, sourceTable: SourceTableRef, record: SqliteRow) {
+function evaluateBucketIds(source: HydratedSyncConfig, sourceTable: SourceTableRef, record: SqliteRow) {
   return source.evaluateRow({ sourceTable, record }).map((r) => r.bucket);
 }
 

@@ -5,7 +5,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   ErrorLocation,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   HydrationState,
   javaScriptExpressionEngine,
   PrecompiledSyncConfig,
@@ -170,5 +170,5 @@ export interface PersistedSyncRules {
    */
   readonly hydrationState: HydrationState;
 
-  hydratedSyncRules(): HydratedSyncRules;
+  hydratedSyncRules(): HydratedSyncConfig;
 }

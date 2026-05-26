@@ -35,10 +35,15 @@ export interface MatchingSources {
 }
 
 /**
- * Hydrated sync config is sync config definitions along with persisted state. Currently, the persisted state
- * specifically affects bucket names.
+ * HydratedSyncConfig is sync config definitions along with persisted state.
+ *
+ * This may be a single SyncConfig, or multiple SyncConfigs merged together.
+ * In the case of multiple SyncConfigs, they must share the same CompatibilityContext,
+ * but can have different bucket sources.
+ *
+ * The persisted state specifically affects bucket names, as well as V3+ storage structure.
  */
-export class HydratedSyncRules {
+export class HydratedSyncConfig {
   bucketSources: HydratedBucketSource[] = [];
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;

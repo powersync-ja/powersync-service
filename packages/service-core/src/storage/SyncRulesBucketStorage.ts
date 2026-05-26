@@ -1,7 +1,7 @@
 import { Logger, ObserverClient } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   ParameterLookupRows,
   ScopedParameterLookup
 } from '@powersync/service-sync-rules';
@@ -44,7 +44,7 @@ export interface SyncRulesBucketStorage
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
-  getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncRules;
+  getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncConfig;
 
   /**
    * Terminate the replication stream.
@@ -169,7 +169,7 @@ export interface ResolveTablesOptions {
   /**
    * For tests only - override the sync rules used.
    */
-  syncRules?: HydratedSyncRules;
+  syncRules?: HydratedSyncConfig;
 }
 
 export interface ResolveTablesResult {

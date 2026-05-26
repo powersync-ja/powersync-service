@@ -2,7 +2,7 @@ import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLooku
 import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { HydratedSyncRules } from './HydratedSyncRules.js';
+import { HydratedSyncConfig } from './HydratedSyncConfig.js';
 import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
@@ -42,8 +42,8 @@ export abstract class SyncConfig {
    *
    * @param params.hydrationState Transforms bucket ids based on persisted state.
    */
-  hydrate(params: CreateSourceParams): HydratedSyncRules {
-    return new HydratedSyncRules({
+  hydrate(params: CreateSourceParams): HydratedSyncConfig {
+    return new HydratedSyncConfig({
       definitions: [this],
       createParams: params
     });

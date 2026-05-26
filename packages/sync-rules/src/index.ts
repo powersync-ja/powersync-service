@@ -7,7 +7,7 @@ export * from './errors.js';
 export * from './events/SqlEventDescriptor.js';
 export * from './events/SqlEventSourceQuery.js';
 export * from './ExpressionType.js';
-export * from './HydratedSyncRules.js';
+export * from './HydratedSyncConfig.js';
 export * from './HydrationState.js';
 export * from './IdSequence.js';
 export * from './json_schema.js';

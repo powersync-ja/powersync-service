@@ -9,7 +9,7 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { HydratedSyncConfig, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { performance } from 'node:perf_hooks';
 import { MongoLSN } from '../common/MongoLSN.js';
@@ -56,7 +56,7 @@ export class MongoSnapshotter {
   private readonly connections: MongoManager;
   private readonly client: mongo.MongoClient;
   private readonly defaultDb: mongo.Db;
-  private readonly syncRules: HydratedSyncRules;
+  private readonly syncRules: HydratedSyncConfig;
   private readonly sourceRowConverter: SourceRowConverter;
   private readonly maxAwaitTimeMS: number;
   private readonly snapshotChunkLength: number;
