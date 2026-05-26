@@ -62,31 +62,20 @@ export class HydratedSyncRules {
     { evaluateParameterRow: ScopedEvaluateParameterRow }
   >();
 
-  constructor(params: {
-    definition?: SyncConfig;
-    definitions?: SyncConfig[];
-    createParams: CreateSourceParams;
-    bucketDataSources?: BucketDataSource[];
-    bucketParameterIndexLookupCreators?: ParameterIndexLookupCreator[];
-    eventDescriptors?: SqlEventDescriptor[];
-    compatibility?: CompatibilityContext;
-  }) {
+  constructor(params: { definitions: SyncConfig[]; createParams: CreateSourceParams }) {
     const hydrationState = params.createParams.hydrationState;
     this.hydrationState = hydrationState;
 
-    const definitions = params.definitions ?? (params.definition == null ? [] : [params.definition]);
+    const definitions = params.definitions;
     if (definitions.length == 0) {
       throw new Error('HydratedSyncRules requires at least one SyncConfig definition');
     }
 
     this.definitions = [...definitions];
-    this.compatibility = assertSharedCompatibility(this.definitions, params.compatibility);
+    this.compatibility = assertSharedCompatibility(this.definitions);
 
-    this.bucketDataSources =
-      params.bucketDataSources ?? definitions.flatMap((definition) => definition.bucketDataSources);
-    this.bucketParameterLookupSources =
-      params.bucketParameterIndexLookupCreators ??
-      definitions.flatMap((definition) => definition.bucketParameterLookupSources);
+    this.bucketDataSources = definitions.flatMap((definition) => definition.bucketDataSources);
+    this.bucketParameterLookupSources = definitions.flatMap((definition) => definition.bucketParameterLookupSources);
     this.bucketSourceDefinitions = definitions.flatMap((definition) => definition.bucketSources);
 
     this.innerEvaluateRow = mergeDataSources(hydrationState, this.bucketDataSources).evaluateRow;
@@ -95,11 +84,7 @@ export class HydratedSyncRules {
       this.bucketParameterLookupSources
     ).evaluateParameterRow;
 
-    if (params.eventDescriptors) {
-      this.eventDescriptors = params.eventDescriptors;
-    } else {
-      this.eventDescriptors = definitions.flatMap((definition) => definition.eventDescriptors);
-    }
+    this.eventDescriptors = definitions.flatMap((definition) => definition.eventDescriptors);
 
     this.bucketSources = this.bucketSourceDefinitions.map((source) => source.hydrate(params.createParams));
   }
@@ -244,11 +229,8 @@ export class HydratedSyncRules {
   }
 }
 
-function assertSharedCompatibility(
-  definitions: SyncConfig[],
-  override: CompatibilityContext | undefined
-): CompatibilityContext {
-  const compatibility = override ?? definitions[0].compatibility;
+function assertSharedCompatibility(definitions: SyncConfig[]): CompatibilityContext {
+  const compatibility = definitions[0].compatibility;
   if (definitions.length == 1) {
     return compatibility;
   }

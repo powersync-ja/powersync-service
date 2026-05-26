@@ -44,12 +44,8 @@ export abstract class SyncConfig {
    */
   hydrate(params: CreateSourceParams): HydratedSyncRules {
     return new HydratedSyncRules({
-      definition: this,
-      createParams: params,
-      bucketDataSources: this.bucketDataSources,
-      bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
-      eventDescriptors: this.eventDescriptors,
-      compatibility: this.compatibility
+      definitions: [this],
+      createParams: params
     });
   }
 
