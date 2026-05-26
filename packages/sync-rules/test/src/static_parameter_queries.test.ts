@@ -6,6 +6,7 @@ import { bucketDataScope, EMPTY_DATA_SOURCE, PARSE_OPTIONS, requestParameters } 
 
 describe('static parameter queries', () => {
   const MYBUCKET_SCOPE: BucketDataScope = {
+    key: 'mybucket',
     bucketPrefix: 'mybucket',
     source: EMPTY_DATA_SOURCE
   };
@@ -478,12 +479,13 @@ describe('static parameter queries', () => {
 
     const hydrationState: HydrationState = {
       getBucketSourceScope(source): BucketDataScope {
-        return { bucketPrefix: `${source.uniqueName}-test`, source };
+        return { key: `${source.uniqueName}-test`, bucketPrefix: `${source.uniqueName}-test`, source };
       },
       getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
-          lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`,
+          lookupName: `${source.sourceId.lookupName}.test`,
+          queryId: `${source.sourceId.queryId}.test`,
+          key: JSON.stringify([`${source.sourceId.lookupName}.test`, `${source.sourceId.queryId}.test`]),
           source
         };
       }

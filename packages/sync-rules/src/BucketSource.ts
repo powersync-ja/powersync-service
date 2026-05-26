@@ -5,7 +5,7 @@ import {
   UnscopedParameterLookup
 } from './BucketParameterQuerier.js';
 import { ColumnDefinition } from './ExpressionType.js';
-import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupScope } from './HydrationState.js';
+import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupDefinitionId } from './HydrationState.js';
 import { SourceTableRef } from './SourceTableRef.js';
 import { GetQuerierOptions } from './SqlSyncRules.js';
 import { TablePattern } from './TablePattern.js';
@@ -130,9 +130,10 @@ export interface ParameterIndexLookupCreator {
   /**
    * lookupName + queryId is used to uniquely identify parameter queries for parameter storage.
    *
-   * This defines the default values if no transformations are applied.
+   * The values here specifically identify the definition uniquely within a single SyncConfig.
+   * It does not guarantee uniqueness across different SyncConfigs.
    */
-  readonly defaultLookupScope: ParameterLookupScope;
+  readonly sourceId: ParameterLookupDefinitionId;
 
   getSourceTables(): Set<TablePattern>;
 

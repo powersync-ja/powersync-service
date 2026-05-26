@@ -16,7 +16,9 @@ import {
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
   ParameterIndexLookupCreator,
+  ParameterLookupDefinitionId,
   ParameterLookupRows,
+  ParameterLookupScope,
   ScopedParameterLookup,
   SourceTableRef,
   SqliteRow,
@@ -24,16 +26,14 @@ import {
   TablePattern,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
 import { beforeEach, describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {
   const LOOKUP_SOURCE: ParameterIndexLookupCreator = {
-    get defaultLookupScope(): ParameterLookupScope {
+    get sourceId(): ParameterLookupDefinitionId {
       return {
         lookupName: 'lookup',
-        queryId: '0',
-        source: LOOKUP_SOURCE
+        queryId: '0'
       };
     },
     getSourceTables(): Set<TablePattern> {
@@ -48,7 +48,7 @@ describe('BucketChecksumState', () => {
   };
 
   function lookupScope(lookupName: string, queryId: string): ParameterLookupScope {
-    return { lookupName, queryId, source: LOOKUP_SOURCE };
+    return { key: JSON.stringify([lookupName, queryId]), lookupName, queryId, source: LOOKUP_SOURCE };
   }
 
   // Single global[] bucket.

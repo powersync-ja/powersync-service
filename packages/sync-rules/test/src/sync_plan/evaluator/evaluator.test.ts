@@ -1119,17 +1119,26 @@ streams:
       // Outputs of d are used directly (d.c4 = a.c4) and as an input to c (c.c3 = d.c3)
       expect(desc.evaluateParameterRow(new TestSourceTable('d'), data)[0]).toStrictEqual({
         bucketParameters: [{ '0': 'c3', '1': 'c4' }],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '0', source: null as any }, [])
+        lookup: ScopedParameterLookup.direct(
+          { key: JSON.stringify(['lookup', '0']), lookupName: 'lookup', queryId: '0', source: null as any },
+          []
+        )
       });
       // Table c: Index from c3 to c2 for lookup in b
       expect(desc.evaluateParameterRow(new TestSourceTable('c'), data)[0]).toStrictEqual({
         bucketParameters: [{ '0': 'c2' }],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '1', source: null as any }, ['c3'])
+        lookup: ScopedParameterLookup.direct(
+          { key: JSON.stringify(['lookup', '1']), lookupName: 'lookup', queryId: '1', source: null as any },
+          ['c3']
+        )
       });
       // Table b: Index from c2 to c1 for bucket parameter
       expect(desc.evaluateParameterRow(new TestSourceTable('b'), data)[0]).toStrictEqual({
         bucketParameters: [{ '0': 'c1' }],
-        lookup: ScopedParameterLookup.direct({ lookupName: 'lookup', queryId: '2', source: null as any }, ['c2'])
+        lookup: ScopedParameterLookup.direct(
+          { key: JSON.stringify(['lookup', '2']), lookupName: 'lookup', queryId: '2', source: null as any },
+          ['c2']
+        )
       });
 
       const { querier, errors } = desc.getBucketParameterQuerier({

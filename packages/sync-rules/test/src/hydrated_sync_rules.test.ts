@@ -136,6 +136,50 @@ bucket_definitions:
     ).toEqual([]);
   });
 
+  test('deduplicates sources with the same hydration keys', () => {
+    const yaml = `
+bucket_definitions:
+  shared:
+    parameters:
+      - SELECT users.id as user_id FROM users
+    data:
+      - SELECT id FROM assets WHERE assets.user_id = bucket.user_id
+    `;
+    const { config: first } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
+    const { config: second } = SqlSyncRules.fromYaml(yaml, PARSE_OPTIONS);
+
+    const hydrated = new HydratedSyncConfig({
+      definitions: [first, second],
+      createParams: hydrationParams
+    });
+
+    expect(hydrated.bucketDataSources).toEqual([first.bucketDataSources[0]]);
+    expect(hydrated.bucketParameterLookupSources).toEqual([first.bucketParameterLookupSources[0]]);
+
+    expect(
+      hydrated.evaluateRow({
+        sourceTable: ASSETS,
+        record: { id: 'asset1', user_id: 'user1' }
+      })
+    ).toEqual([
+      {
+        bucket: 'shared["user1"]',
+        id: 'asset1',
+        data: {
+          id: 'asset1'
+        },
+        table: 'assets'
+      }
+    ]);
+
+    expect(hydrated.evaluateParameterRow(USERS, { id: 'user1' })).toEqual([
+      {
+        bucketParameters: [{ user_id: 'user1' }],
+        lookup: ScopedParameterLookup.direct(lookupScope('shared', '1'), [])
+      }
+    ]);
+  });
+
   test('requires matching compatibility contexts for multiple sync configs', () => {
     const { config: legacy } = SqlSyncRules.fromYaml(
       `

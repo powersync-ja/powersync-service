@@ -27,7 +27,7 @@ import {
 } from './index.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
-import { applyRowContext } from './utils.js';
+import { applyRowContext, uniqueBy } from './utils.js';
 
 export interface MatchingSources {
   bucketDataSources: BucketDataSource[];
@@ -79,9 +79,18 @@ export class HydratedSyncConfig {
     this.definitions = [...definitions];
     this.compatibility = assertSharedCompatibility(this.definitions);
 
-    this.bucketDataSources = definitions.flatMap((definition) => definition.bucketDataSources);
-    this.bucketParameterLookupSources = definitions.flatMap((definition) => definition.bucketParameterLookupSources);
-    this.bucketSourceDefinitions = definitions.flatMap((definition) => definition.bucketSources);
+    this.bucketDataSources = uniqueBy(
+      definitions.flatMap((definition) => definition.bucketDataSources),
+      (source) => hydrationState.getBucketSourceScope(source).key
+    );
+    this.bucketParameterLookupSources = uniqueBy(
+      definitions.flatMap((definition) => definition.bucketParameterLookupSources),
+      (source) => hydrationState.getParameterIndexLookupScope(source).key
+    );
+    this.bucketSourceDefinitions = uniqueBy(
+      definitions.flatMap((definition) => definition.bucketSources),
+      (source) => source.name
+    );
 
     this.innerEvaluateRow = mergeDataSources(hydrationState, this.bucketDataSources).evaluateRow;
     this.innerEvaluateParameterRow = mergeParameterIndexLookupCreators(

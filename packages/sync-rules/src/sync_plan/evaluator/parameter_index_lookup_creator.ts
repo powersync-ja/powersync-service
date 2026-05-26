@@ -1,6 +1,6 @@
 import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
-import { ParameterLookupScope } from '../../HydrationState.js';
+import { ParameterLookupDefinitionId } from '../../HydrationState.js';
 import { SourceTableRef } from '../../SourceTableRef.js';
 import { TablePattern } from '../../TablePattern.js';
 import { SqliteJsonValue, SqliteParameterValue, SqliteRow, UnscopedEvaluatedParametersResult } from '../../types.js';
@@ -11,7 +11,7 @@ import { isValidParameterValueRow } from './parameter_evaluator.js';
 import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedParameterIndexLookupCreator implements ParameterIndexLookupCreator {
-  readonly defaultLookupScope: ParameterLookupScope;
+  readonly sourceId: ParameterLookupDefinitionId;
   private readonly evaluator: ScalarExpressionEvaluator;
   readonly sourceTable: TablePattern;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
@@ -19,9 +19,8 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
   private readonly numberOfParameters: number;
 
   constructor(source: plan.StreamParameterIndexLookupCreator, { engine, defaultSchema }: StreamEvaluationContext) {
-    this.defaultLookupScope = {
-      ...source.defaultLookupScope,
-      source: this
+    this.sourceId = {
+      ...source.defaultLookupScope
     };
     const translationHelper = new TableProcessorToSqlHelper(source);
     const expressions = source.outputs.map((o) => translationHelper.mapper.transform(o));

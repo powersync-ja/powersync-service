@@ -1,5 +1,5 @@
 import { BucketPriority } from '../BucketDescription.js';
-import { ParameterLookupScope } from '../HydrationState.js';
+import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern } from '../TablePattern.js';
 import { UnscopedEvaluatedParameters } from '../types.js';
 import { SqlExpression } from './expression.js';
@@ -161,7 +161,7 @@ export interface StreamBucketDataSource {
  */
 export interface StreamParameterIndexLookupCreator extends TableProcessor {
   hashCode: number;
-  defaultLookupScope: Omit<ParameterLookupScope, 'source'>;
+  defaultLookupScope: ParameterLookupDefinitionId;
 
   /**
    * Outputs to persist in the lookup.

@@ -41,7 +41,10 @@ bucket_definitions:
 
     await writer.commit('1/1');
 
-    const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['t1']);
+    const lookup = ScopedParameterLookup.direct(
+      { key: JSON.stringify(['test', '1']), lookupName: 'test', queryId: '1', source: null as any },
+      ['t1']
+    );
 
     const checkpoint1 = await bucketStorage.getCheckpoint();
     const parameters1 = await checkpoint1.getParameterSets([lookup], 1000);
@@ -147,7 +150,10 @@ bucket_definitions:
       });
       await writer.commit('3/1');
 
-      const lookup = ScopedParameterLookup.direct({ lookupName: 'test', queryId: '1', source: null as any }, ['u1']);
+      const lookup = ScopedParameterLookup.direct(
+        { key: JSON.stringify(['test', '1']), lookupName: 'test', queryId: '1', source: null as any },
+        ['u1']
+      );
 
       const checkpoint1 = await bucketStorage.getCheckpoint();
       const parameters1 = await checkpoint1.getParameterSets([lookup], 1000);

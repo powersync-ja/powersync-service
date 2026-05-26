@@ -9,6 +9,7 @@ import {
   DEFAULT_TAG,
   GetQuerierOptions,
   ParameterIndexLookupCreator,
+  ParameterLookupDefinitionId,
   ParameterLookupScope,
   RequestedStream,
   RequestParameters,
@@ -112,11 +113,10 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
 };
 
 export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
-  get defaultLookupScope(): ParameterLookupScope {
+  get sourceId(): ParameterLookupDefinitionId {
     return {
       lookupName: 'lookup',
-      queryId: '0',
-      source: EMPTY_PARAMETER_LOOKUP_SOURCE
+      queryId: '0'
     };
   },
   getSourceTables(): Set<TablePattern> {
@@ -131,7 +131,7 @@ export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
 };
 
 export function bucketDataScope(bucketPrefix: string, source: BucketDataSource = EMPTY_DATA_SOURCE): BucketDataScope {
-  return { bucketPrefix, source };
+  return { key: bucketPrefix, bucketPrefix, source };
 }
 
 export function lookupScope(
@@ -139,7 +139,7 @@ export function lookupScope(
   queryId: string,
   source: ParameterIndexLookupCreator = EMPTY_PARAMETER_LOOKUP_SOURCE
 ): ParameterLookupScope {
-  return { lookupName, queryId, source };
+  return { key: JSON.stringify([lookupName, queryId]), lookupName, queryId, source };
 }
 
 export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {

@@ -1,6 +1,6 @@
 import { InternalOpId, SerializedSyncPlan, SyncRuleState } from '@powersync/service-core';
+import { BucketDefinitionId, ParameterIndexId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
-import { BucketDefinitionId, ParameterIndexId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import {
   BucketDataDocumentBase,

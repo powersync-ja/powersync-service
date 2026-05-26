@@ -51,15 +51,16 @@ class MongoHydrationState implements HydrationState {
   ) {}
 
   getBucketSourceScope(source: BucketDataSource): BucketDataScope {
+    const defId = this.mapping.bucketSourceId(source);
     // Keep this aligned with versionedHydrationState() for now.
     //
     // Previous Mongo-specific behavior:
-    // const defId = this.mapping.bucketSourceId(source);
     // return {
     //   bucketPrefix: defId,
     //   source
     // };
     return {
+      key: defId,
       bucketPrefix: `${this.version}#${source.uniqueName}`,
       source
     };
@@ -68,6 +69,7 @@ class MongoHydrationState implements HydrationState {
   getParameterIndexLookupScope(source: ParameterIndexLookupCreator) {
     const defId = this.mapping.parameterLookupId(source);
     return {
+      key: defId,
       lookupName: defId,
       queryId: '',
       source
