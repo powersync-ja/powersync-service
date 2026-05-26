@@ -89,7 +89,7 @@ export class StableHasher {
             break;
           case 'number':
             const normalized = value || 0; // Ensure 0 and -0 have the same hash code.
-            buf.setFloat64(0, value, true);
+            buf.setFloat64(0, normalized, true);
             hasher.addHash(buf.getUint32(0, true));
             hasher.addHash(buf.getUint32(4, true));
             break;
@@ -98,6 +98,7 @@ export class StableHasher {
             buf.setBigInt64(0, value, true);
             hasher.addHash(buf.getUint32(0, true));
             hasher.addHash(buf.getUint32(4, true));
+            break;
           case 'boolean':
             hasher.addHash(value ? 0 : 1);
             break;

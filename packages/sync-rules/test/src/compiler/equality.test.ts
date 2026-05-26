@@ -30,6 +30,25 @@ describe('equality', () => {
   });
 });
 
+describe('parameterValueEquality', () => {
+  test('strings', () => {
+    expectEqual(StableHasher.parameterValueEquality, 'foo', 'foo');
+    expectNotEqual(StableHasher.parameterValueEquality, 'foo', 'bar');
+  });
+
+  test('numbers', () => {
+    expectEqual(StableHasher.parameterValueEquality, 42, 42);
+    expectNotEqual(StableHasher.parameterValueEquality, 1, 2);
+    expectNotEqual(StableHasher.parameterValueEquality, 10, NaN);
+    expectNotEqual(StableHasher.parameterValueEquality, 0, NaN, true);
+    expectNotEqual(StableHasher.parameterValueEquality, NaN, NaN, true);
+    expectEqual(StableHasher.parameterValueEquality, -0, 0);
+
+    expectEqual(StableHasher.parameterValueEquality, 42n, 42n);
+    expectNotEqual(StableHasher.parameterValueEquality, 10, 10n);
+  });
+});
+
 test('map', () => {
   const map = new HashMap(listEquality(stringEquality));
 
@@ -55,12 +74,14 @@ function expectEqual<T>(equality: Equality<T>, a: T, b: T) {
   expect(StableHasher.hashWith(equality, a)).toEqual(StableHasher.hashWith(equality, b));
 }
 
-function expectNotEqual<T>(equality: Equality<T>, a: T, b: T) {
+function expectNotEqual<T>(equality: Equality<T>, a: T, b: T, allowCollision = false) {
   expect(equality.equals(a, b)).toBeFalsy();
 
   // This is technically incorrect, distinct objects are allowed to have the same hash code.
   // In practice, it's almost guaranteed to hold.
-  expect(StableHasher.hashWith(equality, a)).not.toEqual(StableHasher.hashWith(equality, b));
+  if (!allowCollision) {
+    expect(StableHasher.hashWith(equality, a)).not.toEqual(StableHasher.hashWith(equality, b));
+  }
 }
 
 const stringEquality: Equality<string> = {
