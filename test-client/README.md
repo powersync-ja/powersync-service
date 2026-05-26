@@ -54,6 +54,12 @@ Used to generate a JWT token based on your current PowerSync YAML config.
 node dist/bin.js generate-token --config path/to/powersync.yaml --sub test-user
 ```
 
+If your config uses `!env PS_*` tags, pass `--env` to load a `.env` file before parsing (or export the variables in your shell). This flag is also supported by `fetch-operations` and `concurrent-connections`.
+
+```sh
+node dist/bin.js generate-token --config path/to/powersync.yaml --env path/to/.env --sub test-user
+```
+
 ### concurrent-connections
 
 Use this command to simulate concurrent connections to a PowerSync instance. This can be used for performance benchmarking
