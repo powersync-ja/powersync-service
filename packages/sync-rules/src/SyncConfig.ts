@@ -59,41 +59,37 @@ export abstract class SyncConfig {
     return applyRowContext(source, this.compatibility);
   }
 
-  protected writeSourceTables(sourceTables: Map<String, TablePattern>): void {
+  public writeSourceTables(sourceTables: Map<string, TablePattern>): void {
     for (const bucket of this.bucketDataSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key(), r);
       }
     }
     for (const bucket of this.bucketParameterLookupSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key(), r);
       }
     }
     for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key(), r);
       }
     }
   }
 
   getSourceTables(): TablePattern[] {
-    const sourceTables = new Map<String, TablePattern>();
+    const sourceTables = new Map<string, TablePattern>();
     this.writeSourceTables(sourceTables);
     return [...sourceTables.values()];
   }
 
   getEventTables(): TablePattern[] {
-    const eventTables = new Map<String, TablePattern>();
+    const eventTables = new Map<string, TablePattern>();
 
     if (this.eventDescriptors) {
       for (const event of this.eventDescriptors) {
         for (const r of event.getSourceTables()) {
-          const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-          eventTables.set(key, r);
+          eventTables.set(r.key(), r);
         }
       }
     }

@@ -390,6 +390,54 @@ config:
       expect(deserialized.maxTimeValuePrecision).toStrictEqual(TimeValuePrecision.nanoseconds);
     });
 
+    test('equals compares edition, overrides and time precision', () => {
+      const context = new CompatibilityContext({
+        edition: 2,
+        overrides: new Map([
+          [CompatibilityOption.fixedJsonExtract, false],
+          [CompatibilityOption.timestampsIso8601, true]
+        ]),
+        maxTimeValuePrecision: TimeValuePrecision.milliseconds
+      });
+
+      expect(
+        context.equals(
+          new CompatibilityContext({
+            edition: 2,
+            overrides: new Map([
+              [CompatibilityOption.timestampsIso8601, true],
+              [CompatibilityOption.fixedJsonExtract, false]
+            ]),
+            maxTimeValuePrecision: TimeValuePrecision.milliseconds
+          })
+        )
+      ).toBe(true);
+      expect(
+        context.equals(
+          new CompatibilityContext({
+            edition: 2,
+            overrides: new Map([
+              [CompatibilityOption.fixedJsonExtract, true],
+              [CompatibilityOption.timestampsIso8601, true]
+            ]),
+            maxTimeValuePrecision: TimeValuePrecision.milliseconds
+          })
+        )
+      ).toBe(false);
+      expect(
+        context.equals(
+          new CompatibilityContext({
+            edition: 2,
+            overrides: new Map([
+              [CompatibilityOption.fixedJsonExtract, false],
+              [CompatibilityOption.timestampsIso8601, true]
+            ]),
+            maxTimeValuePrecision: TimeValuePrecision.seconds
+          })
+        )
+      ).toBe(false);
+    });
+
     test('time precision', () => {
       const deserialized = CompatibilityContext.deserialize({
         edition: 2,

@@ -106,13 +106,23 @@ export class CompatibilityContext {
     return this.overrides.get(option) ?? option.fixedIn <= this.edition;
   }
 
+  equals(other: CompatibilityContext): boolean {
+    const serializedThis = this.serialize();
+    const serializedOther = other.serialize();
+    return JSON.stringify(serializedThis) == JSON.stringify(serializedOther);
+  }
+
   serialize(): SerializedCompatibilityContext {
     const serialized: SerializedCompatibilityContext = {
       edition: this.edition,
       overrides: {}
     };
 
-    this.overrides.forEach((enabled, key) => (serialized.overrides[key.name] = enabled));
+    // Sort to produce a consistent output for the same set of options.
+    const sortedOverrides = [...this.overrides.entries()].sort(([left], [right]) =>
+      left.name.localeCompare(right.name)
+    );
+    sortedOverrides.forEach(([key, enabled]) => (serialized.overrides[key.name] = enabled));
     if (this.maxTimeValuePrecision) {
       serialized.maxTimeValuePrecision = this.maxTimeValuePrecision.subSecondDigits;
     }
