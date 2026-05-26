@@ -95,6 +95,9 @@ export const DEFAULT_HYDRATION_STATE: HydrationState = {
  *
  * Note that this transformation has not been present in older versions of the sync service. To preserve backwards
  * compatibility, sync config will not use this without an opt-in.
+ *
+ * This hydration state does not ensure uniqueness of keys across different sync configs, so it cannot be used
+ * for incremental reprocessing / multiple sync configs per replication stream.
  */
 export function versionedHydrationState(version: number): HydrationState {
   return {
