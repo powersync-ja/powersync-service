@@ -51,6 +51,7 @@ export interface PostgresBucketBatchOptions {
   batch_limits: RequiredOperationBatchLimits;
 
   markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  hooks: storage.StorageHooks | undefined;
   storageConfig: storage.StorageVersionConfig;
 }
 
@@ -88,6 +89,7 @@ export class PostgresBucketBatch
   public last_flushed_op: InternalOpId | null = null;
 
   public resumeFromLsn: string | null;
+  public readonly skipExistingRows: boolean;
 
   protected db: lib_postgres.DatabaseClient;
   protected group_id: number;
@@ -100,6 +102,7 @@ export class PostgresBucketBatch
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
+  private hooks: storage.StorageHooks | undefined;
   private needsActivation = true;
   private clearedError = false;
   private readonly storageConfig: storage.StorageVersionConfig;
@@ -112,9 +115,11 @@ export class PostgresBucketBatch
     this.group_id = options.group_id;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
     this.resumeFromLsn = options.resumeFromLsn;
+    this.skipExistingRows = options.skip_existing_rows;
     this.write_checkpoint_batch = [];
     this.sync_rules = options.sync_rules;
     this.markRecordUnavailable = options.markRecordUnavailable;
+    this.hooks = options.hooks;
     this.batch = null;
     this.persisted_op = null;
     this.storageConfig = options.storageConfig;
@@ -300,6 +305,57 @@ export class PostgresBucketBatch
     });
   }
 
+  async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
+    const row = await this.db.sql`
+      SELECT
+        *
+      FROM
+        source_tables
+      WHERE
+        group_id = ${{ type: 'int4', value: this.group_id }}
+        AND id = ${{ type: 'varchar', value: table.id.toString() }}
+    `
+      .decoded(models.SourceTable)
+      .first();
+
+    if (row == null) {
+      return null;
+    }
+
+    return this.sourceTableFromRow(row, table.ref.connectionTag, this.sync_rules);
+  }
+
+  private sourceTableFromRow(
+    row: SourceTableDecoded,
+    connectionTag: string,
+    syncRules: sync_rules.HydratedSyncRules
+  ): storage.SourceTable {
+    const ref = { connectionTag, schema: row.schema_name, name: row.table_name };
+    const sourceTable = new storage.SourceTable({
+      id: row.id,
+      ref,
+      objectId: row.relation_id?.object_id,
+      replicaIdColumns:
+        row.replica_id_columns?.map(
+          (c) => ({ name: c.name, typeId: c.typeId, type: c.type }) satisfies ColumnDescriptor
+        ) ?? [],
+      snapshotComplete: row.snapshot_done ?? true,
+      ...syncRules.getMatchingSources(ref)
+    });
+
+    if (!sourceTable.snapshotComplete) {
+      sourceTable.snapshotStatus = {
+        totalEstimatedCount: Number(row.snapshot_total_estimated_count ?? -1n),
+        replicatedCount: Number(row.snapshot_replicated_count ?? 0n),
+        lastKey: row.snapshot_last_key
+      };
+    }
+    sourceTable.syncEvent = syncRules.tableTriggersEvent(ref);
+    sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
+    sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
+    return sourceTable;
+  }
+
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     // TODO maybe share with abstract class
     const { after, before, sourceTable, tag } = record;
@@ -457,6 +513,8 @@ export class PostgresBucketBatch
       return null;
     }
 
+    await this.hooks?.beforeBatchFlush?.(this);
+
     let resumeBatch: OperationBatch | null = null;
 
     const lastOp = await this.withReplicationTransaction(async (db) => {
@@ -474,6 +532,7 @@ export class PostgresBucketBatch
 
     this.persisted_op = lastOp;
     this.last_flushed_op = lastOp;
+    await this.hooks?.afterBatchFlush?.(this);
     return { flushed_op: lastOp };
   }
 
@@ -678,6 +737,50 @@ export class PostgresBucketBatch
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
     await this.db.transaction(async (db) => {
+      await db.sql`
+        UPDATE sync_rules
+        SET
+          snapshot_done = TRUE,
+          last_keepalive_ts = ${{ type: 1184, value: new Date().toISOString() }},
+          no_checkpoint_before = CASE
+            WHEN no_checkpoint_before IS NULL
+            OR no_checkpoint_before < ${{ type: 'varchar', value: no_checkpoint_before_lsn }} THEN ${{
+          type: 'varchar',
+          value: no_checkpoint_before_lsn
+        }}
+            ELSE no_checkpoint_before
+          END
+        WHERE
+          id = ${{ type: 'int4', value: this.group_id }}
+      `.execute();
+    });
+  }
+
+  async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
+    await this.db.transaction(async (db) => {
+      const snapshotRequiredCount = await db.sql`
+        SELECT
+          COUNT(*) AS count
+        FROM
+          source_tables
+        WHERE
+          group_id = ${{ type: 'int4', value: this.group_id }}
+          AND snapshot_done = FALSE
+      `
+        .decoded(t.object({ count: bigint }))
+        .first();
+      if ((snapshotRequiredCount?.count ?? 0n) > 0n) {
+        if (options?.throwOnConflict ?? true) {
+          throw new ReplicationAssertionError(
+            `Cannot mark snapshot done while ${snapshotRequiredCount?.count} source table${
+              snapshotRequiredCount?.count == 1n ? '' : 's'
+            } still require snapshotting`
+          );
+        } else {
+          return;
+        }
+      }
+
       await db.sql`
         UPDATE sync_rules
         SET

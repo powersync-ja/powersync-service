@@ -17,6 +17,7 @@ export * from './config/collectors/config-collector.js';
 export * from './config/collectors/impl/base64-config-collector.js';
 export * from './config/collectors/impl/fallback-config-collector.js';
 export * from './config/collectors/impl/filesystem-config-collector.js';
+export * from './config/collectors/impl/yaml-env.js';
 
 export * from './config/sync-rules/impl/base64-sync-rules-collector.js';
 export * from './config/sync-rules/impl/filesystem-sync-rules-collector.js';

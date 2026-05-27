@@ -281,7 +281,7 @@ export class BinLogStream {
             }
           }
           const snapshotDoneGtid = await common.readExecutedGtid(promiseConnection);
-          await batch.markAllSnapshotDone(snapshotDoneGtid.comparable);
+          await batch.markSnapshotDone(snapshotDoneGtid.comparable);
           await batch.commit(headGTID.comparable);
         }
       );
