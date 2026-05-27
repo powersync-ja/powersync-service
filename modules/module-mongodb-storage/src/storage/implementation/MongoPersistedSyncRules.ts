@@ -12,34 +12,22 @@ import {
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { SyncConfigWithMapping, SyncConfigWithRequiredMapping } from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
-
-export interface SyncConfigWithOptionalMapping {
-  syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping | null;
-}
-
-export interface SyncConfigWithMapping {
-  syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping;
-}
 
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly hydrationState: HydrationState;
   public readonly syncConfigWithErrors: SyncConfigWithErrors;
   public readonly slot_name: string;
-  private readonly storageConfig: StorageConfig;
 
   constructor(
     public readonly id: number,
     storageConfig: StorageConfig,
     slotName: string,
-    syncConfigs: SyncConfigWithOptionalMapping[]
+    syncConfigs: SyncConfigWithMapping[]
   ) {
     this.slot_name = slotName;
-    this.storageConfig = storageConfig;
-    // FIXME: Updat the interface to support multiple sync configs
+    // FIXME: Update the interface to support multiple sync configs
     this.syncConfigWithErrors = syncConfigs[0].syncConfig;
     // Compatibility must match between them all.
     const compatibility = this.syncConfigWithErrors.config.compatibility;
@@ -48,7 +36,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
       if (syncConfigs.some((c) => c.mapping == null)) {
         throw new ServiceAssertionError(`mapping is required for v3 storage`);
       }
-      this.hydrationState = new MongoHydrationState(syncConfigs as SyncConfigWithMapping[], this.id);
+      this.hydrationState = new MongoHydrationState(syncConfigs as SyncConfigWithRequiredMapping[], this.id);
     } else if (!compatibility.isEnabled(CompatibilityOption.versionedBucketIds) && !storageConfig.versionedBuckets) {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
     } else {
@@ -62,11 +50,11 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 }
 
 class MongoHydrationState implements HydrationState {
-  private bucketDataSourceSyncConfig = new WeakMap<BucketDataSource, SyncConfigWithMapping>();
-  private parameterIndexLookupSyncConfig = new WeakMap<ParameterIndexLookupCreator, SyncConfigWithMapping>();
+  private bucketDataSourceSyncConfig = new WeakMap<BucketDataSource, SyncConfigWithRequiredMapping>();
+  private parameterIndexLookupSyncConfig = new WeakMap<ParameterIndexLookupCreator, SyncConfigWithRequiredMapping>();
 
   constructor(
-    private readonly syncConfigs: SyncConfigWithMapping[],
+    readonly syncConfigs: SyncConfigWithRequiredMapping[],
     private readonly version: number
   ) {
     for (let syncConfig of syncConfigs) {
@@ -95,6 +83,8 @@ class MongoHydrationState implements HydrationState {
     // };
     // FIXME: Should this use defId, or is uniqueName constant?
     return {
+      // Keep this aligned with versionedHydrationState() for now.
+      // May consider changing the format before stable release, e.g. bucketPrefix: defId
       bucketPrefix: `${this.version}#${source.uniqueName}`,
       source
     };

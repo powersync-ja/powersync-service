@@ -163,6 +163,9 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
 export interface PersistedSyncRules {
   readonly id: number;
+  /**
+   * @deprecated Will be updated to support multiple SyncConfigs.
+   */
   readonly syncConfigWithErrors: SyncConfigWithErrors;
   readonly slot_name: string;
   /**

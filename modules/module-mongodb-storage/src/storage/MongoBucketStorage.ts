@@ -6,10 +6,15 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
-import { CompatibilityContext } from '@powersync/service-sync-rules';
+import {
+  CompatibilityContext,
+  deserializeSyncPlan,
+  javaScriptExpressionEngine,
+  PrecompiledSyncConfig
+} from '@powersync/service-sync-rules';
 import { ObjectId } from 'bson';
 import { generateSlotName } from '../utils/util.js';
-import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
+import { BucketDefinitionMapping, SyncConfigWithMapping } from './implementation/BucketDefinitionMapping.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
@@ -22,7 +27,7 @@ import {
 import { syncRuleStateUpdatePipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';
-import { ReplicationStreamDocumentV3, SyncConfigDefinition } from './storage-index.js';
+import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleConfigStateV3 } from './storage-index.js';
 
 export interface MongoBucketStorageOptions {
   checksumOptions?: Omit<MongoChecksumOptions, 'storageConfig' | 'mapping'>;
@@ -217,7 +222,54 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           .toArray();
 
         if (this.isCompatible(existing, existingConfigDocs, options)) {
-          // TODO
+          const existingConfigs = existingConfigDocs.map((doc) => {
+            const plan = deserializeSyncPlan(doc.serialized_plan!);
+
+            // FIXME: eventDefinitions, errors
+            // FIXME: re-use parsing logic
+            const compatibility = options.config.parsed.config.compatibility;
+            const precompiled = new PrecompiledSyncConfig(plan, compatibility, [], {
+              defaultSchema: options.defaultSchema!,
+              engine: javaScriptExpressionEngine(compatibility),
+              sourceText: doc.content
+            });
+
+            return {
+              syncConfig: { config: precompiled, errors: [] },
+              mapping: BucketDefinitionMapping.fromSyncConfig(doc)
+            } satisfies SyncConfigWithMapping;
+          });
+          const mapping = BucketDefinitionMapping.constructIncrementalMapping(existingConfigs, options.config.parsed);
+
+          const syncConfigDoc: SyncConfigDefinition = {
+            _id: new ObjectId(),
+            replication_stream_id: existing._id,
+            created_at: new Date(),
+            storage_version: storageVersion,
+            content: options.config.yaml,
+            serialized_plan: options.config.plan,
+            rule_mapping: mapping.serialize()
+          };
+          await versioned.syncConfigDefinitions.insertOne(syncConfigDoc, { session });
+
+          await this.db.sync_rules.updateOne(
+            { _id: existing._id },
+            {
+              $push: {
+                sync_configs: {
+                  _id: syncConfigDoc._id,
+                  state: storage.SyncRuleState.PROCESSING,
+                  keepalive_op: null,
+                  last_checkpoint: null,
+                  last_checkpoint_lsn: null,
+                  no_checkpoint_before: null,
+                  snapshot_done: false
+                } satisfies SyncRuleConfigStateV3
+              }
+            },
+            { session }
+          );
+          return;
         }
       }
 
@@ -249,7 +301,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
-      const mapping = BucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed);
+      const mapping = BucketDefinitionMapping.constructIncrementalMapping([], options.config.parsed);
 
       const syncConfigDoc: SyncConfigDefinition = {
         _id: new ObjectId(),
