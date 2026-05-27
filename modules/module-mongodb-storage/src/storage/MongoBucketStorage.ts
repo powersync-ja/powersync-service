@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
+import { CompatibilityContext } from '@powersync/service-sync-rules';
 import { ObjectId } from 'bson';
 import { generateSlotName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
@@ -151,6 +152,41 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     }
   }
 
+  private isCompatible(
+    replicationStream: ReplicationStreamDocumentV3,
+    existingConfig: SyncConfigDefinition[],
+    options: storage.UpdateSyncRulesOptions
+  ): boolean {
+    if (options.config.plan == null) {
+      // Only support sync streams with serialized plans
+      return false;
+    }
+
+    if (replicationStream.storage_version !== options.storageVersion) {
+      return false;
+    }
+
+    if (existingConfig.length == 0) {
+      // Could technically be compatible, but there is no reason to re-use this stream.
+      return false;
+    }
+
+    const first = existingConfig[0];
+    if (first.serialized_plan == null) {
+      // Only support sync streams with serialized plans
+      return false;
+    }
+
+    // Technically we can compare the serialized compatibility versions? But this does not add much overhead.
+    const streamCompatibility = CompatibilityContext.deserialize(first.serialized_plan.compatibility);
+    if (!streamCompatibility.equals(options.config.parsed.config.compatibility)) {
+      // Compatibility options must match
+      return false;
+    }
+
+    return true;
+  }
+
   private async updateSyncRulesV3(
     options: storage.UpdateSyncRulesOptions,
     storageVersion: number,
@@ -162,6 +198,29 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     const session = this.session;
 
     await session.withTransaction(async () => {
+      const existing = await this.db.sync_rules.findOne<ReplicationStreamDocumentV3>(
+        {
+          state: storage.SyncRuleState.PROCESSING,
+          storage_version: storageVersion
+        },
+        { session }
+      );
+      if (existing != null) {
+        // Check if the new config is compatible with the existing stream. In that case, we can use it with incremental reprocessing.
+        const existingConfigDocs = await versioned.syncConfigDefinitions
+          .find(
+            {
+              _id: { $in: existing.sync_configs.map((sc) => sc._id) }
+            },
+            { session }
+          )
+          .toArray();
+
+        if (this.isCompatible(existing, existingConfigDocs, options)) {
+          // TODO
+        }
+      }
+
       // Only have a single replication stream with PROCESSING.
       await this.db.sync_rules.updateMany(
         {
@@ -190,7 +249,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
-      const mapping = BucketDefinitionMapping.fromParsedSyncRules(options.config.parsed);
+      const mapping = BucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed);
 
       const syncConfigDoc: SyncConfigDefinition = {
         _id: new ObjectId(),

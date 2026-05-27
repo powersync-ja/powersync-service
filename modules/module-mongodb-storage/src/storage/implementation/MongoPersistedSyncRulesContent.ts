@@ -36,13 +36,10 @@ abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncR
     const parsed = super.parsed(options);
     const storageConfig = this.getStorageConfig();
 
-    return new MongoPersistedSyncRules(
-      parsed.id,
-      parsed.syncConfigWithErrors,
-      parsed.slot_name,
-      storageConfig.incrementalReprocessing ? this.mapping : null,
-      storageConfig
-    );
+    // FIXME: Multiple SyncConfigs
+    return new MongoPersistedSyncRules(parsed.id, storageConfig, parsed.slot_name, [
+      { syncConfig: parsed.syncConfigWithErrors, mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
+    ]);
   }
 
   async lock(session?: mongo.ClientSession) {

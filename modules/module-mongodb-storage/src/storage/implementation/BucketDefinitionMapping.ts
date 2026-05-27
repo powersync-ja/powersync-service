@@ -4,6 +4,7 @@ import {
   BucketDefinitionId,
   ParameterIndexId,
   ParameterIndexLookupCreator,
+  ParameterLookupDefinitionId,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import { SyncConfigDefinition } from '../storage-index.js';
@@ -13,9 +14,9 @@ export class BucketDefinitionMapping {
     return new BucketDefinitionMapping(doc.rule_mapping?.definitions ?? {}, doc.rule_mapping?.parameter_indexes ?? {});
   }
 
-  static fromParsedSyncRules(syncRules: SyncConfigWithErrors): BucketDefinitionMapping {
-    const definitionNames = syncRules.config.bucketDataSources.map((source) => source.uniqueName).sort();
-    const parameterKeys = syncRules.config.bucketParameterLookupSources
+  static fromParsedSyncConfig(syncConfig: SyncConfigWithErrors): BucketDefinitionMapping {
+    const definitionNames = syncConfig.config.bucketDataSources.map((source) => source.uniqueName).sort();
+    const parameterKeys = syncConfig.config.bucketParameterLookupSources
       .map((source) => `${source.sourceId.lookupName}#${source.sourceId.queryId}`)
       .sort();
 
@@ -37,6 +38,33 @@ export class BucketDefinitionMapping {
     private parameterLookupMapping: Record<string, ParameterIndexId> = {}
   ) {}
 
+  mergeSyncConfig(syncConfig: SyncConfigWithErrors): BucketDefinitionMapping {
+    // FIXME: Proper implementation here
+    const newMapping = BucketDefinitionMapping.fromParsedSyncConfig(syncConfig);
+    const mergedDefinitions = { ...this.definitions };
+    const mergedParameterLookups = { ...this.parameterLookupMapping };
+
+    for (const [uniqueName, defId] of Object.entries(newMapping.definitions)) {
+      if (mergedDefinitions[uniqueName] && mergedDefinitions[uniqueName] !== defId) {
+        throw new ServiceAssertionError(
+          `Conflict for bucket source ${uniqueName}: ${mergedDefinitions[uniqueName]} vs ${defId}`
+        );
+      }
+      mergedDefinitions[uniqueName] = defId;
+    }
+
+    for (const [key, indexId] of Object.entries(newMapping.parameterLookupMapping)) {
+      if (mergedParameterLookups[key] && mergedParameterLookups[key] !== indexId) {
+        throw new ServiceAssertionError(
+          `Conflict for parameter lookup source ${key}: ${mergedParameterLookups[key]} vs ${indexId}`
+        );
+      }
+      mergedParameterLookups[key] = indexId;
+    }
+
+    return new BucketDefinitionMapping(mergedDefinitions, mergedParameterLookups);
+  }
+
   bucketSourceId(source: BucketDataSource): BucketDefinitionId {
     const defId = this.definitions[source.uniqueName];
     if (defId == null) {
@@ -54,7 +82,7 @@ export class BucketDefinitionMapping {
   }
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
-    const key = this.parameterLookupKey(source.sourceId.lookupName, source.sourceId.queryId);
+    const key = this.parameterLookupKey(source.sourceId);
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
       throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);
@@ -62,8 +90,8 @@ export class BucketDefinitionMapping {
     return defId;
   }
 
-  private parameterLookupKey(lookupName: string, queryId: string) {
-    return `${lookupName}#${queryId}`;
+  private parameterLookupKey(id: ParameterLookupDefinitionId) {
+    return `${id.lookupName}#${id.queryId}`;
   }
 
   serialize(): SyncConfigDefinition['rule_mapping'] {
