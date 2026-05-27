@@ -15,7 +15,7 @@ import {
 import { isJsonValue, normalizeParameterValue } from '../utils.js';
 
 import { NodeLocation } from 'pgsql-ast-parser';
-import { ParameterIndexLookupCreator } from '../BucketSource.js';
+import { ParameterIndexLookupCreator, ParameterIndexLookupEvaluator } from '../BucketSource.js';
 import { HydrationState, ParameterLookupDefinitionId } from '../HydrationState.js';
 import { SourceTableRef } from '../SourceTableRef.js';
 import { SubqueryEvaluator } from './parameter.js';
@@ -530,7 +530,7 @@ export class EvaluateSimpleCondition extends FilterOperator {
   }
 }
 
-export class SubqueryParameterLookupSource implements ParameterIndexLookupCreator {
+export class SubqueryParameterLookupSource implements ParameterIndexLookupCreator, ParameterIndexLookupEvaluator {
   constructor(
     private parameterTable: TablePattern,
     private column: RowValueClause,
@@ -550,6 +550,10 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
     let result = new Set<TablePattern>();
     result.add(this.parameterTable);
     return result;
+  }
+
+  createEvaluator(): ParameterIndexLookupEvaluator {
+    return this;
   }
 
   /**

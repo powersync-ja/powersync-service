@@ -1,42 +1,37 @@
+import * as sqlite from 'node:sqlite';
+
 import { test } from 'vitest';
 import {
   CompatibilityContext,
-  CompatibilityEdition,
-  CreateSourceParams,
   DEFAULT_HYDRATION_STATE,
   HydratedSyncConfig,
-  javaScriptExpressionEngine,
+  HydrateSyncConfigParams,
+  nodeSqlite,
   PrecompiledSyncConfig,
   SyncConfig
 } from '../../../../src/index.js';
-import { ScalarExpressionEngine } from '../../../../src/sync_plan/engine/scalar_expression_engine.js';
 import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
 
 interface SyncTest {
-  engine: ScalarExpressionEngine;
   prepareWithoutHydration(yaml: string): SyncConfig;
-  prepareSyncStreams(yaml: string): HydratedSyncConfig;
+  prepareSyncStreams(yaml: string, params?: HydrateSyncConfigParams): HydratedSyncConfig;
 }
 
 export const syncTest = test.extend<{ sync: SyncTest }>({
   sync: async ({}, use) => {
-    const engine = javaScriptExpressionEngine(new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS }));
-
     await use({
-      engine,
       prepareWithoutHydration: (inputs) => {
         const plan = compileToSyncPlanWithoutErrors(inputs);
         return new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
-          engine,
           sourceText: '',
           defaultSchema: 'test_schema'
         });
       },
-      prepareSyncStreams(inputs, params?: CreateSourceParams) {
-        return this.prepareWithoutHydration(inputs).hydrate(params ?? { hydrationState: DEFAULT_HYDRATION_STATE });
+      prepareSyncStreams(inputs, params?: HydrateSyncConfigParams) {
+        return this.prepareWithoutHydration(inputs).hydrate(
+          params ?? { hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) }
+        );
       }
     });
-
-    engine.close();
   }
 });

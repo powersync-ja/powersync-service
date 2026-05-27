@@ -1,5 +1,13 @@
+import * as sqlite from 'node:sqlite';
+
 import { describe, expect, test } from 'vitest';
-import { BucketPriority, CreateSourceParams, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
+import {
+  BucketPriority,
+  HydrateSyncConfigParams,
+  nodeSqlite,
+  ScopedParameterLookup,
+  SqlSyncRules
+} from '../../src/index.js';
 
 import {
   BucketDataScope,
@@ -22,7 +30,10 @@ import {
 } from './util.js';
 
 describe('sync rules', () => {
-  const hydrationParams: CreateSourceParams = { hydrationState: DEFAULT_HYDRATION_STATE };
+  const hydrationParams: HydrateSyncConfigParams = {
+    hydrationState: DEFAULT_HYDRATION_STATE,
+    sqlite: nodeSqlite(sqlite)
+  };
 
   test('parse empty sync rules', () => {
     const { config: rules } = SqlSyncRules.fromYaml('bucket_definitions: {}', PARSE_OPTIONS);
@@ -232,7 +243,7 @@ bucket_definitions:
         };
       }
     };
-    const hydrated = rules.hydrate({ hydrationState });
+    const hydrated = rules.hydrate({ hydrationState, sqlite: nodeSqlite(sqlite) });
     const { querier, errors } = hydrated.getBucketParameterQuerier(
       normalizeQuerierOptions({ sub: 'user1' }, { device_id: 'device1' })
     );
@@ -1222,5 +1233,33 @@ streams: []`,
     expect(rules.storageVersion).toBeUndefined();
     expect(errors[0].message).toContain('Storage version 1 is not supported');
     expect(errors[0].type).toBe('fatal');
+  });
+
+  test(`can't use sqlite_expression_engine in old config edition`, () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  unstable_sqlite_expression_engine: true
+
+bucket_definitions:`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+
+    expect(errors[0].message).toContain('Enabling unstable_sqlite_expression_engine requires edition: 3');
+  });
+
+  test(`can't use sqlite_expression_engine without json compatibility`, () => {
+    const { config: rules, errors } = SqlSyncRules.fromYaml(
+      `
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+  fixed_json_extract: false
+
+streams:`,
+      { ...PARSE_OPTIONS, throwOnError: false }
+    );
+
+    expect(errors[0].message).toContain('Enabling unstable_sqlite_expression_engine requires fixed_json_extract');
   });
 });

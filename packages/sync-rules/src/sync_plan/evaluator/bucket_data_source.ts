@@ -1,4 +1,4 @@
-import { BucketDataSource } from '../../BucketSource.js';
+import { BucketDataEvaluator, BucketDataSource, HydrationInput } from '../../BucketSource.js';
 import { idFromData } from '../../cast.js';
 import { ColumnDefinition } from '../../ExpressionType.js';
 import { SourceTableRef } from '../../SourceTableRef.js';
@@ -12,7 +12,8 @@ import {
 } from '../../types.js';
 import { filterJsonRow, isJsonValue, isValidParameterValue, JSONBucketNameSerialize } from '../../utils.js';
 import {
-  ScalarExpressionEvaluator,
+  ScalarExpressionEngine,
+  ScalarStatement,
   scalarStatementToSql,
   TableValuedFunctionOutput
 } from '../engine/scalar_expression_engine.js';
@@ -25,7 +26,7 @@ import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
 
 export class PreparedStreamBucketDataSource implements BucketDataSource {
   private readonly sourceTables = new Set<TablePattern>();
-  private readonly sources: PreparedStreamDataSource[] = [];
+  private readonly pendingSources: PendingStreamDataSource[] = [];
   private readonly defaultSchema: string;
 
   constructor(
@@ -35,10 +36,10 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     this.defaultSchema = context.defaultSchema;
 
     for (const data of source.sources) {
-      const prepared = new PreparedStreamDataSource(data, context);
+      const pending = new PendingStreamDataSource(data, context.defaultSchema);
 
-      this.sources.push(prepared);
-      this.sourceTables.add(prepared.tablePattern);
+      this.pendingSources.push(pending);
+      this.sourceTables.add(pending.tablePattern);
     }
   }
 
@@ -58,25 +59,32 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     return this.sourceTables;
   }
 
-  private *sourcesForTable(table: SourceTableRef) {
-    for (const source of this.sources) {
-      if (source.tablePattern.matches(table)) {
-        yield source;
-      }
-    }
-  }
-
   tableSyncsData(table: SourceTableRef): boolean {
-    return !this.sourcesForTable(table).next().done;
-  }
-
-  evaluateRow(options: EvaluateRowOptions): UnscopedEvaluationResult[] {
-    const results: UnscopedEvaluationResult[] = [];
-    for (const source of this.sourcesForTable(options.sourceTable)) {
-      source.evaluateRow(options, results);
+    for (const source of this.sourceTables) {
+      if (source.matches(table)) return true;
     }
 
-    return results;
+    return false;
+  }
+
+  createEvaluator(context: HydrationInput): BucketDataEvaluator {
+    const sources = this.pendingSources.map((s) => ({
+      pattern: s.tablePattern,
+      evaluate: s.instantiate(context.scalarExpressions)
+    }));
+
+    return {
+      evaluateRow(options: EvaluateRowOptions): UnscopedEvaluationResult[] {
+        const results: UnscopedEvaluationResult[] = [];
+        for (const { pattern, evaluate } of sources) {
+          if (pattern.matches(options.sourceTable)) {
+            evaluate(options, results);
+          }
+        }
+
+        return results;
+      }
+    };
   }
 
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void {
@@ -87,7 +95,7 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
   }
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void {
-    for (const source of this.sources) {
+    for (const source of this.pendingSources) {
       const table = source.fixedOutputTableName;
       if (table != null) {
         const queries = (result[table] ??= []);
@@ -97,17 +105,16 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
   }
 }
 
-class PreparedStreamDataSource {
+class PendingStreamDataSource {
   readonly tablePattern: TablePattern;
   private readonly outputs: ('star' | { index: number; alias: string })[] = [];
   private readonly numberOfOutputExpressions: number;
   private readonly numberOfParameters: number;
-  private readonly evaluator: ScalarExpressionEvaluator;
   private readonly evaluatorInputs: plan.ColumnSqlParameterValue[];
+  private readonly statement: ScalarStatement;
   readonly fixedOutputTableName?: string;
-  readonly debugSql: string;
 
-  constructor(evaluator: plan.StreamDataSource, { engine, defaultSchema }: StreamEvaluationContext) {
+  constructor(evaluator: plan.StreamDataSource, defaultSchema: string) {
     const translationHelper = new TableProcessorToSqlHelper(evaluator);
     const outputExpressions: SqlExpression<number | TableValuedFunctionOutput>[] = [];
 
@@ -127,54 +134,60 @@ class PreparedStreamDataSource {
     }
     this.numberOfParameters = evaluator.parameters.length;
 
-    const evaluatorOptions = {
+    this.statement = {
       outputs: outputExpressions,
       filters: translationHelper.filterExpressions,
       tableValuedFunctions: translationHelper.tableValuedFunctions
     };
-    this.debugSql = scalarStatementToSql(evaluatorOptions);
-    this.evaluator = engine.prepareEvaluator(evaluatorOptions);
     this.fixedOutputTableName = evaluator.outputTableName;
     this.tablePattern = evaluator.sourceTable.toTablePattern(defaultSchema);
     this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
-  evaluateRow(options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) {
-    try {
-      const inputInstantiation = this.evaluatorInputs.map((input) => options.record[input.column]);
-      row: for (const source of this.evaluator.evaluate(inputInstantiation)) {
-        const record: SqliteJsonRow = {};
-        for (const output of this.outputs) {
-          if (output === 'star') {
-            Object.assign(record, filterJsonRow(options.record));
-          } else {
-            const value = source[output.index];
-            if (isJsonValue(value)) {
-              record[output.alias] = value;
+  get debugSql(): string {
+    return scalarStatementToSql(this.statement);
+  }
+
+  instantiate(engine: ScalarExpressionEngine) {
+    const evaluator = engine.prepareEvaluator(this.statement);
+
+    return (options: EvaluateRowOptions, results: UnscopedEvaluationResult[]) => {
+      try {
+        const inputInstantiation = this.evaluatorInputs.map((input) => options.record[input.column]);
+        row: for (const source of evaluator.evaluate(inputInstantiation)) {
+          const record: SqliteJsonRow = {};
+          for (const output of this.outputs) {
+            if (output === 'star') {
+              Object.assign(record, filterJsonRow(options.record));
+            } else {
+              const value = source[output.index];
+              if (isJsonValue(value)) {
+                record[output.alias] = value;
+              }
             }
           }
-        }
-        const id = idFromData(record);
-        // source is [...outputs, ...partitionValues]
-        const partitionValues = source.splice(this.numberOfOutputExpressions, this.numberOfParameters);
+          const id = idFromData(record);
+          // source is [...outputs, ...partitionValues]
+          const partitionValues = source.splice(this.numberOfOutputExpressions, this.numberOfParameters);
 
-        for (const bucketParameter of partitionValues) {
-          if (!isValidParameterValue(bucketParameter)) {
-            continue row;
+          for (const bucketParameter of partitionValues) {
+            if (!isValidParameterValue(bucketParameter)) {
+              continue row;
+            }
           }
+
+          results.push({
+            id,
+            data: record,
+            table: this.fixedOutputTableName ?? options.sourceTable.name,
+            serializedBucketParameters: JSONBucketNameSerialize.stringify(partitionValues)
+          } satisfies UnscopedEvaluatedRow);
         }
 
-        results.push({
-          id,
-          data: record,
-          table: this.fixedOutputTableName ?? options.sourceTable.name,
-          serializedBucketParameters: JSONBucketNameSerialize.stringify(partitionValues)
-        } satisfies UnscopedEvaluatedRow);
+        return results;
+      } catch (e) {
+        return results.push({ error: e.message });
       }
-
-      return results;
-    } catch (e) {
-      return results.push({ error: e.message });
-    }
+    };
   }
 }

@@ -1,5 +1,6 @@
 import { PendingQueriers } from './BucketParameterQuerier.js';
 import {
+  BucketDataEvaluator,
   BucketDataSource,
   BucketSource,
   BucketSourceType,
@@ -164,7 +165,7 @@ export class SqlBucketDescriptor implements BucketSource {
   }
 }
 
-export class BucketDefinitionDataSource implements BucketDataSource {
+export class BucketDefinitionDataSource implements BucketDataSource, BucketDataEvaluator {
   constructor(private descriptor: SqlBucketDescriptor) {}
 
   /**
@@ -176,6 +177,10 @@ export class BucketDefinitionDataSource implements BucketDataSource {
 
   public get uniqueName(): string {
     return this.descriptor.name;
+  }
+
+  createEvaluator(): BucketDataEvaluator {
+    return this;
   }
 
   evaluateRow(options: EvaluateRowOptions) {

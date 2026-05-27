@@ -15,7 +15,6 @@ import { QueryParseResult, SqlBucketDescriptor } from './SqlBucketDescriptor.js'
 import { SqlSyncRules } from './SqlSyncRules.js';
 import { validateStorageVersion } from './StorageVersion.js';
 import { syncStreamFromSql } from './streams/from_sql.js';
-import { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 import { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 import { SyncConfig, SyncConfigWithErrors } from './SyncConfig.js';
 import { TablePattern } from './TablePattern.js';
@@ -77,6 +76,19 @@ export class SyncConfigFromYaml {
       const declaredOptions = parsed.get('config') as YAMLMap;
       compatibility = this.#parseCompatibilityOptions(declaredOptions);
       storageVersion = this.#validateStorageVersion(declaredOptions);
+
+      if (compatibility.isEnabled(CompatibilityOption.sqliteExpressionEngine)) {
+        // Evaluating expressions with SQLite requires edition: 3, older systems always use JavaScript.
+        if (compatibility.edition < CompatibilityEdition.SYNC_STREAMS) {
+          this.#errors.push(
+            this.#yamlError(declaredOptions, 'Enabling unstable_sqlite_expression_engine requires edition: 3')
+          );
+        } else if (!compatibility.isEnabled(CompatibilityOption.fixedJsonExtract)) {
+          this.#errors.push(
+            this.#yamlError(declaredOptions, 'Enabling unstable_sqlite_expression_engine requires fixed_json_extract')
+          );
+        }
+      }
     } else {
       compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
     }
@@ -290,7 +302,6 @@ export class SyncConfigFromYaml {
     // We pass an empty array for eventDefinitions here because those will get parsed in #parseEventDefinitions.
     return new PrecompiledSyncConfig(compiler.output.toSyncPlan(), compatibility, [], {
       defaultSchema: this.options.defaultSchema,
-      engine: javaScriptExpressionEngine(compatibility),
       sourceText: this.yaml
     });
   }

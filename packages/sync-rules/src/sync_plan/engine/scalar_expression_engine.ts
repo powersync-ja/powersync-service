@@ -39,11 +39,6 @@ export interface TableValuedFunctionOutput {
 
 export interface ScalarExpressionEngine {
   prepareEvaluator(statement: ScalarStatement): ScalarExpressionEvaluator;
-
-  /**
-   * Disposes all evaluators and closes this engine.
-   */
-  close(): void;
 }
 
 export interface ScalarExpressionEvaluator {

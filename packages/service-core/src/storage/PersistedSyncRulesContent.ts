@@ -7,7 +7,7 @@ import {
   ErrorLocation,
   HydratedSyncConfig,
   HydrationState,
-  javaScriptExpressionEngine,
+  nodeSqlite,
   PrecompiledSyncConfig,
   SqlEventDescriptor,
   SqlSyncRules,
@@ -15,6 +15,7 @@ import {
   versionedHydrationState,
   YamlError
 } from '@powersync/service-sync-rules';
+import * as sqlite from 'node:sqlite';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
@@ -101,7 +102,6 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
       const precompiled = new PrecompiledSyncConfig(plan, compatibility, eventDefinitions, {
         defaultSchema: options.defaultSchema,
-        engine: javaScriptExpressionEngine(compatibility),
         sourceText: this.sync_rules_content
       });
 
@@ -144,7 +144,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
       syncConfigWithErrors: config,
       hydrationState,
       hydratedSyncConfig: () => {
-        return config.config.hydrate({ hydrationState });
+        return config.config.hydrate({ hydrationState, sqlite: nodeSqlite(sqlite) });
       }
     };
   }
