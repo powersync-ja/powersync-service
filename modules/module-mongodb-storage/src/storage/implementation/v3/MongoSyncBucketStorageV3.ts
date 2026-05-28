@@ -16,7 +16,7 @@ import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
-import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageContext.js';
 import { BucketDataDocument, BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
@@ -79,8 +79,8 @@ function extractRowsFromDocument(
 }
 
 export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
-  get db(): VersionedPowerSyncMongo {
-    return super.db as VersionedPowerSyncMongo;
+  get db(): VersionedPowerSyncMongoV3 {
+    return super.db as VersionedPowerSyncMongoV3;
   }
 
   private readonly syncRulesV3: MongoPersistedSyncRulesContentV3;

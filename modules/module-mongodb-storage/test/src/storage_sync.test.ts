@@ -5,7 +5,7 @@ import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { SourceRecordStoreImpl } from '../../src/storage/implementation/bucket-operations/source-record-store-impl.js';
-import type { VersionedPowerSyncMongo } from '../../src/storage/implementation/collection-access/versioned-collections.js';
+import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { CurrentBucket } from '../../src/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
@@ -13,7 +13,6 @@ import {
   BucketDataDocument,
   serializeBucketData
 } from '../../src/storage/implementation/document-formats/bucket-document-format.js';
-import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -922,7 +921,7 @@ describe('sync - mongodb', () => {
             )
           );
           const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
-          const db = bucketStorage.db as VersionedPowerSyncMongo;
+          const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
           const request = bucketRequest(syncRules, 'global[]', 0n);
           const definitionId = bucketStorage.mapping.bucketSourceId(request.source);

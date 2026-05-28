@@ -1,4 +1,4 @@
-import { VersionedPowerSyncMongo } from '@module/storage/implementation/collection-access/versioned-collections.js';
+import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataDoc.js';
 import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
@@ -83,7 +83,7 @@ bucket_definitions:
       if (storageDb.storageConfig.incrementalReprocessing) {
         // This should actually never happen on V3, but we test this anyway.
         // Can remove this if it causes issues in the future.
-        await (storageDb as VersionedPowerSyncMongo).bucketState(bucketStorage.group_id).deleteMany({});
+        await (storageDb as VersionedPowerSyncMongoV3).bucketState(bucketStorage.group_id).deleteMany({});
       } else {
         await factory.db.bucket_state.deleteMany({});
       }
@@ -185,7 +185,7 @@ bucket_definitions:
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
       if (storageDb.storageConfig.incrementalReprocessing) {
-        const bucketStateCollection = (storageDb as VersionedPowerSyncMongo).bucketState<
+        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketState<
           import('@module/storage/implementation/common/models.js').BucketStateDocument
         >(bucketStorage.group_id);
         await bucketStateCollection.insertOne({
@@ -315,7 +315,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
-    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
@@ -762,7 +762,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
-    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
@@ -936,7 +936,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
-    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
@@ -1206,7 +1206,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
-    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
@@ -1419,7 +1419,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
-    const db = bucketStorage.db as VersionedPowerSyncMongo;
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);

@@ -2,7 +2,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketStateDocument } from '../common/models.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
@@ -20,8 +20,8 @@ import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
 
 export class MongoCompactorV3 extends MongoCompactor {
-  get db(): VersionedPowerSyncMongo {
-    return super.db as VersionedPowerSyncMongo;
+  get db(): VersionedPowerSyncMongoV3 {
+    return super.db as VersionedPowerSyncMongoV3;
   }
 
   get storage(): MongoSyncBucketStorageV3 {

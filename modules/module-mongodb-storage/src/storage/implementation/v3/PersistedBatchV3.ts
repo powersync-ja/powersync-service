@@ -5,7 +5,7 @@ import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketParameterDocument, taggedBucketParameterDocumentToTagged } from '../common/models.js';
 import {
   BucketStateUpdate,
@@ -22,8 +22,8 @@ export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<any> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
 
-  get db(): VersionedPowerSyncMongo {
-    return super.db as VersionedPowerSyncMongo;
+  get db(): VersionedPowerSyncMongoV3 {
+    return super.db as VersionedPowerSyncMongoV3;
   }
 
   // Collection accessors

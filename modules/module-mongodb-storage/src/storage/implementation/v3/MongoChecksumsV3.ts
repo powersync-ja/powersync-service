@@ -18,17 +18,17 @@ import {
   MongoChecksumOptions,
   MongoChecksums
 } from '../MongoChecksums.js';
-import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDocumentBase } from '../models.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
-  get db(): VersionedPowerSyncMongo {
-    return super.db as VersionedPowerSyncMongo;
-  }
-
   private readonly mapping: BucketDefinitionMapping;
 
-  constructor(db: VersionedPowerSyncMongo, group_id: number, options: MongoChecksumOptions) {
+  get db(): VersionedPowerSyncMongoV3 {
+    return super.db as VersionedPowerSyncMongoV3;
+  }
+
+  constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
     super(db, group_id, options);
     this.mapping = options.mapping!;
   }

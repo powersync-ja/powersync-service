@@ -1,6 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
-import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import {
   BucketDataDocumentGeneric,
@@ -31,7 +31,7 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   private format = new BucketDocumentFormatAdapter();
 
   constructor(
-    private db: VersionedPowerSyncMongo,
+    private db: VersionedPowerSyncMongoV3,
     public readonly key: BucketKey
   ) {
     // Cast from the version-specific collection type to the generic interface
