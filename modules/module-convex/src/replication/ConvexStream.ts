@@ -279,7 +279,7 @@ export class ConvexStream {
           this.replicationLag.clearUncommittedChange();
         }
         this.lastKeepaliveAt = Date.now();
-      } else if (nextCursor != cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
+      } else if (nextCursor == cursor && Date.now() - this.lastKeepaliveAt > 60_000) {
         const { checkpointBlocked } = await batch.keepalive(pageLsn);
         if (!checkpointBlocked) {
           this.replicationLag.clearUncommittedChange();
