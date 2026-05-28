@@ -1,4 +1,4 @@
-import { StableHasher } from '../compiler/equality.js';
+import { Equality, StableHasher, unorderedEquality } from '../compiler/equality.js';
 import { SqlExpression } from './expression.js';
 import { ExpressionToSqlite } from './expression_to_sql.js';
 import { RecursiveExpressionVisitor } from './expression_visitor.js';
@@ -18,13 +18,20 @@ export function streamBucketDataSourcesEqual(a: StreamBucketDataSource, b: Strea
     return true;
   }
 
-  return a.hashCode == b.hashCode && arrayEquals(a.sources, b.sources, streamDataSourcesEqual);
+  return a.hashCode == b.hashCode && streamDataSourceSetEquality.equals(a.sources, b.sources);
 }
 
 export function hashStreamBucketDataSource(hasher: StableHasher, source: StreamBucketDataSource): void {
   hasher.addHash(source.hashCode);
-  hashArray(hasher, source.sources, hashStreamDataSource);
+  streamDataSourceSetEquality.hash(hasher, source.sources);
 }
+
+const streamDataSourceEquality: Equality<StreamDataSource> = {
+  equals: streamDataSourcesEqual,
+  hash: hashStreamDataSource
+};
+
+const streamDataSourceSetEquality = unorderedEquality(streamDataSourceEquality);
 
 function streamDataSourcesEqual(a: StreamDataSource, b: StreamDataSource): boolean {
   return (

@@ -167,6 +167,36 @@ streams:
     expect(hashCode(first)).toEqual(hashCode(second));
   });
 
+  syncTest('matches buckets with the same data sources in a different order', ({ sync }) => {
+    const first = firstBucketSource(
+      sync.prepareWithoutHydration(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    queries:
+      - SELECT * FROM products
+      - SELECT * FROM stores
+`)
+    );
+    const second = firstBucketSource(
+      sync.prepareWithoutHydration(`
+config:
+  edition: 3
+
+streams:
+  stream:
+    queries:
+      - SELECT * FROM stores
+      - SELECT * FROM products
+`)
+    );
+
+    expect(first.equals(second)).toBe(true);
+    expect(hashCode(first)).toEqual(hashCode(second));
+  });
+
   syncTest('compares table-valued function output expressions by their bindings', ({ sync }) => {
     const first = firstBucketSource(
       sync.prepareWithoutHydration(`
