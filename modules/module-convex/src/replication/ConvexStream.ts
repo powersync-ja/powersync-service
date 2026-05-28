@@ -149,13 +149,13 @@ export class ConvexStream {
     // Resolve source tables up-front to warm table metadata and sync-rule matching.
     await this.resolveAllSourceTables(batch);
 
-    let cursor = BigInt(resumeFromLsn);
+    let cursor: string = resumeFromLsn;
     let lastTransactionTimestamp: bigint | null = null;
 
     while (!this.abortSignal.aborted) {
       const page = await this.connections.client
         .documentDeltas({
-          cursor: cursor.toString(),
+          cursor: cursor,
           signal: this.abortSignal
         })
         .catch((error) => {
@@ -165,7 +165,8 @@ export class ConvexStream {
           throw error;
         });
 
-      const nextCursor = page.cursor;
+      // We receive the cursor as a bigint, but we track it as a string
+      const nextCursor = page.cursor.toString();
       const pageLsn = parseConvexLsn(nextCursor);
 
       let changesInPage = 0;
@@ -202,8 +203,8 @@ export class ConvexStream {
         }
         lastTransactionTimestamp = transactionTimestamp;
 
-        const tables = await this.getOrResolveTables(batch, tableName, nextCursor.toString());
-        if (tables == null || tables.length == 0) {
+        const tables = await this.getOrResolveTables(batch, tableName, pageLsn);
+        if (tables.length == 0) {
           continue;
         }
 
@@ -533,10 +534,10 @@ export class ConvexStream {
   private async getOrResolveTables(
     batch: storage.BucketStorageBatch,
     tableName: string,
-    snapshotCursor: string
-  ): Promise<SourceTable[] | null> {
+    snapshotLSN: string
+  ): Promise<SourceTable[]> {
     if (!this.isTableSelectedBySyncRules(tableName)) {
-      return null;
+      return [];
     }
 
     const descriptor: SourceEntityDescriptor = {
@@ -558,7 +559,7 @@ export class ConvexStream {
       this.logger.info(
         `New table discovered while streaming: [${descriptor.schema}.${descriptor.name}], applying deltas without snapshot`
       );
-      const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, parseConvexLsn(snapshotCursor));
+      const doneTables = await batch.markTableSnapshotDone(snapshotCandidates, snapshotLSN);
       const doneTableById = new Map(doneTables.map((table) => [table.id, table]));
       tables = tables.map((table) => doneTableById.get(table.id) ?? table);
       this.relationCache.updateAll(descriptor, tables);
