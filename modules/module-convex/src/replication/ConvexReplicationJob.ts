@@ -1,4 +1,4 @@
-import { container, logger as defaultLogger } from '@powersync/lib-services-framework';
+import { container } from '@powersync/lib-services-framework';
 import { replication } from '@powersync/service-core';
 import { ConvexConnectionManagerFactory } from './ConvexConnectionManagerFactory.js';
 import { ConvexCursorExpiredError, ConvexStream } from './ConvexStream.js';
@@ -14,7 +14,7 @@ export class ConvexReplicationJob extends replication.AbstractReplicationJob {
   constructor(options: ConvexReplicationJobOptions) {
     super(options);
     this.connectionFactory = options.connectionFactory;
-    this.logger = defaultLogger.child({ prefix: `[powersync_${this.options.storage.group_id}] ` });
+    this.logger = options.storage.logger;
   }
 
   async keepAlive() {
