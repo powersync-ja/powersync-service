@@ -547,14 +547,14 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
     };
   }
 
-  hash(hasher: StableHasher): void {
+  buildHash(hasher: StableHasher): void {
     // FIXME: Implement this
     hasher.addString(this.sourceId.lookupName);
     hasher.addString(this.sourceId.queryId);
     this.parameterTable.buildHash(hasher);
   }
 
-  equals(other: ParameterIndexLookupCreator): boolean {
+  equals(other: unknown): boolean {
     if (!(other instanceof SubqueryParameterLookupSource)) {
       return false;
     }

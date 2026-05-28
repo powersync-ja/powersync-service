@@ -179,11 +179,11 @@ export class BucketDefinitionDataSource implements BucketDataSource {
    * For BucketDefinitionDataSource, we only support equality matching by identity. We do not compare defintions
    * across multiple sync rule versions.
    */
-  equals(other: BucketDataSource): boolean {
+  equals(other: unknown): boolean {
     return other === this;
   }
 
-  hash(hasher: StableHasher): void {
+  buildHash(hasher: StableHasher): void {
     hasher.addString(this.uniqueName);
   }
 

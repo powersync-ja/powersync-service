@@ -48,7 +48,7 @@ describe('BucketChecksumState', () => {
     equals(other) {
       return other === this;
     },
-    hash(hasher) {
+    buildHash(hasher) {
       hasher.addString(this.sourceId.lookupName);
     }
   };

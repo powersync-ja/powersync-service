@@ -97,7 +97,7 @@ export class SyncStreamDataSource implements BucketDataSource {
     return this.variant.defaultBucketPrefix(this.stream.name);
   }
 
-  equals(other: BucketDataSource): boolean {
+  equals(other: unknown): boolean {
     if (!(other instanceof SyncStreamDataSource)) {
       return false;
     }
@@ -105,7 +105,7 @@ export class SyncStreamDataSource implements BucketDataSource {
     return other === this;
   }
 
-  hash(hasher: StableHasher): void {
+  buildHash(hasher: StableHasher): void {
     // FIME: implement this
     hasher.addString(this.uniqueName);
   }

@@ -236,6 +236,6 @@ function firstBucketSource(config: SyncConfig): BucketDataSource {
 
 function hashCode(source: BucketDataSource): number {
   const hasher = new StableHasher();
-  source.hash(hasher);
+  source.buildHash(hasher);
   return hasher.buildHashCode();
 }

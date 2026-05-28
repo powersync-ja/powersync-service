@@ -113,7 +113,7 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
   equals(other) {
     return other === this;
   },
-  hash(hasher) {
+  buildHash(hasher) {
     hasher.addString(this.uniqueName);
   }
 };
@@ -138,7 +138,7 @@ export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
   equals(other) {
     return other === this;
   },
-  hash(hasher) {
+  buildHash(hasher) {
     hasher.addString(this.sourceId.lookupName);
     hasher.addString(this.sourceId.queryId);
   }

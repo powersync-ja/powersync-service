@@ -41,12 +41,12 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     this.evaluatorInputs = translationHelper.mapper.instantiation;
   }
 
-  hash(hasher: StableHasher): void {
+  buildHash(hasher: StableHasher): void {
     // FIXME: Implement this
     hasher.addString(this.sourceId.lookupName);
     hasher.addString(this.sourceId.queryId);
   }
-  equals(other: ParameterIndexLookupCreator): boolean {
+  equals(other: unknown): boolean {
     // FIXME: Implement this
     if (!(other instanceof PreparedParameterIndexLookupCreator)) {
       return false;

@@ -48,14 +48,14 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     return this.source.uniqueName;
   }
 
-  equals(other: BucketDataSource): boolean {
+  equals(other: unknown): boolean {
     if (!(other instanceof PreparedStreamBucketDataSource)) {
       return false;
     }
     return streamBucketDataSourcesEqual(this.source, other.source);
   }
 
-  hash(hasher: StableHasher): void {
+  buildHash(hasher: StableHasher): void {
     hashStreamBucketDataSource(hasher, this.source);
   }
 

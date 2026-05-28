@@ -4,7 +4,7 @@ import {
   ScopedParameterLookup,
   UnscopedParameterLookup
 } from './BucketParameterQuerier.js';
-import { StableHasher } from './compiler/equality.js';
+import { Equatable } from './compiler/equality.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupDefinitionId } from './HydrationState.js';
 import { SourceTableRef } from './SourceTableRef.js';
@@ -89,7 +89,7 @@ export type ScopedEvaluateParameterRow = (sourceTable: SourceTableRef, row: Sqli
  * This does not require any "hydration" itself: All results are independent of bucket names.
  * The higher-level HydratedSyncRules will use a HydrationState to generate bucket names.
  */
-export interface BucketDataSource {
+export interface BucketDataSource extends Equatable {
   /**
    * Unique name of the data source within a replication stream.
    *
@@ -120,9 +120,6 @@ export interface BucketDataSource {
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void;
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void;
-
-  hash(hasher: StableHasher): void;
-  equals(other: BucketDataSource): boolean;
 }
 
 /**
@@ -130,7 +127,7 @@ export interface BucketDataSource {
  *
  * This is only relevant for parameter queries and subqueries that query tables.
  */
-export interface ParameterIndexLookupCreator {
+export interface ParameterIndexLookupCreator extends Equatable {
   /**
    * lookupName + queryId is used to uniquely identify parameter queries for parameter storage.
    *
@@ -152,9 +149,6 @@ export interface ParameterIndexLookupCreator {
 
   /** Whether the table possibly affects the buckets resolved by this source. */
   tableSyncsParameters(table: SourceTableRef): boolean;
-
-  hash(hasher: StableHasher): void;
-  equals(other: ParameterIndexLookupCreator): boolean;
 }
 
 export interface DebugMergedSource extends HydratedBucketSource {

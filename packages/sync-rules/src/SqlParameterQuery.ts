@@ -343,7 +343,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     };
   }
 
-  hash(hasher: StableHasher): void {
+  buildHash(hasher: StableHasher): void {
     hasher.addString(this.sourceId.lookupName);
     hasher.addString(this.sourceId.queryId);
   }
@@ -351,7 +351,7 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
   /**
    * Only support reference equality for legacy sync rules - does not support incremental reprocessing.
    */
-  equals(other: ParameterIndexLookupCreator): boolean {
+  equals(other: unknown): boolean {
     return other === this;
   }
 
