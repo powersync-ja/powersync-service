@@ -7,12 +7,12 @@ import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { CurrentBucket } from '../../src/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
+import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
+import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import {
   BucketDataDocument,
   serializeBucketData
-} from '../../src/storage/implementation/document-formats/bucket-document-format.js';
-import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
-import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+} from '../../src/storage/implementation/v3/document-formats/bucket-document-format.js';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 

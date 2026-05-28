@@ -6,8 +6,8 @@ import {
   BucketDataDocumentGenericId,
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
-import { BucketDataDocument, BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
 import { BucketDataKey, BucketDataProperties } from '../models.js';
+import { BucketDataDocument, BucketDocumentFormatAdapter } from './document-formats/bucket-document-format.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 // MongoDB's MinKey/MaxKey are special sentinel values that don't match the bigint type

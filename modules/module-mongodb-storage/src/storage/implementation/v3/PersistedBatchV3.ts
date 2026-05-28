@@ -12,8 +12,8 @@ import {
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
-import { BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
-import { serializeParameterLookup } from '../document-formats/parameter-lookup.js';
+import { BucketDocumentFormatAdapter } from './document-formats/bucket-document-format.js';
+import { serializeParameterLookup } from './document-formats/parameter-lookup.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {

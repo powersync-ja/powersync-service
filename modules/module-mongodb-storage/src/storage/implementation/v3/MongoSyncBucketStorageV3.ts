@@ -18,8 +18,6 @@ import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageContext.js';
-import { BucketDataDocument, BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
-import { deserializeParameterLookup, serializeParameterLookup } from '../document-formats/parameter-lookup.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
@@ -28,6 +26,8 @@ import {
   MongoPersistedSyncRulesContentV1,
   MongoPersistedSyncRulesContentV3
 } from '../MongoPersistedSyncRulesContent.js';
+import { BucketDataDocument, BucketDocumentFormatAdapter } from './document-formats/bucket-document-format.js';
+import { deserializeParameterLookup, serializeParameterLookup } from './document-formats/parameter-lookup.js';
 import { ReplicationStreamDocumentV3, SyncRuleConfigStateV3 } from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';

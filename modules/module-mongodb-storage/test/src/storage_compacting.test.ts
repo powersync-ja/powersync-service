@@ -5,11 +5,11 @@ import {
   BucketDataDocument,
   loadBucketDataDocument,
   serializeBucketData
-} from '@module/storage/implementation/document-formats/bucket-document-format.js';
+} from '@module/storage/implementation/v3/document-formats/bucket-document-format.js';
 import {
   chunkBucketData,
   DEFAULT_MAX_DOC_SIZE_BYTES
-} from '@module/storage/implementation/document-formats/chunking.js';
+} from '@module/storage/implementation/v3/document-formats/chunking.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { addChecksums, storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';

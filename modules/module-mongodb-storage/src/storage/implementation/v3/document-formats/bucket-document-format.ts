@@ -1,14 +1,14 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
-import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
-import { BucketDataKey, BucketDataProperties, OpType } from '../models.js';
+import { BucketDataDoc, BucketKey } from '../../common/BucketDataDoc.js';
+import { BucketDataKey, BucketDataProperties, OpType } from '../../models.js';
 import { chunkBucketData } from './chunking.js';
 
 export interface BucketOperation {
   o: bigint;
   op: OpType;
   source_table?: import('bson').ObjectId;
-  source_key?: import('../models.js').ReplicaId;
+  source_key?: import('../../models.js').ReplicaId;
   table?: string;
   row_id?: string;
   checksum: bigint;

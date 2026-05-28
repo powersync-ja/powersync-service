@@ -5,15 +5,15 @@ import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { BucketStateDocument } from '../common/models.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
+import { BucketStateDocumentBase } from '../models.js';
+import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
+import { cacheKey } from '../OperationBatch.js';
 import {
   BucketDataDocument,
   loadBucketDataDocument,
   serializeBucketData
-} from '../document-formats/bucket-document-format.js';
-import { chunkBucketData } from '../document-formats/chunking.js';
-import { BucketStateDocumentBase } from '../models.js';
-import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
-import { cacheKey } from '../OperationBatch.js';
+} from './document-formats/bucket-document-format.js';
+import { chunkBucketData } from './document-formats/chunking.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
