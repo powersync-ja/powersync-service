@@ -76,7 +76,7 @@ export const RAW_TEST_CONNECTION_OPTIONS: types.ConvexConnectionConfig = {
   deployment_url: env.CONVEX_URL
 } as const;
 
-export const TEST_CONNECTION_OPTIONS = types.normalizeConnectionConfig(RAW_TEST_CONNECTION_OPTIONS);
+export const TEST_CONNECTION_OPTIONS = types.resolveConvexConnectionConfig(RAW_TEST_CONNECTION_OPTIONS);
 
 export function connectConvex(): TestConvexConnection {
   return {

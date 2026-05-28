@@ -1,17 +1,10 @@
 import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
-import { normalizeConnectionConfig } from '@module/types/types.js';
 import type { DatabaseSchema } from '@powersync/service-types';
 import { randomUUID } from 'crypto';
 import { describe, expect, test } from 'vitest';
 import { env } from '../env.js';
 import { ConvexStreamTestContext } from '../test-utils/ConvexStreamTestContext.js';
-import { INITIALIZED_MONGO_STORAGE_FACTORY } from '../test-utils/util.js';
-
-const TEST_CONNECTION_OPTIONS = normalizeConnectionConfig({
-  type: 'convex',
-  deploy_key: env.CONVEX_DEPLOY_KEY,
-  deployment_url: env.CONVEX_URL
-});
+import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_CONNECTION_OPTIONS } from '../test-utils/util.js';
 
 function normalizeSchemaForSnapshot(schema: DatabaseSchema[]): DatabaseSchema[] {
   const snapshottedTables = new Set(['lists', 'todos']);

@@ -1,4 +1,3 @@
-import { ConvexRouteAPIAdapter } from '@module/api/ConvexRouteAPIAdapter.js';
 import { ConvexConnectionManager } from '@module/replication/ConvexConnectionManager.js';
 import { ConvexStream, ConvexStreamOptions } from '@module/replication/ConvexStream.js';
 import { logger } from '@powersync/lib-services-framework';
@@ -93,8 +92,8 @@ export class ConvexStreamTestContext extends AbstractStreamTestContext {
   async getClientCheckpoint(options?: { timeout?: number }): Promise<bigint> {
     const start = Date.now();
 
-    const api = new ConvexRouteAPIAdapter(this.connectionManager.config);
-    const lsn = await api.createReplicationHead(async (lsn) => lsn);
+    const lsn = await this.connectionManager.client.getHeadCursor();
+    await this.connectionManager.client.createWriteCheckpointMarker();
 
     // This old API needs a persisted checkpoint id.
     // Since we don't use LSNs anymore, the only way to get that is to wait.

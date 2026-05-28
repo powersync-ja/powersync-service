@@ -45,10 +45,7 @@ export class ConvexModule extends replication.ReplicationModule<types.ConvexConn
   }
 
   private resolveConfig(config: types.ConvexConnectionConfig): types.ResolvedConvexConnectionConfig {
-    return {
-      ...config,
-      ...types.normalizeConnectionConfig(config)
-    };
+    return types.resolveConvexConnectionConfig(config);
   }
 
   async teardown(options: TearDownOptions): Promise<void> {

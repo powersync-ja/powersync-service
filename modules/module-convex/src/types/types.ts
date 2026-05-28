@@ -10,7 +10,6 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 export interface NormalizedConvexConnectionConfig {
   id: string;
   tag: string;
-  type: typeof CONVEX_CONNECTION_TYPE;
 
   deployment_url: string;
   deploy_key: string;
@@ -86,7 +85,6 @@ export function normalizeConnectionConfig(options: ConvexConnectionConfig): Norm
   return {
     id: options.id ?? 'default',
     tag: options.tag ?? 'default',
-    type: 'convex',
 
     deployment_url: deploymentURL.toString().replace(/\/$/, ''),
     deploy_key: options.deploy_key,
@@ -96,6 +94,13 @@ export function normalizeConnectionConfig(options: ConvexConnectionConfig): Norm
     request_timeout_ms: requestTimeoutMs,
 
     lookup
+  };
+}
+
+export function resolveConvexConnectionConfig(config: ConvexConnectionConfig): ResolvedConvexConnectionConfig {
+  return {
+    ...config,
+    ...normalizeConnectionConfig(config)
   };
 }
 

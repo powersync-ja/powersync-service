@@ -1,7 +1,7 @@
 import { BaseObserver } from '@powersync/lib-services-framework';
 import { DEFAULT_TAG } from '@powersync/service-sync-rules';
 import { ConvexApiClient } from '../client/ConvexApiClient.js';
-import { ResolvedConvexConnectionConfig } from '../types/types.js';
+import { NormalizedConvexConnectionConfig } from '../types/types.js';
 
 export interface ConvexConnectionManagerListener {
   onEnded?: () => void;
@@ -13,7 +13,7 @@ export class ConvexConnectionManager extends BaseObserver<ConvexConnectionManage
   readonly connectionTag: string;
   readonly connectionId: string;
 
-  constructor(public readonly config: ResolvedConvexConnectionConfig) {
+  constructor(public readonly config: NormalizedConvexConnectionConfig) {
     super();
     this.client = new ConvexApiClient(config);
     this.connectionTag = config.tag ?? DEFAULT_TAG;
