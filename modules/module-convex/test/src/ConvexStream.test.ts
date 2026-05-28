@@ -608,7 +608,7 @@ describe('ConvexStream', () => {
     expect(context.tables.get('projects_archive')?.snapshotComplete).toBe(true);
   });
 
-  it('keeps alive immediately when only checkpoint marker rows are streamed', async () => {
+  it('keeps alive on idle startup and immediately when only checkpoint marker rows are streamed', async () => {
     const context = createFakeStorage({
       snapshotDone: true,
       resumeFromLsn: parseConvexLsn(CURSOR_100)
@@ -635,16 +635,24 @@ describe('ConvexStream', () => {
           documentDeltas: async () => {
             calls += 1;
             if (calls == 1) {
+              // Convex does not advance the cursor when there are no deltas.
+              // Since this is the first poll after startup, the periodic
+              // keepalive path still runs immediately because lastKeepaliveAt
+              // starts at 0.
               return {
-                cursor: CURSOR_101,
-                hasMore: true,
+                cursor: CURSOR_100,
+                hasMore: false,
                 values: []
               };
             }
 
             setTimeout(() => abortController.abort(), 0);
+            // A checkpoint marker is a real Convex delta, so the cursor advances.
+            // The row is ignored as replicated data, but marker-only pages must
+            // still advance the storage checkpoint immediately so managed write
+            // checkpoints can become visible without waiting for the 60s throttle.
             return {
-              cursor: CURSOR_102,
+              cursor: CURSOR_101,
               hasMore: false,
               values: [{ _table: 'powersync_checkpoints', _id: 'cp1' }]
             };
@@ -657,6 +665,9 @@ describe('ConvexStream', () => {
 
     expect(context.saves.length).toBe(0);
     expect(context.commits.length).toBe(0);
-    expect(context.keepalives).toEqual([parseConvexLsn(CURSOR_101), parseConvexLsn(CURSOR_102)]);
+    // The idle startup page and marker-only page both keep the checkpoint moving,
+    // but for different reasons: the first uses the same-cursor idle keepalive
+    // path, and the second uses the marker-only immediate keepalive path.
+    expect(context.keepalives).toEqual([parseConvexLsn(CURSOR_100), parseConvexLsn(CURSOR_101)]);
   });
 });
