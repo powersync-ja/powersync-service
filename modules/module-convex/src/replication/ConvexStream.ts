@@ -86,6 +86,22 @@ export class ConvexStream {
     return this.abortSignal.aborted;
   }
 
+  get connectionId() {
+    const { connectionId } = this.connections;
+    // Default to 1 if not set
+    if (!connectionId) {
+      return 1;
+    }
+    /**
+     * This is often `"default"` (string) which will parse to `NaN`
+     */
+    const parsed = Number.parseInt(connectionId);
+    if (isNaN(parsed)) {
+      return 1;
+    }
+    return parsed;
+  }
+
   async replicate() {
     try {
       this.initialSnapshotPromise = this.initReplication();
@@ -594,7 +610,7 @@ export class ConvexStream {
     descriptor: SourceEntityDescriptor
   ): Promise<SourceTable[]> {
     const resolved = await batch.resolveTables({
-      connection_id: Number.parseInt(this.connections.connectionId) || 1,
+      connection_id: this.connectionId,
       source: descriptor
     });
 
