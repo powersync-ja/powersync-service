@@ -291,7 +291,8 @@ export class WalStream {
           name: name,
           schema: schema,
           objectId: relid,
-          replicaIdColumns: cresult.replicationColumns
+          replicaIdColumns: cresult.replicationColumns,
+          replicationIdentity: cresult.replicationIdentity
         },
         snapshot: false,
         referencedTypeIds: columnTypes

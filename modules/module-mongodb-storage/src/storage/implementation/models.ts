@@ -106,6 +106,14 @@ export interface SourceTableDocument {
   replica_id_columns2: { name: string; type_oid?: number; type?: string }[] | undefined;
   snapshot_done: boolean | undefined;
   snapshot_status: SourceTableDocumentSnapshotStatus | undefined;
+  /**
+   * Whether to store raw data in current_data collection for this table.
+   * If undefined, defaults to true for backwards compatibility.
+   *
+   * Optional so that document inserts that predate per-table resolution (and the V1/V3
+   * resolveTables implementations that don't set it yet) remain valid.
+   */
+  store_current_data?: boolean;
 }
 
 export interface SourceTableDocumentSnapshotStatus {

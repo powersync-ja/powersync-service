@@ -150,13 +150,20 @@ export class PostgresBucketBatch
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const syncRules = options.syncRules ?? this.sync_rules;
     const { connection_id, source } = options;
-    const { schema, name: table, objectId, replicaIdColumns, connectionTag } = source;
+    const { schema, name: table, objectId, replicaIdColumns, connectionTag, replicationIdentity } = source;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       type_oid: typeof column.typeId !== 'undefined' ? Number(column.typeId) : column.typeId
     }));
+
+    // REPLICA IDENTITY FULL always sends complete rows, so no current_data copy is needed. The identity
+    // may be undefined for sources that don't report one; in that case persist NULL ("unresolved", read
+    // back as true) and leave it untouched on update, so a later resolution with a known identity can
+    // set it. Both the insert and update branches below apply this guard.
+    const storeCurrentData = replicationIdentity !== 'full';
+    const persistedStoreCurrentData = replicationIdentity != null ? storeCurrentData : null;
     return this.db.transaction(async (db) => {
       let sourceTableRow: SourceTableDecoded | null;
       if (objectId != null) {
@@ -203,7 +210,8 @@ export class PostgresBucketBatch
               relation_id,
               schema_name,
               table_name,
-              replica_id_columns
+              replica_id_columns,
+              store_current_data
             )
           VALUES
             (
@@ -213,13 +221,24 @@ export class PostgresBucketBatch
               ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
+              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }},
+              ${{ type: 'bool', value: persistedStoreCurrentData }}
             )
           RETURNING
             *
         `
           .decoded(models.SourceTable)
           .first();
+      } else if (replicationIdentity != null && (sourceTableRow.store_current_data ?? true) !== storeCurrentData) {
+        // Replica identity changed since the table was first resolved.
+        await db.sql`
+          UPDATE source_tables
+          SET
+            store_current_data = ${{ type: 'bool', value: storeCurrentData }}
+          WHERE
+            id = ${{ type: 'varchar', value: sourceTableRow.id }}
+        `.execute();
+        sourceTableRow.store_current_data = storeCurrentData;
       }
 
       const sourceTable = new storage.SourceTable({
@@ -240,6 +259,7 @@ export class PostgresBucketBatch
       sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
       sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
       sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
+      sourceTable.storeCurrentData = sourceTableRow!.store_current_data ?? true;
 
       let truncatedTables: SourceTableDecoded[] = [];
       if (objectId != null) {
@@ -299,6 +319,7 @@ export class PostgresBucketBatch
           dropTable.syncEvent = syncRules.tableTriggersEvent(ref);
           dropTable.syncData = dropTable.bucketDataSources.length > 0;
           dropTable.syncParameters = dropTable.parameterLookupSources.length > 0;
+          dropTable.storeCurrentData = doc.store_current_data ?? true;
           return dropTable;
         })
       };
@@ -353,12 +374,14 @@ export class PostgresBucketBatch
     sourceTable.syncEvent = syncRules.tableTriggersEvent(ref);
     sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
     sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
+    sourceTable.storeCurrentData = row.store_current_data ?? true;
     return sourceTable;
   }
 
   async save(record: storage.SaveOptions): Promise<storage.FlushedResult | null> {
     // TODO maybe share with abstract class
     const { after, before, sourceTable, tag } = record;
+    const storeCurrentData = this.options.store_current_data && sourceTable.storeCurrentData;
     for (const event of this.getTableEvents(sourceTable)) {
       this.iterateListeners((cb) =>
         cb.replicationEvent?.({
@@ -366,8 +389,8 @@ export class PostgresBucketBatch
           table: sourceTable,
           data: {
             op: tag,
-            after: after && utils.isCompleteRow(this.options.store_current_data, after) ? after : undefined,
-            before: before && utils.isCompleteRow(this.options.store_current_data, before) ? before : undefined
+            after: after && utils.isCompleteRow(storeCurrentData, after) ? after : undefined,
+            before: before && utils.isCompleteRow(storeCurrentData, before) ? before : undefined
           },
           event
         })
@@ -892,8 +915,12 @@ export class PostgresBucketBatch
 
   protected async replicateBatch(db: lib_postgres.WrappedConnection, batch: OperationBatch) {
     let sizes: Map<string, number> | undefined = undefined;
-    if (this.options.store_current_data && !this.options.skip_existing_rows) {
-      // We skip this step if we don't store current_data, since the sizes will
+    // Check if any table in this batch needs to store current_data
+    const anyTableStoresCurrentData =
+      this.options.store_current_data && batch.batch.some((r) => r.record.sourceTable.storeCurrentData);
+
+    if (anyTableStoresCurrentData && !this.options.skip_existing_rows) {
+      // We skip this step if no tables store current_data, since the sizes will
       // always be small in that case.
 
       // With skipExistingRows, we don't load the full documents into memory,
@@ -901,15 +928,19 @@ export class PostgresBucketBatch
 
       // Find sizes of current_data documents, to assist in intelligent batching without
       // exceeding memory limits.
-      const sizeLookups = batch.batch.map((r) => {
-        return {
-          source_table: postgresTableId(r.record.sourceTable.id),
-          /**
-           * Encode to hex in order to pass a jsonb
-           */
-          source_key: storage.serializeReplicaId(r.beforeId).toString('hex')
-        };
-      });
+      // Within this branch the batch stores current_data, so the per-table flag is the
+      // effective value - only look up sizes for tables that actually store current_data.
+      const sizeLookups = batch.batch
+        .filter((r) => r.record.sourceTable.storeCurrentData)
+        .map((r) => {
+          return {
+            source_table: postgresTableId(r.record.sourceTable.id),
+            /**
+             * Encode to hex in order to pass a jsonb
+             */
+            source_key: storage.serializeReplicaId(r.beforeId).toString('hex')
+          };
+        });
 
       sizes = new Map<string, number>();
 
@@ -1028,6 +1059,9 @@ export class PostgresBucketBatch
     const afterId = operation.afterId;
     let after = record.after;
     const sourceTable = record.sourceTable;
+    // Effective per-record flag: store current_data only if both the batch (source-level)
+    // and the table (e.g. non-FULL replica identity) require it.
+    const storeCurrentData = this.options.store_current_data && sourceTable.storeCurrentData;
 
     let existingBuckets: CurrentBucket[] = [];
     let newBuckets: CurrentBucket[] = [];
@@ -1056,7 +1090,7 @@ export class PostgresBucketBatch
         existingLookups = [];
         // Log to help with debugging if there was a consistency issue
 
-        if (this.options.store_current_data) {
+        if (storeCurrentData) {
           if (this.markRecordUnavailable != null) {
             // This will trigger a "resnapshot" of the record.
             // This is not relevant if storeCurrentData is false, since we'll get the full row
@@ -1072,7 +1106,7 @@ export class PostgresBucketBatch
       } else {
         existingBuckets = result.buckets;
         existingLookups = result.lookups;
-        if (this.options.store_current_data) {
+        if (storeCurrentData) {
           const data = storage.deserializeBson(result.data) as sync_rules.SqliteRow;
           after = storage.mergeToast(after!, data);
         }
@@ -1083,7 +1117,9 @@ export class PostgresBucketBatch
         // Not an error if we re-apply a transaction
         existingBuckets = [];
         existingLookups = [];
-        // Log to help with debugging if there was a consistency issue
+        // Log to help with debugging if there was a consistency issue.
+        // Gate on the batch-level flag: FULL tables (per-record flag false) still get a
+        // current_data entry, so a missing record on DELETE is meaningful for them too.
         if (this.options.store_current_data && this.markRecordUnavailable == null) {
           this.logger.warn(
             `Cannot find previous record for delete on ${record.sourceTable.qualifiedName}: ${beforeId} / ${record.before?.id}`
@@ -1096,7 +1132,7 @@ export class PostgresBucketBatch
     }
 
     let afterData: Buffer<ArrayBuffer> | undefined;
-    if (afterId != null && !this.options.store_current_data) {
+    if (afterId != null && !storeCurrentData) {
       afterData = storage.serializeBson({});
     } else if (afterId != null) {
       try {
@@ -1159,7 +1195,7 @@ export class PostgresBucketBatch
     // However, it will be valid by the end of the transaction.
     //
     // In this case, we don't save the op, but we do save the current data.
-    if (afterId && after && utils.isCompleteRow(this.options.store_current_data, after)) {
+    if (afterId && after && utils.isCompleteRow(storeCurrentData, after)) {
       // Insert or update
       if (sourceTable.syncData) {
         const { results: evaluated, errors: syncErrors } = this.sync_rules.evaluateRowWithErrors({
