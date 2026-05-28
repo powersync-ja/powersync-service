@@ -1,8 +1,8 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
-import { chunkBucketData } from '../bucket-operations/chunking.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import { BucketDataKey, BucketDataProperties, OpType } from '../models.js';
+import { chunkBucketData } from './chunking.js';
 
 export interface BucketOperation {
   o: bigint;

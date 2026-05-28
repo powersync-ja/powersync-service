@@ -1,7 +1,3 @@
-import {
-  chunkBucketData,
-  DEFAULT_MAX_DOC_SIZE_BYTES
-} from '@module/storage/implementation/bucket-operations/chunking.js';
 import { VersionedPowerSyncMongo } from '@module/storage/implementation/collection-access/versioned-collections.js';
 import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataDoc.js';
 import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
@@ -11,6 +7,10 @@ import {
   loadBucketDataDocument,
   serializeBucketData
 } from '@module/storage/implementation/document-formats/bucket-document-format.js';
+import {
+  chunkBucketData,
+  DEFAULT_MAX_DOC_SIZE_BYTES
+} from '@module/storage/implementation/document-formats/chunking.js';
 import { addChecksums, storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';

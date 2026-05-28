@@ -1,13 +1,6 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
+import { logger, ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { addChecksums, storage, utils } from '@powersync/service-core';
-import { chunkBucketData } from '../bucket-operations/chunking.js';
-import {
-  computeChecksumsForBuckets,
-  dirtyBucketBatches,
-  dirtyBucketBatchForChecksums
-} from '../bucket-operations/compaction-scaffolding.js';
-import { bucketStateFilter, resolveBucketDefinitionId } from '../bucket-operations/query-builders.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { VersionedPowerSyncMongo } from '../collection-access/versioned-collections.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
@@ -18,6 +11,7 @@ import {
   loadBucketDataDocument,
   serializeBucketData
 } from '../document-formats/bucket-document-format.js';
+import { chunkBucketData } from '../document-formats/chunking.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
@@ -356,4 +350,111 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
   }
+}
+
+export async function* dirtyBucketBatches<TBucketState extends BucketStateDocumentBase>(
+  compactor: MongoCompactor,
+  collection: mongo.Collection<TBucketState>,
+  options: {
+    minBucketChanges: number;
+    minChangeRatio: number;
+  },
+  getDefinitionId: (state: TBucketState) => BucketDefinitionId | null
+): AsyncGenerator<DirtyBucket[]> {
+  if (options.minBucketChanges <= 0) {
+    throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+  }
+  yield* compactor.dirtyBucketBatchesForCollection(
+    collection,
+    { d: new mongo.MinKey(), b: new mongo.MinKey() } as unknown as TBucketState['_id'],
+    { d: new mongo.MaxKey(), b: new mongo.MaxKey() } as unknown as TBucketState['_id'],
+    options,
+    getDefinitionId
+  );
+}
+
+export async function dirtyBucketBatchForChecksums<TBucketState extends BucketStateDocumentBase>(
+  compactor: MongoCompactor,
+  collection: mongo.Collection<TBucketState>,
+  options: { minBucketChanges: number },
+  getDefinitionId: (state: mongo.WithId<TBucketState>) => BucketDefinitionId | null
+): Promise<DirtyBucket[]> {
+  if (options.minBucketChanges <= 0) {
+    throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+  }
+  return compactor.dirtyBucketBatchForChecksumsForCollection(
+    collection,
+    {
+      'estimate_since_compact.count': { $gte: options.minBucketChanges }
+    } as unknown as mongo.Filter<TBucketState>,
+    getDefinitionId
+  );
+}
+
+export async function computeChecksumsForBuckets(
+  computeChecksums: (
+    batch: { bucket: string; definitionId: BucketDefinitionId; end: bigint }[]
+  ) => Promise<storage.PartialChecksumMap>,
+  maxOpId: bigint,
+  buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
+): Promise<storage.PartialChecksumMap> {
+  return computeChecksums(
+    buckets.map(({ bucket, definitionId }) => {
+      if (definitionId == null) {
+        throw new ServiceAssertionError(`Missing definitionId for bucket checksum update on bucket ${bucket}`);
+      }
+      return {
+        bucket,
+        definitionId,
+        end: maxOpId
+      };
+    })
+  );
+}
+
+export interface BucketDataContextParams {
+  bucket: string;
+  definitionId: BucketDefinitionId | null;
+  allDefinitionIds: BucketDefinitionId[];
+  groupId: number;
+}
+
+export interface BucketStateLookup {
+  definitionId: BucketDefinitionId;
+}
+
+export function bucketStateFilter(
+  bucket: string,
+  definitionId: BucketDefinitionId
+): mongo.Filter<BucketStateDocumentBase> {
+  return {
+    _id: {
+      d: definitionId,
+      b: bucket
+    }
+  };
+}
+
+export async function resolveBucketDefinitionId(
+  params: BucketDataContextParams,
+  lookupBucketState: (potentialIds: Array<{ d: BucketDefinitionId; b: string }>) => Promise<BucketStateLookup | null>
+): Promise<BucketDefinitionId | null> {
+  const { bucket, definitionId, allDefinitionIds } = params;
+
+  if (definitionId != null) {
+    return definitionId;
+  }
+
+  if (allDefinitionIds.length == 0) {
+    return null;
+  }
+
+  const potentialIds = allDefinitionIds.map((id) => ({ d: id, b: bucket }));
+  const bucketState = await lookupBucketState(potentialIds);
+
+  if (bucketState == null) {
+    return null;
+  }
+
+  return bucketState.definitionId;
 }
