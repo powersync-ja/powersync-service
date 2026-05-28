@@ -10,6 +10,7 @@ import {
   PartialOrFullChecksum
 } from '@powersync/service-core';
 import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { BucketDataDocumentBase } from '../models.js';
 import {
   checksumFromAggregate,
   emptyChecksumForRequest,
@@ -19,7 +20,6 @@ import {
   MongoChecksums
 } from '../MongoChecksums.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
-import { BucketDataDocumentBase } from '../models.js';
 
 export class MongoChecksumsV3 extends MongoChecksums {
   private readonly mapping: BucketDefinitionMapping;

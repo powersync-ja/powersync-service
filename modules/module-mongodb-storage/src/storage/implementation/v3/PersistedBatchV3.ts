@@ -5,7 +5,6 @@ import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketParameterDocument, taggedBucketParameterDocumentToTagged } from '../common/models.js';
 import {
   BucketStateUpdate,
@@ -15,6 +14,7 @@ import {
 } from '../common/PersistedBatch.js';
 import { BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
 import { serializeParameterLookup } from '../document-formats/parameter-lookup.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
   private formatAdapter = new BucketDocumentFormatAdapter();

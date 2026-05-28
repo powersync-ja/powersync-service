@@ -16,7 +16,6 @@ import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
 import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageContext.js';
 import { BucketDataDocument, BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
@@ -33,6 +32,7 @@ import { ReplicationStreamDocumentV3, SyncRuleConfigStateV3 } from './models.js'
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 function* walkDocumentOps(
   data: BucketDataDoc[],

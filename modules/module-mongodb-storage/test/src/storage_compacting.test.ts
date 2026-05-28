@@ -1,4 +1,3 @@
-import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataDoc.js';
 import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
@@ -11,6 +10,7 @@ import {
   chunkBucketData,
   DEFAULT_MAX_DOC_SIZE_BYTES
 } from '@module/storage/implementation/document-formats/chunking.js';
+import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { addChecksums, storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
 import * as bson from 'bson';

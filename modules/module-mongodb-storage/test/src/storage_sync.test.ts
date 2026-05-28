@@ -4,8 +4,6 @@ import { DEFAULT_HYDRATION_STATE, RequestParameters, SqlSyncRules } from '@power
 import * as bson from 'bson';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
-import { SourceRecordStoreImpl } from '../../src/storage/implementation/bucket-operations/source-record-store-impl.js';
-import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { CurrentBucket } from '../../src/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
@@ -13,6 +11,8 @@ import {
   BucketDataDocument,
   serializeBucketData
 } from '../../src/storage/implementation/document-formats/bucket-document-format.js';
+import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
+import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
@@ -846,12 +846,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       .sourceRecords(syncRules.id, sourceTableB)
       .insertMany([{ _id: 'later-delete', data: null, buckets: [], lookups: [], pending_delete: 12n }]);
 
-    const store = new SourceRecordStoreImpl(
-      (gid, tableId) => db.sourceRecords(gid, tableId),
-      (gid) => db.sourceTables(gid),
-      syncRules.id,
-      bucketStorage.sync_rules.mapping
-    );
+    const store = new SourceRecordStoreV3(db, syncRules.id, bucketStorage.sync_rules.mapping);
     const logger = { info() {} } as any;
 
     await store.postCommitCleanup(6n, logger);

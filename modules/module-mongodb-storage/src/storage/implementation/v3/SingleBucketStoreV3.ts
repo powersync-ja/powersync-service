@@ -1,6 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { InternalOpId } from '@powersync/service-core';
-import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 import { BucketDataDoc, BucketKey } from '../common/BucketDataDoc.js';
 import {
   BucketDataDocumentGeneric,
@@ -9,6 +8,7 @@ import {
 } from '../common/SingleBucketStore.js';
 import { BucketDataDocument, BucketDocumentFormatAdapter } from '../document-formats/bucket-document-format.js';
 import { BucketDataKey, BucketDataProperties } from '../models.js';
+import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 // MongoDB's MinKey/MaxKey are special sentinel values that don't match the bigint type
 // for _id.o in BucketDataDocumentGenericId, so we need an explicit cast.
