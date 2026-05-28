@@ -5,6 +5,7 @@ import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
 import { parseConvexLsn } from '../common/ConvexLSN.js';
 import { extractProperties, jsonSchemaToSQLiteType, readConvexFieldJsonType } from '../common/convex-to-sqlite.js';
 import { ConvexConnectionManager } from '../replication/ConvexConnectionManager.js';
+import { checkSourceConfiguration } from '../replication/check-source-configuration.js';
 import * as types from '../types/types.js';
 
 export class ConvexRouteAPIAdapter implements api.RouteAPI {
@@ -25,11 +26,11 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
     };
 
     try {
-      await this.connectionManager.client.getJsonSchemas();
+      const { connected, errors } = await checkSourceConfiguration(this.config, { readOnly: true });
       return {
         ...base,
-        connected: true,
-        errors: []
+        connected,
+        errors: errors.map((e) => ({ level: 'fatal', message: e }))
       };
     } catch (error) {
       return {
