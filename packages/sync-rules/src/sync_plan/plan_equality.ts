@@ -1,4 +1,4 @@
-import { Equality, StableHasher, unorderedEquality } from '../compiler/equality.js';
+import { Equality, listEquality, StableHasher, unorderedEquality } from '../compiler/equality.js';
 import { SqlExpression } from './expression.js';
 import { ExpressionToSqlite } from './expression_to_sql.js';
 import { RecursiveExpressionVisitor } from './expression_visitor.js';
@@ -37,46 +37,49 @@ function streamDataSourcesEqual(a: StreamDataSource, b: StreamDataSource): boole
   return (
     tableProcessorsEqual(a, b) &&
     a.outputTableName == b.outputTableName &&
-    arrayEquals(a.columns, b.columns, (left, right) => columnSourcesEqual(left, right, a, b))
+    listEquals(a.columns, b.columns, (left, right) => columnSourcesEqual(left, right, a, b))
   );
 }
 
 function hashStreamDataSource(hasher: StableHasher, source: StreamDataSource): void {
   hashTableProcessor(hasher, source);
   hashOptionalString(hasher, source.outputTableName);
-  hashArray(hasher, source.columns, (nested, column) => hashColumnSource(nested, column, source));
+  hashList(hasher, source.columns, (nested, column) => hashColumnSource(nested, column, source));
 }
 
 function tableProcessorsEqual(a: TableProcessor, b: TableProcessor): boolean {
   return (
     a.hashCode == b.hashCode &&
     a.sourceTable.equals(b.sourceTable) &&
-    arrayEquals(a.tableValuedFunctions, b.tableValuedFunctions, tableValuedFunctionsEqual) &&
-    arrayEquals(a.filters, b.filters, (left, right) => expressionsEqual(left, right, a, b)) &&
-    arrayEquals(a.parameters, b.parameters, (left, right) => expressionsEqual(left.expr, right.expr, a, b))
+    tableValuedFunctionListEquality.equals(a.tableValuedFunctions, b.tableValuedFunctions) &&
+    listEquals(a.filters, b.filters, (left, right) => expressionsEqual(left, right, a, b)) &&
+    listEquals(a.parameters, b.parameters, (left, right) => expressionsEqual(left.expr, right.expr, a, b))
   );
 }
 
 function hashTableProcessor(hasher: StableHasher, source: TableProcessor): void {
   hasher.addHash(source.hashCode);
   source.sourceTable.buildHash(hasher);
-  hashArray(hasher, source.tableValuedFunctions, hashTableValuedFunction);
-  hashArray(hasher, source.filters, (nested, expression) => hashExpression(nested, expression, source));
-  hashArray(hasher, source.parameters, (nested, parameter) => hashExpression(nested, parameter.expr, source));
+  tableValuedFunctionListEquality.hash(hasher, source.tableValuedFunctions);
+  hashList(hasher, source.filters, (nested, expression) => hashExpression(nested, expression, source));
+  hashList(hasher, source.parameters, (nested, parameter) => hashExpression(nested, parameter.expr, source));
 }
 
-function tableValuedFunctionsEqual(
-  a: TableProcessorTableValuedFunction,
-  b: TableProcessorTableValuedFunction
-): boolean {
-  return (
-    a.functionName == b.functionName && arrayEquals(a.functionInputs, b.functionInputs, columnParameterExpressionsEqual)
-  );
-}
+const tableValuedFunctionEquality: Equality<TableProcessorTableValuedFunction> = {
+  equals(a, b) {
+    return (
+      a.functionName == b.functionName &&
+      columnParameterExpressionListEquality.equals(a.functionInputs, b.functionInputs)
+    );
+  },
+  hash: hashTableValuedFunction
+};
+
+const tableValuedFunctionListEquality = listEquality(tableValuedFunctionEquality);
 
 function hashTableValuedFunction(hasher: StableHasher, fn: TableProcessorTableValuedFunction): void {
   hasher.addString(fn.functionName);
-  hashArray(hasher, fn.functionInputs, hashColumnParameterExpression);
+  columnParameterExpressionListEquality.hash(hasher, fn.functionInputs);
 }
 
 function columnSourcesEqual(
@@ -102,18 +105,21 @@ function hashColumnSource(hasher: StableHasher, column: ColumnSource, source: Ta
   }
 }
 
-function columnParameterExpressionsEqual(
-  a: SqlExpression<ColumnSqlParameterValue>,
-  b: SqlExpression<ColumnSqlParameterValue>
-): boolean {
-  return (
-    ExpressionToSqlite.toSqlite(a) == ExpressionToSqlite.toSqlite(b) && arrayEquals(columnInputs(a), columnInputs(b))
-  );
-}
+const columnParameterExpressionEquality: Equality<SqlExpression<ColumnSqlParameterValue>> = {
+  equals(a, b) {
+    return (
+      ExpressionToSqlite.toSqlite(a) == ExpressionToSqlite.toSqlite(b) &&
+      stringListEquality.equals(columnInputs(a), columnInputs(b))
+    );
+  },
+  hash: hashColumnParameterExpression
+};
+
+const columnParameterExpressionListEquality = listEquality(columnParameterExpressionEquality);
 
 function hashColumnParameterExpression(hasher: StableHasher, expression: SqlExpression<ColumnSqlParameterValue>): void {
   hasher.addString(ExpressionToSqlite.toSqlite(expression));
-  hashArray(hasher, columnInputs(expression), (nested, input) => nested.addString(input));
+  stringListEquality.hash(hasher, columnInputs(expression));
 }
 
 function expressionsEqual(
@@ -124,7 +130,7 @@ function expressionsEqual(
 ): boolean {
   return (
     ExpressionToSqlite.toSqlite(a) == ExpressionToSqlite.toSqlite(b) &&
-    arrayEquals(expressionInputs(a, sourceA), expressionInputs(b, sourceB), planInputsEqual)
+    planInputListEquality.equals(expressionInputs(a, sourceA), expressionInputs(b, sourceB))
   );
 }
 
@@ -134,24 +140,40 @@ function hashExpression(
   source: TableProcessor
 ): void {
   hasher.addString(ExpressionToSqlite.toSqlite(expression));
-  hashArray(hasher, expressionInputs(expression, source), hashPlanInput);
+  planInputListEquality.hash(hasher, expressionInputs(expression, source));
 }
 
 type PlanExpressionInput =
   | { type: 'column'; column: string }
   | { type: 'function'; functionIndex: number; outputName: string };
 
-function planInputsEqual(a: PlanExpressionInput, b: PlanExpressionInput): boolean {
-  if (a.type != b.type) {
-    return false;
-  }
+const planInputEquality: Equality<PlanExpressionInput> = {
+  equals(a, b) {
+    if (a.type != b.type) {
+      return false;
+    }
 
-  if (a.type == 'column') {
-    return a.column == (b as typeof a).column;
-  }
+    if (a.type == 'column') {
+      return a.column == (b as typeof a).column;
+    }
 
-  return a.functionIndex == (b as typeof a).functionIndex && a.outputName == (b as typeof a).outputName;
-}
+    return a.functionIndex == (b as typeof a).functionIndex && a.outputName == (b as typeof a).outputName;
+  },
+  hash: hashPlanInput
+};
+
+const planInputListEquality = listEquality(planInputEquality);
+
+const stringEquality: Equality<string> = {
+  equals(a, b) {
+    return a == b;
+  },
+  hash(hasher, value) {
+    hasher.addString(value);
+  }
+};
+
+const stringListEquality = listEquality(stringEquality);
 
 function hashPlanInput(hasher: StableHasher, input: PlanExpressionInput): void {
   if (input.type == 'column') {
@@ -226,21 +248,12 @@ function isTableValuedFunctionOutput(value: TableProcessorData): value is TableP
   return 'function' in value;
 }
 
-function arrayEquals<T>(a: readonly T[], b: readonly T[]): boolean;
-function arrayEquals<T>(a: readonly T[], b: readonly T[], equals: (a: T, b: T) => boolean): boolean;
-function arrayEquals<T>(a: readonly T[], b: readonly T[], equals: (a: T, b: T) => boolean = Object.is): boolean {
-  if (a.length != b.length) {
-    return false;
-  }
-
-  return a.every((value, index) => equals(value, b[index]));
+function listEquals<T>(a: readonly T[], b: readonly T[], equals: (a: T, b: T) => boolean): boolean {
+  return listEquality({ equals, hash: () => {} }).equals(a, b);
 }
 
-function hashArray<T>(hasher: StableHasher, values: readonly T[], hash: (hasher: StableHasher, value: T) => void) {
-  hasher.addHash(values.length);
-  for (const value of values) {
-    hash(hasher, value);
-  }
+function hashList<T>(hasher: StableHasher, values: readonly T[], hash: (hasher: StableHasher, value: T) => void) {
+  listEquality({ equals: Object.is, hash }).hash(hasher, values);
 }
 
 function hashOptionalString(hasher: StableHasher, value: string | undefined): void {
