@@ -20,7 +20,7 @@ import {
 import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
-import { hashStreamBucketDataSource, streamBucketDataSourcesEqual } from '../plan_equality.js';
+import { streamBucketDataSourceEquality } from '../plan_equality.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 import { StreamEvaluationContext } from './index.js';
 import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
@@ -52,11 +52,11 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
     if (!(other instanceof PreparedStreamBucketDataSource)) {
       return false;
     }
-    return streamBucketDataSourcesEqual(this.source, other.source);
+    return streamBucketDataSourceEquality.equals(this.source, other.source);
   }
 
   buildHash(hasher: StableHasher): void {
-    hashStreamBucketDataSource(hasher, this.source);
+    streamBucketDataSourceEquality.hash(hasher, this.source);
   }
 
   get bucketParameters(): string[] {

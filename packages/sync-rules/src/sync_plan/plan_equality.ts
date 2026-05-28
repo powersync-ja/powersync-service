@@ -13,56 +13,39 @@ import {
   TableProcessorTableValuedFunctionOutput
 } from './plan.js';
 
-export function streamBucketDataSourcesEqual(a: StreamBucketDataSource, b: StreamBucketDataSource): boolean {
-  if (a === b) {
-    return true;
+export const streamBucketDataSourceEquality: Equality<StreamBucketDataSource> = {
+  hash(hasher, value) {
+    hasher.addHash(value.hashCode);
+  },
+  equals(a, b) {
+    return a === b || (a.hashCode == b.hashCode && streamDataSourceSetEquality.equals(a.sources, b.sources));
   }
+};
 
-  return a.hashCode == b.hashCode && streamDataSourceSetEquality.equals(a.sources, b.sources);
-}
-
-export function hashStreamBucketDataSource(hasher: StableHasher, source: StreamBucketDataSource): void {
-  hasher.addHash(source.hashCode);
-  streamDataSourceSetEquality.hash(hasher, source.sources);
-}
-
-const streamDataSourceEquality: Equality<StreamDataSource> = {
-  equals: streamDataSourcesEqual,
-  hash: hashStreamDataSource
+export const streamDataSourceEquality: Equality<StreamDataSource> = {
+  hash(hasher, value) {
+    hasher.addHash(value.hashCode);
+  },
+  equals(a, b) {
+    return (
+      a === b ||
+      (tableProcessorsEqual(a, b) &&
+        a.outputTableName == b.outputTableName &&
+        columnSourceListEquality(a, b).equals(a.columns, b.columns))
+    );
+  }
 };
 
 const streamDataSourceSetEquality = unorderedEquality(streamDataSourceEquality);
-
-function streamDataSourcesEqual(a: StreamDataSource, b: StreamDataSource): boolean {
-  return (
-    tableProcessorsEqual(a, b) &&
-    a.outputTableName == b.outputTableName &&
-    listEquals(a.columns, b.columns, (left, right) => columnSourcesEqual(left, right, a, b))
-  );
-}
-
-function hashStreamDataSource(hasher: StableHasher, source: StreamDataSource): void {
-  hashTableProcessor(hasher, source);
-  hashOptionalString(hasher, source.outputTableName);
-  hashList(hasher, source.columns, (nested, column) => hashColumnSource(nested, column, source));
-}
 
 function tableProcessorsEqual(a: TableProcessor, b: TableProcessor): boolean {
   return (
     a.hashCode == b.hashCode &&
     a.sourceTable.equals(b.sourceTable) &&
     tableValuedFunctionListEquality.equals(a.tableValuedFunctions, b.tableValuedFunctions) &&
-    listEquals(a.filters, b.filters, (left, right) => expressionsEqual(left, right, a, b)) &&
-    listEquals(a.parameters, b.parameters, (left, right) => expressionsEqual(left.expr, right.expr, a, b))
+    expressionListEquality(a, b).equals(a.filters, b.filters) &&
+    partitionKeyListEquality(a, b).equals(a.parameters, b.parameters)
   );
-}
-
-function hashTableProcessor(hasher: StableHasher, source: TableProcessor): void {
-  hasher.addHash(source.hashCode);
-  source.sourceTable.buildHash(hasher);
-  tableValuedFunctionListEquality.hash(hasher, source.tableValuedFunctions);
-  hashList(hasher, source.filters, (nested, expression) => hashExpression(nested, expression, source));
-  hashList(hasher, source.parameters, (nested, parameter) => hashExpression(nested, parameter.expr, source));
 }
 
 const tableValuedFunctionEquality: Equality<TableProcessorTableValuedFunction> = {
@@ -82,27 +65,29 @@ function hashTableValuedFunction(hasher: StableHasher, fn: TableProcessorTableVa
   columnParameterExpressionListEquality.hash(hasher, fn.functionInputs);
 }
 
-function columnSourcesEqual(
-  a: ColumnSource,
-  b: ColumnSource,
-  sourceA: TableProcessor,
-  sourceB: TableProcessor
-): boolean {
-  if (a == 'star' || b == 'star') {
-    return a == b;
-  }
+function columnSourceEquality(sourceA: TableProcessor, sourceB: TableProcessor): Equality<ColumnSource> {
+  return {
+    hash(hasher, value) {
+      if (value == 'star') {
+        hasher.addHash(0);
+      } else {
+        hasher.addHash(1);
+        hasher.addString(value.alias);
+        hashExpression(hasher, value.expr, sourceA);
+      }
+    },
+    equals(a, b) {
+      if (a == 'star' || b == 'star') {
+        return a == b;
+      }
 
-  return a.alias == b.alias && expressionsEqual(a.expr, b.expr, sourceA, sourceB);
+      return a.alias == b.alias && expressionsEqual(a.expr, b.expr, sourceA, sourceB);
+    }
+  };
 }
 
-function hashColumnSource(hasher: StableHasher, column: ColumnSource, source: TableProcessor): void {
-  if (column == 'star') {
-    hasher.addHash(0);
-  } else {
-    hasher.addHash(1);
-    hasher.addString(column.alias);
-    hashExpression(hasher, column.expr, source);
-  }
+function columnSourceListEquality(sourceA: TableProcessor, sourceB: TableProcessor): Equality<Iterable<ColumnSource>> {
+  return listEquality(columnSourceEquality(sourceA, sourceB));
 }
 
 const columnParameterExpressionEquality: Equality<SqlExpression<ColumnSqlParameterValue>> = {
@@ -141,6 +126,38 @@ function hashExpression(
 ): void {
   hasher.addString(ExpressionToSqlite.toSqlite(expression));
   planInputListEquality.hash(hasher, expressionInputs(expression, source));
+}
+
+function expressionEquality(
+  sourceA: TableProcessor,
+  sourceB: TableProcessor
+): Equality<SqlExpression<TableProcessorData>> {
+  return {
+    hash(hasher, value) {
+      hashExpression(hasher, value, sourceA);
+    },
+    equals(a, b) {
+      return expressionsEqual(a, b, sourceA, sourceB);
+    }
+  };
+}
+
+function expressionListEquality(
+  sourceA: TableProcessor,
+  sourceB: TableProcessor
+): Equality<Iterable<SqlExpression<TableProcessorData>>> {
+  return listEquality(expressionEquality(sourceA, sourceB));
+}
+
+function partitionKeyListEquality(sourceA: TableProcessor, sourceB: TableProcessor) {
+  return listEquality({
+    hash(hasher, value: { expr: SqlExpression<TableProcessorData> }) {
+      hashExpression(hasher, value.expr, sourceA);
+    },
+    equals(a: { expr: SqlExpression<TableProcessorData> }, b: { expr: SqlExpression<TableProcessorData> }) {
+      return expressionsEqual(a.expr, b.expr, sourceA, sourceB);
+    }
+  });
 }
 
 type PlanExpressionInput =
@@ -246,21 +263,4 @@ class FindColumnInputs extends RecursiveExpressionVisitor<ColumnSqlParameterValu
 
 function isTableValuedFunctionOutput(value: TableProcessorData): value is TableProcessorTableValuedFunctionOutput {
   return 'function' in value;
-}
-
-function listEquals<T>(a: readonly T[], b: readonly T[], equals: (a: T, b: T) => boolean): boolean {
-  return listEquality({ equals, hash: () => {} }).equals(a, b);
-}
-
-function hashList<T>(hasher: StableHasher, values: readonly T[], hash: (hasher: StableHasher, value: T) => void) {
-  listEquality({ equals: Object.is, hash }).hash(hasher, values);
-}
-
-function hashOptionalString(hasher: StableHasher, value: string | undefined): void {
-  if (value == null) {
-    hasher.addHash(0);
-  } else {
-    hasher.addHash(1);
-    hasher.addString(value);
-  }
 }
