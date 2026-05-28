@@ -4,6 +4,7 @@ import {
   ScopedParameterLookup,
   UnscopedParameterLookup
 } from './BucketParameterQuerier.js';
+import { StableHasher } from './compiler/equality.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupDefinitionId } from './HydrationState.js';
 import { SourceTableRef } from './SourceTableRef.js';
@@ -119,6 +120,9 @@ export interface BucketDataSource {
   resolveResultSets(schema: SourceSchema, tables: Record<string, Record<string, ColumnDefinition>>): void;
 
   debugWriteOutputTables(result: Record<string, { query: string }[]>): void;
+
+  hash(hasher: StableHasher): void;
+  equals(other: BucketDataSource): boolean;
 }
 
 /**
@@ -148,6 +152,9 @@ export interface ParameterIndexLookupCreator {
 
   /** Whether the table possibly affects the buckets resolved by this source. */
   tableSyncsParameters(table: SourceTableRef): boolean;
+
+  hash(hasher: StableHasher): void;
+  equals(other: ParameterIndexLookupCreator): boolean;
 }
 
 export interface DebugMergedSource extends HydratedBucketSource {

@@ -79,13 +79,29 @@ export class BucketDefinitionMapping {
     const parameterLookups: Record<string, ParameterIndexId> = {};
 
     for (let bucketSource of newConfig.config.bucketDataSources) {
-      const compatibleId = existing.map((c) => c.mapping.bucketSourceId(bucketSource)).find((id) => id != null);
+      const compatibleId = existing
+        .map((c) => {
+          const def = c.syncConfig.config.getCompatibleBucketSource(bucketSource);
+          if (def == null) {
+            return null;
+          }
+          return c.mapping.bucketSourceId(def);
+        })
+        .find((id) => id != null);
       const id = compatibleId ?? generateNewBucketDefinitionId();
       definitions[bucketSource.uniqueName] = id;
     }
 
     for (let parameterLookup of newConfig.config.bucketParameterLookupSources) {
-      const compatibleId = existing.map((c) => c.mapping.parameterLookupId(parameterLookup)).find((id) => id != null);
+      const compatibleId = existing
+        .map((c) => {
+          const def = c.syncConfig.config.getCompatibleParameterIndexLookupCreator(parameterLookup);
+          if (def == null) {
+            return null;
+          }
+          return c.mapping.parameterLookupId(def);
+        })
+        .find((id) => id != null);
       const id = compatibleId ?? generateNewParameterIndexId();
       parameterLookups[parameterLookupKey(parameterLookup.sourceId)] = id;
     }
@@ -111,14 +127,6 @@ export class BucketDefinitionMapping {
     return defId;
   }
 
-  /**
-   * Given a BucketDataSource within a different SyncConfig, return a BucketDefinitionId if one is found with the same definition.
-   */
-  getCompatibleBucketSourceId(source: BucketDataSource): BucketDefinitionId | null {
-    // FIXME: Implement this
-    return this.definitions[source.uniqueName] ?? null;
-  }
-
   allBucketDefinitionIds(): BucketDefinitionId[] {
     return Object.values(this.definitions);
   }
@@ -134,15 +142,6 @@ export class BucketDefinitionMapping {
       throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);
     }
     return defId;
-  }
-
-  /**
-   * Given a ParameterIndexLookupCreator within a different SyncConfig, return a ParameterIndexId if one is found with the same definition.
-   */
-  getCompatibleParameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId | null {
-    // FIXME: Implement this
-    const key = parameterLookupKey(source.sourceId);
-    return this.parameterLookupMapping[key] ?? null;
   }
 
   serialize(): SyncConfigDefinition['rule_mapping'] {

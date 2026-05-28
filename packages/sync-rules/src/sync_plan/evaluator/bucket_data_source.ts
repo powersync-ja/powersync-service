@@ -1,5 +1,6 @@
 import { BucketDataSource } from '../../BucketSource.js';
 import { idFromData } from '../../cast.js';
+import { StableHasher } from '../../compiler/equality.js';
 import { ColumnDefinition } from '../../ExpressionType.js';
 import { SourceTableRef } from '../../SourceTableRef.js';
 import { TablePattern } from '../../TablePattern.js';
@@ -44,6 +45,19 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
 
   get uniqueName(): string {
     return this.source.uniqueName;
+  }
+
+  equals(other: BucketDataSource): boolean {
+    if (!(other instanceof PreparedStreamBucketDataSource)) {
+      return false;
+    }
+    // FIME: implement this
+    return other === this;
+  }
+
+  hash(hasher: StableHasher): void {
+    // FIME: implement this
+    hasher.addString(this.uniqueName);
   }
 
   get bucketParameters(): string[] {

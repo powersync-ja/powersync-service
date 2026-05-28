@@ -34,6 +34,7 @@ export * from './types/time.js';
 export * from './utils.js';
 
 export * from './compiler/compiler.js';
+export { HashMap, HashSet } from './compiler/equality.js';
 export { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
 export { nodeSqliteExpressionEngine } from './sync_plan/engine/sqlite.js';
 export { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';

@@ -16,6 +16,7 @@ import { isJsonValue, normalizeParameterValue } from '../utils.js';
 
 import { NodeLocation } from 'pgsql-ast-parser';
 import { ParameterIndexLookupCreator } from '../BucketSource.js';
+import { StableHasher } from '../compiler/equality.js';
 import { HydrationState, ParameterLookupDefinitionId } from '../HydrationState.js';
 import { SourceTableRef } from '../SourceTableRef.js';
 import { SubqueryEvaluator } from './parameter.js';
@@ -544,6 +545,22 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
       lookupName: this.streamName,
       queryId: this.defaultQueryId
     };
+  }
+
+  hash(hasher: StableHasher): void {
+    // FIXME: Implement this
+    hasher.addString(this.sourceId.lookupName);
+    hasher.addString(this.sourceId.queryId);
+    this.parameterTable.buildHash(hasher);
+  }
+
+  equals(other: ParameterIndexLookupCreator): boolean {
+    if (!(other instanceof SubqueryParameterLookupSource)) {
+      return false;
+    }
+
+    // FIXME: Implement this properly
+    return this === other;
   }
 
   getSourceTables(): Set<TablePattern> {

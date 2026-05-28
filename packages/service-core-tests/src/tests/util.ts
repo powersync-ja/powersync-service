@@ -41,6 +41,14 @@ const EMPTY_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
   },
   tableSyncsParameters(_table: SourceTableRef): boolean {
     return false;
+  },
+
+  equals(other) {
+    return other === this;
+  },
+  hash(hasher) {
+    hasher.addString(this.sourceId.lookupName);
+    hasher.addString(this.sourceId.queryId);
   }
 };
 
