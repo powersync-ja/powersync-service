@@ -85,6 +85,22 @@ describe('sqlite conversion', () => {
         ]);
       });
 
+      test('iif requires exactly three args', () => {
+        expect(translate('iif(1, 2)')[1]).toStrictEqual([
+          {
+            message: 'Expected at least 3 arguments',
+            source: 'iif(1, 2)'
+          }
+        ]);
+
+        expect(translate('iif(1, 2, 3, 4)')[1]).toStrictEqual([
+          {
+            message: 'Expected at most 3 arguments',
+            source: 'iif(1, 2, 3, 4)'
+          }
+        ]);
+      });
+
       test.skip('must be even', () => {
         expect(translate("json_object('foo')")[1]).toStrictEqual([
           {

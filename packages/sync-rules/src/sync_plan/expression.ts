@@ -143,7 +143,7 @@ export const supportedFunctions: Record<string, ArgumentCount> = {
   hex: 1,
   ifnull: { min: 2 },
   //if: { min: 2 },
-  iif: { min: 2 },
+  iif: 3,
   instr: 2,
   length: 1,
   // TODO: Establish defaults for case sensitivity, changing escape characters, ICU support.
