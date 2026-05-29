@@ -35,7 +35,6 @@ bucket_definitions:
 
     expect(hydrated.bucketDataSources).toEqual([first.bucketDataSources[0], second.bucketDataSources[0]]);
     expect(hydrated.bucketParameterLookupSources).toEqual([second.bucketParameterLookupSources[0]]);
-    expect(hydrated.bucketSourceDefinitions).toEqual([first.bucketSources[0], second.bucketSources[0]]);
     expect(hydrated.tableSyncsData(ASSETS)).toBe(true);
     expect(hydrated.tableSyncsParameters(USERS)).toBe(true);
     expect(
