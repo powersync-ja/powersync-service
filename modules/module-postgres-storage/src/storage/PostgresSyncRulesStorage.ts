@@ -114,7 +114,7 @@ export class PostgresSyncRulesStorage
      * Parse sync config if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncConfig(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -206,7 +206,7 @@ export class PostgresSyncRulesStorage
     const writer = new PostgresBucketBatch({
       logger: options.logger ?? this.logger,
       db: this.db,
-      sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
+      sync_rules: this.sync_rules.parsed(options).hydratedSyncConfig(),
       group_id: this.group_id,
       slot_name: this.slot_name,
       last_checkpoint_lsn: checkpoint_lsn,

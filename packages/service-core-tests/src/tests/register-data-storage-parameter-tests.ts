@@ -41,7 +41,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -107,7 +107,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -178,7 +178,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const table = await test_utils.resolveTestTable(writer, 'todos', ['id', 'list_id'], config);
@@ -265,7 +265,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -333,7 +333,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -400,7 +400,7 @@ bucket_definitions:
         }
       )
     );
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -458,7 +458,7 @@ bucket_definitions:
         }
       )
     );
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -552,7 +552,7 @@ bucket_definitions:
         }
       )
     );
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -654,7 +654,7 @@ bucket_definitions:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -745,7 +745,7 @@ streams:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -816,7 +816,7 @@ streams:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'b', ['id'], config);
@@ -865,7 +865,7 @@ streams:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const tableB = await test_utils.resolveTestTable(writer, 'b', ['id'], config);
@@ -995,7 +995,7 @@ streams:
     const bucketStorage = factory.getInstance(syncRules);
     const parsedSyncRules = syncRules.parsed(test_utils.PARSE_OPTIONS);
     const hydrationState = parsedSyncRules.hydrationState;
-    const syncConfig = parsedSyncRules.sync_rules.config;
+    const syncConfig = parsedSyncRules.syncConfigWithErrors.config;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const paramATable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);
@@ -1091,7 +1091,7 @@ streams:
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const tableB = await test_utils.resolveTestTable(writer, 'b', ['id'], config, 1);

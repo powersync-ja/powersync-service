@@ -19,7 +19,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 
   constructor(
     public readonly id: number,
-    public readonly sync_rules: SyncConfigWithErrors,
+    public readonly syncConfigWithErrors: SyncConfigWithErrors,
     public readonly slot_name: string,
     private readonly mapping: BucketDefinitionMapping | null,
     private readonly storageConfig: StorageConfig
@@ -30,7 +30,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
       }
       this.hydrationState = new MongoHydrationState(this.mapping, this.id);
     } else if (
-      !this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
+      !this.syncConfigWithErrors.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
       !this.storageConfig.versionedBuckets
     ) {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
@@ -39,8 +39,8 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     }
   }
 
-  hydratedSyncRules(): HydratedSyncConfig {
-    return this.sync_rules.config.hydrate({ hydrationState: this.hydrationState });
+  hydratedSyncConfig(): HydratedSyncConfig {
+    return this.syncConfigWithErrors.config.hydrate({ hydrationState: this.hydrationState });
   }
 }
 

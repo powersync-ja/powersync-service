@@ -46,7 +46,7 @@ export async function getSyncRulesStatus(
   let persisted: storage.PersistedSyncRules;
   try {
     persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
-    parsed = persisted.sync_rules;
+    parsed = persisted.syncConfigWithErrors;
   } catch (e) {
     return {
       content: include_content ? sync_rules.sync_rules_content : undefined,

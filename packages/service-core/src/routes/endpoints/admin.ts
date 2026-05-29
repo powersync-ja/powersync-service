@@ -136,7 +136,7 @@ export const reprocess = routeDefinition({
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
     const new_rules = await activeBucketStorage.updateSyncRules(
-      storage.updateSyncRulesFromYaml(active.sync_rules.config.content, {
+      storage.updateSyncRulesFromYaml(active.syncConfigWithErrors.config.content, {
         // This sync config already passed validation. But if the config is not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true
@@ -176,13 +176,13 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesConten
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
     return {
       ...this,
-      sync_rules: SqlSyncRules.fromYaml(this.sync_rules_content, {
+      syncConfigWithErrors: SqlSyncRules.fromYaml(this.sync_rules_content, {
         ...this.apiHandler.getParseSyncRulesOptions(),
         schema: this.schema
       }),
       hydrationState: DEFAULT_HYDRATION_STATE,
-      hydratedSyncRules() {
-        return this.sync_rules.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      hydratedSyncConfig() {
+        return this.syncConfigWithErrors.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
       }
     };
   }

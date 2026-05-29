@@ -38,7 +38,7 @@ abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncR
 
     return new MongoPersistedSyncRules(
       parsed.id,
-      parsed.sync_rules,
+      parsed.syncConfigWithErrors,
       parsed.slot_name,
       storageConfig.incrementalReprocessing ? this.mapping : null,
       storageConfig
