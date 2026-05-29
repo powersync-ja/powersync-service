@@ -28,7 +28,7 @@ function defineReplicaIdentityTests({ factory, storageVersion }: StorageVersionT
   test('REPLICA IDENTITY FULL resolves storeCurrentData=false', async () => {
     await using context = await openContext();
     const { pool } = context;
-    await pool.query(`CREATE TABLE test_full (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), description TEXT)`);
+    await pool.query(`CREATE TABLE test_full (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), description TEXT)`);
     await pool.query(`ALTER TABLE test_full REPLICA IDENTITY FULL`);
 
     await context.updateSyncRules(`
@@ -45,7 +45,7 @@ bucket_definitions:
   test('REPLICA IDENTITY DEFAULT resolves storeCurrentData=true', async () => {
     await using context = await openContext();
     const { pool } = context;
-    await pool.query(`CREATE TABLE test_default (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), description TEXT)`);
+    await pool.query(`CREATE TABLE test_default (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), description TEXT)`);
 
     await context.updateSyncRules(`
 bucket_definitions:
@@ -62,7 +62,7 @@ bucket_definitions:
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
-      `CREATE TABLE test_index (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), email TEXT NOT NULL UNIQUE, description TEXT)`
+      `CREATE TABLE test_index (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), email TEXT NOT NULL UNIQUE, description TEXT)`
     );
     await pool.query(`ALTER TABLE test_index REPLICA IDENTITY USING INDEX test_index_email_key`);
 
@@ -81,7 +81,7 @@ bucket_definitions:
   test('REPLICA IDENTITY NOTHING resolves storeCurrentData=true', async () => {
     await using context = await openContext();
     const { pool } = context;
-    await pool.query(`CREATE TABLE test_nothing (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), description TEXT)`);
+    await pool.query(`CREATE TABLE test_nothing (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), description TEXT)`);
     await pool.query(`ALTER TABLE test_nothing REPLICA IDENTITY NOTHING`);
 
     await context.updateSyncRules(`
@@ -99,7 +99,7 @@ bucket_definitions:
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
-      `CREATE TABLE test_full (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), description TEXT, value INT)`
+      `CREATE TABLE test_full (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), description TEXT, value INT)`
     );
     await pool.query(`ALTER TABLE test_full REPLICA IDENTITY FULL`);
 
@@ -123,7 +123,7 @@ bucket_definitions:
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
-      `CREATE TABLE test_full (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), description TEXT, counter INT DEFAULT 0)`
+      `CREATE TABLE test_full (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), description TEXT, counter INT DEFAULT 0)`
     );
     await pool.query(`ALTER TABLE test_full REPLICA IDENTITY FULL`);
 
@@ -157,7 +157,7 @@ bucket_definitions:
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
-      `CREATE TABLE test_full_toast (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, description TEXT)`
+      `CREATE TABLE test_full_toast (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), name TEXT, description TEXT)`
     );
     await pool.query(`ALTER TABLE test_full_toast REPLICA IDENTITY FULL`);
 
@@ -197,9 +197,9 @@ bucket_definitions:
   test('mixed FULL and DEFAULT tables resolve independently and both replicate', async () => {
     await using context = await openContext();
     const { pool } = context;
-    await pool.query(`CREATE TABLE test_mixed_full (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), data TEXT)`);
+    await pool.query(`CREATE TABLE test_mixed_full (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), data TEXT)`);
     await pool.query(`ALTER TABLE test_mixed_full REPLICA IDENTITY FULL`);
-    await pool.query(`CREATE TABLE test_mixed_default (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), data TEXT)`);
+    await pool.query(`CREATE TABLE test_mixed_default (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), data TEXT)`);
 
     await context.updateSyncRules(`
 bucket_definitions:
@@ -232,7 +232,7 @@ bucket_definitions:
   test('changing REPLICA IDENTITY DEFAULT->FULL updates storeCurrentData (catalog-scan path)', async () => {
     await using context = await openContext();
     const { pool } = context;
-    await pool.query(`CREATE TABLE test_changeable (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), description TEXT)`);
+    await pool.query(`CREATE TABLE test_changeable (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), description TEXT)`);
 
     await context.updateSyncRules(`
 bucket_definitions:
@@ -252,7 +252,7 @@ bucket_definitions:
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
-      `CREATE TABLE test_mid_stream (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), description TEXT, value INT)`
+      `CREATE TABLE test_mid_stream (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), description TEXT, value INT)`
     );
 
     await context.updateSyncRules(`
@@ -312,7 +312,7 @@ bucket_definitions:
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
-      `CREATE TABLE test_revert (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, description TEXT)`
+      `CREATE TABLE test_revert (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), name TEXT, description TEXT)`
     );
     await pool.query(`ALTER TABLE test_revert REPLICA IDENTITY FULL`);
 
