@@ -16,6 +16,7 @@ import {
   mergeDataSources,
   mergeParameterIndexLookupCreators,
   ParameterIndexLookupCreator,
+  parameterLookupScopeKey,
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
@@ -44,8 +45,16 @@ export interface MatchingSources {
  * The persisted state specifically affects bucket names, as well as V3+ storage structure.
  */
 export class HydratedSyncConfig {
-  bucketSources: HydratedBucketSource[] = [];
+  /**
+   * These are used by queriers, and do not support merging across multiple SyncConfigs.
+   */
+  private bucketSources: HydratedBucketSource[] = [];
+
   eventDescriptors: SqlEventDescriptor[] = [];
+
+  /**
+   * Only a single compatibility context is supported across all merged SyncConfigs.
+   */
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
   /**
@@ -61,7 +70,11 @@ export class HydratedSyncConfig {
    */
   readonly bucketDataSources: BucketDataSource[];
   readonly bucketParameterLookupSources: ParameterIndexLookupCreator[];
-  readonly bucketSourceDefinitions: BucketSource[];
+
+  /**
+   * These are used by queriers, and do not support merging across multiple SyncConfigs.
+   */
+  readonly #bucketSourceDefinitions: BucketSource[];
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
@@ -87,15 +100,11 @@ export class HydratedSyncConfig {
 
     this.bucketDataSources = uniqueBy(
       definitions.flatMap((definition) => definition.bucketDataSources),
-      (source) => hydrationState.getBucketSourceScope(source).key
+      (source) => hydrationState.getBucketSourceScope(source).bucketPrefix
     );
     this.bucketParameterLookupSources = uniqueBy(
       definitions.flatMap((definition) => definition.bucketParameterLookupSources),
-      (source) => hydrationState.getParameterIndexLookupScope(source).key
-    );
-    this.bucketSourceDefinitions = uniqueBy(
-      definitions.flatMap((definition) => definition.bucketSources),
-      (source) => source.name
+      (source) => parameterLookupScopeKey(hydrationState.getParameterIndexLookupScope(source))
     );
 
     this.innerEvaluateRow = mergeDataSources(hydrationState, this.bucketDataSources).evaluateRow;
@@ -106,7 +115,20 @@ export class HydratedSyncConfig {
 
     this.eventDescriptors = definitions.flatMap((definition) => definition.eventDescriptors);
 
-    this.bucketSources = this.bucketSourceDefinitions.map((source) => source.hydrate(params.createParams));
+    if (definitions.length == 1) {
+      this.#bucketSourceDefinitions = definitions[0].bucketSources;
+      this.bucketSources = this.#bucketSourceDefinitions.map((source) => source.hydrate(params.createParams));
+    } else {
+      // We do not support merging bucket sources across multiple definitions - these are always used with one
+      // SyncConfig at a time.
+      this.#bucketSourceDefinitions = [];
+      this.bucketSources = [];
+    }
+  }
+
+  get bucketSourceDefinitions() {
+    this.assertSingleSourceDefinition('bucketSourceDefinitions');
+    return this.#bucketSourceDefinitions;
   }
 
   // These methods do not depend on hydration, so we can multiplex them across definitions.
@@ -227,9 +249,7 @@ export class HydratedSyncConfig {
   }
 
   getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
-    if (this.sourceDefinitions.length != 1) {
-      throw new Error('getBucketParameterQuerier() is not supported for HydratedSyncRules with multiple SyncConfigs');
-    }
+    this.assertSingleSourceDefinition('getBucketParameterQuerier()');
 
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
@@ -246,6 +266,13 @@ export class HydratedSyncConfig {
 
     const querier = mergeBucketParameterQueriers(queriers);
     return { querier, errors };
+  }
+
+  private assertSingleSourceDefinition(debugName: string) {
+    // We may split the types in the future to enforce this on a type level instead of runtime level
+    if (this.sourceDefinitions.length != 1) {
+      throw new Error(`${debugName} is not supported for HydratedSyncRules with multiple SyncConfigs`);
+    }
   }
 }
 
