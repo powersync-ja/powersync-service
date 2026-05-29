@@ -304,4 +304,56 @@ bucket_definitions:
     expect(after?.storeCurrentData).toBe(false);
     expect(after?.snapshotComplete).toBe(true);
   });
+
+  test('reverting REPLICA IDENTITY FULL->DEFAULT recovers an unchanged TOAST value', async () => {
+    // Reverse-direction safety check: while FULL no current_data copy is kept, so after reverting to
+    // DEFAULT a partial UPDATE (unchanged TOAST omitted, old tuple carries only the key) cannot be
+    // completed from a stored copy. The incomplete row must trigger a targeted resnapshot.
+    await using context = await openContext();
+    const { pool } = context;
+    await pool.query(
+      `CREATE TABLE test_revert (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT, description TEXT)`
+    );
+    await pool.query(`ALTER TABLE test_revert REPLICA IDENTITY FULL`);
+
+    await context.updateSyncRules(`
+bucket_definitions:
+  global:
+    data:
+      - SELECT id, name, description FROM test_revert
+`);
+    await context.initializeReplication();
+    expect((await resolvedTable(context, 'test_revert'))?.storeCurrentData).toBe(false);
+
+    // Must be > 8kb after compression to be stored out-of-line (TOASTed). Random hex does not compress.
+    const largeDescription = crypto.randomBytes(20_000).toString('hex');
+    const [{ id }] = pgwireRows(
+      await pool.query({
+        statement: `INSERT INTO test_revert(name, description) VALUES('test1', $1) RETURNING id`,
+        params: [{ type: 'varchar', value: largeDescription }]
+      })
+    );
+    // Process the INSERT. No current_data copy is retained while the table is FULL.
+    let data = await context.getBucketData('global[]');
+    expect(data.at(-1)).toMatchObject(putOp('test_revert', { id, name: 'test1', description: largeDescription }));
+
+    // pgoutput sends the new Relation message lazily, on the next DML rather than at ALTER time.
+    await pool.query(`ALTER TABLE test_revert REPLICA IDENTITY DEFAULT`);
+
+    // Update only `name`; `description` is unchanged, so its TOAST value is omitted from the new tuple,
+    // and DEFAULT means the old tuple carries only the primary key. With no stored copy from the FULL
+    // era, the row is incomplete -> a targeted resnapshot must repair it.
+    await pool.query(`UPDATE test_revert SET name = 'test2' WHERE id = '${id}'`);
+
+    data = await context.getBucketData('global[]');
+    // The recovered final state must still carry the complete row, including the unchanged TOAST value.
+    expect(data.findLast((op) => op.object_id === id)).toMatchObject(
+      putOp('test_revert', { id, name: 'test2', description: largeDescription })
+    );
+
+    // The table is now back to storeCurrentData=true, without a re-snapshot of the whole table.
+    const reverted = await resolvedTable(context, 'test_revert');
+    expect(reverted?.storeCurrentData).toBe(true);
+    expect(reverted?.snapshotComplete).toBe(true);
+  });
 }

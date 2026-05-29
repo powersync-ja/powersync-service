@@ -150,7 +150,7 @@ export class PostgresBucketBatch
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const syncRules = options.syncRules ?? this.sync_rules;
     const { connection_id, source } = options;
-    const { schema, name: table, objectId, replicaIdColumns, connectionTag, replicationIdentity } = source;
+    const { schema, name: table, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
@@ -158,12 +158,6 @@ export class PostgresBucketBatch
       type_oid: typeof column.typeId !== 'undefined' ? Number(column.typeId) : column.typeId
     }));
 
-    // REPLICA IDENTITY FULL always sends complete rows, so no current_data copy is needed. The identity
-    // may be undefined for sources that don't report one; in that case persist NULL ("unresolved", read
-    // back as true) and leave it untouched on update, so a later resolution with a known identity can
-    // set it. Both the insert and update branches below apply this guard.
-    const storeCurrentData = replicationIdentity !== 'full';
-    const persistedStoreCurrentData = replicationIdentity != null ? storeCurrentData : null;
     return this.db.transaction(async (db) => {
       let sourceTableRow: SourceTableDecoded | null;
       if (objectId != null) {
@@ -200,6 +194,7 @@ export class PostgresBucketBatch
       }
 
       if (sourceTableRow == null) {
+        const { persistedValue } = storage.resolveStoreCurrentData(sendsCompleteRows);
         const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
         sourceTableRow = await db.sql`
           INSERT INTO
@@ -222,23 +217,29 @@ export class PostgresBucketBatch
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
               ${{ type: 'jsonb', value: normalizedReplicaIdColumns }},
-              ${{ type: 'bool', value: persistedStoreCurrentData }}
+              ${{ type: 'bool', value: persistedValue }}
             )
           RETURNING
             *
         `
           .decoded(models.SourceTable)
           .first();
-      } else if (replicationIdentity != null && (sourceTableRow.store_current_data ?? true) !== storeCurrentData) {
-        // Replica identity changed since the table was first resolved.
-        await db.sql`
-          UPDATE source_tables
-          SET
-            store_current_data = ${{ type: 'bool', value: storeCurrentData }}
-          WHERE
-            id = ${{ type: 'varchar', value: sourceTableRow.id }}
-        `.execute();
-        sourceTableRow.store_current_data = storeCurrentData;
+      } else {
+        const { changed, value } = storage.resolveStoreCurrentData(
+          sendsCompleteRows,
+          sourceTableRow.store_current_data
+        );
+        if (changed) {
+          // Row-completeness changed since first resolved (e.g. ALTER TABLE ... REPLICA IDENTITY).
+          await db.sql`
+            UPDATE source_tables
+            SET
+              store_current_data = ${{ type: 'bool', value }}
+            WHERE
+              id = ${{ type: 'varchar', value: sourceTableRow.id }}
+          `.execute();
+          sourceTableRow.store_current_data = value;
+        }
       }
 
       const sourceTable = new storage.SourceTable({

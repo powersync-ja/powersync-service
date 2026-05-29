@@ -9,10 +9,13 @@ import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util
  * Tests for the per-table `storeCurrentData` flag in MongoDB storage (both v1 and v3).
  *
  * Two things are exercised:
- *  1. `resolveTables` computes and persists `storeCurrentData = replicationIdentity !== 'full'`
- *     (and leaves the persisted value untouched when no replica identity is reported).
+ *  1. `resolveTables` computes and persists `storeCurrentData = !sendsCompleteRows`
+ *     (and leaves the persisted value untouched when the source doesn't report completeness).
  *  2. A batch honours the flag: when `storeCurrentData` is false, the row payload is NOT kept in
  *     the current_data collection, while the bucket data is still produced as usual.
+ *
+ * The mapping from a source's replica identity to `sendsCompleteRows` is a Postgres concern and is
+ * covered in module-postgres; here we only exercise the storage layer's boolean handling.
  */
 
 const SYNC_RULES = `
@@ -22,16 +25,14 @@ bucket_definitions:
       - SELECT id, description FROM "%"
 `;
 
-type ReplicationIdentity = storage.SourceEntityDescriptor['replicationIdentity'];
-
-function descriptor(name: string, replicationIdentity?: ReplicationIdentity): storage.SourceEntityDescriptor {
+function descriptor(name: string, sendsCompleteRows?: boolean): storage.SourceEntityDescriptor {
   return {
     connectionTag: storage.SourceTable.DEFAULT_TAG,
     objectId: name,
     schema: 'public',
     name,
     replicaIdColumns: [{ name: 'id', type: 'VARCHAR', typeId: 25 }],
-    replicationIdentity
+    sendsCompleteRows
   };
 }
 
@@ -76,52 +77,46 @@ async function storedRowPayload(
 }
 
 function registerStoreCurrentDataTests(storageVersion: number) {
-  test('resolveTables computes storeCurrentData from replicationIdentity', async () => {
+  test('resolveTables computes storeCurrentData from sendsCompleteRows', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
-    // REPLICA IDENTITY FULL always sends complete rows, so current_data is not needed.
-    const full = await writer.resolveTables({
+    // Sources that always send complete rows (e.g. Postgres REPLICA IDENTITY FULL) don't need current_data.
+    const complete = await writer.resolveTables({
       connection_id: 1,
-      source: descriptor('test_full', 'full'),
+      source: descriptor('test_complete', true),
       idGenerator: singleUseIdGenerator('6544e3899293153fa7b38301')
     });
-    expect(full.tables[0].storeCurrentData).toBe(false);
+    expect(complete.tables[0].storeCurrentData).toBe(false);
 
-    // Every other replica identity only sends partial/key data, so current_data is still needed.
-    for (const [name, identity, hex] of [
-      ['test_default', 'default', '6544e3899293153fa7b38302'],
-      ['test_index', 'index', '6544e3899293153fa7b38303'],
-      ['test_nothing', 'nothing', '6544e3899293153fa7b38304']
-    ] as const) {
-      const resolved = await writer.resolveTables({
-        connection_id: 1,
-        source: descriptor(name, identity),
-        idGenerator: singleUseIdGenerator(hex)
-      });
-      expect(resolved.tables[0].storeCurrentData).toBe(true);
-    }
+    // Sources that may send partial/key data still need current_data.
+    const partial = await writer.resolveTables({
+      connection_id: 1,
+      source: descriptor('test_partial', false),
+      idGenerator: singleUseIdGenerator('6544e3899293153fa7b38302')
+    });
+    expect(partial.tables[0].storeCurrentData).toBe(true);
   });
 
-  test('resolveTables without a replica identity keeps the persisted storeCurrentData', async () => {
+  test('resolveTables without reported completeness keeps the persisted storeCurrentData', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules);
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
-    // First resolution (snapshot path) reports FULL and persists storeCurrentData=false.
+    // First resolution (snapshot path) reports complete rows and persists storeCurrentData=false.
     const initial = await writer.resolveTables({
       connection_id: 1,
-      source: descriptor('test_full', 'full'),
+      source: descriptor('test_full', true),
       idGenerator: singleUseIdGenerator('6544e3899293153fa7b38301')
     });
     expect(initial.tables[0].storeCurrentData).toBe(false);
 
-    // A later resolution from the streaming relation path reports no replica identity. The persisted
+    // A later resolution reports no completeness info (sendsCompleteRows undefined). The persisted
     // value must be preserved (the flag must not be clobbered back to true).
     const reResolved = await writer.resolveTables({
       connection_id: 1,

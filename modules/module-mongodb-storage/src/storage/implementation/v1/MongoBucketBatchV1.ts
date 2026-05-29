@@ -40,20 +40,13 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
   async resolveTables(options: storage.ResolveTablesOptions): Promise<storage.ResolveTablesResult> {
     const syncRules = options.syncRules ?? this.sync_rules;
     const { connection_id, source } = options;
-    const { schema, name, objectId, replicaIdColumns, connectionTag, replicationIdentity } = source;
+    const { schema, name, objectId, replicaIdColumns, connectionTag, sendsCompleteRows } = source;
 
     const normalizedReplicaIdColumns = replicaIdColumns.map((column) => ({
       name: column.name,
       type: column.type,
       type_oid: column.typeId
     }));
-
-    // REPLICA IDENTITY FULL always sends complete rows, so no current_data copy is needed. The identity
-    // may be undefined for sources that don't report one; in that case persist `undefined` ("unresolved",
-    // read back as true) and leave it untouched on update, so a later resolution with a known identity
-    // can set it. Both the insert and update branches below apply this guard.
-    const storeCurrentData = replicationIdentity !== 'full';
-    const persistedStoreCurrentData = replicationIdentity != null ? storeCurrentData : undefined;
 
     let result: storage.ResolveTablesResult | null = null;
     await this.db.client.withSession(async (session) => {
@@ -71,6 +64,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
       let doc = await col.findOne(filter, { session });
       if (doc == null) {
+        const { persistedValue } = storage.resolveStoreCurrentData(sendsCompleteRows);
         doc = {
           _id: options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId(),
           group_id: this.group_id,
@@ -82,13 +76,16 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false,
           snapshot_status: undefined,
-          store_current_data: persistedStoreCurrentData
+          store_current_data: persistedValue ?? undefined
         };
         await col.insertOne(doc, { session });
-      } else if (replicationIdentity != null && (doc.store_current_data ?? true) !== storeCurrentData) {
-        // Replica identity changed since the table was first resolved.
-        await col.updateOne({ _id: doc._id }, { $set: { store_current_data: storeCurrentData } }, { session });
-        doc.store_current_data = storeCurrentData;
+      } else {
+        const { changed, value } = storage.resolveStoreCurrentData(sendsCompleteRows, doc.store_current_data);
+        if (changed) {
+          // Row-completeness changed since first resolved (e.g. ALTER TABLE ... REPLICA IDENTITY).
+          await col.updateOne({ _id: doc._id }, { $set: { store_current_data: value } }, { session });
+          doc.store_current_data = value;
+        }
       }
 
       const sourceTable = new storage.SourceTable({

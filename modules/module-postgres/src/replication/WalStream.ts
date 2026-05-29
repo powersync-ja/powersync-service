@@ -292,7 +292,8 @@ export class WalStream {
           schema: schema,
           objectId: relid,
           replicaIdColumns: cresult.replicationColumns,
-          replicationIdentity: cresult.replicationIdentity
+          // REPLICA IDENTITY FULL is the only identity that always sends the complete row.
+          sendsCompleteRows: cresult.replicationIdentity === 'full'
         },
         snapshot: false,
         referencedTypeIds: columnTypes
