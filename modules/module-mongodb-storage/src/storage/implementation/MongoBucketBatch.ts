@@ -1,5 +1,5 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { HydratedSyncRules, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
+import { HydratedSyncConfig, SqlEventDescriptor, SqliteRow, SqliteValue } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import {
@@ -41,7 +41,7 @@ const replicationMutex = new utils.Mutex();
 
 export interface MongoBucketBatchOptions {
   db: VersionedPowerSyncMongo;
-  syncRules: HydratedSyncRules;
+  syncRules: HydratedSyncConfig;
   groupId: number;
   slotName: string;
   syncConfigId?: bson.ObjectId | null;
@@ -72,7 +72,7 @@ export abstract class MongoBucketBatch
   private readonly client: mongo.MongoClient;
   public readonly db: VersionedPowerSyncMongo;
   public readonly session: mongo.ClientSession;
-  protected readonly sync_rules: HydratedSyncRules;
+  protected readonly sync_rules: HydratedSyncConfig;
 
   protected readonly group_id: number;
 

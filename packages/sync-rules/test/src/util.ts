@@ -9,6 +9,7 @@ import {
   DEFAULT_TAG,
   GetQuerierOptions,
   ParameterIndexLookupCreator,
+  ParameterLookupDefinitionId,
   ParameterLookupScope,
   RequestedStream,
   RequestParameters,
@@ -112,11 +113,10 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
 };
 
 export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
-  get defaultLookupScope(): ParameterLookupScope {
+  get sourceId(): ParameterLookupDefinitionId {
     return {
       lookupName: 'lookup',
-      queryId: '0',
-      source: EMPTY_PARAMETER_LOOKUP_SOURCE
+      queryId: '0'
     };
   },
   getSourceTables(): Set<TablePattern> {

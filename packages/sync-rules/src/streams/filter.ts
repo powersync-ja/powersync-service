@@ -16,7 +16,7 @@ import { isJsonValue, normalizeParameterValue } from '../utils.js';
 
 import { NodeLocation } from 'pgsql-ast-parser';
 import { ParameterIndexLookupCreator } from '../BucketSource.js';
-import { HydrationState, ParameterLookupScope } from '../HydrationState.js';
+import { HydrationState, ParameterLookupDefinitionId } from '../HydrationState.js';
 import { SourceTableRef } from '../SourceTableRef.js';
 import { SubqueryEvaluator } from './parameter.js';
 import { cartesianProduct } from './utils.js';
@@ -539,11 +539,10 @@ export class SubqueryParameterLookupSource implements ParameterIndexLookupCreato
     private streamName: string
   ) {}
 
-  public get defaultLookupScope(): ParameterLookupScope {
+  public get sourceId(): ParameterLookupDefinitionId {
     return {
       lookupName: this.streamName,
-      queryId: this.defaultQueryId,
-      source: this
+      queryId: this.defaultQueryId
     };
   }
 

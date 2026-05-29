@@ -4,7 +4,7 @@ import {
   CompatibilityEdition,
   CreateSourceParams,
   DEFAULT_HYDRATION_STATE,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   javaScriptExpressionEngine,
   PrecompiledSyncConfig,
   SyncConfig
@@ -15,7 +15,7 @@ import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
 interface SyncTest {
   engine: ScalarExpressionEngine;
   prepareWithoutHydration(yaml: string): SyncConfig;
-  prepareSyncStreams(yaml: string): HydratedSyncRules;
+  prepareSyncStreams(yaml: string): HydratedSyncConfig;
 }
 
 export const syncTest = test.extend<{ sync: SyncTest }>({

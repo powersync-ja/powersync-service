@@ -2,7 +2,7 @@ import {
   BucketParameterQuerier,
   BucketPriority,
   BucketSource,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   mergeBuckets,
   QuerierError,
   RequestedStream,
@@ -28,7 +28,7 @@ import { getIntersection, hasIntersection } from './util.js';
 export interface BucketChecksumStateOptions {
   syncContext: SyncContext;
   bucketStorage: BucketChecksumStateStorage;
-  syncRules: HydratedSyncRules;
+  syncRules: HydratedSyncConfig;
   tokenPayload: JwtPayload;
   syncRequest: util.StreamingSyncRequest;
   logger?: Logger;
@@ -285,7 +285,7 @@ export class BucketChecksumState {
       const streamNameToIndex = new Map<string, number>();
       this.streamNameToIndex = streamNameToIndex;
 
-      for (const source of this.parameterState.syncRules.definition.bucketSources) {
+      for (const source of this.parameterState.syncRules.bucketSourceDefinitions) {
         if (this.parameterState.isSubscribedToStream(source)) {
           streamNameToIndex.set(source.name, subscriptions.length);
 
@@ -416,7 +416,7 @@ export interface CheckpointUpdate {
 export class BucketParameterState {
   private readonly context: SyncContext;
   public readonly bucketStorage: BucketChecksumStateStorage;
-  public readonly syncRules: HydratedSyncRules;
+  public readonly syncRules: HydratedSyncConfig;
   public readonly syncParams: RequestParameters;
   private readonly querier: BucketParameterQuerier;
   /**
@@ -439,7 +439,7 @@ export class BucketParameterState {
   constructor(
     context: SyncContext,
     bucketStorage: BucketChecksumStateStorage,
-    syncRules: HydratedSyncRules,
+    syncRules: HydratedSyncConfig,
     tokenPayload: JwtPayload,
     request: util.StreamingSyncRequest,
     logger: Logger

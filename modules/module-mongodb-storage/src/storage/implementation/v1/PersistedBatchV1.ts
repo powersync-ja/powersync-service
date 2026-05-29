@@ -3,9 +3,8 @@ import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
 
-import { BucketDataSource } from '@powersync/service-sync-rules';
+import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import { mongoTableId } from '../../../utils/util.js';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { EMPTY_DATA } from '../MongoBucketBatchShared.js';
 import {
   BucketStateUpdate,

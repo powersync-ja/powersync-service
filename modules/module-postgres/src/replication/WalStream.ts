@@ -23,7 +23,7 @@ import * as pgwire from '@powersync/service-jpgwire';
 import {
   applyValueContext,
   CompatibilityContext,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   SqliteInputRow,
   SqliteInputValue,
   SqliteRow,
@@ -117,7 +117,7 @@ export const sendKeepAlive = async (db: pgwire.PgClient) => {
 };
 
 export class WalStream {
-  sync_rules: HydratedSyncRules;
+  sync_rules: HydratedSyncConfig;
   group_id: number;
 
   connection_id = 1;

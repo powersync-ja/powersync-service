@@ -18,7 +18,7 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { HydratedSyncRules } from '@powersync/service-sync-rules';
+import { HydratedSyncConfig } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { performance } from 'node:perf_hooks';
 import { MongoLSN } from '../common/MongoLSN.js';
@@ -74,7 +74,7 @@ export class ChangeStreamInvalidatedError extends DatabaseConnectionError {
 }
 
 export class ChangeStream {
-  sync_rules: HydratedSyncRules;
+  sync_rules: HydratedSyncConfig;
   group_id: number;
 
   connection_id = 1;

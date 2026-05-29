@@ -1,7 +1,7 @@
 import { describe, expect } from 'vitest';
 import {
   DEFAULT_HYDRATION_STATE,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   ParameterLookupRows,
   PrecompiledSyncConfig,
   ScopedParameterLookup,
@@ -397,7 +397,7 @@ streams:
         - SELECT * FROM comments WHERE issue_id = subscription.parameter('issue')
         - SELECT * FROM comments WHERE issue_id IN (SELECT id FROM issues WHERE owner_id = auth.user_id())
 `);
-    const streamSource = desc.definition.bucketSources[0];
+    const streamSource = desc.bucketSourceDefinitions[0];
     expect(streamSource.dataSources).toHaveLength(2);
 
     const rowResults = desc.evaluateRow({ sourceTable: COMMENTS, record: { id: 'c1', issue_id: 'i1' } });
@@ -405,10 +405,10 @@ streams:
     expect(rowResults[0].bucket).toBe('stream|0["i1"]');
     expect(rowResults[0].source).toBe(streamSource.dataSources[0]);
 
-    expect(desc.definition.bucketParameterLookupSources).toHaveLength(1);
+    expect(desc.bucketParameterLookupSources).toHaveLength(1);
     const parameterResults = desc.evaluateParameterRow(ISSUES, { id: 'i1', owner_id: 'u1' });
     expect(parameterResults).toHaveLength(1);
-    expect(parameterResults[0].lookup.source).toBe(desc.definition.bucketParameterLookupSources[0]);
+    expect(parameterResults[0].lookup.source).toBe(desc.bucketParameterLookupSources[0]);
 
     const { querier, errors } = desc.getBucketParameterQuerier({
       globalParameters: requestParameters({ sub: 'u1' }),
@@ -1170,7 +1170,7 @@ streams:
   });
 });
 
-function evaluateBucketIds(source: HydratedSyncRules, sourceTable: SourceTableRef, record: SqliteRow) {
+function evaluateBucketIds(source: HydratedSyncConfig, sourceTable: SourceTableRef, record: SqliteRow) {
   return source.evaluateRow({ sourceTable, record }).map((r) => r.bucket);
 }
 

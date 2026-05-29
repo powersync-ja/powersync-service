@@ -13,7 +13,7 @@ import {
 } from './BucketParameterQuerier.js';
 import { CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
 import { SqlRuleError } from './errors.js';
-import { BucketDataScope, ParameterLookupScope } from './HydrationState.js';
+import { BucketDataScope, ParameterLookupDefinitionId, ParameterLookupScope } from './HydrationState.js';
 import {
   BucketDataSource,
   BucketParameterQuerierSource,
@@ -335,11 +335,10 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
     this.querierDataSource = options.querierDataSource;
   }
 
-  public get defaultLookupScope(): ParameterLookupScope {
+  public get sourceId(): ParameterLookupDefinitionId {
     return {
       lookupName: this.descriptorName,
-      queryId: this.queryId,
-      source: this
+      queryId: this.queryId
     };
   }
 

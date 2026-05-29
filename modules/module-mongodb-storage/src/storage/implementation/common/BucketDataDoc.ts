@@ -1,5 +1,5 @@
 import { InternalOpId } from '@powersync/service-core';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { BucketDataProperties } from '../models.js';
 
 /**

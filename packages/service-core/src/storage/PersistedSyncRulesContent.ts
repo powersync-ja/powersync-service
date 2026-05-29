@@ -5,7 +5,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   ErrorLocation,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   HydrationState,
   javaScriptExpressionEngine,
   PrecompiledSyncConfig,
@@ -141,9 +141,9 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
     return {
       id: this.id,
       slot_name: this.slot_name,
-      sync_rules: config,
+      syncConfigWithErrors: config,
       hydrationState,
-      hydratedSyncRules: () => {
+      hydratedSyncConfig: () => {
         return config.config.hydrate({ hydrationState });
       }
     };
@@ -153,7 +153,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
     // defaultSchema is not relevant for the parsed version here
     const parsed = this.parsed({ defaultSchema: 'not_applicable' });
     return {
-      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed: parsed.sync_rules },
+      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed: parsed.syncConfigWithErrors },
       ...options
     };
   }
@@ -163,12 +163,12 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
 export interface PersistedSyncRules {
   readonly id: number;
-  readonly sync_rules: SyncConfigWithErrors;
+  readonly syncConfigWithErrors: SyncConfigWithErrors;
   readonly slot_name: string;
   /**
    * For testing only.
    */
   readonly hydrationState: HydrationState;
 
-  hydratedSyncRules(): HydratedSyncRules;
+  hydratedSyncConfig(): HydratedSyncConfig;
 }

@@ -1,12 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
-import { BucketDataSource, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
+import { BucketDataSource, BucketDefinitionId, EvaluatedParameters, EvaluatedRow } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 
 import { logger as defaultLogger, Logger } from '@powersync/lib-services-framework';
 import { InternalOpId, storage, utils } from '@powersync/service-core';
 import { JSONBig } from '@powersync/service-jsonbig';
 import { mongoTableId, replicaIdToSubkey } from '../../../utils/util.js';
-import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { currentBucketKey, MAX_ROW_SIZE } from '../MongoBucketBatchShared.js';
 import { MongoIdSequence } from '../MongoIdSequence.js';
 import type { VersionedPowerSyncMongo } from '../db.js';

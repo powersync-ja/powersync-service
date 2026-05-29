@@ -1,6 +1,7 @@
 import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
 import {
   BucketParameterQuerier,
+  BucketSource,
   CompatibilityContext,
   EvaluatedParameters,
   EvaluatedRow,
@@ -15,16 +16,19 @@ import {
   mergeDataSources,
   mergeParameterIndexLookupCreators,
   ParameterIndexLookupCreator,
+  parameterLookupScopeKey,
   QuerierError,
   ScopedEvaluateParameterRow,
   ScopedEvaluateRow,
   SqlEventDescriptor,
   SqliteInputValue,
   SqliteValue,
-  SyncConfig
+  SyncConfig,
+  TablePattern
 } from './index.js';
-import { SourceTableRef } from './SourceTableRef.js';
+import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
+import { applyRowContext, uniqueBy } from './utils.js';
 
 export interface MatchingSources {
   bucketDataSources: BucketDataSource[];
@@ -32,69 +36,121 @@ export interface MatchingSources {
 }
 
 /**
- * Hydrated sync config is sync config definitions along with persisted state. Currently, the persisted state
- * specifically affects bucket names.
+ * HydratedSyncConfig is sync config definitions along with persisted state.
+ *
+ * This may be a single SyncConfig, or multiple SyncConfigs merged together.
+ * In the case of multiple SyncConfigs, they must share the same CompatibilityContext,
+ * but can have different bucket sources.
+ *
+ * The persisted state specifically affects bucket names, as well as V3+ storage structure.
  */
-export class HydratedSyncRules {
-  bucketSources: HydratedBucketSource[] = [];
+export class HydratedSyncConfig {
+  /**
+   * These are used by queriers, and do not support merging across multiple SyncConfigs.
+   */
+  private bucketSources: HydratedBucketSource[] = [];
+
   eventDescriptors: SqlEventDescriptor[] = [];
+
+  /**
+   * Only a single compatibility context is supported across all merged SyncConfigs.
+   */
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-  readonly definition: SyncConfig;
+  /**
+   * The source definitions.
+   *
+   * For most functionality, we don't use these directly, but rather use the
+   * merged definitions such as bucketDataSources.
+   */
+  private readonly sourceDefinitions: SyncConfig[];
+
+  /**
+   * Bucket data sources from underlying SyncConfig definitions.
+   */
+  readonly bucketDataSources: BucketDataSource[];
+  readonly bucketParameterLookupSources: ParameterIndexLookupCreator[];
+
+  /**
+   * These are used by queriers, and do not support merging across multiple SyncConfigs.
+   */
+  readonly #bucketSourceDefinitions: BucketSource[];
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
   private readonly hydrationState: HydrationState;
+  private readonly matchingSourcesCache = new Map<string, MatchingSources>();
   private mergedEvaluatorCache = new WeakMap<BucketDataSource[], { evaluateRow: ScopedEvaluateRow }>();
   private mergedParameterIndexCreatorCache = new WeakMap<
     ParameterIndexLookupCreator[],
     { evaluateParameterRow: ScopedEvaluateParameterRow }
   >();
 
-  constructor(params: {
-    definition: SyncConfig;
-    createParams: CreateSourceParams;
-    bucketDataSources: BucketDataSource[];
-    bucketParameterIndexLookupCreators: ParameterIndexLookupCreator[];
-    eventDescriptors?: SqlEventDescriptor[];
-    compatibility?: CompatibilityContext;
-  }) {
+  constructor(params: { definitions: SyncConfig[]; createParams: CreateSourceParams }) {
     const hydrationState = params.createParams.hydrationState;
     this.hydrationState = hydrationState;
 
-    this.definition = params.definition;
-    this.innerEvaluateRow = mergeDataSources(hydrationState, params.bucketDataSources).evaluateRow;
+    const definitions = params.definitions;
+    if (definitions.length == 0) {
+      throw new Error('HydratedSyncRules requires at least one SyncConfig definition');
+    }
+
+    this.sourceDefinitions = [...definitions];
+    this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
+
+    this.bucketDataSources = uniqueBy(
+      definitions.flatMap((definition) => definition.bucketDataSources),
+      (source) => hydrationState.getBucketSourceScope(source).bucketPrefix
+    );
+    this.bucketParameterLookupSources = uniqueBy(
+      definitions.flatMap((definition) => definition.bucketParameterLookupSources),
+      (source) => parameterLookupScopeKey(hydrationState.getParameterIndexLookupScope(source))
+    );
+
+    this.innerEvaluateRow = mergeDataSources(hydrationState, this.bucketDataSources).evaluateRow;
     this.innerEvaluateParameterRow = mergeParameterIndexLookupCreators(
       hydrationState,
-      params.bucketParameterIndexLookupCreators
+      this.bucketParameterLookupSources
     ).evaluateParameterRow;
 
-    if (params.eventDescriptors) {
-      this.eventDescriptors = params.eventDescriptors;
-    }
-    if (params.compatibility) {
-      this.compatibility = params.compatibility;
-    }
+    this.eventDescriptors = definitions.flatMap((definition) => definition.eventDescriptors);
 
-    this.bucketSources = this.definition.bucketSources.map((source) => source.hydrate(params.createParams));
+    if (definitions.length == 1) {
+      this.#bucketSourceDefinitions = definitions[0].bucketSources;
+      this.bucketSources = this.#bucketSourceDefinitions.map((source) => source.hydrate(params.createParams));
+    } else {
+      // We do not support merging bucket sources across multiple definitions - these are always used with one
+      // SyncConfig at a time.
+      this.#bucketSourceDefinitions = [];
+      this.bucketSources = [];
+    }
   }
 
-  // These methods do not depend on hydration, so we can just forward them to the definition.
+  get bucketSourceDefinitions() {
+    this.assertSingleSourceDefinition('bucketSourceDefinitions');
+    return this.#bucketSourceDefinitions;
+  }
+
+  // These methods do not depend on hydration, so we can multiplex them across definitions.
 
   getSourceTables() {
-    return this.definition.getSourceTables();
+    const sourceTables = new Map<string, TablePattern>();
+    for (const definition of this.sourceDefinitions) {
+      definition.writeSourceTables(sourceTables);
+    }
+    return [...sourceTables.values()];
   }
 
   tableTriggersEvent(table: SourceTableRef): boolean {
-    return this.definition.tableTriggersEvent(table);
+    return this.sourceDefinitions.some((definition) => definition.tableTriggersEvent(table));
   }
 
   tableSyncsData(table: SourceTableRef): boolean {
-    return this.definition.tableSyncsData(table);
+    return this.sourceDefinitions.some((definition) => definition.tableSyncsData(table));
   }
 
   tableSyncsParameters(table: SourceTableRef): boolean {
-    return this.definition.tableSyncsParameters(table);
+    return this.sourceDefinitions.some((definition) => definition.tableSyncsParameters(table));
   }
 
   getMatchingSources(source: SourceTableRef): MatchingSources {
@@ -103,18 +159,24 @@ export class HydratedSyncRules {
       schema: source.schema,
       name: source.name
     };
-    return {
-      bucketDataSources: this.definition.bucketDataSources.filter((source) => source.tableSyncsData(table)),
-      parameterLookupSources: this.definition.bucketParameterLookupSources.filter((source) =>
-        source.tableSyncsParameters(table)
-      )
+    const key = sourceTableRefKey(table);
+    const cached = this.matchingSourcesCache.get(key);
+    if (cached != null) {
+      return cached;
+    }
+
+    const matchingSources = {
+      bucketDataSources: this.bucketDataSources.filter((source) => source.tableSyncsData(table)),
+      parameterLookupSources: this.bucketParameterLookupSources.filter((source) => source.tableSyncsParameters(table))
     };
+    this.matchingSourcesCache.set(key, matchingSources);
+    return matchingSources;
   }
 
   applyRowContext<MaybeToast extends undefined = never>(
     source: SqliteRow<SqliteInputValue | MaybeToast>
   ): SqliteRow<SqliteValue | MaybeToast> {
-    return this.definition.applyRowContext(source);
+    return applyRowContext(source, this.compatibility);
   }
 
   /**
@@ -187,6 +249,8 @@ export class HydratedSyncRules {
   }
 
   getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
+    this.assertSingleSourceDefinition('getBucketParameterQuerier()');
+
     const queriers: BucketParameterQuerier[] = [];
     const errors: QuerierError[] = [];
     const pending = { queriers, errors };
@@ -203,4 +267,26 @@ export class HydratedSyncRules {
     const querier = mergeBucketParameterQueriers(queriers);
     return { querier, errors };
   }
+
+  private assertSingleSourceDefinition(debugName: string) {
+    // We may split the types in the future to enforce this on a type level instead of runtime level
+    if (this.sourceDefinitions.length != 1) {
+      throw new Error(`${debugName} is not supported for HydratedSyncRules with multiple SyncConfigs`);
+    }
+  }
+}
+
+function assertSharedCompatibility(definitions: SyncConfig[]): CompatibilityContext {
+  const compatibility = definitions[0].compatibility;
+  if (definitions.length == 1) {
+    return compatibility;
+  }
+
+  for (const definition of definitions) {
+    if (!definition.compatibility.equals(compatibility)) {
+      throw new Error('All SyncConfigs in a HydratedSyncRules instance must use the same CompatibilityContext');
+    }
+  }
+
+  return compatibility;
 }

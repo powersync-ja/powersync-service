@@ -1,4 +1,4 @@
-import { ParameterLookupScope } from '../HydrationState.js';
+import { ParameterLookupDefinitionId } from '../HydrationState.js';
 import { ImplicitSchemaTablePattern, TablePattern } from '../TablePattern.js';
 import { SqlExpression } from './expression.js';
 import { MapSourceVisitor, visitExpr } from './expression_visitor.js';
@@ -378,7 +378,7 @@ interface SerializedDataSource {
 interface SerializedParameterIndexLookupCreator {
   table: SerializedTablePattern;
   hash: number;
-  lookupScope: Omit<ParameterLookupScope, 'source'>;
+  lookupScope: ParameterLookupDefinitionId;
   output: SqlExpression<SerializedTableProcessorData>[];
   filters: SqlExpression<SerializedTableProcessorData>[];
   tableValuedFunctions: TableProcessorTableValuedFunction[];
