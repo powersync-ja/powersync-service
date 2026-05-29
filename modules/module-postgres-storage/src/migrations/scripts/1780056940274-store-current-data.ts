@@ -8,10 +8,8 @@ export const up: migrations.PowerSyncMigrationFunction = async (context) => {
   } = context;
   await using client = openMigrationDB(configuration.storage);
 
-  // Per-table flag for whether a copy of replicated rows is stored in current_data.
-  // Nullable, with NULL treated as true (the safe default) until `resolveTables` populates
-  // it - on initial replication and on each pgoutput Relation message. Existing FULL tables
-  // pick up the optimization on their next DML or ALTER after the upgrade.
+  // Per-table flag for storing a copy of replicated rows in current_data. Nullable, with NULL
+  // treated as true (the safe default) until resolveTables populates it.
   await client.sql`
     ALTER TABLE source_tables
     ADD COLUMN store_current_data BOOLEAN

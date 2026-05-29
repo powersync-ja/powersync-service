@@ -6,10 +6,8 @@ import { describeWithStorage, StorageVersionTestContext } from './util.js';
 import { WalStreamTestContext } from './wal_stream_utils.js';
 
 /**
- * End-to-end tests for the per-table storeCurrentData optimization driven by the source's
- * REPLICA IDENTITY. With REPLICA IDENTITY FULL, Postgres always sends the complete row, so
- * PowerSync does not need to keep its own copy in current_data; for every other replica identity
- * it does. The flag is resolved from `pg_class.relreplident` during table resolution.
+ * End-to-end tests for the per-table storeCurrentData optimization: REPLICA IDENTITY FULL sends
+ * complete rows, so no current_data copy is kept; every other identity keeps one.
  */
 describe('replica identity full', () => {
   describeWithStorage({ timeout: 30_000 }, defineReplicaIdentityTests);
@@ -74,7 +72,7 @@ bucket_definitions:
 `);
     await context.initializeReplication();
 
-    // Only the index columns are sent, so the rest of the row may still be missing - keep current_data.
+    // Only the index columns are sent, so the rest of the row may be missing - keep current_data.
     expect((await resolvedTable(context, 'test_index'))?.storeCurrentData).toBe(true);
   });
 
@@ -141,8 +139,7 @@ bucket_definitions:
     await pool.query(`UPDATE test_full SET description = 'updated', counter = counter + 1 WHERE id = '${id}'`);
 
     let data = await context.getBucketData('global[]');
-    // The streamed UPDATE is the most recent op, with the new values - even though no copy of the
-    // previous row was stored.
+    // The UPDATE carries the new values even though no copy of the previous row was stored.
     expect(data.at(-1)).toMatchObject(putOp('test_full', { id, description: 'updated', counter: 1n }));
 
     await pool.query(`DELETE FROM test_full WHERE id = '${id}'`);
@@ -151,9 +148,8 @@ bucket_definitions:
   });
 
   test('UPDATE of an unrelated column preserves an unchanged TOAST value on a FULL table', async () => {
-    // Core safety property: on a FULL table no current_data copy is kept and the TOAST merge is skipped,
-    // so an unchanged TOAST value survives an UPDATE only because pgoutput sends the full old tuple and
-    // the decoder backfills it into the new tuple. Fails if that backfill regresses.
+    // With no current_data copy, an unchanged TOAST value survives an UPDATE only via the full old
+    // tuple pgoutput sends; the decoder backfills it into the new tuple.
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
@@ -169,10 +165,9 @@ bucket_definitions:
 `);
     await context.initializeReplication();
 
-    // Only meaningful if this table takes the storeCurrentData=false path.
     expect((await resolvedTable(context, 'test_full_toast'))?.storeCurrentData).toBe(false);
 
-    // Must be > 8kb after compression to be stored out-of-line (TOASTed).
+    // Must be > 8kb after compression to be stored out-of-line (TOASTed). Random hex does not compress.
     const largeDescription = crypto.randomBytes(20_000).toString('hex');
     const [{ id }] = pgwireRows(
       await pool.query({
@@ -185,8 +180,8 @@ bucket_definitions:
     await pool.query(`UPDATE test_full_toast SET name = 'test2' WHERE id = '${id}'`);
 
     const data = await context.getBucketData('global[]');
-    // The replica identity is the whole row, so the UPDATE re-keys it (PUT, then REMOVE old + PUT new).
-    // Both PUTs must carry the complete row including the unchanged TOAST `description`.
+    // The whole row is the replica identity, so the UPDATE re-keys it; both PUTs must carry the
+    // complete row including the unchanged TOAST `description`.
     const puts = data.filter((op) => op.op === 'PUT');
     expect(puts).toMatchObject([
       putOp('test_full_toast', { id, name: 'test1', description: largeDescription }),
@@ -243,7 +238,7 @@ bucket_definitions:
     await context.initializeReplication();
     expect((await resolvedTable(context, 'test_changeable'))?.storeCurrentData).toBe(true);
 
-    // resolvedTable runs the catalog-scan path; the streaming path is covered by the test below.
+    // resolvedTable uses the catalog-scan path; the streaming path is covered below.
     await pool.query(`ALTER TABLE test_changeable REPLICA IDENTITY FULL`);
     expect((await resolvedTable(context, 'test_changeable'))?.storeCurrentData).toBe(false);
   });
@@ -262,12 +257,11 @@ bucket_definitions:
       - SELECT id, description, value FROM test_mid_stream
 `);
     await context.initializeReplication();
-    // DEFAULT replica identity -> storeCurrentData=true after the initial catalog scan.
+    // DEFAULT -> storeCurrentData=true after the initial catalog scan.
     const initial = await resolvedTable(context, 'test_mid_stream');
     expect(initial?.storeCurrentData).toBe(true);
     expect(initial?.snapshotComplete).toBe(true);
 
-    // First INSERT triggers the Relation message (replicaIdentity='default') on the streaming path.
     const [{ id: id1 }] = pgwireRows(
       await pool.query(`INSERT INTO test_mid_stream (description, value) VALUES ('before', 1) RETURNING id`)
     );
@@ -277,8 +271,7 @@ bucket_definitions:
     // pgoutput sends the new Relation message lazily, on the next DML rather than at ALTER time.
     await pool.query(`ALTER TABLE test_mid_stream REPLICA IDENTITY FULL`);
 
-    // Next DML carries the Relation message (replicaIdentity='full'); handleRelation ->
-    // resolveTables must update store_current_data without re-snapshotting the table.
+    // The next DML carries it; handleRelation must update store_current_data without re-snapshotting.
     const [{ id: id2 }] = pgwireRows(
       await pool.query(`INSERT INTO test_mid_stream (description, value) VALUES ('after', 2) RETURNING id`)
     );
@@ -286,8 +279,7 @@ bucket_definitions:
     await pool.query(`DELETE FROM test_mid_stream WHERE id = '${id1}'`);
 
     data = await context.getBucketData('global[]');
-    // Assert the final reduced state per row, not the op sequence: a subkey-changing UPDATE emits
-    // both a REMOVE and a PUT, ordered differently across storage layers.
+    // Assert the final reduced state per row, not the op sequence (ordering differs across storage).
     const lastForId1 = data.findLast((op) => op.object_id === id1);
     const lastForId2 = data.findLast((op) => op.object_id === id2);
     expect(lastForId1).toMatchObject({ op: 'REMOVE', object_type: 'test_mid_stream' });
@@ -299,16 +291,15 @@ bucket_definitions:
       ])
     );
 
-    // store_current_data is now false, and snapshotComplete stays true - no re-snapshot.
+    // store_current_data is now false, snapshotComplete stays true - no re-snapshot.
     const after = await resolvedTable(context, 'test_mid_stream');
     expect(after?.storeCurrentData).toBe(false);
     expect(after?.snapshotComplete).toBe(true);
   });
 
   test('reverting REPLICA IDENTITY FULL->DEFAULT recovers an unchanged TOAST value', async () => {
-    // Reverse-direction safety check: while FULL no current_data copy is kept, so after reverting to
-    // DEFAULT a partial UPDATE (unchanged TOAST omitted, old tuple carries only the key) cannot be
-    // completed from a stored copy. The incomplete row must trigger a targeted resnapshot.
+    // No copy is kept while FULL, so after reverting to DEFAULT a partial UPDATE can't be completed
+    // from storage - the incomplete row must trigger a targeted resnapshot.
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
@@ -333,25 +324,22 @@ bucket_definitions:
         params: [{ type: 'varchar', value: largeDescription }]
       })
     );
-    // Process the INSERT. No current_data copy is retained while the table is FULL.
     let data = await context.getBucketData('global[]');
     expect(data.at(-1)).toMatchObject(putOp('test_revert', { id, name: 'test1', description: largeDescription }));
 
     // pgoutput sends the new Relation message lazily, on the next DML rather than at ALTER time.
     await pool.query(`ALTER TABLE test_revert REPLICA IDENTITY DEFAULT`);
 
-    // Update only `name`; `description` is unchanged, so its TOAST value is omitted from the new tuple,
-    // and DEFAULT means the old tuple carries only the primary key. With no stored copy from the FULL
-    // era, the row is incomplete -> a targeted resnapshot must repair it.
+    // Update only `name`: `description`'s TOAST value is omitted and DEFAULT carries only the key in
+    // the old tuple, so with no stored copy the row is incomplete -> a targeted resnapshot repairs it.
     await pool.query(`UPDATE test_revert SET name = 'test2' WHERE id = '${id}'`);
 
     data = await context.getBucketData('global[]');
-    // The recovered final state must still carry the complete row, including the unchanged TOAST value.
     expect(data.findLast((op) => op.object_id === id)).toMatchObject(
       putOp('test_revert', { id, name: 'test2', description: largeDescription })
     );
 
-    // The table is now back to storeCurrentData=true, without a re-snapshot of the whole table.
+    // Back to storeCurrentData=true, without a re-snapshot of the whole table.
     const reverted = await resolvedTable(context, 'test_revert');
     expect(reverted?.storeCurrentData).toBe(true);
     expect(reverted?.snapshotComplete).toBe(true);
