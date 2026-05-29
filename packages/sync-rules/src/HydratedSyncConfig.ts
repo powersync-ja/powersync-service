@@ -48,7 +48,13 @@ export class HydratedSyncConfig {
   eventDescriptors: SqlEventDescriptor[] = [];
   compatibility: CompatibilityContext = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-  readonly definitions: SyncConfig[];
+  /**
+   * The source definitions.
+   *
+   * For most functionality, we don't use these directly, but rather use the
+   * merged definitions such as bucketDataSources.
+   */
+  private readonly sourceDefinitions: SyncConfig[];
 
   /**
    * Bucket data sources from underlying SyncConfig definitions.
@@ -76,8 +82,8 @@ export class HydratedSyncConfig {
       throw new Error('HydratedSyncRules requires at least one SyncConfig definition');
     }
 
-    this.definitions = [...definitions];
-    this.compatibility = assertSharedCompatibility(this.definitions);
+    this.sourceDefinitions = [...definitions];
+    this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
 
     this.bucketDataSources = uniqueBy(
       definitions.flatMap((definition) => definition.bucketDataSources),
@@ -107,22 +113,22 @@ export class HydratedSyncConfig {
 
   getSourceTables() {
     const sourceTables = new Map<string, TablePattern>();
-    for (const definition of this.definitions) {
+    for (const definition of this.sourceDefinitions) {
       definition.writeSourceTables(sourceTables);
     }
     return [...sourceTables.values()];
   }
 
   tableTriggersEvent(table: SourceTableRef): boolean {
-    return this.definitions.some((definition) => definition.tableTriggersEvent(table));
+    return this.sourceDefinitions.some((definition) => definition.tableTriggersEvent(table));
   }
 
   tableSyncsData(table: SourceTableRef): boolean {
-    return this.definitions.some((definition) => definition.tableSyncsData(table));
+    return this.sourceDefinitions.some((definition) => definition.tableSyncsData(table));
   }
 
   tableSyncsParameters(table: SourceTableRef): boolean {
-    return this.definitions.some((definition) => definition.tableSyncsParameters(table));
+    return this.sourceDefinitions.some((definition) => definition.tableSyncsParameters(table));
   }
 
   getMatchingSources(source: SourceTableRef): MatchingSources {
@@ -221,7 +227,7 @@ export class HydratedSyncConfig {
   }
 
   getBucketParameterQuerier(options: GetQuerierOptions): GetBucketParameterQuerierResult {
-    if (this.definitions.length != 1) {
+    if (this.sourceDefinitions.length != 1) {
       throw new Error('getBucketParameterQuerier() is not supported for HydratedSyncRules with multiple SyncConfigs');
     }
 

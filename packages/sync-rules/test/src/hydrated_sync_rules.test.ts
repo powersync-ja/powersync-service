@@ -33,7 +33,6 @@ bucket_definitions:
       createParams: hydrationParams
     });
 
-    expect(hydrated.definitions).toEqual([first, second]);
     expect(hydrated.bucketDataSources).toEqual([first.bucketDataSources[0], second.bucketDataSources[0]]);
     expect(hydrated.bucketParameterLookupSources).toEqual([second.bucketParameterLookupSources[0]]);
     expect(hydrated.bucketSourceDefinitions).toEqual([first.bucketSources[0], second.bucketSources[0]]);
