@@ -8,6 +8,7 @@ import {
   HydratedSyncConfig,
   HydrationState,
   ParameterIndexLookupCreator,
+  ParameterLookupScope,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
@@ -51,7 +52,6 @@ class MongoHydrationState implements HydrationState {
   ) {}
 
   getBucketSourceScope(source: BucketDataSource): BucketDataScope {
-    const defId = this.mapping.bucketSourceId(source);
     // Keep this aligned with versionedHydrationState() for now.
     //
     // Previous Mongo-specific behavior:
@@ -60,16 +60,14 @@ class MongoHydrationState implements HydrationState {
     //   source
     // };
     return {
-      key: defId,
       bucketPrefix: `${this.version}#${source.uniqueName}`,
       source
     };
   }
 
-  getParameterIndexLookupScope(source: ParameterIndexLookupCreator) {
+  getParameterIndexLookupScope(source: ParameterIndexLookupCreator): ParameterLookupScope {
     const defId = this.mapping.parameterLookupId(source);
     return {
-      key: defId,
       lookupName: defId,
       queryId: '',
       source

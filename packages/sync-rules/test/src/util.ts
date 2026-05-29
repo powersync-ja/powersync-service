@@ -131,7 +131,7 @@ export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
 };
 
 export function bucketDataScope(bucketPrefix: string, source: BucketDataSource = EMPTY_DATA_SOURCE): BucketDataScope {
-  return { key: bucketPrefix, bucketPrefix, source };
+  return { bucketPrefix, source };
 }
 
 export function lookupScope(
@@ -139,7 +139,7 @@ export function lookupScope(
   queryId: string,
   source: ParameterIndexLookupCreator = EMPTY_PARAMETER_LOOKUP_SOURCE
 ): ParameterLookupScope {
-  return { key: JSON.stringify([lookupName, queryId]), lookupName, queryId, source };
+  return { lookupName, queryId, source };
 }
 
 export async function findQuerierLookups(querier: BucketParameterQuerier): Promise<ScopedParameterLookup[]> {

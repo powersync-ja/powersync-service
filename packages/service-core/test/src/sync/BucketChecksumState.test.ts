@@ -48,7 +48,7 @@ describe('BucketChecksumState', () => {
   };
 
   function lookupScope(lookupName: string, queryId: string): ParameterLookupScope {
-    return { key: JSON.stringify([lookupName, queryId]), lookupName, queryId, source: LOOKUP_SOURCE };
+    return { lookupName, queryId, source: LOOKUP_SOURCE };
   }
 
   // Single global[] bucket.

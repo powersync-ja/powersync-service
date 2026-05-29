@@ -49,5 +49,5 @@ export function parameterLookupScope(
   queryId: string,
   source: ParameterIndexLookupCreator = EMPTY_LOOKUP_SOURCE
 ): ParameterLookupScope {
-  return { key: JSON.stringify([lookupName, queryId]), lookupName, queryId, source };
+  return { lookupName, queryId, source };
 }

@@ -1029,11 +1029,10 @@ WHERE
 
     const hydrationState: HydrationState = {
       getBucketSourceScope(source): BucketDataScope {
-        return { key: `${source.uniqueName}.test`, bucketPrefix: `${source.uniqueName}.test`, source };
+        return { bucketPrefix: `${source.uniqueName}.test`, source };
       },
       getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
-          key: JSON.stringify([`${source.sourceId.lookupName}.test`, `${source.sourceId.queryId}.test`]),
           lookupName: `${source.sourceId.lookupName}.test`,
           queryId: `${source.sourceId.queryId}.test`,
           source
