@@ -60,7 +60,7 @@ export function scalarStatementToSql({ filters = [], outputs = [], tableValuedFu
   } else {
     outputs.forEach((expr, i) => {
       if (i != 0) toSqlite.comma();
-      visitExpr(toSqlite, expr, null);
+      visitExpr(toSqlite, expr, 0);
     });
   }
 
@@ -73,7 +73,7 @@ export function scalarStatementToSql({ filters = [], outputs = [], tableValuedFu
         toSqlite.comma();
       }
 
-      visitExpr(toSqlite, { type: 'function', function: fn.name, parameters: fn.inputs }, null);
+      visitExpr(toSqlite, { type: 'function', function: fn.name, parameters: fn.inputs }, 0);
       toSqlite.addLexeme('AS');
       toSqlite.identifier(name);
 

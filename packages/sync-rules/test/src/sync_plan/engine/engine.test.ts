@@ -302,6 +302,26 @@ function defineEngineTests(
     expectFunction('instr', [new Uint8Array([0xde, 0xad]), null], null);
   });
 
+  test('preserves right-nested binary expression precedence', () => {
+    const stmt = prepare({
+      outputs: [
+        {
+          type: 'binary',
+          left: { type: 'data', source: 1 },
+          operator: '-',
+          right: {
+            type: 'binary',
+            left: { type: 'data', source: 2 },
+            operator: '-',
+            right: { type: 'data', source: 3 }
+          }
+        }
+      ]
+    });
+
+    expect(stmt.evaluate([10n, 3n, 1n])).toStrictEqual([[8n]]);
+  });
+
   test('legacy and fixed JSON behavior', () => {
     const jsonObject = JSON.stringify({ foo: { bar: ['baz'] }, 'foo.bar': ['another'] });
 
