@@ -1,4 +1,8 @@
 import { JSONBig } from '@powersync/service-jsonbig';
+// Using node-fetch in order to supply a custom agent
+import fetch from 'node-fetch';
+import * as http from 'node:http';
+import * as https from 'node:https';
 import { setTimeout as delay } from 'timers/promises';
 import { CONVEX_CHECKPOINT_TABLE } from '../common/ConvexCheckpoints.js';
 import { NormalizedConvexConnectionConfig } from '../types/types.js';
@@ -36,7 +40,11 @@ export class ConvexApiError extends Error {
 }
 
 export class ConvexApiClient {
-  constructor(private readonly config: NormalizedConvexConnectionConfig) {}
+  private readonly agent: http.Agent | https.Agent;
+
+  constructor(private readonly config: NormalizedConvexConnectionConfig) {
+    this.agent = this.resolveAgent();
+  }
 
   async getJsonSchemas(options?: { signal?: AbortSignal }): Promise<ConvexJsonSchemasResult> {
     const raw = await this.performTypedGetRequest(
@@ -177,9 +185,7 @@ export class ConvexApiClient {
     const signal = AbortSignal.any(signals);
 
     try {
-      await this.assertHostAllowed(url);
-
-      const response = await fetch(url, {
+      const response = await fetch(url.toString(), {
         method,
         headers: {
           Authorization: `Convex ${this.config.deploy_key}`,
@@ -187,7 +193,8 @@ export class ConvexApiClient {
           ...extraHeaders
         },
         body: body == null ? undefined : JSON.stringify(options.body),
-        signal
+        signal,
+        agent: this.agent
       });
 
       const text = await response.text();
@@ -246,19 +253,24 @@ export class ConvexApiClient {
     }
   }
 
-  private async assertHostAllowed(url: URL): Promise<void> {
-    if (!this.config.lookup) {
-      return;
+  private resolveAgent(): http.Agent | https.Agent {
+    const deploymentUrl = new URL(this.config.deployment_url);
+    const options: http.AgentOptions = {};
+
+    if (this.config.lookup) {
+      options.lookup = this.config.lookup;
     }
 
-    await new Promise<void>((resolve, reject) => {
-      this.config.lookup!(url.hostname, {}, (error) => {
-        if (error) {
-          reject(error);
-        } else {
-          resolve();
-        }
-      });
+    switch (deploymentUrl.protocol) {
+      case 'http:':
+        return new http.Agent(options);
+      case 'https:':
+        return new https.Agent(options);
+    }
+
+    throw new ConvexApiError({
+      message: `Convex deployment_url must use http or https, got ${JSON.stringify(deploymentUrl.protocol)}`,
+      retryable: false
     });
   }
 }

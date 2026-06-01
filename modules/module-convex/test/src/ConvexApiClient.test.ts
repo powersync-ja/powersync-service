@@ -3,7 +3,13 @@ import { ConvexListSnapshotResult, RawJsonSchemaResponse } from '@module/client/
 import { CONVEX_CHECKPOINT_TABLE } from '@module/common/ConvexCheckpoints.js';
 import { normalizeConnectionConfig } from '@module/types/types.js';
 import { JSONBig } from '@powersync/service-jsonbig';
+import nodeFetch from 'node-fetch';
+import * as https from 'node:https';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('node-fetch', () => ({
+  default: vi.fn()
+}));
 
 const baseConfig = normalizeConnectionConfig({
   type: 'convex',
@@ -11,21 +17,23 @@ const baseConfig = normalizeConnectionConfig({
   deploy_key: 'test-key'
 });
 const SNAPSHOT_CURSOR = 1770335566197683000n;
+const fetchMock = vi.mocked(nodeFetch);
 
 describe('ConvexApiClient', () => {
   afterEach(() => {
     vi.useRealTimers();
+    fetchMock.mockReset();
     vi.restoreAllMocks();
   });
 
   it('sends Convex authorization header and format=json', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
           users: { type: 'table', properties: { _id: { type: 'string' } } }
         } satisfies RawJsonSchemaResponse),
         { status: 200 }
-      )
+      ) as any
     );
 
     const client = new ConvexApiClient(baseConfig);
@@ -33,18 +41,18 @@ describe('ConvexApiClient', () => {
 
     expect(result.tables.map((table) => table.tableName)).toEqual(['users']);
 
-    const [url, init] = fetchSpy.mock.calls[0]!;
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain('/api/json_schemas');
     expect(String(url)).toContain('format=json');
     expect((init?.headers as Record<string, string>).Authorization).toBe('Convex test-key');
   });
 
   it('preserves high-precision numeric snapshot values', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    fetchMock.mockResolvedValue(
       new Response(
         '{"values":[],"snapshot":1770335566197682922,"cursor":"{\\"tablet\\":\\"X0yj4Cm7GfuikfsSBm9QCQ\\",\\"id\\":\\"j5700000000000000000000000001qv0\\"}","hasMore":true}',
         { status: 200 }
-      )
+      ) as any
     );
 
     const client = new ConvexApiClient(baseConfig);
@@ -56,7 +64,7 @@ describe('ConvexApiClient', () => {
   });
 
   it('sends table_name as snake_case query parameter in list_snapshot', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    fetchMock.mockResolvedValue(
       new Response(
         JSONBig.stringify({
           snapshot: SNAPSHOT_CURSOR,
@@ -65,19 +73,19 @@ describe('ConvexApiClient', () => {
           values: []
         } satisfies ConvexListSnapshotResult),
         { status: 200 }
-      )
+      ) as any
     );
 
     const client = new ConvexApiClient(baseConfig);
     await client.listSnapshot({ tableName: 'lists', snapshot: SNAPSHOT_CURSOR.toString() });
 
-    const url = String(fetchSpy.mock.calls[0]![0]);
+    const url = String(fetchMock.mock.calls[0]![0]);
     expect(url).toContain('table_name=lists');
     expect(url).not.toContain('tableName=lists');
   });
 
   it('marks network failures as retryable', async () => {
-    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fetch failed: ECONNRESET'));
+    fetchMock.mockRejectedValue(new Error('fetch failed: ECONNRESET'));
 
     const client = new ConvexApiClient(baseConfig);
 
@@ -88,13 +96,13 @@ describe('ConvexApiClient', () => {
 
   it('uses the configured request timeout', async () => {
     vi.useFakeTimers();
-    vi.spyOn(globalThis, 'fetch').mockImplementation(
+    fetchMock.mockImplementation(
       (_url, init) =>
         new Promise((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => {
-            reject(init.signal!.reason);
+            reject((init.signal as any).reason);
           });
-        })
+        }) as any
     );
 
     const client = new ConvexApiClient({
@@ -112,15 +120,13 @@ describe('ConvexApiClient', () => {
   });
 
   it('creates write checkpoint markers via mutation', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200 }));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200 }) as any);
 
     const client = new ConvexApiClient(baseConfig);
     await client.createWriteCheckpointMarker();
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain('/api/mutation');
     expect(init?.method).toBe('POST');
     expect((init?.headers as Record<string, string>).Authorization).toBe('Convex test-key');
@@ -132,9 +138,7 @@ describe('ConvexApiClient', () => {
   });
 
   it('propagates checkpoint write errors directly (no fallback)', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(JSON.stringify({ code: 'SomeError' }), { status: 400 })
-    );
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ code: 'SomeError' }), { status: 400 }) as any);
 
     const client = new ConvexApiClient(baseConfig);
     await expect(client.createWriteCheckpointMarker()).rejects.toMatchObject({
@@ -143,10 +147,8 @@ describe('ConvexApiClient', () => {
     });
   });
 
-  it('checks the hostname policy before every Convex API request', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200 }));
+  it('uses an agent with the configured hostname policy for Convex API requests', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ status: 'success' }), { status: 200 }) as any);
     const lookup = vi.fn((_hostname: string, _options: any, callback: (error: Error) => void) => {
       callback(new Error('blocked by reject_ip_ranges'));
     }) as unknown as import('node:net').LookupFunction;
@@ -156,13 +158,23 @@ describe('ConvexApiClient', () => {
       lookup
     });
 
-    await expect(client.getJsonSchemas()).rejects.toThrow('blocked by reject_ip_ranges');
-    await expect(client.listSnapshot({ tableName: 'lists' })).rejects.toThrow('blocked by reject_ip_ranges');
-    await expect(client.documentDeltas({ cursor: SNAPSHOT_CURSOR.toString() })).rejects.toThrow(
-      'blocked by reject_ip_ranges'
-    );
-    await expect(client.createWriteCheckpointMarker()).rejects.toThrow('blocked by reject_ip_ranges');
-    expect(lookup).toHaveBeenCalledTimes(4);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    await client.createWriteCheckpointMarker();
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit & { agent: https.Agent };
+    expect(init.agent).toBeInstanceOf(https.Agent);
+    expect(init.agent.options.lookup).toBe(lookup);
+    expect(lookup).not.toHaveBeenCalled();
+
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        init.agent.options.lookup!('example.convex.cloud', {}, (error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        });
+      })
+    ).rejects.toThrow('blocked by reject_ip_ranges');
   });
 });
