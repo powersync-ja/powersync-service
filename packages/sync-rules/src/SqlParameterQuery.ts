@@ -18,6 +18,7 @@ import {
   BucketDataSource,
   BucketParameterQuerierSource,
   GetQuerierOptions,
+  ParameterIndexLookupEvaluator,
   resolvedBucket,
   ScopedParameterLookup,
   UnscopedEvaluatedParameters,
@@ -76,7 +77,7 @@ export interface SqlParameterQueryOptions {
  *  SELECT id as user_id FROM users WHERE users.user_id = token_parameters.user_id
  *  SELECT id as user_id, token_parameters.is_admin as is_admin FROM users WHERE users.user_id = token_parameters.user_id
  */
-export class SqlParameterQuery implements ParameterIndexLookupCreator {
+export class SqlParameterQuery implements ParameterIndexLookupCreator, ParameterIndexLookupEvaluator {
   static fromSql(
     descriptorName: string,
     sql: string,
@@ -361,6 +362,10 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
         result.queriers.push(q);
       }
     };
+  }
+
+  createEvaluator(): ParameterIndexLookupEvaluator {
+    return this;
   }
 
   /**

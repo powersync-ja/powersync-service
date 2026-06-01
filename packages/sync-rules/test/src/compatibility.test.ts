@@ -1,15 +1,19 @@
+import * as sqlite from 'node:sqlite';
+
 import { describe, expect, test } from 'vitest';
 import {
   CompatibilityContext,
   CompatibilityOption,
   DateTimeValue,
+  HydrateSyncConfigParams,
+  nodeSqlite,
   SerializedCompatibilityContext,
   SqlSyncRules,
   TimeValuePrecision,
   toSyncRulesValue
 } from '../../src/index.js';
 
-import { DEFAULT_HYDRATION_STATE, versionedHydrationState } from '../../src/HydrationState.js';
+import { DEFAULT_HYDRATION_STATE, HydrationState, versionedHydrationState } from '../../src/HydrationState.js';
 import { ASSETS, normalizeQuerierOptions, PARSE_OPTIONS } from './util.js';
 
 describe('compatibility options', () => {
@@ -28,7 +32,7 @@ bucket_definitions:
       - SELECT id, description FROM assets
     `,
         PARSE_OPTIONS
-      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate(generateHydrationParams());
 
       expect(
         rules.evaluateRow({
@@ -55,7 +59,7 @@ config:
   timestamps_iso8601: true
     `,
         PARSE_OPTIONS
-      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate(generateHydrationParams());
 
       expect(
         rules.evaluateRow({
@@ -82,7 +86,7 @@ config:
   edition: 2
     `,
         PARSE_OPTIONS
-      ).config.hydrate({ hydrationState: versionedHydrationState(1) });
+      ).config.hydrate(generateHydrationParams(versionedHydrationState(1)));
 
       expect(
         rules.evaluateRow({
@@ -120,7 +124,7 @@ config:
   versioned_bucket_ids: false
     `,
         PARSE_OPTIONS
-      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate(generateHydrationParams());
 
       expect(rules.compatibility.isEnabled(CompatibilityOption.timestampsIso8601)).toStrictEqual(false);
       // This does not have a direct effect on the hydration here anymore - we now do that one level higher.
@@ -160,7 +164,7 @@ config:
   edition: 2
     `,
       PARSE_OPTIONS
-    ).config.hydrate({ hydrationState: versionedHydrationState(1) });
+    ).config.hydrate(generateHydrationParams(versionedHydrationState(1)));
 
     expect(
       rules.evaluateRow({
@@ -190,7 +194,7 @@ bucket_definitions:
       - SELECT id, description ->> 'foo.bar' AS "desc" FROM assets
     `,
         PARSE_OPTIONS
-      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate(generateHydrationParams());
 
       expect(
         rules.evaluateRow({
@@ -214,7 +218,7 @@ config:
   fixed_json_extract: true
     `,
         PARSE_OPTIONS
-      ).config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+      ).config.hydrate(generateHydrationParams());
 
       expect(
         rules.evaluateRow({
@@ -269,9 +273,7 @@ config:
         `;
       }
 
-      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).config.hydrate({
-        hydrationState: DEFAULT_HYDRATION_STATE
-      });
+      const rules = SqlSyncRules.fromYaml(syncRules, PARSE_OPTIONS).config.hydrate(generateHydrationParams());
       expect(
         rules.evaluateRow({
           sourceTable: ASSETS,
@@ -448,3 +450,7 @@ config:
     });
   });
 });
+
+function generateHydrationParams(hydrationState: HydrationState = DEFAULT_HYDRATION_STATE): HydrateSyncConfigParams {
+  return { hydrationState, sqlite: nodeSqlite(sqlite) };
+}

@@ -1,14 +1,15 @@
 import * as sqlite from 'node:sqlite';
 
-import { describe, expect, onTestFinished, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import {
   CompatibilityContext,
   CompatibilityEdition,
   generateSqlFunctions,
-  javaScriptExpressionEngine,
-  nodeSqliteExpressionEngine,
   SqliteValue
 } from '../../../../src/index.js';
+import { javaScriptExpressionEngine } from '../../../../src/sync_plan/engine/javascript.js';
+import { nodeSqlite, sqliteExpressionEngine } from '../../../../src/sync_plan/engine/sqlite.js';
+
 import {
   ScalarExpressionEngine,
   ScalarStatement,
@@ -17,7 +18,7 @@ import {
 import { BinaryOperator, supportedFunctions } from '../../../../src/sync_plan/expression.js';
 
 describe('sqlite', () => {
-  defineEngineTests(false, (c) => nodeSqliteExpressionEngine(sqlite, c));
+  defineEngineTests(false, (c) => sqliteExpressionEngine(nodeSqlite(sqlite), c));
 });
 
 describe('javascript', () => {
@@ -39,7 +40,6 @@ function defineEngineTests(
 
   function prepare(stmt: ScalarStatement) {
     const engine = createEngine(compatibility);
-    onTestFinished(() => engine.close());
     return engine.prepareEvaluator(stmt);
   }
 
@@ -302,13 +302,35 @@ function defineEngineTests(
     expectFunction('instr', [new Uint8Array([0xde, 0xad]), null], null);
   });
 
+  test('preserves right-nested binary expression precedence', () => {
+    const stmt = prepare({
+      outputs: [
+        {
+          type: 'binary',
+          left: { type: 'data', source: 1 },
+          operator: '-',
+          right: {
+            type: 'binary',
+            left: { type: 'data', source: 2 },
+            operator: '-',
+            right: { type: 'data', source: 3 }
+          }
+        }
+      ]
+    });
+
+    expect(stmt.evaluate([10n, 3n, 1n])).toStrictEqual([[8n]]);
+  });
+
   test('legacy and fixed JSON behavior', () => {
     const jsonObject = JSON.stringify({ foo: { bar: ['baz'] }, 'foo.bar': ['another'] });
-    compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
 
-    // Legacy JSON behavior, support paths without $. prefix
-    expectFunction('->', [jsonObject, 'foo.bar'], '["baz"]');
-    expectFunction('->>', [jsonObject, 'foo.bar.0'], 'baz');
+    // Legacy JSON behavior (not supported by SQLite), support paths without $. prefix
+    if (isJavaScript) {
+      compatibility = CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY;
+      expectFunction('->', [jsonObject, 'foo.bar'], '["baz"]');
+      expectFunction('->>', [jsonObject, 'foo.bar.0'], 'baz');
+    }
 
     // New JSON behavior, require $. syntax.
     compatibility = new CompatibilityContext({ edition: CompatibilityEdition.SYNC_STREAMS });
