@@ -230,6 +230,13 @@ describe('SQL functions', () => {
     expect(cast('1.2abc', 'real')).toEqual(1.2);
     expect(cast('1.2e60abc', 'numeric')).toEqual(1.2e60);
     expect(cast(' 1e60abc', 'numeric')).toEqual(1e60);
+    expect(cast('-12abc', 'integer')).toEqual(-12n);
+    expect(cast('+12abc', 'integer')).toEqual(12n);
+    expect(cast('-12.9abc', 'integer')).toEqual(-12n);
+    expect(cast('-12.5abc', 'numeric')).toEqual(-12.5);
+    expect(cast('-.5abc', 'numeric')).toEqual(-0.5);
+    expect(cast('+1.2e2abc', 'numeric')).toEqual(120);
+    expect(cast('-1.2e2abc', 'numeric')).toEqual(-120);
 
     // We differ from SQLite here
     expect(cast('abc', 'blob')).toEqual(Uint8Array.of(0x61, 0x62, 0x63));
