@@ -248,6 +248,10 @@ function defineEngineTests(
       tableValuedFunctions: [fn]
     });
 
+    expect(stmt.evaluate([JSON.stringify([1, 'two'])])).toStrictEqual([
+      [0n, isJavaScript ? 1 : 1n],
+      [1n, 'two']
+    ]);
     expect(stmt.evaluate([JSON.stringify({ a: 1, b: true, c: null })])).toStrictEqual([
       ['a', isJavaScript ? 1 : 1n],
       ['b', 1n],

@@ -32,7 +32,7 @@ function jsonEachImplementation(fixedJsonBehavior: boolean): TableValuedFunction
 
       if (Array.isArray(value)) {
         return value.map((v, key) => ({
-          key,
+          key: BigInt(key),
           value: jsonValueToSqlite(fixedJsonBehavior, v)
         }));
       }
