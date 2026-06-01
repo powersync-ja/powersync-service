@@ -86,10 +86,16 @@ export function sqliteExpressionEngine(sqlite: SQLite, compatibility: Compatibil
   return {
     prepareEvaluator(input): ScalarExpressionEvaluator {
       // Note: Like databases, node will finalize the underlying statement once it's no longer referenced from JS.
-      const stmt = db.prepare(scalarStatementToSql(input));
+      const sql = scalarStatementToSql(input);
+      const hasSource = sql.includes('FROM');
+
+      const stmt = db.prepare(sql);
       return {
         evaluate(inputs) {
-          return stmt.run(inputs);
+          console.log('eval', sql, inputs);
+          const results = stmt.run(inputs);
+          console.log('eval => ', results);
+          return results;
         }
       };
     }
