@@ -2,9 +2,15 @@ import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import {
   BucketDataSource,
   BucketDefinitionId,
+  HashMap,
   ParameterIndexId,
   ParameterIndexLookupCreator,
   ParameterLookupDefinitionId,
+  SerializedBucketDataSourceWithDataSources,
+  SerializedParameterIndexLookupCreator,
+  serializedStreamBucketDataSourceEquality,
+  serializedStreamParameterIndexLookupCreatorEquality,
+  SerializedSyncPlanV1,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import { SyncConfigDefinition } from '../storage-index.js';
@@ -16,6 +22,11 @@ export interface SyncConfigWithMapping {
 
 export interface SyncConfigWithRequiredMapping {
   syncConfig: SyncConfigWithErrors;
+  mapping: BucketDefinitionMapping;
+}
+
+export interface SerializedSyncConfigWithMapping {
+  plan: SerializedSyncPlanV1;
   mapping: BucketDefinitionMapping;
 }
 
@@ -49,9 +60,9 @@ export class BucketDefinitionMapping {
     return new BucketDefinitionMapping(definitions, parameterLookups);
   }
 
-  static constructIncrementalMapping(
-    existing: SyncConfigWithRequiredMapping[],
-    newConfig: SyncConfigWithErrors
+  static constructIncrementalMappingFromSerializedPlans(
+    existing: SerializedSyncConfigWithMapping[],
+    newPlan: SerializedSyncPlanV1
   ): BucketDefinitionMapping {
     // FIXME: These ids may conflict with existing mappings if sync configs are de-activated.
     let nextBucketDefinitionId =
@@ -77,33 +88,37 @@ export class BucketDefinitionMapping {
 
     const definitions: Record<string, BucketDefinitionId> = {};
     const parameterLookups: Record<string, ParameterIndexId> = {};
+    const compatibleBuckets = new HashMap<SerializedBucketDataSourceWithDataSources, BucketDefinitionId>(
+      serializedStreamBucketDataSourceEquality
+    );
+    const compatibleParameterLookups = new HashMap<SerializedParameterIndexLookupCreator, ParameterIndexId>(
+      serializedStreamParameterIndexLookupCreatorEquality
+    );
 
-    for (let bucketSource of newConfig.config.bucketDataSources) {
-      const compatibleId = existing
-        .map((c) => {
-          const def = c.syncConfig.config.getCompatibleBucketSource(bucketSource);
-          if (def == null) {
-            return null;
-          }
-          return c.mapping.bucketSourceId(def);
-        })
-        .find((id) => id != null);
-      const id = compatibleId ?? generateNewBucketDefinitionId();
-      definitions[bucketSource.uniqueName] = id;
+    for (const config of existing) {
+      for (const bucket of config.plan.buckets) {
+        compatibleBuckets.putIfAbsent({ bucket, dataSources: config.plan.dataSources }, () =>
+          config.mapping.bucketSourceIdByName(bucket.uniqueName)
+        );
+      }
+
+      for (const parameterLookup of config.plan.parameterIndexes) {
+        compatibleParameterLookups.putIfAbsent(parameterLookup, () =>
+          config.mapping.parameterLookupIdByKey(parameterLookupKey(parameterLookup.lookupScope))
+        );
+      }
     }
 
-    for (let parameterLookup of newConfig.config.bucketParameterLookupSources) {
-      const compatibleId = existing
-        .map((c) => {
-          const def = c.syncConfig.config.getCompatibleParameterIndexLookupCreator(parameterLookup);
-          if (def == null) {
-            return null;
-          }
-          return c.mapping.parameterLookupId(def);
-        })
-        .find((id) => id != null);
+    for (const bucket of newPlan.buckets) {
+      const compatibleId = compatibleBuckets.get({ bucket, dataSources: newPlan.dataSources });
+      const id = compatibleId ?? generateNewBucketDefinitionId();
+      definitions[bucket.uniqueName] = id;
+    }
+
+    for (const parameterLookup of newPlan.parameterIndexes) {
+      const compatibleId = compatibleParameterLookups.get(parameterLookup);
       const id = compatibleId ?? generateNewParameterIndexId();
-      parameterLookups[parameterLookupKey(parameterLookup.sourceId)] = id;
+      parameterLookups[parameterLookupKey(parameterLookup.lookupScope)] = id;
     }
 
     return new BucketDefinitionMapping(definitions, parameterLookups);
@@ -120,9 +135,13 @@ export class BucketDefinitionMapping {
    * The behavior is undefined if the source is associated with a different SyncConfig.
    */
   bucketSourceId(source: BucketDataSource): BucketDefinitionId {
-    const defId = this.definitions[source.uniqueName];
+    return this.bucketSourceIdByName(source.uniqueName);
+  }
+
+  bucketSourceIdByName(uniqueName: string): BucketDefinitionId {
+    const defId = this.definitions[uniqueName];
     if (defId == null) {
-      throw new ServiceAssertionError(`No mapping found for bucket source ${source.uniqueName}`);
+      throw new ServiceAssertionError(`No mapping found for bucket source ${uniqueName}`);
     }
     return defId;
   }
@@ -136,7 +155,10 @@ export class BucketDefinitionMapping {
   }
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
-    const key = parameterLookupKey(source.sourceId);
+    return this.parameterLookupIdByKey(parameterLookupKey(source.sourceId));
+  }
+
+  parameterLookupIdByKey(key: string): ParameterIndexId {
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
       throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);

@@ -6,15 +6,10 @@ import { v4 as uuid } from 'uuid';
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { mongo } from '@powersync/lib-service-mongodb';
 
-import {
-  CompatibilityContext,
-  deserializeSyncPlan,
-  javaScriptExpressionEngine,
-  PrecompiledSyncConfig
-} from '@powersync/service-sync-rules';
+import { CompatibilityContext } from '@powersync/service-sync-rules';
 import { ObjectId } from 'bson';
 import { generateSlotName } from '../utils/util.js';
-import { BucketDefinitionMapping, SyncConfigWithMapping } from './implementation/BucketDefinitionMapping.js';
+import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
@@ -176,14 +171,14 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       return false;
     }
 
-    const first = existingConfig[0];
-    if (first.serialized_plan == null) {
+    if (existingConfig.some((config) => config.serialized_plan == null)) {
       // Only support sync streams with serialized plans
       return false;
     }
 
     // Technically we can compare the serialized compatibility versions? But this does not add much overhead.
-    const streamCompatibility = CompatibilityContext.deserialize(first.serialized_plan.compatibility);
+    const first = existingConfig[0];
+    const streamCompatibility = CompatibilityContext.deserialize(first.serialized_plan!.compatibility);
     if (!streamCompatibility.equals(options.config.parsed.config.compatibility)) {
       // Compatibility options must match
       return false;
@@ -222,24 +217,14 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
           .toArray();
 
         if (this.isCompatible(existing, existingConfigDocs, options)) {
-          const existingConfigs = existingConfigDocs.map((doc) => {
-            const plan = deserializeSyncPlan(doc.serialized_plan!);
-
-            // FIXME: eventDefinitions, errors
-            // FIXME: re-use parsing logic
-            const compatibility = options.config.parsed.config.compatibility;
-            const precompiled = new PrecompiledSyncConfig(plan, compatibility, [], {
-              defaultSchema: options.defaultSchema!,
-              engine: javaScriptExpressionEngine(compatibility),
-              sourceText: doc.content
-            });
-
-            return {
-              syncConfig: { config: precompiled, errors: [] },
-              mapping: BucketDefinitionMapping.fromSyncConfig(doc)
-            } satisfies SyncConfigWithMapping;
-          });
-          const mapping = BucketDefinitionMapping.constructIncrementalMapping(existingConfigs, options.config.parsed);
+          const existingConfigs = existingConfigDocs.map((doc) => ({
+            plan: doc.serialized_plan!.plan,
+            mapping: BucketDefinitionMapping.fromSyncConfig(doc)
+          }));
+          const mapping = BucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans(
+            existingConfigs,
+            options.config.plan!.plan
+          );
 
           const syncConfigDoc: SyncConfigDefinition = {
             _id: new ObjectId(),
@@ -301,7 +286,12 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       const id = Number(id_doc!.op_id);
       const slot_name = generateSlotName(this.slot_name_prefix, id);
 
-      const mapping = BucketDefinitionMapping.constructIncrementalMapping([], options.config.parsed);
+      const mapping =
+        options.config.plan == null
+          ? // For legacy sync rules and streams, use the parsed config directly to create a mapping
+            BucketDefinitionMapping.fromParsedSyncConfig(options.config.parsed)
+          : // For new sync streams, always use the serialized version
+            BucketDefinitionMapping.constructIncrementalMappingFromSerializedPlans([], options.config.plan.plan);
 
       const syncConfigDoc: SyncConfigDefinition = {
         _id: new ObjectId(),
