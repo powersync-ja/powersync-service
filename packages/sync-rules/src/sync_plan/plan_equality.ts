@@ -16,9 +16,15 @@ import {
 export const streamBucketDataSourceEquality: Equality<StreamBucketDataSource> = {
   hash(hasher, value) {
     hasher.addHash(value.hashCode);
+    hasher.addString(value.uniqueName);
   },
   equals(a, b) {
-    return a === b || (a.hashCode == b.hashCode && streamDataSourceSetEquality.equals(a.sources, b.sources));
+    return (
+      a === b ||
+      (a.hashCode == b.hashCode &&
+        a.uniqueName == b.uniqueName &&
+        streamDataSourceSetEquality.equals(a.sources, b.sources))
+    );
   }
 };
 

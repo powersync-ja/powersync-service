@@ -84,7 +84,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, false);
   });
 
-  syncTest('matches equivalent bucket sources with different stream names', ({ sync }) => {
+  syncTest('does not match equivalent bucket sources with different stream names', ({ sync }) => {
     const firstYaml = `
 config:
   edition: 3
@@ -105,9 +105,8 @@ streams:
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
     expect(first.uniqueName).not.toEqual(second.uniqueName);
-    expect(first.equals(second)).toBe(true);
-    expect(hashCode(first)).toEqual(hashCode(second));
-    expectSerializedBucketSources(firstYaml, secondYaml, true, true);
+    expect(first.equals(second)).toBe(false);
+    expectSerializedBucketSources(firstYaml, secondYaml, false, true);
   });
 
   syncTest('matches when subqueries differ but the data source does not', ({ sync }) => {

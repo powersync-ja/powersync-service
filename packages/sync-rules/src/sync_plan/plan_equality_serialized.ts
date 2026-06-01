@@ -10,39 +10,35 @@ export interface SerializedBucketDataSourceWithDataSources {
   dataSources: readonly SerializedDataSource[];
 }
 
-export const serializedStreamDataSourceEquality: Equality<SerializedDataSource> = {
-  hash(hasher, value) {
-    hasher.addString(JSON.stringify(value));
-  },
-  equals(a, b) {
-    return a === b || JSON.stringify(a) == JSON.stringify(b);
-  }
-};
+export const serializedStreamDataSourceEquality = jsonEquality<SerializedDataSource>();
 
-export const serializedStreamParameterIndexLookupCreatorEquality: Equality<SerializedParameterIndexLookupCreator> = {
-  hash(hasher, value) {
-    hasher.addString(JSON.stringify(value));
-  },
-  equals(a, b) {
-    return a === b || JSON.stringify(a) == JSON.stringify(b);
-  }
-};
+export const serializedStreamParameterIndexLookupCreatorEquality =
+  jsonEquality<SerializedParameterIndexLookupCreator>();
 
 export const serializedStreamBucketDataSourceEquality: Equality<SerializedBucketDataSourceWithDataSources> = {
   hash(hasher, value) {
-    hasher.addString(serializedStreamBucketDataSourceKey(value));
+    hasher.addString(JSON.stringify(normalizeBucketDataSource(value)));
   },
   equals(a, b) {
-    return a === b || serializedStreamBucketDataSourceKey(a) == serializedStreamBucketDataSourceKey(b);
+    return a === b || JSON.stringify(normalizeBucketDataSource(a)) == JSON.stringify(normalizeBucketDataSource(b));
   }
 };
 
-function serializedStreamBucketDataSourceKey(value: SerializedBucketDataSourceWithDataSources): string {
+function normalizeBucketDataSource(value: SerializedBucketDataSourceWithDataSources) {
   const { bucket, dataSources } = value;
-
-  // Match StreamBucketDataSource's logical equality: bucket names are unique identifiers, not behavior.
-  return JSON.stringify({
-    hash: bucket.hash,
+  return {
+    ...bucket,
     sources: bucket.sources.map((index) => JSON.stringify(dataSources[index])).sort()
-  });
+  };
+}
+
+function jsonEquality<T>(): Equality<T> {
+  return {
+    hash(hasher, value) {
+      hasher.addString(JSON.stringify(value));
+    },
+    equals(a, b) {
+      return a === b || JSON.stringify(a) == JSON.stringify(b);
+    }
+  };
 }
