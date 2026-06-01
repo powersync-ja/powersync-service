@@ -20,7 +20,7 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
     await use({
       prepareWithoutHydration: (inputs) => {
         const { config, errors } = SqlSyncRules.fromYaml(inputs, { defaultSchema: 'test_schema', throwOnError: false });
-        expect(errors).toHaveLength(0);
+        expect(errors).toStrictEqual([]);
 
         return config;
       },
