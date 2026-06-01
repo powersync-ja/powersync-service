@@ -1,5 +1,7 @@
+import * as sqlite from 'node:sqlite';
+
 import { ErrorCode, errors, router, schema } from '@powersync/lib-services-framework';
-import { SourceSchema, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
+import { nodeSqlite, SourceSchema, SqlSyncRules, StaticSchema } from '@powersync/service-sync-rules';
 import { internal_routes } from '@powersync/service-types';
 
 import { DEFAULT_HYDRATION_STATE } from '@powersync/service-sync-rules';
@@ -182,7 +184,10 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesConten
       }),
       hydrationState: DEFAULT_HYDRATION_STATE,
       hydratedSyncConfig() {
-        return this.syncConfigWithErrors.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+        return this.syncConfigWithErrors.config.hydrate({
+          hydrationState: DEFAULT_HYDRATION_STATE,
+          sqlite: nodeSqlite(sqlite)
+        });
       }
     };
   }

@@ -1,4 +1,4 @@
-import { BucketDataSource, CreateSourceParams, HydratedBucketSource } from './BucketSource.js';
+import { BucketDataSource, HydratedBucketSource } from './BucketSource.js';
 import {
   BucketParameterQuerier,
   BucketSource,
@@ -8,7 +8,8 @@ import {
   EvaluationError,
   GetBucketParameterQuerierResult,
   GetQuerierOptions,
-  HydrationState,
+  HydrateSyncConfigParams,
+  HydrationInput,
   isEvaluatedParameters,
   isEvaluatedRow,
   isEvaluationError,
@@ -27,6 +28,7 @@ import {
   TablePattern
 } from './index.js';
 import { SourceTableRef, sourceTableRefKey } from './SourceTableRef.js';
+import { createScalarExpressionEngine } from './sync_plan/engine/factory.js';
 import { EvaluatedParametersResult, EvaluateRowOptions, EvaluationResult, SqliteRow } from './types.js';
 import { applyRowContext, uniqueBy } from './utils.js';
 
@@ -78,18 +80,17 @@ export class HydratedSyncConfig {
 
   private readonly innerEvaluateRow: ScopedEvaluateRow;
   private readonly innerEvaluateParameterRow: ScopedEvaluateParameterRow;
-  private readonly hydrationState: HydrationState;
+  private readonly hydrationInput: HydrationInput;
   private readonly matchingSourcesCache = new Map<string, MatchingSources>();
+
   private mergedEvaluatorCache = new WeakMap<BucketDataSource[], { evaluateRow: ScopedEvaluateRow }>();
   private mergedParameterIndexCreatorCache = new WeakMap<
     ParameterIndexLookupCreator[],
     { evaluateParameterRow: ScopedEvaluateParameterRow }
   >();
 
-  constructor(params: { definitions: SyncConfig[]; createParams: CreateSourceParams }) {
+  constructor(params: { definitions: SyncConfig[]; createParams: HydrateSyncConfigParams }) {
     const hydrationState = params.createParams.hydrationState;
-    this.hydrationState = hydrationState;
-
     const definitions = params.definitions;
     if (definitions.length == 0) {
       throw new Error('HydratedSyncRules requires at least one SyncConfig definition');
@@ -97,6 +98,10 @@ export class HydratedSyncConfig {
 
     this.sourceDefinitions = [...definitions];
     this.compatibility = assertSharedCompatibility(this.sourceDefinitions);
+    this.hydrationInput = {
+      hydrationState,
+      scalarExpressions: createScalarExpressionEngine(this.compatibility, params.createParams.sqlite)
+    };
 
     this.bucketDataSources = uniqueBy(
       definitions.flatMap((definition) => definition.bucketDataSources),
@@ -107,9 +112,9 @@ export class HydratedSyncConfig {
       (source) => parameterLookupScopeKey(hydrationState.getParameterIndexLookupScope(source))
     );
 
-    this.innerEvaluateRow = mergeDataSources(hydrationState, this.bucketDataSources).evaluateRow;
+    this.innerEvaluateRow = mergeDataSources(this.hydrationInput, this.bucketDataSources).evaluateRow;
     this.innerEvaluateParameterRow = mergeParameterIndexLookupCreators(
-      hydrationState,
+      this.hydrationInput,
       this.bucketParameterLookupSources
     ).evaluateParameterRow;
 
@@ -117,7 +122,7 @@ export class HydratedSyncConfig {
 
     if (definitions.length == 1) {
       this.#bucketSourceDefinitions = definitions[0].bucketSources;
-      this.bucketSources = this.#bucketSourceDefinitions.map((source) => source.hydrate(params.createParams));
+      this.bucketSources = this.#bucketSourceDefinitions.map((source) => source.hydrate(this.hydrationInput));
     } else {
       // We do not support merging bucket sources across multiple definitions - these are always used with one
       // SyncConfig at a time.
@@ -197,7 +202,7 @@ export class HydratedSyncConfig {
       // It is not a strict requirement to use stable arrays, but it can help for performance.
       let merged = this.mergedEvaluatorCache.get(options.bucketDataSources);
       if (merged == null) {
-        merged = mergeDataSources(this.hydrationState, options.bucketDataSources);
+        merged = mergeDataSources(this.hydrationInput, options.bucketDataSources);
         this.mergedEvaluatorCache.set(options.bucketDataSources, merged);
       }
       rawResults = merged.evaluateRow(options);
@@ -236,7 +241,7 @@ export class HydratedSyncConfig {
       // It is not a strict requirement to use stable arrays, but it can help for performance.
       let merged = this.mergedParameterIndexCreatorCache.get(options.parameterLookupSources);
       if (merged == null) {
-        merged = mergeParameterIndexLookupCreators(this.hydrationState, options.parameterLookupSources);
+        merged = mergeParameterIndexLookupCreators(this.hydrationInput, options.parameterLookupSources);
         this.mergedParameterIndexCreatorCache.set(options.parameterLookupSources, merged);
       }
       rawResults = merged.evaluateParameterRow(table, row);

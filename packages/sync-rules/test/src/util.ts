@@ -1,24 +1,39 @@
+import * as sqlite from 'node:sqlite';
+
 import { expect } from 'vitest';
 import {
   BaseJwtPayload,
   BucketDataScope,
   BucketDataSource,
   BucketParameterQuerier,
+  BucketSource,
   ColumnDefinition,
   CompatibilityContext,
+  CompatibilityEdition,
+  CreateSourceParams,
+  DEFAULT_HYDRATION_STATE,
   DEFAULT_TAG,
   GetQuerierOptions,
+  HydratedBucketSource,
+  HydrationInput,
+  HydrationState,
+  mergeDataSources,
+  mergeParameterIndexLookupCreators,
+  nodeSqlite,
   ParameterIndexLookupCreator,
   ParameterLookupDefinitionId,
   ParameterLookupScope,
   RequestedStream,
   RequestParameters,
+  ScopedEvaluateParameterRow,
+  ScopedEvaluateRow,
   ScopedParameterLookup,
   SourceSchema,
   SourceTableRef,
   StaticSchema,
   TablePattern
 } from '../../src/index.js';
+import { createScalarExpressionEngine } from '../../src/sync_plan/engine/factory.js';
 
 export class TestSourceTable implements SourceTableRef {
   readonly connectionTag = DEFAULT_TAG;
@@ -98,7 +113,7 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
   getSourceTables: function (): Set<TablePattern> {
     return new Set();
   },
-  evaluateRow(options) {
+  createEvaluator() {
     throw new Error('Function not implemented.');
   },
   tableSyncsData: function (table: SourceTableRef): boolean {
@@ -122,8 +137,12 @@ export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
   getSourceTables(): Set<TablePattern> {
     return new Set();
   },
-  evaluateParameterRow() {
-    return [];
+  createEvaluator() {
+    return {
+      evaluateParameterRow() {
+        return [];
+      }
+    };
   },
   tableSyncsParameters() {
     return false;
@@ -154,4 +173,44 @@ export async function findQuerierLookups(querier: BucketParameterQuerier): Promi
   });
 
   return recordedLookups!;
+}
+
+export interface DebugMergedSource extends HydratedBucketSource {
+  evaluateRow: ScopedEvaluateRow;
+  evaluateParameterRow: ScopedEvaluateParameterRow;
+}
+
+/**
+ * For production purposes, we typically need to operate on the different sources separately. However, for debugging,
+ * it is useful to have a single merged source that can evaluate everything.
+ */
+export function debugHydratedMergedSource(bucketSource: BucketSource, params?: CreateSourceParams): DebugMergedSource {
+  const hydrationState = params?.hydrationState ?? DEFAULT_HYDRATION_STATE;
+  const input = testHydrationInput({ hydrationState });
+  const dataSource = mergeDataSources(input, bucketSource.dataSources);
+  const parameterLookupSource = mergeParameterIndexLookupCreators(input, bucketSource.parameterIndexLookupCreators);
+  const hydratedBucketSource = bucketSource.hydrate(input);
+  return {
+    definition: bucketSource,
+    evaluateParameterRow: parameterLookupSource.evaluateParameterRow.bind(parameterLookupSource),
+    evaluateRow: dataSource.evaluateRow.bind(dataSource),
+    pushBucketParameterQueriers: hydratedBucketSource.pushBucketParameterQueriers.bind(hydratedBucketSource)
+  };
+}
+
+export function testHydrationInput(
+  options: {
+    compatibility?: CompatibilityContext;
+    hydrationState?: HydrationState;
+  } = {}
+): HydrationInput {
+  const {
+    compatibility = new CompatibilityContext({ edition: CompatibilityEdition.COMPILED_STREAMS }),
+    hydrationState = DEFAULT_HYDRATION_STATE
+  } = options;
+
+  return {
+    scalarExpressions: createScalarExpressionEngine(compatibility, nodeSqlite(sqlite)),
+    hydrationState
+  };
 }

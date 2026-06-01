@@ -1,7 +1,9 @@
+import * as sqlite from 'node:sqlite';
 import { describe, expect } from 'vitest';
 import {
   DEFAULT_HYDRATION_STATE,
   HydratedSyncConfig,
+  nodeSqlite,
   ParameterLookupRows,
   PrecompiledSyncConfig,
   ScopedParameterLookup,
@@ -612,7 +614,7 @@ streams:
   stream:
       query: SELECT a.* FROM a, b, c WHERE a.id1 = b.id1 AND a.c1 = c.c1 AND b.c1 = c.c1 AND b.c2 = c.c2 AND c.u = auth.user_id()
 `) as PrecompiledSyncConfig;
-    const desc = compiled.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+    const desc = compiled.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
 
     const { querier, errors } = desc.getBucketParameterQuerier({
       globalParameters: requestParameters({ sub: 'user1' }),
@@ -1168,6 +1170,76 @@ streams:
       ]);
     });
   });
+});
+
+syncTest('SQLite smoke test', async ({ sync }) => {
+  const desc = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT comments.* FROM comments, issues
+        WHERE issues.id = comments.issue
+        AND issues.owner = auth.user_id()
+`);
+
+  expect(desc.evaluateParameterRow(ISSUES, { id: 'issue', owner: 'user' })).toStrictEqual([
+    {
+      lookup: ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user']),
+      bucketParameters: [
+        {
+          '0': 'issue'
+        }
+      ]
+    }
+  ]);
+  expect(desc.evaluateRow({ sourceTable: COMMENTS, record: { id: 'c', issue: 'issue', text: 'foo' } })).toStrictEqual([
+    {
+      bucket: 'stream|0["issue"]',
+      id: 'c',
+      data: { id: 'c', issue: 'issue', text: 'foo' },
+      table: 'comments'
+    }
+  ]);
+
+  const { querier, errors } = desc.getBucketParameterQuerier({
+    globalParameters: requestParameters({ sub: 'user' }),
+    hasDefaultStreams: true,
+    streams: {}
+  });
+  expect(errors).toHaveLength(0);
+  expect(querier.staticBuckets).toHaveLength(0);
+
+  const dynamicBuckets = await querier.queryDynamicBucketDescriptions({
+    async getParameterSets(lookups) {
+      expect(lookups).toStrictEqual([ScopedParameterLookup.direct(lookupScope('lookup', '0'), ['user'])]);
+
+      return [{ lookup: lookups[0], rows: [{ '0': 'issue' }] }];
+    }
+  });
+  expect(dynamicBuckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
+});
+
+syncTest('throws when using SQLite without providing it', ({ sync }) => {
+  const desc = sync.prepareWithoutHydration(`
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT comments.* FROM comments, issues
+        WHERE issues.id = comments.issue
+        AND issues.owner = auth.user_id()
+`);
+
+  expect(() => desc.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: null })).toThrow(
+    'sqlite_expression_engine is unsupported on this target.'
+  );
 });
 
 function evaluateBucketIds(source: HydratedSyncConfig, sourceTable: SourceTableRef, record: SqliteRow) {

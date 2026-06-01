@@ -71,7 +71,7 @@ export class ExpressionToSqlite<Data> implements ExpressionVisitor<Data, void, P
   }
 
   private maybeParenthesis(outerPrecedence: Precedence | 0, innerPrecedence: Precedence, inner: () => void) {
-    if (outerPrecedence > innerPrecedence) {
+    if (outerPrecedence >= innerPrecedence) {
       this.parenthesis(inner);
     } else {
       inner();

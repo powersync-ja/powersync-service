@@ -33,7 +33,7 @@ export class CompatibilityOption {
   private constructor(
     readonly name: string,
     readonly description: string,
-    readonly fixedIn: CompatibilityEdition
+    readonly fixedIn: CompatibilityEdition | null
   ) {}
 
   static timestampsIso8601 = new CompatibilityOption(
@@ -60,11 +60,18 @@ export class CompatibilityOption {
     CompatibilityEdition.SYNC_STREAMS
   );
 
+  static sqliteExpressionEngine = new CompatibilityOption(
+    'unstable_sqlite_expression_engine',
+    'Experimental option to evaluate functions and operators in Sync Streams with SQLite instead of a JavaScript implementation.',
+    null
+  );
+
   static byName: Record<string, CompatibilityOption> = Object.freeze({
     timestamps_iso8601: this.timestampsIso8601,
     versioned_bucket_ids: this.versionedBucketIds,
     fixed_json_extract: this.fixedJsonExtract,
-    custom_postgres_types: this.customTypes
+    custom_postgres_types: this.customTypes,
+    unstable_sqlite_expression_engine: this.sqliteExpressionEngine
   });
 }
 
@@ -103,7 +110,7 @@ export class CompatibilityContext {
   }
 
   isEnabled(option: CompatibilityOption) {
-    return this.overrides.get(option) ?? option.fixedIn <= this.edition;
+    return this.overrides.get(option) ?? (option.fixedIn != null && option.fixedIn <= this.edition);
   }
 
   equals(other: CompatibilityContext): boolean {

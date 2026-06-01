@@ -744,6 +744,10 @@ function doMath(op: string, a: SqliteValue, b: SqliteValue) {
   let na = cast(a, 'numeric') as number | bigint;
   let nb = cast(b, 'numeric') as number | bigint;
 
+  if (op == '/' && nb == 0) {
+    return null;
+  }
+
   if (typeof na == 'bigint' && typeof nb != 'bigint') {
     // bigint, real
     na = Number(na);
