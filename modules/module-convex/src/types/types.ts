@@ -1,4 +1,9 @@
-import { ErrorCode, makeHostnameLookupFunction, ServiceError } from '@powersync/lib-services-framework';
+import {
+  ErrorCode,
+  hostnameFromSocketAddress,
+  makeHostnameLookupFunction,
+  ServiceError
+} from '@powersync/lib-services-framework';
 import * as service_types from '@powersync/service-types';
 import { LookupFunction } from 'node:net';
 import * as t from 'ts-codec';
@@ -78,7 +83,10 @@ export function normalizeConnectionConfig(options: ConvexConnectionConfig): Norm
     );
   }
 
-  const lookup = makeHostnameLookupFunction(deploymentURL.hostname, {
+  // URL.hostname returns IPv6 literals wrapped in brackets, while
+  // makeHostnameLookupFunction expects a normalized hostname: no port and no IPv6 brackets.
+  const hostname = hostnameFromSocketAddress(deploymentURL.hostname);
+  const lookup = makeHostnameLookupFunction(hostname, {
     reject_ip_ranges: options.reject_ip_ranges ?? []
   });
 

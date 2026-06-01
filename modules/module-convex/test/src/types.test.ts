@@ -68,4 +68,26 @@ describe('Convex connection config', () => {
       })
     ).toThrow('request_timeout_ms must be a positive finite number');
   });
+
+  it('rejects a bracketed IPv6 deployment URL when local IPs are blocked', () => {
+    expect(() =>
+      normalizeConnectionConfig({
+        type: CONVEX_CONNECTION_TYPE,
+        deployment_url: 'http://[::1]:3210',
+        deploy_key: 'secret-key',
+        reject_ip_ranges: ['local']
+      })
+    ).toThrow('IPs in this range are not supported');
+  });
+
+  it('rejects a bracketed IPv6 deployment URL against an explicit CIDR', () => {
+    expect(() =>
+      normalizeConnectionConfig({
+        type: CONVEX_CONNECTION_TYPE,
+        deployment_url: 'http://[::1]:3210',
+        deploy_key: 'secret-key',
+        reject_ip_ranges: ['::1/128']
+      })
+    ).toThrow('IPs in this range are not supported');
+  });
 });
