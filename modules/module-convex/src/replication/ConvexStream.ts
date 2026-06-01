@@ -16,7 +16,7 @@ import {
   SourceTable,
   storage
 } from '@powersync/service-core';
-import { HydratedSyncRules, TablePattern } from '@powersync/service-sync-rules';
+import { HydratedSyncConfig, TablePattern } from '@powersync/service-sync-rules';
 import { ReplicationMetric } from '@powersync/service-types';
 import { setTimeout as delay } from 'timers/promises';
 import { ConvexListSnapshotResult, ConvexRawDocument } from '../client/ConvexAPITypes.js';
@@ -44,7 +44,7 @@ export class ConvexCursorExpiredError extends DatabaseConnectionError {
 export class ConvexStream {
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly metrics: MetricsEngine;
-  private readonly syncRules: HydratedSyncRules;
+  private readonly syncConfig: HydratedSyncConfig;
   private readonly logger: Logger;
 
   private readonly relationCache = new RelationCache(getCacheIdentifier);
@@ -58,7 +58,7 @@ export class ConvexStream {
   constructor(private readonly options: ConvexStreamOptions) {
     this.storage = options.storage;
     this.metrics = options.metrics;
-    this.syncRules = options.storage.getParsedSyncRules({ defaultSchema: options.connections.schema });
+    this.syncConfig = options.storage.getParsedSyncRules({ defaultSchema: options.connections.schema });
     this.logger = options.logger ?? defaultLogger;
   }
 
@@ -162,7 +162,7 @@ export class ConvexStream {
       throw new ReplicationAssertionError(`No LSN found to resume replication from.`);
     }
 
-    // Resolve source tables up-front to warm table metadata and sync-rule matching.
+    // Resolve source tables up-front to warm table metadata and sync-config matching.
     await this.resolveAllSourceTables(batch);
 
     let cursor: string = resumeFromLsn;
@@ -495,7 +495,7 @@ export class ConvexStream {
   }
 
   private async resolveAllSourceTables(batch: storage.BucketStorageBatch): Promise<SourceTable[]> {
-    const sourceTablePatterns = this.syncRules.getSourceTables();
+    const sourceTablePatterns = this.syncConfig.getSourceTables();
     const resolved: SourceTable[] = [];
     const seenSourceTableIds = new Set<string>();
 
@@ -552,7 +552,7 @@ export class ConvexStream {
     tableName: string,
     snapshotLSN: string
   ): Promise<SourceTable[]> {
-    if (!this.isTableSelectedBySyncRules(tableName)) {
+    if (!this.isTableSelectedBySyncConfig(tableName)) {
       return [];
     }
 
@@ -584,8 +584,8 @@ export class ConvexStream {
     return tables;
   }
 
-  private isTableSelectedBySyncRules(tableName: string): boolean {
-    for (const sourceTablePattern of this.syncRules.getSourceTables()) {
+  private isTableSelectedBySyncConfig(tableName: string): boolean {
+    for (const sourceTablePattern of this.syncConfig.getSourceTables()) {
       if (sourceTablePattern.connectionTag != this.connections.connectionTag) {
         continue;
       }
@@ -674,7 +674,7 @@ export class ConvexStream {
   }
 
   private toSqliteRow(change: ConvexRawDocument) {
-    return this.syncRules.applyRowContext<never>(toSqliteInputRow(change));
+    return this.syncConfig.applyRowContext<never>(toSqliteInputRow(change));
   }
 
   private touch() {
