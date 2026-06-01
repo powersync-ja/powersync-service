@@ -5,9 +5,10 @@ import {
   BucketDataSource,
   CompatibilityOption,
   DEFAULT_HYDRATION_STATE,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   HydrationState,
   ParameterIndexLookupCreator,
+  ParameterLookupScope,
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
@@ -19,7 +20,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
 
   constructor(
     public readonly id: number,
-    public readonly sync_rules: SyncConfigWithErrors,
+    public readonly syncConfigWithErrors: SyncConfigWithErrors,
     public readonly slot_name: string,
     private readonly mapping: BucketDefinitionMapping | null,
     private readonly storageConfig: StorageConfig
@@ -30,7 +31,7 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
       }
       this.hydrationState = new MongoHydrationState(this.mapping, this.id);
     } else if (
-      !this.sync_rules.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
+      !this.syncConfigWithErrors.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds) &&
       !this.storageConfig.versionedBuckets
     ) {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
@@ -39,8 +40,8 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     }
   }
 
-  hydratedSyncRules(): HydratedSyncRules {
-    return this.sync_rules.config.hydrate({ hydrationState: this.hydrationState });
+  hydratedSyncConfig(): HydratedSyncConfig {
+    return this.syncConfigWithErrors.config.hydrate({ hydrationState: this.hydrationState });
   }
 }
 
@@ -54,7 +55,6 @@ class MongoHydrationState implements HydrationState {
     // Keep this aligned with versionedHydrationState() for now.
     //
     // Previous Mongo-specific behavior:
-    // const defId = this.mapping.bucketSourceId(source);
     // return {
     //   bucketPrefix: defId,
     //   source
@@ -65,7 +65,7 @@ class MongoHydrationState implements HydrationState {
     };
   }
 
-  getParameterIndexLookupScope(source: ParameterIndexLookupCreator) {
+  getParameterIndexLookupScope(source: ParameterIndexLookupCreator): ParameterLookupScope {
     const defId = this.mapping.parameterLookupId(source);
     return {
       lookupName: defId,

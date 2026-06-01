@@ -1,7 +1,16 @@
 import { BucketDataSource, ParameterIndexLookupCreator } from './BucketSource.js';
 
+export type BucketDefinitionId = string;
+export type ParameterIndexId = string;
+
 export interface BucketDataScope {
-  /** The prefix is the bucket name before the parameters. */
+  /**
+   * The prefix is the bucket name before the parameters.
+   *
+   * This also functions as an unique and stable key identifying the bucket source within a single replication stream.
+   *
+   * It may have duplicates over different streams, depending on storage requirements.
+   */
   bucketPrefix: string;
   /** Source used to generate buckets. */
   source: BucketDataSource;
@@ -12,11 +21,19 @@ export interface ParameterLookupScope {
    * The lookup name + queryid is used to reference the parameter lookup record.
    *
    * In newer storage versions, lookupName = indexId, and queryId = ''.
+   *
+   * Together, these also function as an unique and stable key identifying the parameter lookup source within a single replication stream.
+   * They are not guaranteed to be unique across different streams, depending on storage requirements.
    */
   lookupName: string;
   queryId: string;
   /** Source used to generate parameter lookups. */
   source: ParameterIndexLookupCreator;
+}
+
+export interface ParameterLookupDefinitionId {
+  lookupName: string;
+  queryId: string;
 }
 
 /**
@@ -43,14 +60,17 @@ export interface HydrationState {
  * This is the legacy default behavior with no bucket versioning.
  */
 export const DEFAULT_HYDRATION_STATE: HydrationState = {
-  getBucketSourceScope(source: BucketDataSource) {
+  getBucketSourceScope(source: BucketDataSource): BucketDataScope {
     return {
       bucketPrefix: source.uniqueName,
       source
     };
   },
-  getParameterIndexLookupScope(source) {
-    return source.defaultLookupScope;
+  getParameterIndexLookupScope(source: ParameterIndexLookupCreator): ParameterLookupScope {
+    return {
+      ...source.sourceId,
+      source
+    };
   }
 };
 
@@ -65,6 +85,9 @@ export const DEFAULT_HYDRATION_STATE: HydrationState = {
  *
  * Note that this transformation has not been present in older versions of the sync service. To preserve backwards
  * compatibility, sync config will not use this without an opt-in.
+ *
+ * This hydration state does not ensure uniqueness of keys across different sync configs, so it cannot be used
+ * for incremental reprocessing / multiple sync configs per replication stream.
  */
 export function versionedHydrationState(version: number): HydrationState {
   return {
@@ -77,7 +100,14 @@ export function versionedHydrationState(version: number): HydrationState {
 
     getParameterIndexLookupScope(source: ParameterIndexLookupCreator): ParameterLookupScope {
       // No transformations applied here
-      return source.defaultLookupScope;
+      return {
+        ...source.sourceId,
+        source
+      };
     }
   };
+}
+
+export function parameterLookupScopeKey(scope: ParameterLookupDefinitionId): ParameterIndexId {
+  return JSON.stringify([scope.lookupName, scope.queryId]);
 }

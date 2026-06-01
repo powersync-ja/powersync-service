@@ -13,8 +13,8 @@ import {
   storage,
   utils
 } from '@powersync/service-core';
+import { BucketDefinitionId } from '@powersync/service-sync-rules';
 
-import { BucketDefinitionId } from './BucketDefinitionMapping.js';
 import { BucketDataDoc, BucketKey } from './common/BucketDataDoc.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from './common/SingleBucketStore.js';
 import type { VersionedPowerSyncMongo } from './db.js';

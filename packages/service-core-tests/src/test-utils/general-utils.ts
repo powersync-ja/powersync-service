@@ -80,7 +80,7 @@ export function getBatchData(
 function isParsedSyncRules(
   syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
 ): syncRules is storage.PersistedSyncRules {
-  return (syncRules as storage.PersistedSyncRules).sync_rules !== undefined;
+  return (syncRules as storage.PersistedSyncRules).syncConfigWithErrors !== undefined;
 }
 
 /**
@@ -97,7 +97,7 @@ export function bucketRequest(
   const parameterStart = bucket.indexOf('[');
   const definitionName = bucket.substring(0, parameterStart);
   const parameters = bucket.substring(parameterStart);
-  const source = parsed.sync_rules.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
+  const source = parsed.syncConfigWithErrors.config.bucketDataSources.find((b) => b.uniqueName === definitionName);
 
   if (source == null) {
     throw new Error(`Failed to find global bucket ${bucket}`);

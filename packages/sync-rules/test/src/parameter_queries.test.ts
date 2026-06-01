@@ -890,8 +890,8 @@ describe('parameter queries', () => {
       },
       getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
-          lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`,
+          lookupName: `${source.sourceId.lookupName}.test`,
+          queryId: `${source.sourceId.queryId}.test`,
           source
         };
       }

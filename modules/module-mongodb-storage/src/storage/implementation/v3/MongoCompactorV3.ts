@@ -1,7 +1,7 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
-import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionId } from '@powersync/service-sync-rules';
 import { SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';

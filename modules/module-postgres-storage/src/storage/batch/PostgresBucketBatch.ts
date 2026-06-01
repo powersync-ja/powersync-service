@@ -37,7 +37,7 @@ import { PostgresPersistedBatch } from './PostgresPersistedBatch.js';
 export interface PostgresBucketBatchOptions {
   logger: Logger;
   db: lib_postgres.DatabaseClient;
-  sync_rules: sync_rules.HydratedSyncRules;
+  sync_rules: sync_rules.HydratedSyncConfig;
   group_id: number;
   slot_name: string;
   last_checkpoint_lsn: string | null;
@@ -98,7 +98,7 @@ export class PostgresBucketBatch
   protected persisted_op: InternalOpId | null;
 
   protected write_checkpoint_batch: storage.CustomWriteCheckpointOptions[];
-  protected readonly sync_rules: sync_rules.HydratedSyncRules;
+  protected readonly sync_rules: sync_rules.HydratedSyncConfig;
   protected batch: OperationBatch | null;
   private lastWaitingLogThrottled = 0;
   private markRecordUnavailable: BucketStorageMarkRecordUnavailable | undefined;
@@ -328,7 +328,7 @@ export class PostgresBucketBatch
   private sourceTableFromRow(
     row: SourceTableDecoded,
     connectionTag: string,
-    syncRules: sync_rules.HydratedSyncRules
+    syncRules: sync_rules.HydratedSyncConfig
   ): storage.SourceTable {
     const ref = { connectionTag, schema: row.schema_name, name: row.table_name };
     const sourceTable = new storage.SourceTable({

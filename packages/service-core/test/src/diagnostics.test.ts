@@ -1,6 +1,6 @@
 import { DiagnosticsOptions, getSyncRulesStatus } from '@/api/diagnostics.js';
 import { RouteAPI, SlotWalBudgetInfo } from '@/api/RouteAPI.js';
-import { BucketStorageFactory } from '@/index.js';
+import { BucketStorageFactory, PersistedSyncRules, storage } from '@/index.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
@@ -13,7 +13,8 @@ bucket_definitions:
       - SELECT id FROM test_table
 `;
 
-function makeSyncRulesContent(overrides?: { slot_name?: string }) {
+function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.PersistedSyncRulesContent {
+  // We don't implement the entire interface correctly here - just enough to test the diagnostics logic.
   return {
     id: 1,
     slot_name: overrides?.slot_name ?? 'test_slot',
@@ -32,14 +33,17 @@ function makeSyncRulesContent(overrides?: { slot_name?: string }) {
         defaultSchema: 'public'
       });
       return {
-        sync_rules: syncRules
-      };
+        syncConfigWithErrors: syncRules
+      } as PersistedSyncRules;
     },
     lock() {
       throw new Error('Not implemented in mock');
     },
-    current_lock: undefined
-  } as any;
+    current_lock: null,
+    logger: null as any,
+    asUpdateOptions: null as any,
+    getStorageConfig: null as any
+  } as storage.PersistedSyncRulesContent;
 }
 
 function makeBucketStorage() {

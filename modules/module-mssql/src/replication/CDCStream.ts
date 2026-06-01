@@ -15,7 +15,7 @@ import {
   storage
 } from '@powersync/service-core';
 
-import { HydratedSyncRules, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
+import { HydratedSyncConfig, SqliteInputRow, SqliteRow, TablePattern } from '@powersync/service-sync-rules';
 
 import { ReplicationMetric } from '@powersync/service-types';
 import sql from 'mssql';
@@ -104,7 +104,7 @@ export class CDCDataExpiredError extends DatabaseConnectionError {
 }
 
 export class CDCStream {
-  private readonly syncRules: HydratedSyncRules;
+  private readonly syncRules: HydratedSyncConfig;
   private readonly storage: storage.SyncRulesBucketStorage;
   private readonly connections: MSSQLConnectionManager;
   private readonly abortSignal: AbortSignal;
