@@ -84,15 +84,11 @@ streams:
         streams: {}
       });
       expect(errors).toHaveLength(0);
-      return querier.staticBuckets;
+      return querier.staticBuckets.map((b) => b.bucket);
     }
 
-    expect(evaluate([JSON.stringify({ a: 1, b: true, c: null })])).toStrictEqual([
-      ['a', 1n],
-      ['b', 1n],
-      ['c', null]
-    ]);
-    expect(evaluate(['42'])).toStrictEqual([[null, 42n]]);
+    expect(evaluate(JSON.stringify({ a: 1, b: true, c: null }))).toStrictEqual([`stream|0[1,"a"]`, `stream|0[1,"b"]`]);
+    expect(evaluate([42])).toStrictEqual([`stream|0[42,0]`]);
   });
 
   describe('SQLite NULL semantics for NOT in sync stream filters', () => {
