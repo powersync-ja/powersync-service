@@ -194,7 +194,6 @@ export class PostgresBucketBatch
       }
 
       if (sourceTableRow == null) {
-        const { persistedValue } = storage.resolveStoreCurrentData(sendsCompleteRows);
         const id = options.idGenerator ? postgresTableId(options.idGenerator()) : uuid.v4();
         sourceTableRow = await db.sql`
           INSERT INTO
@@ -205,8 +204,7 @@ export class PostgresBucketBatch
               relation_id,
               schema_name,
               table_name,
-              replica_id_columns,
-              store_current_data
+              replica_id_columns
             )
           VALUES
             (
@@ -216,30 +214,13 @@ export class PostgresBucketBatch
               ${{ type: 'jsonb', value: { object_id: objectId } satisfies StoredRelationId }},
               ${{ type: 'varchar', value: schema }},
               ${{ type: 'varchar', value: table }},
-              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }},
-              ${{ type: 'bool', value: persistedValue }}
+              ${{ type: 'jsonb', value: normalizedReplicaIdColumns }}
             )
           RETURNING
             *
         `
           .decoded(models.SourceTable)
           .first();
-      } else {
-        const { changed, value } = storage.resolveStoreCurrentData(
-          sendsCompleteRows,
-          sourceTableRow.store_current_data
-        );
-        if (changed) {
-          // Row-completeness changed since first resolved (e.g. ALTER TABLE ... REPLICA IDENTITY).
-          await db.sql`
-            UPDATE source_tables
-            SET
-              store_current_data = ${{ type: 'bool', value }}
-            WHERE
-              id = ${{ type: 'varchar', value: sourceTableRow.id }}
-          `.execute();
-          sourceTableRow.store_current_data = value;
-        }
       }
 
       const sourceTable = new storage.SourceTable({
@@ -260,7 +241,7 @@ export class PostgresBucketBatch
       sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
       sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
       sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-      sourceTable.storeCurrentData = sourceTableRow!.store_current_data ?? true;
+      sourceTable.storeCurrentData = sendsCompleteRows !== true;
 
       let truncatedTables: SourceTableDecoded[] = [];
       if (objectId != null) {
@@ -320,7 +301,6 @@ export class PostgresBucketBatch
           dropTable.syncEvent = syncRules.tableTriggersEvent(ref);
           dropTable.syncData = dropTable.bucketDataSources.length > 0;
           dropTable.syncParameters = dropTable.parameterLookupSources.length > 0;
-          dropTable.storeCurrentData = doc.store_current_data ?? true;
           return dropTable;
         })
       };
@@ -375,7 +355,6 @@ export class PostgresBucketBatch
     sourceTable.syncEvent = syncRules.tableTriggersEvent(ref);
     sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
     sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-    sourceTable.storeCurrentData = row.store_current_data ?? true;
     return sourceTable;
   }
 

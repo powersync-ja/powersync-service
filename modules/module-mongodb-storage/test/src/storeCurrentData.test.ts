@@ -9,8 +9,8 @@ import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util
  * Tests for the per-table `storeCurrentData` flag in MongoDB storage (both v1 and v3).
  *
  * Two things are exercised:
- *  1. `resolveTables` computes and persists `storeCurrentData = !sendsCompleteRows`
- *     (and leaves the persisted value untouched when the source doesn't report completeness).
+ *  1. `resolveTables` derives `storeCurrentData = !sendsCompleteRows` in memory on every call
+ *     (it is not persisted; an unreported source defaults to keeping a copy).
  *  2. A batch honours the flag: when `storeCurrentData` is false, the row payload is NOT kept in
  *     the current_data collection, while the bucket data is still produced as usual.
  *
@@ -77,7 +77,7 @@ async function storedRowPayload(
 }
 
 function registerStoreCurrentDataTests(storageVersion: number) {
-  test('resolveTables computes storeCurrentData from sendsCompleteRows', async () => {
+  test('resolveTables derives storeCurrentData fresh each call, with no persisted memory', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules);
@@ -99,31 +99,15 @@ function registerStoreCurrentDataTests(storageVersion: number) {
       idGenerator: singleUseIdGenerator('6544e3899293153fa7b38302')
     });
     expect(partial.tables[0].storeCurrentData).toBe(true);
-  });
 
-  test('resolveTables without reported completeness keeps the persisted storeCurrentData', async () => {
-    await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
-    const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
-    const bucketStorage = factory.getInstance(syncRules);
-
-    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
-
-    // First resolution (snapshot path) reports complete rows and persists storeCurrentData=false.
-    const initial = await writer.resolveTables({
-      connection_id: 1,
-      source: descriptor('test_full', true),
-      idGenerator: singleUseIdGenerator('6544e3899293153fa7b38301')
-    });
-    expect(initial.tables[0].storeCurrentData).toBe(false);
-
-    // A later resolution reports no completeness info (sendsCompleteRows undefined). The persisted
-    // value must be preserved (the flag must not be clobbered back to true).
+    // Re-resolving an already-resolved table with no completeness info (sendsCompleteRows undefined)
+    // does not remember the earlier value: nothing is persisted, so it falls back to the default
+    // (keep a copy).
     const reResolved = await writer.resolveTables({
       connection_id: 1,
-      source: descriptor('test_full'),
-      idGenerator: singleUseIdGenerator('6544e3899293153fa7b38305')
+      source: descriptor('test_complete')
     });
-    expect(reResolved.tables[0].storeCurrentData).toBe(false);
+    expect(reResolved.tables[0].storeCurrentData).toBe(true);
   });
 
   test('storeCurrentData=false omits the row payload from current_data, data still syncs', async () => {

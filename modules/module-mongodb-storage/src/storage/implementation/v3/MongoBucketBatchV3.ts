@@ -120,12 +120,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           coveredLookupIds.add(id);
         }
 
-        // Recompute only when the source reports row-completeness; otherwise keep the persisted value.
-        const { changed, value, storeCurrentData } = storage.resolveStoreCurrentData(
-          sendsCompleteRows,
-          doc.store_current_data
-        );
-
         const updates: Partial<SourceTableDocumentV3> = {};
         if (
           !sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
@@ -133,9 +127,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         ) {
           updates.bucket_data_source_ids = bucketDataSourceIds;
           updates.parameter_lookup_source_ids = parameterLookupSourceIds;
-        }
-        if (changed) {
-          updates.store_current_data = value;
         }
         if (Object.keys(updates).length > 0) {
           await col.updateOne({ _id: doc._id }, { $set: updates }, { session });
@@ -146,22 +137,21 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             retainedEventOnlyTable = true;
           }
           retainedDocIds.push(doc._id);
-          tables.push(
-            this.sourceTableFromDocument(
-              {
-                ...doc,
-                bucket_data_source_ids: bucketDataSourceIds,
-                parameter_lookup_source_ids: parameterLookupSourceIds,
-                store_current_data: storeCurrentData
-              },
-              connectionTag,
-              syncRules,
-              {
-                bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
-                parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
-              }
-            )
+          const table = this.sourceTableFromDocument(
+            {
+              ...doc,
+              bucket_data_source_ids: bucketDataSourceIds,
+              parameter_lookup_source_ids: parameterLookupSourceIds
+            },
+            connectionTag,
+            syncRules,
+            {
+              bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
+              parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
+            }
           );
+          table.storeCurrentData = sendsCompleteRows !== true;
+          tables.push(table);
         }
       }
 
@@ -182,8 +172,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         sourceTable.syncData = uncoveredBucketIds.length > 0;
         sourceTable.syncParameters = uncoveredLookupIds.length > 0;
         sourceTable.syncEvent = triggersEvent;
-        const { storeCurrentData, persistedValue } = storage.resolveStoreCurrentData(sendsCompleteRows);
-        sourceTable.storeCurrentData = storeCurrentData;
+        sourceTable.storeCurrentData = sendsCompleteRows !== true;
 
         const createDoc: SourceTableDocumentV3 = {
           _id: id,
@@ -196,8 +185,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           snapshot_done: false,
           snapshot_status: undefined,
           bucket_data_source_ids: uncoveredBucketIds,
-          parameter_lookup_source_ids: uncoveredLookupIds,
-          store_current_data: persistedValue ?? undefined
+          parameter_lookup_source_ids: uncoveredLookupIds
         };
 
         await col.insertOne(createDoc, { session });
@@ -261,7 +249,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     table.syncData = table.bucketDataSources.length > 0;
     table.syncParameters = table.parameterLookupSources.length > 0;
     table.syncEvent = syncRules.tableTriggersEvent(table.ref);
-    table.storeCurrentData = doc.store_current_data ?? true;
     table.snapshotStatus =
       doc.snapshot_status == null
         ? undefined

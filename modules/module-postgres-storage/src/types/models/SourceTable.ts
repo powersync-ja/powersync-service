@@ -28,13 +28,7 @@ export const SourceTable = t.object({
   snapshot_done: t.boolean,
   snapshot_total_estimated_count: t.Null.or(bigint),
   snapshot_replicated_count: t.Null.or(bigint),
-  snapshot_last_key: t.Null.or(hexBuffer),
-  /**
-   * Whether to store a copy of replicated rows in current_data for this table.
-   * Null for rows that predate per-table resolution (and sources that don't report a
-   * replica identity); treated as true in that case for backwards compatibility.
-   */
-  store_current_data: t.Null.or(t.boolean)
+  snapshot_last_key: t.Null.or(hexBuffer)
 });
 
 export type SourceTable = t.Encoded<typeof SourceTable>;

@@ -271,7 +271,7 @@ bucket_definitions:
     // pgoutput sends the new Relation message lazily, on the next DML rather than at ALTER time.
     await pool.query(`ALTER TABLE test_mid_stream REPLICA IDENTITY FULL`);
 
-    // The next DML carries it; handleRelation must update store_current_data without re-snapshotting.
+    // The next DML carries it; handleRelation must re-derive storeCurrentData without re-snapshotting.
     const [{ id: id2 }] = pgwireRows(
       await pool.query(`INSERT INTO test_mid_stream (description, value) VALUES ('after', 2) RETURNING id`)
     );

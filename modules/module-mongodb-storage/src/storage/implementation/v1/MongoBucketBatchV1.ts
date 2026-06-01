@@ -64,7 +64,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
 
       let doc = await col.findOne(filter, { session });
       if (doc == null) {
-        const { persistedValue } = storage.resolveStoreCurrentData(sendsCompleteRows);
         doc = {
           _id: options.idGenerator ? (options.idGenerator() as bson.ObjectId) : new bson.ObjectId(),
           group_id: this.group_id,
@@ -75,17 +74,9 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
           replica_id_columns: null,
           replica_id_columns2: normalizedReplicaIdColumns,
           snapshot_done: false,
-          snapshot_status: undefined,
-          store_current_data: persistedValue ?? undefined
+          snapshot_status: undefined
         };
         await col.insertOne(doc, { session });
-      } else {
-        const { changed, value } = storage.resolveStoreCurrentData(sendsCompleteRows, doc.store_current_data);
-        if (changed) {
-          // Row-completeness changed since first resolved (e.g. ALTER TABLE ... REPLICA IDENTITY).
-          await col.updateOne({ _id: doc._id }, { $set: { store_current_data: value } }, { session });
-          doc.store_current_data = value;
-        }
       }
 
       const sourceTable = new storage.SourceTable({
@@ -99,7 +90,7 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
       sourceTable.syncEvent = syncRules.tableTriggersEvent(source);
       sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
       sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-      sourceTable.storeCurrentData = doc.store_current_data ?? true;
+      sourceTable.storeCurrentData = sendsCompleteRows !== true;
       sourceTable.snapshotStatus =
         doc.snapshot_status == null
           ? undefined
@@ -144,7 +135,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
         table.syncEvent = syncRules.tableTriggersEvent(ref);
         table.syncData = table.bucketDataSources.length > 0;
         table.syncParameters = table.parameterLookupSources.length > 0;
-        table.storeCurrentData = dropDoc.store_current_data ?? true;
         return table;
       });
 
@@ -185,7 +175,6 @@ export class MongoBucketBatchV1 extends MongoBucketBatch {
     sourceTable.syncEvent = this.sync_rules.tableTriggersEvent(ref);
     sourceTable.syncData = sourceTable.bucketDataSources.length > 0;
     sourceTable.syncParameters = sourceTable.parameterLookupSources.length > 0;
-    sourceTable.storeCurrentData = doc.store_current_data ?? true;
     sourceTable.snapshotStatus =
       doc.snapshot_status == null
         ? undefined
