@@ -1,16 +1,14 @@
 import * as sqlite from 'node:sqlite';
 
-import { test } from 'vitest';
+import { expect, test } from 'vitest';
 import {
-  CompatibilityContext,
   DEFAULT_HYDRATION_STATE,
   HydratedSyncConfig,
   HydrateSyncConfigParams,
   nodeSqlite,
-  PrecompiledSyncConfig,
+  SqlSyncRules,
   SyncConfig
 } from '../../../../src/index.js';
-import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
 
 interface SyncTest {
   prepareWithoutHydration(yaml: string): SyncConfig;
@@ -21,11 +19,10 @@ export const syncTest = test.extend<{ sync: SyncTest }>({
   sync: async ({}, use) => {
     await use({
       prepareWithoutHydration: (inputs) => {
-        const plan = compileToSyncPlanWithoutErrors(inputs);
-        return new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
-          sourceText: '',
-          defaultSchema: 'test_schema'
-        });
+        const { config, errors } = SqlSyncRules.fromYaml(inputs, { defaultSchema: 'test_schema', throwOnError: false });
+        expect(errors).toHaveLength(0);
+
+        return config;
       },
       prepareSyncStreams(inputs, params?: HydrateSyncConfigParams) {
         return this.prepareWithoutHydration(inputs).hydrate(

@@ -1223,6 +1223,25 @@ streams:
   expect(dynamicBuckets.map((b) => b.bucket)).toStrictEqual(['stream|0["issue"]']);
 });
 
+syncTest('throws when using SQLite without providing it', ({ sync }) => {
+  const desc = sync.prepareWithoutHydration(`
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+
+streams:
+  stream:
+      auto_subscribe: true
+      query: SELECT comments.* FROM comments, issues
+        WHERE issues.id = comments.issue
+        AND issues.owner = auth.user_id()
+`);
+
+  expect(() => desc.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: null })).toThrow(
+    'sqlite_expression_engine is unsupported on this target.'
+  );
+});
+
 function evaluateBucketIds(source: HydratedSyncConfig, sourceTable: SourceTableRef, record: SqliteRow) {
   return source.evaluateRow({ sourceTable, record }).map((r) => r.bucket);
 }

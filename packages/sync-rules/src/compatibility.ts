@@ -62,7 +62,7 @@ export class CompatibilityOption {
 
   static sqliteExpressionEngine = new CompatibilityOption(
     'unstable_sqlite_expression_engine',
-    'Experimental options to evaluate functions and operators in Sync Streams with SQLite instead of a JavaScript implementation.',
+    'Experimental option to evaluate functions and operators in Sync Streams with SQLite instead of a JavaScript implementation.',
     null
   );
 
