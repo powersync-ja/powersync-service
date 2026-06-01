@@ -17,17 +17,20 @@ export const serializedStreamParameterIndexLookupCreatorEquality =
 
 export const serializedStreamBucketDataSourceEquality: Equality<SerializedBucketDataSourceWithDataSources> = {
   hash(hasher, value) {
-    hasher.addString(JSON.stringify(normalizeBucketDataSource(value)));
+    hasher.addString(JSON.stringify(bucketIdentity(value)));
   },
   equals(a, b) {
-    return a === b || JSON.stringify(normalizeBucketDataSource(a)) == JSON.stringify(normalizeBucketDataSource(b));
+    return a === b || JSON.stringify(bucketIdentity(a)) == JSON.stringify(bucketIdentity(b));
   }
 };
 
-function normalizeBucketDataSource(value: SerializedBucketDataSourceWithDataSources) {
+function bucketIdentity(value: SerializedBucketDataSourceWithDataSources) {
   const { bucket, dataSources } = value;
+
   return {
-    ...bucket,
+    hash: bucket.hash,
+    uniqueName: bucket.uniqueName,
+    // Sort so that the order of sources does not affect equality, as long as the same data sources are included.
     sources: bucket.sources.map((index) => JSON.stringify(dataSources[index])).sort()
   };
 }
