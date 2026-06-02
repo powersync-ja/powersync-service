@@ -298,7 +298,7 @@ export class MongoChecksumsV3 extends MongoChecksums {
 
   private normalizePartialChecksumResults<TRequest extends FetchPartialBucketChecksumByBucket>(
     batch: TRequest[],
-    aggregate: any[]
+    aggregate: bson.Document[]
   ): PartialChecksumMap {
     const partialChecksums = new Map<string, PartialOrFullChecksum>();
     for (let doc of aggregate) {

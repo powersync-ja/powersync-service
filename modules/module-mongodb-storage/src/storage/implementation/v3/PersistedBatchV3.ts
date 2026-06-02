@@ -4,6 +4,7 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
+import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { taggedBucketParameterDocumentToTagged } from '../common/models.js';
 import {
   BucketStateUpdate,
@@ -13,11 +14,17 @@ import {
 } from '../common/PersistedBatch.js';
 import { serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
-import { serializeParameterLookup } from './models.js';
+import {
+  BucketDataDocumentV3,
+  BucketStateDocumentV3,
+  CurrentDataDocumentV3,
+  serializeParameterLookup,
+  SourceTableDocumentV3
+} from './models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
-  currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<any> }[] = [];
+  currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<CurrentDataDocumentV3> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
 
   declare protected readonly db: VersionedPowerSyncMongoV3;
@@ -189,7 +196,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   // Flush methods
 
   protected async flushBucketData(session: mongo.ClientSession) {
-    const operationsByDefinition = new Map<BucketDefinitionId, any[]>();
+    const operationsByDefinition = new Map<BucketDefinitionId, BucketDataDoc[]>();
     for (const document of this.bucketData) {
       const existing = operationsByDefinition.get(document.bucketKey.definitionId) ?? [];
       existing.push(document);
@@ -197,14 +204,14 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [definitionId, documents] of operationsByDefinition.entries()) {
-      const operationsByBucket = new Map<string, any[]>();
+      const operationsByBucket = new Map<string, BucketDataDoc[]>();
       for (const document of documents) {
         const existing = operationsByBucket.get(document.bucketKey.bucket) ?? [];
         existing.push(document);
         operationsByBucket.set(document.bucketKey.bucket, existing);
       }
 
-      const inserts: mongo.AnyBulkWriteOperation<any>[] = [];
+      const inserts: mongo.AnyBulkWriteOperation<BucketDataDocumentV3>[] = [];
       for (const [bucket, ops] of operationsByBucket.entries()) {
         const chunks = chunkBucketData(ops);
         for (const chunk of chunks) {
@@ -257,20 +264,20 @@ export class PersistedBatchV3 extends PersistedBatch {
       operationsBySourceTable.set(sourceTableId, existing);
     }
 
-    const sourceTableUpdates: mongo.AnyBulkWriteOperation<any>[] = [...this.sourceTablePendingDeletes.entries()].map(
-      ([key, value]) => {
-        return {
-          updateOne: {
-            filter: { _id: new bson.ObjectId(key) },
-            update: {
-              $max: {
-                latest_pending_delete: value
-              }
+    const sourceTableUpdates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [
+      ...this.sourceTablePendingDeletes.entries()
+    ].map(([key, value]) => {
+      return {
+        updateOne: {
+          filter: { _id: new bson.ObjectId(key) },
+          update: {
+            $max: {
+              latest_pending_delete: value
             }
           }
-        };
-      }
-    );
+        }
+      };
+    });
 
     if (sourceTableUpdates.length > 0) {
       await this.db.sourceTables(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
@@ -300,7 +307,7 @@ export class PersistedBatchV3 extends PersistedBatch {
     this.sourceTablePendingDeletes.clear();
   }
 
-  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<any>[] {
+  private getBucketStateUpdates(): mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[] {
     return Array.from(this.bucketStates.values()).map((state: BucketStateUpdate) => {
       if (state.definitionId == null) {
         throw new ReplicationAssertionError('Expected bucket definition id when incrementalReprocessing is enabled');
@@ -324,7 +331,7 @@ export class PersistedBatchV3 extends PersistedBatch {
           },
           upsert: true
         }
-      } satisfies mongo.AnyBulkWriteOperation<any>;
+      } satisfies mongo.AnyBulkWriteOperation<BucketStateDocumentV3>;
     });
   }
 }

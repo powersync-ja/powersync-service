@@ -29,6 +29,7 @@ import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoS
 import { loadBucketDataDocument } from './bucket-format.js';
 import {
   BucketDataDocumentV3,
+  BucketParameterDocumentV3,
   deserializeParameterLookup,
   ReplicationStreamDocumentV3,
   serializeParameterLookup,
@@ -53,7 +54,7 @@ function* walkDocumentOps(
 }
 
 function extractRowsFromDocument(
-  doc: any,
+  doc: bson.Document,
   context: { replicationStreamId: number; definitionId: string },
   bucketMap: Map<string, InternalOpId>,
   endOpId: InternalOpId,
@@ -308,7 +309,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         lookup: ScopedParameterLookup,
         index: number
       ): {
-        collection: lib_mongo.mongo.Collection<any>;
+        collection: lib_mongo.mongo.Collection<BucketParameterDocumentV3>;
         pipeline: lib_mongo.mongo.Document[];
       } => {
         const indexId = lookup.indexId;
