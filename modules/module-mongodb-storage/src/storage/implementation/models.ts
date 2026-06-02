@@ -1,9 +1,8 @@
 import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { InternalOpId, storage } from '@powersync/service-core';
-import { SqliteJsonValue } from '@powersync/service-sync-rules';
+import { ParameterIndexId, SqliteJsonValue } from '@powersync/service-sync-rules';
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
-import { ParameterIndexId } from './BucketDefinitionMapping.js';
 import type {
   CurrentDataDocument as CurrentDataDocumentV3,
   RecordedLookup,

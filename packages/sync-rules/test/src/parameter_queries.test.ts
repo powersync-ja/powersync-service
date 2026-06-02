@@ -20,7 +20,8 @@ import {
   findQuerierLookups,
   lookupScope,
   PARSE_OPTIONS,
-  requestParameters
+  requestParameters,
+  testHydrationInput
 } from './util.js';
 
 describe('parameter queries', () => {
@@ -890,8 +891,8 @@ describe('parameter queries', () => {
       },
       getParameterIndexLookupScope(source): ParameterLookupScope {
         return {
-          lookupName: `${source.defaultLookupScope.lookupName}.test`,
-          queryId: `${source.defaultLookupScope.queryId}.test`,
+          lookupName: `${source.sourceId.lookupName}.test`,
+          queryId: `${source.sourceId.queryId}.test`,
           source
         };
       }
@@ -913,7 +914,7 @@ describe('parameter queries', () => {
     });
 
     test('for lookups', function () {
-      const merged = mergeParameterIndexLookupCreators(hydrationState, [query]);
+      const merged = mergeParameterIndexLookupCreators(testHydrationInput({ hydrationState }), [query]);
       const result = merged.evaluateParameterRow(TABLE_GROUPS, {
         id: 'group1',
         user_ids: JSON.stringify(['test-user', 'other-user'])

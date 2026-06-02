@@ -26,7 +26,7 @@ import {
   MongoPersistedSyncRulesContentV1,
   MongoPersistedSyncRulesContentV3
 } from '../MongoPersistedSyncRulesContent.js';
-import { loadBucketDataDocumentV3 } from './bucket-format.js';
+import { loadBucketDataDocument } from './bucket-format.js';
 import {
   BucketDataDocumentV3,
   deserializeParameterLookup,
@@ -60,7 +60,7 @@ function extractRowsFromDocument(
   remainingLimit: number
 ): { rows: BucketDataDoc[]; remainingLimit: number; limitReached: boolean } {
   const rows: BucketDataDoc[] = [];
-  for (const row of loadBucketDataDocumentV3(context, doc as BucketDataDocumentV3)) {
+  for (const row of loadBucketDataDocument(context, doc as BucketDataDocumentV3)) {
     const bucket = row.bucketKey.bucket;
     const bucketStart = bucketMap.get(bucket);
     if (bucketStart == null) {

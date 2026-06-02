@@ -8,7 +8,7 @@ import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBu
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
-import { loadBucketDataDocumentV3, serializeBucketData } from './bucket-format.js';
+import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
 import { BucketDataDocumentV3 } from './models.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
@@ -212,7 +212,7 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       for (const doc of batchDocs) {
         let hasRelevantOp = false;
-        for (const op of loadBucketDataDocumentV3(context, doc as unknown as BucketDataDocumentV3)) {
+        for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
           if (op.o <= this.maxOpId) {
             batchOps.push(op);
             hasRelevantOp = true;

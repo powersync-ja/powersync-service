@@ -1,7 +1,7 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, storage } from '@powersync/service-core';
-import { HydratedSyncRules, MatchingSources } from '@powersync/service-sync-rules';
+import { HydratedSyncConfig, MatchingSources } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { calculateCheckpointState } from '../CheckpointState.js';
@@ -232,7 +232,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   private sourceTableFromDocument(
     doc: SourceTableDocumentV3,
     connectionTag: string,
-    syncRules: HydratedSyncRules,
+    syncRules: HydratedSyncConfig,
     memberships?: MatchingSources
   ): storage.SourceTable {
     const resolvedMemberships = memberships ?? this.sourceTableMembershipsFromDocument(doc, syncRules);
@@ -267,16 +267,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   private sourceTableMembershipsFromDocument(
     doc: SourceTableDocumentV3,
-    syncRules: HydratedSyncRules
+    syncRules: HydratedSyncConfig
   ): MatchingSources {
     const bucketDataSourceIds = new Set(doc.bucket_data_source_ids);
     const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
 
     return {
-      bucketDataSources: syncRules.definition.bucketDataSources.filter((source) =>
+      bucketDataSources: syncRules.bucketDataSources.filter((source) =>
         bucketDataSourceIds.has(this.mapping.bucketSourceId(source))
       ),
-      parameterLookupSources: syncRules.definition.bucketParameterLookupSources.filter((source) =>
+      parameterLookupSources: syncRules.bucketParameterLookupSources.filter((source) =>
         parameterLookupSourceIds.has(this.mapping.parameterLookupId(source))
       )
     };

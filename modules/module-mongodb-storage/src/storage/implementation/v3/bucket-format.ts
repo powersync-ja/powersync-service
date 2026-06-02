@@ -43,7 +43,7 @@ export function serializeBucketData(bucket: string, operations: BucketDataDoc[])
   };
 }
 
-export function* loadBucketDataDocumentV3(
+export function* loadBucketDataDocument(
   context: Pick<BucketKey, 'replicationStreamId' | 'definitionId'>,
   doc: BucketDataDocumentV3
 ): Generator<BucketDataDoc> {

@@ -13,7 +13,7 @@ export * from './implementation/MongoStorageProvider.js';
 export * from './implementation/MongoSyncRulesLock.js';
 export * from './implementation/OperationBatch.js';
 export * from './implementation/v1/models.js';
-export { loadBucketDataDocumentV3, serializeBucketData } from './implementation/v3/bucket-format.js';
+export { loadBucketDataDocument, serializeBucketData } from './implementation/v3/bucket-format.js';
 export {
   BucketDataDocumentV3,
   BucketOperation,

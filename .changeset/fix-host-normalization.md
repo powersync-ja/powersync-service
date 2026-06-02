@@ -1,6 +1,7 @@
 ---
 '@powersync/lib-services-framework': patch
 '@powersync/lib-service-mongodb': patch
+'@powersync/service-module-convex': patch
 '@powersync/service-core': patch
 ---
 

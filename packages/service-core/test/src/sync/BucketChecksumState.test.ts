@@ -15,32 +15,37 @@ import {
 } from '@/index.js';
 import { JSONBig } from '@powersync/service-jsonbig';
 import {
+  nodeSqlite,
   ParameterIndexLookupCreator,
+  ParameterLookupDefinitionId,
   ParameterLookupRows,
+  ParameterLookupScope,
   ScopedParameterLookup,
   SourceTableRef,
-  SqliteRow,
   SqlSyncRules,
   TablePattern,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import { ParameterLookupScope } from '@powersync/service-sync-rules/src/HydrationState.js';
+import * as sqlite from 'node:sqlite';
 import { beforeEach, describe, expect, test } from 'vitest';
 
 describe('BucketChecksumState', () => {
   const LOOKUP_SOURCE: ParameterIndexLookupCreator = {
-    get defaultLookupScope(): ParameterLookupScope {
+    get sourceId(): ParameterLookupDefinitionId {
       return {
         lookupName: 'lookup',
-        queryId: '0',
-        source: LOOKUP_SOURCE
+        queryId: '0'
       };
     },
     getSourceTables(): Set<TablePattern> {
       return new Set();
     },
-    evaluateParameterRow(_sourceTable: SourceTableRef, _row: SqliteRow) {
-      return [];
+    createEvaluator() {
+      return {
+        evaluateParameterRow() {
+          return [];
+        }
+      };
     },
     tableSyncsParameters(_table: SourceTableRef): boolean {
       return false;
@@ -60,7 +65,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(1) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(1), sqlite: nodeSqlite(sqlite) });
 
   // global[1] and global[2]
   const SYNC_RULES_GLOBAL_TWO = SqlSyncRules.fromYaml(
@@ -73,7 +78,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(2) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(2), sqlite: nodeSqlite(sqlite) });
 
   // by_project[n]
   const SYNC_RULES_DYNAMIC = SqlSyncRules.fromYaml(
@@ -84,7 +89,7 @@ bucket_definitions:
     data: []
     `,
     { defaultSchema: 'public' }
-  ).config.hydrate({ hydrationState: versionedHydrationState(3) });
+  ).config.hydrate({ hydrationState: versionedHydrationState(3), sqlite: nodeSqlite(sqlite) });
 
   const syncContext = new SyncContext({
     maxBuckets: 100,
@@ -655,7 +660,7 @@ config:
 
       const rules = SqlSyncRules.fromYaml(source, {
         defaultSchema: 'public'
-      }).config.hydrate({ hydrationState: versionedHydrationState(1) });
+      }).config.hydrate({ hydrationState: versionedHydrationState(1), sqlite: nodeSqlite(sqlite) });
 
       return new BucketChecksumState({
         syncContext,
@@ -921,7 +926,8 @@ streams:
 `,
         { defaultSchema: 'public' }
       ).config.hydrate({
-        hydrationState: versionedHydrationState(1)
+        hydrationState: versionedHydrationState(1),
+        sqlite: nodeSqlite(sqlite)
       });
 
       const storage = new MockBucketChecksumStateStorage();
@@ -1018,7 +1024,8 @@ streams:
 `,
         { defaultSchema: 'public' }
       ).config.hydrate({
-        hydrationState: versionedHydrationState(1)
+        hydrationState: versionedHydrationState(1),
+        sqlite: nodeSqlite(sqlite)
       });
 
       const storage = new MockBucketChecksumStateStorage();
@@ -1090,7 +1097,7 @@ streams:
     query: SELECT id FROM comments WHERE p IN auth.parameter('c')
     `,
         { defaultSchema: 'public' }
-      ).config.hydrate({ hydrationState: versionedHydrationState(4) });
+      ).config.hydrate({ hydrationState: versionedHydrationState(4), sqlite: nodeSqlite(sqlite) });
 
       const storage = new MockBucketChecksumStateStorage();
 
@@ -1165,7 +1172,8 @@ streams:
       }
 
       const SYNC_RULES_MANY = SqlSyncRules.fromYaml(yamlDefinitions, { defaultSchema: 'public' }).config.hydrate({
-        hydrationState: versionedHydrationState(5)
+        hydrationState: versionedHydrationState(5),
+        sqlite: nodeSqlite(sqlite)
       });
 
       const storage = new MockBucketChecksumStateStorage();

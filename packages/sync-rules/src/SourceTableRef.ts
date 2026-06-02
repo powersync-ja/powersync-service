@@ -6,3 +6,7 @@ export interface SourceTableRef {
   readonly schema: string;
   readonly name: string;
 }
+
+export function sourceTableRefKey(table: SourceTableRef): string {
+  return JSON.stringify([table.connectionTag, table.schema, table.name]);
+}

@@ -1,6 +1,7 @@
 import { BaseSqlDataQuery } from '../BaseSqlDataQuery.js';
 import { BucketPriority, DEFAULT_BUCKET_PRIORITY } from '../BucketDescription.js';
 import {
+  BucketDataEvaluator,
   BucketDataSource,
   BucketParameterQuerierSource,
   BucketSource,
@@ -78,7 +79,7 @@ export class SyncStream implements BucketSource {
   }
 }
 
-export class SyncStreamDataSource implements BucketDataSource {
+export class SyncStreamDataSource implements BucketDataSource, BucketDataEvaluator {
   constructor(
     private stream: SyncStream,
     private data: BaseSqlDataQuery,
@@ -115,6 +116,10 @@ export class SyncStreamDataSource implements BucketDataSource {
     };
 
     result[this.data.table!.sqlName].push(r);
+  }
+
+  createEvaluator(): BucketDataEvaluator {
+    return this;
   }
 
   evaluateRow(options: EvaluateRowOptions): UnscopedEvaluationResult[] {

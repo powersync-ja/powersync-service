@@ -76,6 +76,23 @@ export function mergeBuckets(buckets: ResolvedBucket[]): ResolvedBucket[] {
   return Object.values(byBucketId);
 }
 
+export function uniqueBy<T>(values: T[], key: (value: T) => string | undefined): T[] {
+  const result: T[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const valueKey = key(value);
+    if (valueKey == null || seen.has(valueKey)) {
+      continue;
+    }
+
+    seen.add(valueKey);
+    result.push(value);
+  }
+
+  return result;
+}
+
 function cloneResolvedBucket(bucket: ResolvedBucket) {
   let clone = structuredClone(bucket);
   // The structured clone does not include the non-enumerable source - set it directly.

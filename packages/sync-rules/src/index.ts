@@ -7,7 +7,7 @@ export * from './errors.js';
 export * from './events/SqlEventDescriptor.js';
 export * from './events/SqlEventSourceQuery.js';
 export * from './ExpressionType.js';
-export * from './HydratedSyncRules.js';
+export * from './HydratedSyncConfig.js';
 export * from './HydrationState.js';
 export * from './IdSequence.js';
 export * from './json_schema.js';
@@ -34,8 +34,7 @@ export * from './types/time.js';
 export * from './utils.js';
 
 export * from './compiler/compiler.js';
-export { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
-export { nodeSqliteExpressionEngine } from './sync_plan/engine/sqlite.js';
+export { Database, SQLite, Statement, nodeSqlite } from './sync_plan/engine/sqlite.js';
 export { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 export * from './sync_plan/plan.js';
 export { deserializeSyncPlan, serializeSyncPlan } from './sync_plan/serialize.js';

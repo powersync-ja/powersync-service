@@ -110,6 +110,14 @@ describe('SQL operators', () => {
     expect(evaluateOperator('/', 5n, '2.0')).toStrictEqual(2.5);
   });
 
+  test('division by zero follows SQLite null semantics', () => {
+    expect(evaluateOperator('/', 5n, 0n)).toStrictEqual(null);
+    expect(evaluateOperator('/', 5n, 0)).toStrictEqual(null);
+    expect(evaluateOperator('/', 5, 0)).toStrictEqual(null);
+    expect(evaluateOperator('/', -5n, '0')).toStrictEqual(null);
+    expect(evaluateOperator('/', 0n, 0n)).toStrictEqual(null);
+  });
+
   test('*', () => {
     expect(evaluateOperator('*', 3n, null)).toStrictEqual(null);
     expect(evaluateOperator('*', 3n, 2)).toStrictEqual(6);

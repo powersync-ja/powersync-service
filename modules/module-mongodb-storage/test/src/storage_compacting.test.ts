@@ -1,7 +1,7 @@
 import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataDoc.js';
 import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
-import { loadBucketDataDocumentV3, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
+import { loadBucketDataDocument, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
 import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -259,7 +259,7 @@ describe('Mongo Sync Parameter Storage Compact', () => {
  * Tests in this block exercise two levels:
  *
  * Unit tests (no MongoDB): call serializeBucketData(), chunkBucketData(), or
- * loadBucketDataDocumentV3() directly. These use makeBucketDataDoc() with fake
+ * loadBucketDataDocument() directly. These use makeBucketDataDoc() with fake
  * bucket keys and source table IDs.
  *
  * Integration tests (full MongoDB): provision V3 storage, insert pre-serialized
@@ -311,7 +311,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
@@ -637,7 +637,7 @@ bucket_definitions:
     expect(doc.ops[0].data).toBeNull();
 
     const context = { replicationStreamId: 1, definitionId: '1' };
-    const deserialized = [...loadBucketDataDocumentV3(context, doc)];
+    const deserialized = [...loadBucketDataDocument(context, doc)];
     expect(deserialized[0].data).toBeNull();
   });
 
@@ -647,7 +647,7 @@ bucket_definitions:
     expect(doc.ops[0].data).toBe('');
 
     const context = { replicationStreamId: 1, definitionId: '1' };
-    const deserialized = [...loadBucketDataDocumentV3(context, doc)];
+    const deserialized = [...loadBucketDataDocument(context, doc)];
     expect(deserialized[0].data).toBe('');
   });
 
@@ -658,7 +658,7 @@ bucket_definitions:
     expect(doc.ops[0].data).toBe(unicodeData);
 
     const context = { replicationStreamId: 1, definitionId: '1' };
-    const deserialized = [...loadBucketDataDocumentV3(context, doc)];
+    const deserialized = [...loadBucketDataDocument(context, doc)];
     expect(deserialized[0].data).toBe(unicodeData);
   });
 
@@ -758,7 +758,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
     const ctx = {
@@ -932,7 +932,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
@@ -1202,7 +1202,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
@@ -1415,7 +1415,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 

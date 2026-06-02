@@ -21,7 +21,7 @@ import {
   utils,
   WatchWriteCheckpointOptions
 } from '@powersync/service-core';
-import { HydratedSyncRules, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
+import { HydratedSyncConfig, ParameterLookupRows, ScopedParameterLookup } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
@@ -83,7 +83,7 @@ export abstract class AbstractMongoSyncBucketStorage
     return this._checksums;
   }
 
-  private parsedSyncRulesCache: { parsed: HydratedSyncRules; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncRulesCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
@@ -153,10 +153,10 @@ export abstract class AbstractMongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncConfig {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncConfig(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -208,7 +208,7 @@ export abstract class AbstractMongoSyncBucketStorage
     const batchOptions: MongoBucketBatchOptions = {
       logger: options.logger ?? this.logger,
       db: this.db,
-      syncRules: this.sync_rules.parsed(options).hydratedSyncRules(),
+      syncRules: this.sync_rules.parsed(options).hydratedSyncConfig(),
       mapping: this.sync_rules.mapping,
       groupId: this.group_id,
       slotName: this.slot_name,

@@ -1,7 +1,8 @@
 import { deserializeParameterLookup, JwtPayload, storage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
-import { DEFAULT_HYDRATION_STATE, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
+import { DEFAULT_HYDRATION_STATE, nodeSqlite, RequestParameters, SqlSyncRules } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
+import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
@@ -10,11 +11,7 @@ import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { serializeBucketData } from '../../src/storage/implementation/v3/bucket-format.js';
-import {
-  BucketDataDocumentV3,
-  ReplicationStreamDocumentV3,
-  SyncConfigDefinition
-} from '../../src/storage/implementation/v3/models.js';
+import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 const MINIMAL_SYNC_RULES = `
@@ -58,7 +55,7 @@ function objectIdGenerator(id: string) {
 function hydratedRulesFor(yaml: string) {
   const parsed = SqlSyncRules.fromYaml(yaml, test_utils.PARSE_OPTIONS);
   expect(parsed.errors).toEqual([]);
-  return parsed.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+  return parsed.config.hydrate({ hydrationState: DEFAULT_HYDRATION_STATE, sqlite: nodeSqlite(sqlite) });
 }
 
 function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, storageVersion: number) {
@@ -534,7 +531,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
       )
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncRules();
+    const sync_rules = syncRules.parsed(test_utils.PARSE_OPTIONS).hydratedSyncConfig();
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTable = await test_utils.resolveTestTable(writer, 'test', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
 
@@ -921,7 +918,7 @@ describe('sync - mongodb', () => {
 
           const request = bucketRequest(syncRules, 'global[]', 0n);
           const definitionId = bucketStorage.mapping.bucketSourceId(request.source);
-          const collection = db.bucketData<BucketDataDocumentV3>(syncRules.id, definitionId);
+          const collection = db.bucketData(syncRules.id, definitionId);
 
           const bucketName = request.bucket;
           const sourceTable = new bson.ObjectId();

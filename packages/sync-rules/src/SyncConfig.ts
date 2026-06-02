@@ -1,8 +1,13 @@
-import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
+import {
+  BucketDataSource,
+  BucketSource,
+  HydrateSyncConfigParams,
+  ParameterIndexLookupCreator
+} from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
-import { HydratedSyncRules } from './HydratedSyncRules.js';
+import { HydratedSyncConfig } from './HydratedSyncConfig.js';
 import { SourceTableRef } from './SourceTableRef.js';
 import { TablePattern } from './TablePattern.js';
 import { SqliteInputValue, SqliteRow, SqliteValue } from './types.js';
@@ -42,14 +47,10 @@ export abstract class SyncConfig {
    *
    * @param params.hydrationState Transforms bucket ids based on persisted state.
    */
-  hydrate(params: CreateSourceParams): HydratedSyncRules {
-    return new HydratedSyncRules({
-      definition: this,
-      createParams: params,
-      bucketDataSources: this.bucketDataSources,
-      bucketParameterIndexLookupCreators: this.bucketParameterLookupSources,
-      eventDescriptors: this.eventDescriptors,
-      compatibility: this.compatibility
+  hydrate(params: HydrateSyncConfigParams): HydratedSyncConfig {
+    return new HydratedSyncConfig({
+      definitions: [this],
+      createParams: params
     });
   }
 
@@ -59,41 +60,37 @@ export abstract class SyncConfig {
     return applyRowContext(source, this.compatibility);
   }
 
-  protected writeSourceTables(sourceTables: Map<String, TablePattern>): void {
+  public writeSourceTables(sourceTables: Map<string, TablePattern>): void {
     for (const bucket of this.bucketDataSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key(), r);
       }
     }
     for (const bucket of this.bucketParameterLookupSources) {
       for (const r of bucket.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key(), r);
       }
     }
     for (const event of this.eventDescriptors) {
       for (const r of event.getSourceTables()) {
-        const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-        sourceTables.set(key, r);
+        sourceTables.set(r.key(), r);
       }
     }
   }
 
   getSourceTables(): TablePattern[] {
-    const sourceTables = new Map<String, TablePattern>();
+    const sourceTables = new Map<string, TablePattern>();
     this.writeSourceTables(sourceTables);
     return [...sourceTables.values()];
   }
 
   getEventTables(): TablePattern[] {
-    const eventTables = new Map<String, TablePattern>();
+    const eventTables = new Map<string, TablePattern>();
 
     if (this.eventDescriptors) {
       for (const event of this.eventDescriptors) {
         for (const r of event.getSourceTables()) {
-          const key = `${r.connectionTag}.${r.schema}.${r.tablePattern}`;
-          eventTables.set(key, r);
+          eventTables.set(r.key(), r);
         }
       }
     }

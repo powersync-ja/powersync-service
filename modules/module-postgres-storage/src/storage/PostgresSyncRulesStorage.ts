@@ -67,7 +67,7 @@ export class PostgresSyncRulesStorage
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncRules; options: storage.ParseSyncRulesOptions }
+    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncRulesOptions }
     | undefined;
   private _checksumCache: storage.ChecksumCache | undefined;
 
@@ -107,14 +107,14 @@ export class PostgresSyncRulesStorage
   }
 
   //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncRules {
+  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncConfig {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync config, if present, had the same options.
      * Parse sync config if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncRules(), options };
+      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncConfig(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;
@@ -206,7 +206,7 @@ export class PostgresSyncRulesStorage
     const writer = new PostgresBucketBatch({
       logger: options.logger ?? this.logger,
       db: this.db,
-      sync_rules: this.sync_rules.parsed(options).hydratedSyncRules(),
+      sync_rules: this.sync_rules.parsed(options).hydratedSyncConfig(),
       group_id: this.group_id,
       slot_name: this.slot_name,
       last_checkpoint_lsn: checkpoint_lsn,

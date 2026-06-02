@@ -7,7 +7,7 @@ import {
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
 import { BucketDataKey, BucketDataProperties } from '../models.js';
-import { loadBucketDataDocumentV3, serializeBucketData } from './bucket-format.js';
+import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
 import { BucketDataDocumentV3 } from './models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
@@ -78,7 +78,7 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    const generator = loadBucketDataDocumentV3(this.key, doc as unknown as BucketDataDocumentV3);
+    const generator = loadBucketDataDocument(this.key, doc as unknown as BucketDataDocumentV3);
     const first = generator.next();
     if (first.done) {
       throw new Error('Empty ops array in BucketDataDocumentV3');

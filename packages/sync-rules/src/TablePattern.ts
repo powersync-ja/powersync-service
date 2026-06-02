@@ -85,6 +85,15 @@ export class TablePattern extends ImplicitSchemaTablePattern {
     super(schema, tablePattern);
   }
 
+  /**
+   * Unique key for this table pattern, used for caching.
+   *
+   * Do not use for persisted values.
+   */
+  key() {
+    return JSON.stringify([this.connectionTag, this.schema, this.tablePattern]);
+  }
+
   get tablePrefix() {
     if (!this.isWildcard) {
       throw new Error('Not a wildcard table');

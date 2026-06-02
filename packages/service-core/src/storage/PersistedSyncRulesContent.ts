@@ -5,9 +5,9 @@ import {
   DEFAULT_HYDRATION_STATE,
   deserializeSyncPlan,
   ErrorLocation,
-  HydratedSyncRules,
+  HydratedSyncConfig,
   HydrationState,
-  javaScriptExpressionEngine,
+  nodeSqlite,
   PrecompiledSyncConfig,
   SqlEventDescriptor,
   SqlSyncRules,
@@ -15,6 +15,7 @@ import {
   versionedHydrationState,
   YamlError
 } from '@powersync/service-sync-rules';
+import * as sqlite from 'node:sqlite';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
@@ -101,7 +102,6 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
       const precompiled = new PrecompiledSyncConfig(plan, compatibility, eventDefinitions, {
         defaultSchema: options.defaultSchema,
-        engine: javaScriptExpressionEngine(compatibility),
         sourceText: this.sync_rules_content
       });
 
@@ -141,10 +141,10 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
     return {
       id: this.id,
       slot_name: this.slot_name,
-      sync_rules: config,
+      syncConfigWithErrors: config,
       hydrationState,
-      hydratedSyncRules: () => {
-        return config.config.hydrate({ hydrationState });
+      hydratedSyncConfig: () => {
+        return config.config.hydrate({ hydrationState, sqlite: nodeSqlite(sqlite) });
       }
     };
   }
@@ -153,7 +153,7 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
     // defaultSchema is not relevant for the parsed version here
     const parsed = this.parsed({ defaultSchema: 'not_applicable' });
     return {
-      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed: parsed.sync_rules },
+      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed: parsed.syncConfigWithErrors },
       ...options
     };
   }
@@ -163,12 +163,12 @@ export abstract class PersistedSyncRulesContent implements PersistedSyncRulesCon
 
 export interface PersistedSyncRules {
   readonly id: number;
-  readonly sync_rules: SyncConfigWithErrors;
+  readonly syncConfigWithErrors: SyncConfigWithErrors;
   readonly slot_name: string;
   /**
    * For testing only.
    */
   readonly hydrationState: HydrationState;
 
-  hydratedSyncRules(): HydratedSyncRules;
+  hydratedSyncConfig(): HydratedSyncConfig;
 }

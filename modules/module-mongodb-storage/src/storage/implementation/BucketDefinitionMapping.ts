@@ -1,9 +1,14 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { BucketDataSource, ParameterIndexLookupCreator, SyncConfigWithErrors } from '@powersync/service-sync-rules';
+import {
+  BucketDataSource,
+  BucketDefinitionId,
+  ParameterIndexId,
+  ParameterIndexLookupCreator,
+  SyncConfigWithErrors
+} from '@powersync/service-sync-rules';
 import { SyncConfigDefinition } from '../storage-index.js';
 
-export type BucketDefinitionId = string;
-export type ParameterIndexId = string;
+export type { BucketDefinitionId, ParameterIndexId };
 
 export class BucketDefinitionMapping {
   static fromSyncConfig(doc: Pick<SyncConfigDefinition, 'rule_mapping'>): BucketDefinitionMapping {
@@ -13,7 +18,7 @@ export class BucketDefinitionMapping {
   static fromParsedSyncRules(syncRules: SyncConfigWithErrors): BucketDefinitionMapping {
     const definitionNames = syncRules.config.bucketDataSources.map((source) => source.uniqueName).sort();
     const parameterKeys = syncRules.config.bucketParameterLookupSources
-      .map((source) => `${source.defaultLookupScope.lookupName}#${source.defaultLookupScope.queryId}`)
+      .map((source) => `${source.sourceId.lookupName}#${source.sourceId.queryId}`)
       .sort();
 
     const definitions: Record<string, BucketDefinitionId> = {};
@@ -51,7 +56,7 @@ export class BucketDefinitionMapping {
   }
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
-    const key = this.parameterLookupKey(source.defaultLookupScope.lookupName, source.defaultLookupScope.queryId);
+    const key = this.parameterLookupKey(source.sourceId.lookupName, source.sourceId.queryId);
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
       throw new ServiceAssertionError(`No mapping found for parameter lookup source ${key}`);
