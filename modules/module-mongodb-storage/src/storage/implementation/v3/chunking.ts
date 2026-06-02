@@ -1,4 +1,4 @@
-import { BucketDataDoc } from '../../common/BucketDataDoc.js';
+import { BucketDataDoc } from '../common/BucketDataDoc.js';
 
 export const DEFAULT_MAX_DOC_SIZE_BYTES = 1024 * 1024; // 1MB
 

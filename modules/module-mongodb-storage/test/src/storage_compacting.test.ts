@@ -1,15 +1,9 @@
 import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataDoc.js';
 import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
 import { AbstractMongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
-import {
-  BucketDataDocument,
-  loadBucketDataDocument,
-  serializeBucketData
-} from '@module/storage/implementation/v3/document-formats/bucket-document-format.js';
-import {
-  chunkBucketData,
-  DEFAULT_MAX_DOC_SIZE_BYTES
-} from '@module/storage/implementation/v3/document-formats/chunking.js';
+import { loadBucketDataDocumentV3, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
+import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
+import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
 import { VersionedPowerSyncMongoV3 } from '@module/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { addChecksums, storage, SyncRulesBucketStorage, updateSyncRulesFromYaml } from '@powersync/service-core';
 import { bucketRequest, register, test_utils } from '@powersync/service-core-tests';
@@ -265,7 +259,7 @@ describe('Mongo Sync Parameter Storage Compact', () => {
  * Tests in this block exercise two levels:
  *
  * Unit tests (no MongoDB): call serializeBucketData(), chunkBucketData(), or
- * loadBucketDataDocument() directly. These use makeBucketDataDoc() with fake
+ * loadBucketDataDocumentV3() directly. These use makeBucketDataDoc() with fake
  * bucket keys and source table IDs.
  *
  * Integration tests (full MongoDB): provision V3 storage, insert pre-serialized
@@ -317,7 +311,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
@@ -356,7 +350,7 @@ bucket_definitions:
     };
   }
 
-  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
+  async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
 
@@ -643,7 +637,7 @@ bucket_definitions:
     expect(doc.ops[0].data).toBeNull();
 
     const context = { replicationStreamId: 1, definitionId: '1' };
-    const deserialized = [...loadBucketDataDocument(context, doc)];
+    const deserialized = [...loadBucketDataDocumentV3(context, doc)];
     expect(deserialized[0].data).toBeNull();
   });
 
@@ -653,7 +647,7 @@ bucket_definitions:
     expect(doc.ops[0].data).toBe('');
 
     const context = { replicationStreamId: 1, definitionId: '1' };
-    const deserialized = [...loadBucketDataDocument(context, doc)];
+    const deserialized = [...loadBucketDataDocumentV3(context, doc)];
     expect(deserialized[0].data).toBe('');
   });
 
@@ -664,7 +658,7 @@ bucket_definitions:
     expect(doc.ops[0].data).toBe(unicodeData);
 
     const context = { replicationStreamId: 1, definitionId: '1' };
-    const deserialized = [...loadBucketDataDocument(context, doc)];
+    const deserialized = [...loadBucketDataDocumentV3(context, doc)];
     expect(deserialized[0].data).toBe(unicodeData);
   });
 
@@ -764,7 +758,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
     const ctx = {
@@ -938,7 +932,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
@@ -977,7 +971,7 @@ bucket_definitions:
     };
   }
 
-  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
+  async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
 
@@ -1008,7 +1002,7 @@ bucket_definitions:
     );
   }
 
-  async function readAllDocs(collection: any): Promise<BucketDataDocument[]> {
+  async function readAllDocs(collection: any): Promise<BucketDataDocumentV3[]> {
     return collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
   }
 
@@ -1208,7 +1202,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
@@ -1247,7 +1241,7 @@ bucket_definitions:
     };
   }
 
-  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
+  async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
 
@@ -1421,7 +1415,7 @@ bucket_definitions:
     const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
-    const collection = db.bucketData<BucketDataDocument>(bucketStorage.group_id, definitionId);
+    const collection = db.bucketData<BucketDataDocumentV3>(bucketStorage.group_id, definitionId);
     const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
@@ -1460,7 +1454,7 @@ bucket_definitions:
     };
   }
 
-  async function insertDocs(collection: any, docs: BucketDataDocument[]) {
+  async function insertDocs(collection: any, docs: BucketDataDocumentV3[]) {
     await collection.insertMany(docs);
   }
 
@@ -1712,7 +1706,7 @@ bucket_definitions:
     // the byte limit should be hit after 1-2 documents, forcing multiple
     // batch iterations even though the document count limit (10) is never reached.
     const rows = Array.from({ length: 12 }, (_, i) => `row${i + 1}`);
-    const docs: BucketDataDocument[] = [];
+    const docs: BucketDataDocumentV3[] = [];
     for (let i = 0; i < 6; i++) {
       docs.push(
         serializeBucketData(BUCKET, [
@@ -1759,7 +1753,7 @@ bucket_definitions:
     // Processed newest-first: new versions fill the seen map; old versions that
     // were tracked get tombstoned; old versions beyond map capacity survive as PUT.
     const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
-    const docs: BucketDataDocument[] = [];
+    const docs: BucketDataDocumentV3[] = [];
 
     // New versions first (higher opIds — processed first in reverse order)
     for (let i = 0; i < 10; i++) {
@@ -1825,7 +1819,7 @@ bucket_definitions:
     // 5 docs, each with 1 PUT op at high opIds (all > maxOpId=10).
     // The compactor should paginate through batches where processableDocs
     // is always empty, terminating cleanly without touching any data.
-    const docs: BucketDataDocument[] = [];
+    const docs: BucketDataDocumentV3[] = [];
     for (let i = 0; i < 5; i++) {
       docs.push(serializeBucketData(BUCKET, [makeOp((i + 1) * 100, `row${i}`, `data${i}`, ctx, sourceTableId)]));
     }

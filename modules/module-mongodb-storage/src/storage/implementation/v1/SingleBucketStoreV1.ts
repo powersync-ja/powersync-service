@@ -17,14 +17,12 @@ export class SingleBucketStoreV1 implements SingleBucketStore {
     private db: VersionedPowerSyncMongoV1,
     public readonly key: BucketKey
   ) {
-    // Cast from the V1-specific collection type to the generic interface used
-    // across storage versions.
     this.collection = db.bucketDataV1 as unknown as mongo.Collection<BucketDataDocumentGeneric>;
   }
 
   docId(o: InternalOpId): BucketDataDocumentGenericId {
-    // `satisfies BucketDataKeyV1` checks that we use the correct type for V1 storage.
-    // `as any` casts to the interface virtual type.
+    // `satisfies BucketDataKeyV1` checks that we use the correct type for V1 storage
+    // `as anyt` is to allow casting to the interface virtual type
     return {
       g: this.key.replicationStreamId,
       b: this.key.bucket,
@@ -33,7 +31,6 @@ export class SingleBucketStoreV1 implements SingleBucketStore {
   }
 
   get minId(): BucketDataDocumentGenericId {
-    // MongoDB MinKey doesn't match the bigint type for _id.o, so we need an explicit cast.
     return {
       g: this.key.replicationStreamId,
       b: this.key.bucket,
@@ -42,7 +39,6 @@ export class SingleBucketStoreV1 implements SingleBucketStore {
   }
 
   get maxId(): BucketDataDocumentGenericId {
-    // MongoDB MaxKey doesn't match the bigint type for _id.o, so we need an explicit cast.
     return {
       g: this.key.replicationStreamId,
       b: this.key.bucket,
@@ -51,12 +47,10 @@ export class SingleBucketStoreV1 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    // BucketDataDocumentGeneric is a virtual type — the actual shape is V1-specific.
     return serializeBucketDataV1({ bucketKey: this.key, ...source }) as unknown as BucketDataDocumentGeneric;
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    // We know the concrete type is BucketDataDocumentV1 in V1 storage logic.
     const document = doc as unknown as BucketDataDocumentV1;
     const { _id, ...rest } = document;
     return {
@@ -69,7 +63,6 @@ export class SingleBucketStoreV1 implements SingleBucketStore {
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    // We know the concrete type is BucketDataDocumentV1, but Pick prevents a direct cast.
     const document = doc as Pick<BucketDataDocumentV1, '_id' | T>;
     const { _id, ...rest } = document;
     return {

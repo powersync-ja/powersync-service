@@ -26,9 +26,14 @@ import {
   MongoPersistedSyncRulesContentV1,
   MongoPersistedSyncRulesContentV3
 } from '../MongoPersistedSyncRulesContent.js';
-import { BucketDataDocument, BucketDocumentFormatAdapter } from './document-formats/bucket-document-format.js';
-import { deserializeParameterLookup, serializeParameterLookup } from './document-formats/parameter-lookup.js';
-import { ReplicationStreamDocumentV3, SyncRuleConfigStateV3 } from './models.js';
+import { loadBucketDataDocumentV3 } from './bucket-format.js';
+import {
+  BucketDataDocumentV3,
+  deserializeParameterLookup,
+  ReplicationStreamDocumentV3,
+  serializeParameterLookup,
+  SyncRuleConfigStateV3
+} from './models.js';
 import { MongoBucketBatchV3 } from './MongoBucketBatchV3.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import { MongoCompactorV3 } from './MongoCompactorV3.js';
@@ -52,11 +57,10 @@ function extractRowsFromDocument(
   context: { replicationStreamId: number; definitionId: string },
   bucketMap: Map<string, InternalOpId>,
   endOpId: InternalOpId,
-  remainingLimit: number,
-  formatAdapter: BucketDocumentFormatAdapter
+  remainingLimit: number
 ): { rows: BucketDataDoc[]; remainingLimit: number; limitReached: boolean } {
   const rows: BucketDataDoc[] = [];
-  for (const row of formatAdapter.loadDocument(context, doc)) {
+  for (const row of loadBucketDataDocumentV3(context, doc as BucketDataDocumentV3)) {
     const bucket = row.bucketKey.bucket;
     const bucketStart = bucketMap.get(bucket);
     if (bucketStart == null) {
@@ -432,12 +436,14 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
         },
         min_op: { $lte: end }
         // MongoDB Filter<T> doesn't accept compound _id ranges or dotted field paths in its type.
-      })) as unknown as lib_mongo.mongo.Filter<BucketDataDocument>[];
+      })) as unknown as lib_mongo.mongo.Filter<BucketDataDocumentV3>[];
 
-      const collection = this.db.bucketData<BucketDataDocument>(this.group_id, definitionId);
-      const formatAdapter = new BucketDocumentFormatAdapter();
+      const collection = this.db.bucketData(
+        this.group_id,
+        definitionId
+      ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentV3>;
       // MongoDB Filter<T> doesn't accept the $or operator in its type.
-      const filter = { $or: filters } as unknown as lib_mongo.mongo.Filter<BucketDataDocument>;
+      const filter = { $or: filters } as unknown as lib_mongo.mongo.Filter<BucketDataDocumentV3>;
       const context = { replicationStreamId: this.group_id, definitionId };
       const limit = remainingLimit;
 
@@ -474,7 +480,7 @@ export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
           rows,
           remainingLimit,
           limitReached: docLimitReached
-        } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit, formatAdapter);
+        } = extractRowsFromDocument(doc, context, bucketMap, end, sharedRemainingLimit);
         data.push(...rows);
         documentOpCounts.push(rows.length);
         documentSizes.push(raw.byteLength);

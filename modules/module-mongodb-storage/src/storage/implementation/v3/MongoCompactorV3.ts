@@ -8,12 +8,9 @@ import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBu
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
-import {
-  BucketDataDocument,
-  loadBucketDataDocument,
-  serializeBucketData
-} from './document-formats/bucket-document-format.js';
-import { chunkBucketData } from './document-formats/chunking.js';
+import { loadBucketDataDocumentV3, serializeBucketData } from './bucket-format.js';
+import { chunkBucketData } from './chunking.js';
+import { BucketDataDocumentV3 } from './models.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
@@ -32,26 +29,35 @@ export class MongoCompactorV3 extends MongoCompactor {
     minBucketChanges: number;
     minChangeRatio: number;
   }): AsyncGenerator<DirtyBucket[]> {
-    yield* dirtyBucketBatches(
-      this,
-      this.db.bucketState<BucketStateDocumentBase>(this.group_id),
+    if (options.minBucketChanges <= 0) {
+      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+    }
+    const collection = this.db.bucketState(this.group_id) as unknown as mongo.Collection<BucketStateDocumentBase>;
+    yield* this.dirtyBucketBatchesForCollection(
+      collection,
+      { d: new mongo.MinKey(), b: new mongo.MinKey() } as unknown as BucketStateDocument['_id'],
+      { d: new mongo.MaxKey(), b: new mongo.MaxKey() } as unknown as BucketStateDocument['_id'],
       options,
       (bucketState) => (bucketState as BucketStateDocument)._id.d
     );
   }
 
   public async dirtyBucketBatchForChecksums(options: { minBucketChanges: number }): Promise<DirtyBucket[]> {
-    return dirtyBucketBatchForChecksums(
-      this,
-      this.db.bucketState<BucketStateDocumentBase>(this.group_id),
-      options,
+    if (options.minBucketChanges <= 0) {
+      throw new ReplicationAssertionError('minBucketChanges must be >= 1');
+    }
+    return this.dirtyBucketBatchForChecksumsForCollection(
+      this.db.bucketState(this.group_id) as unknown as mongo.Collection<BucketStateDocumentBase>,
+      {
+        'estimate_since_compact.count': { $gte: options.minBucketChanges }
+      } as unknown as mongo.Filter<BucketStateDocumentBase>,
       (bucketState) => (bucketState as BucketStateDocument)._id.d
     );
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
     await this.db
-      .bucketState<BucketStateDocument>(this.group_id)
+      .bucketState(this.group_id)
       .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocument>[], {
         ordered: false
       });
@@ -60,10 +66,17 @@ export class MongoCompactorV3 extends MongoCompactor {
   protected async computeChecksumsForBuckets(
     buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
   ): Promise<storage.PartialChecksumMap> {
-    return computeChecksumsForBuckets(
-      (batch) => (this.storage.checksums as MongoChecksumsV3).computePartialChecksumsDirectByDefinition(batch),
-      this.maxOpId,
-      buckets
+    return (this.storage.checksums as MongoChecksumsV3).computePartialChecksumsDirectByDefinition(
+      buckets.map(({ bucket, definitionId }) => {
+        if (definitionId == null) {
+          throw new ServiceAssertionError(`Missing definitionId for bucket checksum update on bucket ${bucket}`);
+        }
+        return {
+          bucket,
+          definitionId,
+          end: this.maxOpId
+        };
+      })
     );
   }
 
@@ -74,27 +87,32 @@ export class MongoCompactorV3 extends MongoCompactor {
     if (definitionId == null) {
       throw new ServiceAssertionError(`Missing definitionId for V3 bucket state filter on bucket ${bucket}`);
     }
-    return bucketStateFilter(bucket, definitionId);
+    return {
+      _id: {
+        d: definitionId,
+        b: bucket
+      }
+    };
   }
 
   protected async getBucketDataContext(
     bucket: string,
     definitionId: BucketDefinitionId | null
   ): Promise<SingleBucketStore | null> {
-    const resolvedDefinitionId = await resolveBucketDefinitionId(
-      {
-        bucket,
-        definitionId,
-        allDefinitionIds: this.storage.mapping.allBucketDefinitionIds(),
-        groupId: this.group_id
-      },
-      async (potentialIds) => {
-        const bucketState = await this.db.bucketState<BucketStateDocument>(this.group_id).findOne({
+    let resolvedDefinitionId = definitionId;
+
+    if (resolvedDefinitionId == null) {
+      const allDefinitionIds = this.storage.mapping.allBucketDefinitionIds();
+      if (allDefinitionIds.length > 0) {
+        const potentialIds = allDefinitionIds.map((id) => ({ d: id, b: bucket }));
+        const bucketState = await this.db.bucketState(this.group_id).findOne({
           _id: { $in: potentialIds }
         });
-        return bucketState ? { definitionId: bucketState._id.d } : null;
+        if (bucketState != null) {
+          resolvedDefinitionId = bucketState._id.d;
+        }
       }
-    );
+    }
 
     if (resolvedDefinitionId == null) {
       return null;
@@ -161,7 +179,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       ];
 
       const rawBatch = await collection
-        .aggregate<BucketDataDocument & { bsonSize: number | bigint }>(pipeline, {
+        .aggregate<BucketDataDocumentV3 & { bsonSize: number | bigint }>(pipeline, {
           batchSize: this.moveBatchQueryLimit + 1
         })
         .toArray();
@@ -190,11 +208,11 @@ export class MongoCompactorV3 extends MongoCompactor {
       // Track which documents have at least one op <= maxOpId — only those
       // are included in the scoped delete range.
       const batchOps: BucketDataDoc[] = [];
-      const processableDocs: (BucketDataDocument & { bsonSize: number | bigint })[] = [];
+      const processableDocs: (BucketDataDocumentV3 & { bsonSize: number | bigint })[] = [];
 
       for (const doc of batchDocs) {
         let hasRelevantOp = false;
-        for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocument)) {
+        for (const op of loadBucketDataDocumentV3(context, doc as unknown as BucketDataDocumentV3)) {
           if (op.o <= this.maxOpId) {
             batchOps.push(op);
             hasRelevantOp = true;
@@ -350,111 +368,4 @@ export class MongoCompactorV3 extends MongoCompactor {
 
     logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
   }
-}
-
-export async function* dirtyBucketBatches<TBucketState extends BucketStateDocumentBase>(
-  compactor: MongoCompactor,
-  collection: mongo.Collection<TBucketState>,
-  options: {
-    minBucketChanges: number;
-    minChangeRatio: number;
-  },
-  getDefinitionId: (state: TBucketState) => BucketDefinitionId | null
-): AsyncGenerator<DirtyBucket[]> {
-  if (options.minBucketChanges <= 0) {
-    throw new ReplicationAssertionError('minBucketChanges must be >= 1');
-  }
-  yield* compactor.dirtyBucketBatchesForCollection(
-    collection,
-    { d: new mongo.MinKey(), b: new mongo.MinKey() } as unknown as TBucketState['_id'],
-    { d: new mongo.MaxKey(), b: new mongo.MaxKey() } as unknown as TBucketState['_id'],
-    options,
-    getDefinitionId
-  );
-}
-
-export async function dirtyBucketBatchForChecksums<TBucketState extends BucketStateDocumentBase>(
-  compactor: MongoCompactor,
-  collection: mongo.Collection<TBucketState>,
-  options: { minBucketChanges: number },
-  getDefinitionId: (state: mongo.WithId<TBucketState>) => BucketDefinitionId | null
-): Promise<DirtyBucket[]> {
-  if (options.minBucketChanges <= 0) {
-    throw new ReplicationAssertionError('minBucketChanges must be >= 1');
-  }
-  return compactor.dirtyBucketBatchForChecksumsForCollection(
-    collection,
-    {
-      'estimate_since_compact.count': { $gte: options.minBucketChanges }
-    } as unknown as mongo.Filter<TBucketState>,
-    getDefinitionId
-  );
-}
-
-export async function computeChecksumsForBuckets(
-  computeChecksums: (
-    batch: { bucket: string; definitionId: BucketDefinitionId; end: bigint }[]
-  ) => Promise<storage.PartialChecksumMap>,
-  maxOpId: bigint,
-  buckets: Pick<DirtyBucket, 'bucket' | 'definitionId'>[]
-): Promise<storage.PartialChecksumMap> {
-  return computeChecksums(
-    buckets.map(({ bucket, definitionId }) => {
-      if (definitionId == null) {
-        throw new ServiceAssertionError(`Missing definitionId for bucket checksum update on bucket ${bucket}`);
-      }
-      return {
-        bucket,
-        definitionId,
-        end: maxOpId
-      };
-    })
-  );
-}
-
-export interface BucketDataContextParams {
-  bucket: string;
-  definitionId: BucketDefinitionId | null;
-  allDefinitionIds: BucketDefinitionId[];
-  groupId: number;
-}
-
-export interface BucketStateLookup {
-  definitionId: BucketDefinitionId;
-}
-
-export function bucketStateFilter(
-  bucket: string,
-  definitionId: BucketDefinitionId
-): mongo.Filter<BucketStateDocumentBase> {
-  return {
-    _id: {
-      d: definitionId,
-      b: bucket
-    }
-  };
-}
-
-export async function resolveBucketDefinitionId(
-  params: BucketDataContextParams,
-  lookupBucketState: (potentialIds: Array<{ d: BucketDefinitionId; b: string }>) => Promise<BucketStateLookup | null>
-): Promise<BucketDefinitionId | null> {
-  const { bucket, definitionId, allDefinitionIds } = params;
-
-  if (definitionId != null) {
-    return definitionId;
-  }
-
-  if (allDefinitionIds.length == 0) {
-    return null;
-  }
-
-  const potentialIds = allDefinitionIds.map((id) => ({ d: id, b: bucket }));
-  const bucketState = await lookupBucketState(potentialIds);
-
-  if (bucketState == null) {
-    return null;
-  }
-
-  return bucketState.definitionId;
 }

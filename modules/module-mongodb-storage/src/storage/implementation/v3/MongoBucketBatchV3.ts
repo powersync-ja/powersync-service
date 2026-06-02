@@ -50,7 +50,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
     for (const table of sourceTables) {
       await this.db
-        .sourceRecordsV3(this.group_id, mongoTableId(table.id))
+        .sourceRecords(this.group_id, mongoTableId(table.id))
         .drop()
         .catch((error) => {
           if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {

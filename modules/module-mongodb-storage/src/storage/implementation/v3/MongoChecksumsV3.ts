@@ -1,5 +1,4 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { mongo } from '@powersync/lib-service-mongodb';
 import {
   bson,
   BucketChecksum,
@@ -9,7 +8,7 @@ import {
   PartialChecksumMap,
   PartialOrFullChecksum
 } from '@powersync/service-core';
-import { BucketDefinitionId, BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
+import { BucketDefinitionMapping } from '../BucketDefinitionMapping.js';
 import { BucketDataDocumentBase } from '../models.js';
 import {
   checksumFromAggregate,
@@ -48,7 +47,10 @@ export class MongoChecksumsV3 extends MongoChecksums {
     for (const [definitionId, requests] of requestsByDefinition.entries()) {
       const groupResults = await this.computePartialChecksumsForCollection(
         requests,
-        this.db.bucketData<BucketDataDocumentBase>(this.group_id, definitionId),
+        this.db.bucketData(
+          this.group_id,
+          definitionId
+        ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>,
         createBucketFilter
       );
       for (const checksum of groupResults.values()) {
@@ -64,15 +66,83 @@ export class MongoChecksumsV3 extends MongoChecksums {
   protected async fetchPreStates(
     batch: FetchPartialBucketChecksum[]
   ): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
-    return fetchPreStates(normalizeBatch(batch, this.mapping), this.db.bucketState(this.group_id));
+    const normalizedBatch = batch.map((request) => ({
+      bucket: request.bucket,
+      definitionId: this.mapping.bucketSourceId(request.source),
+      start: request.start,
+      end: request.end
+    }));
+
+    const preFilters = normalizedBatch
+      .filter((request) => request.start == null)
+      .map((request) => ({
+        _id: {
+          d: request.definitionId,
+          b: request.bucket
+        },
+        'compacted_state.op_id': { $exists: true, $lte: request.end }
+      }));
+
+    const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
+    if (preFilters.length == 0) {
+      return preStates;
+    }
+
+    const states = await this.db
+      .bucketState(this.group_id)
+      .find({
+        $or: preFilters
+      })
+      .toArray();
+
+    for (const state of states) {
+      const compactedState = state.compacted_state!;
+      preStates.set(state._id.b, {
+        opId: compactedState.op_id,
+        checksum: {
+          bucket: state._id.b,
+          checksum: Number(compactedState.checksum),
+          count: compactedState.count
+        }
+      });
+    }
+
+    return preStates;
   }
 
   protected async computePartialChecksumsInternal(batch: FetchPartialBucketChecksum[]): Promise<PartialChecksumMap> {
-    return computePartialChecksumsInternal(
-      batch,
-      this.mapping,
-      (definitionId) => this.db.bucketData<BucketDataDocumentBase>(this.group_id, definitionId),
-      (batch, collection, createFilter) => this.computePartialChecksumsForCollection(batch, collection, createFilter)
+    const normalized = batch.map((request) => ({
+      bucket: request.bucket,
+      definitionId: this.mapping.bucketSourceId(request.source),
+      start: request.start,
+      end: request.end
+    }));
+
+    const results = new Map<string, PartialOrFullChecksum>();
+    const requestsByDefinition = new Map<string, FetchPartialBucketChecksumByDefinition[]>();
+
+    for (const request of normalized) {
+      const existing = requestsByDefinition.get(request.definitionId) ?? [];
+      existing.push(request);
+      requestsByDefinition.set(request.definitionId, existing);
+    }
+
+    for (const [definitionId, requests] of requestsByDefinition.entries()) {
+      const groupResults = await this.computePartialChecksumsForCollection(
+        requests,
+        this.db.bucketData(
+          this.group_id,
+          definitionId
+        ) as unknown as lib_mongo.mongo.Collection<BucketDataDocumentBase>,
+        createBucketFilter
+      );
+      for (const checksum of groupResults.values()) {
+        results.set(checksum.bucket, checksum);
+      }
+    }
+
+    return new Map<string, PartialOrFullChecksum>(
+      normalized.map((request) => [request.bucket, results.get(request.bucket) ?? emptyChecksumForRequest(request)])
     );
   }
 
@@ -263,109 +333,9 @@ export class MongoChecksumsV3 extends MongoChecksums {
   }
 }
 
-export function normalizeBatch(
-  batch: FetchPartialBucketChecksum[],
-  mapping: BucketDefinitionMapping
-): FetchPartialBucketChecksumByDefinition[] {
-  return batch.map((request) => ({
-    bucket: request.bucket,
-    definitionId: mapping.bucketSourceId(request.source),
-    start: request.start,
-    end: request.end
-  }));
-}
-
-export async function fetchPreStates(
-  normalizedBatch: FetchPartialBucketChecksumByDefinition[],
-  bucketStateCollection: mongo.Collection<any>
-): Promise<Map<string, { opId: InternalOpId; checksum: BucketChecksum }>> {
-  const preFilters = normalizedBatch
-    .filter((request) => request.start == null)
-    .map((request) => ({
-      _id: {
-        d: request.definitionId,
-        b: request.bucket
-      },
-      'compacted_state.op_id': { $exists: true, $lte: request.end }
-    }));
-
-  const preStates = new Map<string, { opId: InternalOpId; checksum: BucketChecksum }>();
-  if (preFilters.length == 0) {
-    return preStates;
-  }
-
-  const states = await bucketStateCollection
-    .find({
-      $or: preFilters
-    })
-    .toArray();
-
-  for (const state of states) {
-    const compactedState = state.compacted_state!;
-    preStates.set(state._id.b, {
-      opId: compactedState.op_id,
-      checksum: {
-        bucket: state._id.b,
-        checksum: Number(compactedState.checksum),
-        count: compactedState.count
-      }
-    });
-  }
-
-  return preStates;
-}
-
-export async function computePartialChecksumsDirectByDefinition(
-  batch: FetchPartialBucketChecksumByDefinition[],
-  getBucketData: (definitionId: BucketDefinitionId) => mongo.Collection<any>,
-  computePartialChecksumsForCollection: (
-    batch: FetchPartialBucketChecksumByDefinition[],
-    collection: mongo.Collection<any>,
-    createFilter: (request: FetchPartialBucketChecksumByDefinition) => any
-  ) => Promise<PartialChecksumMap>
-): Promise<PartialChecksumMap> {
-  const results = new Map<string, PartialOrFullChecksum>();
-  const requestsByDefinition = new Map<string, FetchPartialBucketChecksumByDefinition[]>();
-
-  for (const request of batch) {
-    const existing = requestsByDefinition.get(request.definitionId) ?? [];
-    existing.push(request);
-    requestsByDefinition.set(request.definitionId, existing);
-  }
-
-  for (const [definitionId, requests] of requestsByDefinition.entries()) {
-    const groupResults = await computePartialChecksumsForCollection(
-      requests,
-      getBucketData(definitionId),
-      createBucketFilter
-    );
-    for (const checksum of groupResults.values()) {
-      results.set(checksum.bucket, checksum);
-    }
-  }
-
-  return new Map<string, PartialOrFullChecksum>(
-    batch.map((request) => [request.bucket, results.get(request.bucket) ?? emptyChecksumForRequest(request)])
-  );
-}
-
-export async function computePartialChecksumsInternal(
-  batch: FetchPartialBucketChecksum[],
-  mapping: BucketDefinitionMapping,
-  getBucketData: (definitionId: BucketDefinitionId) => mongo.Collection<any>,
-  computePartialChecksumsForCollection: (
-    batch: FetchPartialBucketChecksumByDefinition[],
-    collection: mongo.Collection<any>,
-    createFilter: (request: FetchPartialBucketChecksumByDefinition) => any
-  ) => Promise<PartialChecksumMap>
-): Promise<PartialChecksumMap> {
-  const normalized = normalizeBatch(batch, mapping);
-  return computePartialChecksumsDirectByDefinition(normalized, getBucketData, computePartialChecksumsForCollection);
-}
-
-export function createBucketFilter<
-  TRequest extends Pick<FetchPartialBucketChecksumByBucket, 'bucket' | 'start' | 'end'>
->(request: TRequest) {
+function createBucketFilter<TRequest extends Pick<FetchPartialBucketChecksumByBucket, 'bucket' | 'start' | 'end'>>(
+  request: TRequest
+) {
   return {
     _id: {
       $gt: {

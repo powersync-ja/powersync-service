@@ -13,14 +13,10 @@ export * from './implementation/MongoStorageProvider.js';
 export * from './implementation/MongoSyncRulesLock.js';
 export * from './implementation/OperationBatch.js';
 export * from './implementation/v1/models.js';
+export { loadBucketDataDocumentV3, serializeBucketData } from './implementation/v3/bucket-format.js';
 export {
-  BucketDataDocument,
-  BucketDocumentFormatAdapter,
+  BucketDataDocumentV3,
   BucketOperation,
-  loadBucketDataDocument,
-  serializeBucketData
-} from './implementation/v3/document-formats/bucket-document-format.js';
-export {
   ReplicationStreamDocumentV3,
   SyncConfigDefinition,
   SyncRuleConfigStateV3

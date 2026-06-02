@@ -7,8 +7,21 @@ import {
   SingleBucketStore
 } from '../common/SingleBucketStore.js';
 import { BucketDataKey, BucketDataProperties } from '../models.js';
-import { BucketDataDocument, BucketDocumentFormatAdapter } from './document-formats/bucket-document-format.js';
+import { loadBucketDataDocumentV3, serializeBucketData } from './bucket-format.js';
+import { BucketDataDocumentV3 } from './models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
+
+function extractPartialDocumentFields(doc: unknown): { _id: { o: bigint }; [key: string]: unknown } {
+  if (typeof doc !== 'object' || doc === null) {
+    throw new Error('Invalid partial document: expected object');
+  }
+  const d = doc as Record<string, unknown>;
+  const id = d._id;
+  if (typeof id !== 'object' || id === null || !('o' in id)) {
+    throw new Error('Invalid partial document: missing _id.o');
+  }
+  return d as { _id: { o: bigint }; [key: string]: unknown };
+}
 
 // MongoDB's MinKey/MaxKey are special sentinel values that don't match the bigint type
 // for _id.o in BucketDataDocumentGenericId, so we need an explicit cast.
@@ -28,7 +41,6 @@ function maxKeyForBucket(bucket: string): BucketDataDocumentGenericId {
 
 export class SingleBucketStoreV3 implements SingleBucketStore {
   public readonly collection: mongo.Collection<BucketDataDocumentGeneric>;
-  private format = new BucketDocumentFormatAdapter();
 
   constructor(
     private db: VersionedPowerSyncMongoV3,
@@ -60,19 +72,37 @@ export class SingleBucketStoreV3 implements SingleBucketStore {
   }
 
   toPersistedDocument(source: Omit<BucketDataDoc, 'bucketKey'>): BucketDataDocumentGeneric {
-    return this.format.toPersistedDocument(this.key, source) as unknown as BucketDataDocumentGeneric;
+    return serializeBucketData(this.key.bucket, [
+      { bucketKey: this.key, ...source }
+    ]) as unknown as BucketDataDocumentGeneric;
   }
 
   fromPersistedDocument(doc: BucketDataDocumentGeneric): BucketDataDoc {
-    return this.format.fromPersistedDocument(this.key, doc as unknown as BucketDataDocument);
+    const generator = loadBucketDataDocumentV3(this.key, doc as unknown as BucketDataDocumentV3);
+    const first = generator.next();
+    if (first.done) {
+      throw new Error('Empty ops array in BucketDataDocumentV3');
+    }
+    return first.value;
   }
 
   fromPartialPersistedDocument<T extends keyof BucketDataProperties>(
     doc: Pick<BucketDataDocumentGeneric, '_id' | T>
   ): Pick<BucketDataDoc, 'bucketKey' | 'o' | T> {
-    return this.format.fromPartialPersistedDocument(
-      this.key,
-      doc as unknown as Pick<BucketDataDocument & BucketDataProperties, '_id' | T>
-    );
+    const document = doc as unknown as Pick<BucketDataDocumentV3, '_id' | 'ops'>;
+    const op = document.ops?.[0];
+    if (op == null) {
+      const fields = extractPartialDocumentFields(doc);
+      const { _id, ...rest } = fields;
+      return {
+        bucketKey: this.key,
+        o: _id.o,
+        ...rest
+      } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
+    }
+    return {
+      bucketKey: this.key,
+      ...op
+    } as Pick<BucketDataDoc, 'bucketKey' | 'o' | T>;
   }
 }

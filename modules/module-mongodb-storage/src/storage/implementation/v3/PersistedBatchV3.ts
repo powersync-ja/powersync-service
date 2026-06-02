@@ -5,51 +5,24 @@ import { BucketDataSource } from '@powersync/service-sync-rules';
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
-import { BucketParameterDocument, taggedBucketParameterDocumentToTagged } from '../common/models.js';
+import { taggedBucketParameterDocumentToTagged } from '../common/models.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
   SaveParameterDataOptions,
   UpsertCurrentDataOptions
 } from '../common/PersistedBatch.js';
-import { BucketDocumentFormatAdapter } from './document-formats/bucket-document-format.js';
-import { serializeParameterLookup } from './document-formats/parameter-lookup.js';
+import { serializeBucketData } from './bucket-format.js';
+import { chunkBucketData } from './chunking.js';
+import { serializeParameterLookup } from './models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 
 export class PersistedBatchV3 extends PersistedBatch {
-  private formatAdapter = new BucketDocumentFormatAdapter();
-
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<any> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
 
   get db(): VersionedPowerSyncMongoV3 {
     return super.db as VersionedPowerSyncMongoV3;
-  }
-
-  // Collection accessors
-
-  protected parameterIndex(indexId: string): mongo.Collection<BucketParameterDocument> {
-    return this.db.parameterIndex(this.group_id, indexId);
-  }
-
-  protected sourceTables(): mongo.Collection<any> {
-    return this.db.sourceTables(this.group_id);
-  }
-
-  protected sourceRecords(sourceTableId: bson.ObjectId): mongo.Collection<any> {
-    return this.db.sourceRecords(this.group_id, sourceTableId);
-  }
-
-  protected bucketState(): mongo.Collection<any> {
-    return this.db.bucketState(this.group_id);
-  }
-
-  protected serializeParameterLookup(lookup: any): bson.Binary {
-    return serializeParameterLookup(lookup);
-  }
-
-  protected taggedBucketParameterDocumentToTagged(doc: any): any {
-    return taggedBucketParameterDocumentToTagged(doc);
   }
 
   // Abstract override from PersistedBatch (V3-specific error message)
@@ -80,7 +53,7 @@ export class PersistedBatchV3 extends PersistedBatch {
 
     for (let result of evaluated) {
       const sourceDefinitionId = this.mapping.parameterLookupId(result.lookup.source);
-      const binLookup = this.serializeParameterLookup(result.lookup);
+      const binLookup = serializeParameterLookup(result.lookup);
       remaining_lookups.delete(`${sourceDefinitionId}.${binLookup.toString('base64')}`);
 
       const op_id = data.op_seq.next();
@@ -236,8 +209,14 @@ export class PersistedBatchV3 extends PersistedBatch {
 
       const inserts: mongo.AnyBulkWriteOperation<any>[] = [];
       for (const [bucket, ops] of operationsByBucket.entries()) {
-        const serialized = this.formatAdapter.serializeForBulkWrite(bucket, ops);
-        inserts.push(...serialized);
+        const chunks = chunkBucketData(ops);
+        for (const chunk of chunks) {
+          inserts.push({
+            insertOne: {
+              document: serializeBucketData(bucket, chunk)
+            }
+          });
+        }
       }
 
       if (inserts.length > 0) {
@@ -258,10 +237,10 @@ export class PersistedBatchV3 extends PersistedBatch {
     }
 
     for (const [indexId, documents] of operationsByIndex.entries()) {
-      await this.parameterIndex(indexId).bulkWrite(
+      await this.db.parameterIndex(this.group_id, indexId).bulkWrite(
         documents.map((document) => ({
           insertOne: {
-            document: this.taggedBucketParameterDocumentToTagged(document)
+            document: taggedBucketParameterDocumentToTagged(document)
           }
         })),
         {
@@ -297,12 +276,12 @@ export class PersistedBatchV3 extends PersistedBatch {
     );
 
     if (sourceTableUpdates.length > 0) {
-      await this.sourceTables().bulkWrite(sourceTableUpdates, { session, ordered: false });
+      await this.db.sourceTables(this.group_id).bulkWrite(sourceTableUpdates, { session, ordered: false });
     }
 
     for (const operations of operationsBySourceTable.values()) {
       const sourceTableId = operations[0]!.sourceTableId;
-      await this.sourceRecords(sourceTableId).bulkWrite(
+      await this.db.sourceRecords(this.group_id, sourceTableId).bulkWrite(
         operations.map((entry) => entry.operation),
         {
           session,
@@ -313,7 +292,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   }
 
   protected async flushBucketStates(session: mongo.ClientSession) {
-    await this.bucketState().bulkWrite(this.getBucketStateUpdates(), {
+    await this.db.bucketState(this.group_id).bulkWrite(this.getBucketStateUpdates(), {
       session,
       ordered: false
     });

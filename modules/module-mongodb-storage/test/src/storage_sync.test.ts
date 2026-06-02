@@ -9,11 +9,12 @@ import { CurrentBucket } from '../../src/storage/implementation/common/models.js
 import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
+import { serializeBucketData } from '../../src/storage/implementation/v3/bucket-format.js';
 import {
-  BucketDataDocument,
-  serializeBucketData
-} from '../../src/storage/implementation/v3/document-formats/bucket-document-format.js';
-import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../../src/storage/implementation/v3/models.js';
+  BucketDataDocumentV3,
+  ReplicationStreamDocumentV3,
+  SyncConfigDefinition
+} from '../../src/storage/implementation/v3/models.js';
 import { INITIALIZED_MONGO_STORAGE_FACTORY, TEST_STORAGE_VERSIONS } from './util.js';
 
 const MINIMAL_SYNC_RULES = `
@@ -567,7 +568,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const mongoFactory = factory as MongoBucketStorage;
     const db = (bucketStorage as AbstractMongoSyncBucketStorage).db as VersionedPowerSyncMongoV3;
-    const currentDataCollections = await db.listSourceRecordCollectionsV3(syncRules.id);
+    const currentDataCollections = await db.listSourceRecordCollections(syncRules.id);
     const currentData = await currentDataCollections[0]?.findOne({});
     const firstBucket: CurrentBucket | undefined = currentData?.buckets[0] as CurrentBucket | undefined;
     expect(firstBucket?.def).toMatch(/^[0-9a-f]+$/);
@@ -586,7 +587,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
 
     const parameterIndexId = Object.values(ruleMapping?.parameter_indexes ?? {})[0] as string | undefined;
     expect(parameterIndexId).toBeDefined();
-    const parameterEntry = await db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
+    const parameterEntry = await db.parameterIndex(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
   });
 
@@ -920,7 +921,7 @@ describe('sync - mongodb', () => {
 
           const request = bucketRequest(syncRules, 'global[]', 0n);
           const definitionId = bucketStorage.mapping.bucketSourceId(request.source);
-          const collection = db.bucketData<BucketDataDocument>(syncRules.id, definitionId);
+          const collection = db.bucketData<BucketDataDocumentV3>(syncRules.id, definitionId);
 
           const bucketName = request.bucket;
           const sourceTable = new bson.ObjectId();
