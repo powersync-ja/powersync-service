@@ -3,9 +3,11 @@
 Convex replication module for PowerSync.
 
 > [!WARNING]
-> The Convex replicator is currently released as an alpha feature. APIs, configuration, metrics, schema-change handling,
-> and replication behavior may change before it is considered stable. Test carefully before using it with production
-> workloads.
+> The Convex replicator is currently released as an [experimental feature](https://docs.powersync.com/resources/feature-status). APIs and
+> behavior may change, and the developer experience isn't yet on par with our other backend database connectors.
+> We also can't yet guarantee continued support or long-term stability.
+> This release is intended for early testing and to invite feedback. Your feedback will directly influence whether, and how,
+> this integration evolves.
 
 ## Configuration
 
