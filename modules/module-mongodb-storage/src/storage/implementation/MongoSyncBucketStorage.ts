@@ -65,23 +65,15 @@ interface WriterSyncState {
  */
 const CHECKPOINT_TIMEOUT_MS = 60_000;
 
-export abstract class AbstractMongoSyncBucketStorage
+export abstract class MongoSyncBucketStorage
   extends BaseObserver<storage.SyncRulesBucketStorageListener>
   implements storage.SyncRulesBucketStorage
 {
-  private _db: VersionedPowerSyncMongo;
-
-  get db(): VersionedPowerSyncMongo {
-    return this._db;
-  }
+  readonly db: VersionedPowerSyncMongo;
 
   [DO_NOT_LOG] = true;
 
-  private _checksums: MongoChecksums;
-
-  get checksums(): MongoChecksums {
-    return this._checksums;
-  }
+  readonly checksums: MongoChecksums;
 
   private parsedSyncRulesCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncRulesOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
@@ -99,8 +91,8 @@ export abstract class AbstractMongoSyncBucketStorage
   ) {
     super();
     this.storageConfig = options.storageConfig;
-    this._db = factory.db.versioned(this.storageConfig);
-    this._checksums = this.createMongoChecksums(options);
+    this.db = factory.db.versioned(this.storageConfig);
+    this.checksums = this.createMongoChecksums(options);
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
@@ -606,10 +598,10 @@ export abstract class AbstractMongoSyncBucketStorage
 }
 
 class MongoReplicationCheckpoint implements ReplicationCheckpoint {
-  #storage: AbstractMongoSyncBucketStorage;
+  #storage: MongoSyncBucketStorage;
 
   constructor(
-    storage: AbstractMongoSyncBucketStorage,
+    storage: MongoSyncBucketStorage,
     public readonly checkpoint: InternalOpId,
     public readonly lsn: string | null,
     public snapshotTime: mongo.Timestamp

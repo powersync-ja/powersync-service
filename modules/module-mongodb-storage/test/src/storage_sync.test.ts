@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
 import { BucketDataDoc, BucketKey } from '../../src/storage/implementation/common/BucketDataDoc.js';
 import { CurrentBucket } from '../../src/storage/implementation/common/models.js';
-import { AbstractMongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
 import { serializeBucketData } from '../../src/storage/implementation/v3/bucket-format.js';
@@ -432,7 +432,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     // Here we're persisting one sync config, then resolving tables with others.
     // We're also using the default hydration state for them all.
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(fullRulesYaml, { storageVersion }));
-    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const fullRules = hydratedRulesFor(fullRulesYaml);
     const dataOnlyRules = hydratedRulesFor(dataOnlyRulesYaml);
@@ -564,7 +564,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(buckets.map((b) => b.bucket)).toEqual([bucketRequest(syncRules, 'global["user-1"]').bucket]);
 
     const mongoFactory = factory as MongoBucketStorage;
-    const db = (bucketStorage as AbstractMongoSyncBucketStorage).db as VersionedPowerSyncMongoV3;
+    const db = (bucketStorage as MongoSyncBucketStorage).db as VersionedPowerSyncMongoV3;
     const currentDataCollections = await db.listSourceRecordCollections(syncRules.id);
     const currentData = await currentDataCollections[0]?.findOne({});
     const firstBucket: CurrentBucket | undefined = currentData?.buckets[0] as CurrentBucket | undefined;
@@ -753,7 +753,7 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
           { storageVersion }
         )
       );
-      const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+      const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
       const previousCheckpoint = await bucketStorage.getCheckpoint();
 
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -913,7 +913,7 @@ describe('sync - mongodb', () => {
               { storageVersion }
             )
           );
-          const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+          const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
           const db = bucketStorage.db as VersionedPowerSyncMongoV3;
 
           const request = bucketRequest(syncRules, 'global[]', 0n);

@@ -1,6 +1,5 @@
 import { BucketDataDoc } from '@module/storage/implementation/common/BucketDataDoc.js';
-import { BucketStateDocument } from '@module/storage/implementation/common/models.js';
-import { AbstractMongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
+import { MongoSyncBucketStorage } from '@module/storage/implementation/createMongoSyncBucketStorage.js';
 import { loadBucketDataDocument, serializeBucketData } from '@module/storage/implementation/v3/bucket-format.js';
 import { chunkBucketData, DEFAULT_MAX_DOC_SIZE_BYTES } from '@module/storage/implementation/v3/chunking.js';
 import { BucketDataDocumentV3 } from '@module/storage/implementation/v3/models.js';
@@ -306,7 +305,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
@@ -360,7 +359,7 @@ bucket_definitions:
     });
   }
 
-  async function compact(bucketStorage: AbstractMongoSyncBucketStorage, maxOpId: bigint) {
+  async function compact(bucketStorage: MongoSyncBucketStorage, maxOpId: bigint) {
     await bucketStorage.compact({
       clearBatchLimit: 200,
       moveBatchLimit: 10,
@@ -753,7 +752,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
@@ -927,7 +926,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
@@ -981,7 +980,7 @@ bucket_definitions:
     });
   }
 
-  async function compact(bucketStorage: AbstractMongoSyncBucketStorage, maxOpId: bigint) {
+  async function compact(bucketStorage: MongoSyncBucketStorage, maxOpId: bigint) {
     await bucketStorage.compact({
       clearBatchLimit: 200,
       moveBatchLimit: 10,
@@ -1197,7 +1196,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
@@ -1251,7 +1250,7 @@ bucket_definitions:
     });
   }
 
-  async function compact(bucketStorage: AbstractMongoSyncBucketStorage, maxOpId: bigint) {
+  async function compact(bucketStorage: MongoSyncBucketStorage, maxOpId: bigint) {
     await bucketStorage.compact({
       clearBatchLimit: 200,
       moveBatchLimit: 10,
@@ -1410,7 +1409,7 @@ bucket_definitions:
         { storageVersion: 3 }
       )
     );
-    const bucketStorage = factory.getInstance(syncRules) as AbstractMongoSyncBucketStorage;
+    const bucketStorage = factory.getInstance(syncRules) as MongoSyncBucketStorage;
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);

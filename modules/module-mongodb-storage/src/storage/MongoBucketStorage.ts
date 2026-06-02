@@ -9,7 +9,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 import { ObjectId } from 'bson';
 import { generateSlotName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
-import type { AbstractMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
+import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
@@ -35,7 +35,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   // TODO: This is still Postgres specific and needs to be reworked
   public readonly slot_name_prefix: string;
 
-  private activeStorageCache: AbstractMongoSyncBucketStorage | undefined;
+  private activeStorageCache: MongoSyncBucketStorage | undefined;
 
   public readonly db: PowerSyncMongo;
 
@@ -57,10 +57,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     // No-op
   }
 
-  getInstance(
-    syncRules: storage.PersistedSyncRulesContent,
-    options?: GetIntanceOptions
-  ): AbstractMongoSyncBucketStorage {
+  getInstance(syncRules: storage.PersistedSyncRulesContent, options?: GetIntanceOptions): MongoSyncBucketStorage {
     let { id, slot_name } = syncRules;
     if ((typeof id as any) == 'bigint') {
       id = Number(id);
@@ -399,7 +396,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     ).filter((d) => d != null);
   }
 
-  async getActiveStorage(): Promise<AbstractMongoSyncBucketStorage | null> {
+  async getActiveStorage(): Promise<MongoSyncBucketStorage | null> {
     const content = await this.getActiveSyncRulesContent();
     if (content == null) {
       return null;

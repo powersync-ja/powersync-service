@@ -15,7 +15,6 @@ import { ParameterLookupRows, ScopedParameterLookup, SqliteJsonRow } from '@powe
 import * as bson from 'bson';
 import { mapOpEntry, readSingleBatch, setSessionSnapshotTime } from '../../../utils/util.js';
 import { MongoBucketStorage } from '../../MongoBucketStorage.js';
-import { AbstractMongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../AbstractMongoSyncBucketStorage.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
 import { MongoSyncBucketStorageCheckpoint } from '../common/MongoSyncBucketStorageContext.js';
 import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
@@ -26,6 +25,7 @@ import {
   MongoPersistedSyncRulesContentV1,
   MongoPersistedSyncRulesContentV3
 } from '../MongoPersistedSyncRulesContent.js';
+import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import { loadBucketDataDocument } from './bucket-format.js';
 import {
   BucketDataDocumentV3,
@@ -82,10 +82,8 @@ function extractRowsFromDocument(
   return { rows, remainingLimit, limitReached: false };
 }
 
-export class MongoSyncBucketStorageV3 extends AbstractMongoSyncBucketStorage {
-  get db(): VersionedPowerSyncMongoV3 {
-    return super.db as VersionedPowerSyncMongoV3;
-  }
+export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
+  declare readonly db: VersionedPowerSyncMongoV3;
 
   private readonly syncRulesV3: MongoPersistedSyncRulesContentV3;
 

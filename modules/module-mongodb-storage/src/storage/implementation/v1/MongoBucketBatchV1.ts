@@ -12,9 +12,7 @@ import { VersionedPowerSyncMongoV1 } from './VersionedPowerSyncMongoV1.js';
 import { SourceTableDocumentV1, SyncRuleDocumentV1 } from './models.js';
 
 export class MongoBucketBatchV1 extends MongoBucketBatch {
-  get db(): VersionedPowerSyncMongoV1 {
-    return super.db as VersionedPowerSyncMongoV1;
-  }
+  declare readonly db: VersionedPowerSyncMongoV1;
 
   private readonly store: SourceRecordStore;
   private needsActivation = true;
