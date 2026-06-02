@@ -271,7 +271,8 @@ bucket_definitions:
     // pgoutput sends the new Relation message lazily, on the next DML rather than at ALTER time.
     await pool.query(`ALTER TABLE test_mid_stream REPLICA IDENTITY FULL`);
 
-    // The next DML carries it; handleRelation must re-derive storeCurrentData without re-snapshotting.
+    // DEFAULT->FULL widens replicaIdColumns (PK -> all columns), so the table resolves to a new
+    // SourceTable and re-snapshots.
     const [{ id: id2 }] = pgwireRows(
       await pool.query(`INSERT INTO test_mid_stream (description, value) VALUES ('after', 2) RETURNING id`)
     );
@@ -291,15 +292,17 @@ bucket_definitions:
       ])
     );
 
-    // store_current_data is now false, snapshotComplete stays true - no re-snapshot.
     const after = await resolvedTable(context, 'test_mid_stream');
     expect(after?.storeCurrentData).toBe(false);
     expect(after?.snapshotComplete).toBe(true);
+    expect(after?.id).not.toEqual(initial?.id);
   });
 
   test('reverting REPLICA IDENTITY FULL->DEFAULT recovers an unchanged TOAST value', async () => {
-    // No copy is kept while FULL, so after reverting to DEFAULT a partial UPDATE can't be completed
-    // from storage - the incomplete row must trigger a targeted resnapshot.
+    // REPLICA IDENTITY FULL keeps no current_data copy. Reverting to DEFAULT narrows replicaIdColumns
+    // (all columns -> PK), so the table resolves to a new SourceTable and re-snapshots, reading each
+    // full row (including the unchanged TOAST description) into storage. A later partial UPDATE then
+    // reduces against that copy.
     await using context = await openContext();
     const { pool } = context;
     await pool.query(
@@ -314,7 +317,8 @@ bucket_definitions:
       - SELECT id, name, description FROM test_revert
 `);
     await context.initializeReplication();
-    expect((await resolvedTable(context, 'test_revert'))?.storeCurrentData).toBe(false);
+    const initial = await resolvedTable(context, 'test_revert');
+    expect(initial?.storeCurrentData).toBe(false);
 
     // Must be > 8kb after compression to be stored out-of-line (TOASTed). Random hex does not compress.
     const largeDescription = crypto.randomBytes(20_000).toString('hex');
@@ -330,8 +334,7 @@ bucket_definitions:
     // pgoutput sends the new Relation message lazily, on the next DML rather than at ALTER time.
     await pool.query(`ALTER TABLE test_revert REPLICA IDENTITY DEFAULT`);
 
-    // Update only `name`: `description`'s TOAST value is omitted and DEFAULT carries only the key in
-    // the old tuple, so with no stored copy the row is incomplete -> a targeted resnapshot repairs it.
+    // Update only `name`: under DEFAULT the unchanged TOASTed `description` is omitted from the WAL.
     await pool.query(`UPDATE test_revert SET name = 'test2' WHERE id = '${id}'`);
 
     data = await context.getBucketData('global[]');
@@ -339,9 +342,9 @@ bucket_definitions:
       putOp('test_revert', { id, name: 'test2', description: largeDescription })
     );
 
-    // Back to storeCurrentData=true, without a re-snapshot of the whole table.
     const reverted = await resolvedTable(context, 'test_revert');
     expect(reverted?.storeCurrentData).toBe(true);
     expect(reverted?.snapshotComplete).toBe(true);
+    expect(reverted?.id).not.toEqual(initial?.id);
   });
 }
