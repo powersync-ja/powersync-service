@@ -85,20 +85,13 @@ export abstract class PersistedBatch {
    */
   currentSize = 0;
 
-  private _db: VersionedPowerSyncMongo;
-
-  protected get db(): VersionedPowerSyncMongo {
-    return this._db;
-  }
-
   constructor(
-    db: VersionedPowerSyncMongo,
+    protected readonly db: VersionedPowerSyncMongo,
     protected readonly group_id: number,
     protected readonly mapping: BucketDefinitionMapping,
     writtenSize: number,
     options?: PersistedBatchOptions
   ) {
-    this._db = db;
     this.currentSize = writtenSize;
     this.logger = options?.logger ?? defaultLogger;
   }

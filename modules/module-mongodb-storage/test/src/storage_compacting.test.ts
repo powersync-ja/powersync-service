@@ -179,9 +179,7 @@ bucket_definitions:
       // This typically happens when buckets get very large (> 2GiB). We don't want to create that much
       // data in the tests, so we directly insert the bucket_state here.
       if (storageDb.storageConfig.incrementalReprocessing) {
-        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketState<
-          import('@module/storage/implementation/common/models.js').BucketStateDocument
-        >(bucketStorage.group_id);
+        const bucketStateCollection = (storageDb as VersionedPowerSyncMongoV3).bucketState(bucketStorage.group_id);
         await bucketStateCollection.insertOne({
           _id: {
             d: '1',
@@ -312,7 +310,7 @@ bucket_definitions:
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {
@@ -759,7 +757,7 @@ bucket_definitions:
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
     const ctx = {
       replicationStreamId: bucketStorage.group_id,
@@ -933,7 +931,7 @@ bucket_definitions:
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {
@@ -1203,7 +1201,7 @@ bucket_definitions:
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {
@@ -1416,7 +1414,7 @@ bucket_definitions:
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const definitionId = bucketStorage.mapping.allBucketDefinitionIds()[0];
     const collection = db.bucketData(bucketStorage.group_id, definitionId);
-    const bucketStateCollection = db.bucketState<BucketStateDocument>(bucketStorage.group_id);
+    const bucketStateCollection = db.bucketState(bucketStorage.group_id);
     const sourceTableId = new bson.ObjectId();
 
     const ctx = {

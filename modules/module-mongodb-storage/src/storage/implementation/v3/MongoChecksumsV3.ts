@@ -23,9 +23,7 @@ import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 export class MongoChecksumsV3 extends MongoChecksums {
   private readonly mapping: BucketDefinitionMapping;
 
-  get db(): VersionedPowerSyncMongoV3 {
-    return super.db as VersionedPowerSyncMongoV3;
-  }
+  declare protected readonly db: VersionedPowerSyncMongoV3;
 
   constructor(db: VersionedPowerSyncMongoV3, group_id: number, options: MongoChecksumOptions) {
     super(db, group_id, options);

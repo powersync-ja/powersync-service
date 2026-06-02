@@ -56,18 +56,12 @@ const DEFAULT_OPERATION_BATCH_LIMIT = 50_000;
 export abstract class MongoChecksums {
   private _cache: ChecksumCache | undefined;
   private readonly storageConfig: StorageConfig;
-  private _db: VersionedPowerSyncMongo;
-
-  protected get db(): VersionedPowerSyncMongo {
-    return this._db;
-  }
 
   constructor(
-    db: VersionedPowerSyncMongo,
+    protected readonly db: VersionedPowerSyncMongo,
     protected readonly group_id: number,
     protected readonly options: MongoChecksumOptions
   ) {
-    this._db = db;
     this.storageConfig = options.storageConfig;
   }
 

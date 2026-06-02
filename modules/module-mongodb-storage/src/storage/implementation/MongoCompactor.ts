@@ -93,21 +93,13 @@ export abstract class MongoCompactor {
   protected readonly signal?: AbortSignal;
   protected readonly group_id: number;
 
-  private _db: VersionedPowerSyncMongo;
-  private _storage: AbstractMongoSyncBucketStorage;
   protected readonly logger: Logger;
 
-  protected get db(): VersionedPowerSyncMongo {
-    return this._db;
-  }
-
-  protected get storage(): AbstractMongoSyncBucketStorage {
-    return this._storage;
-  }
-
-  constructor(storage: AbstractMongoSyncBucketStorage, db: VersionedPowerSyncMongo, options: MongoCompactOptions) {
-    this._storage = storage;
-    this._db = db;
+  constructor(
+    protected readonly storage: AbstractMongoSyncBucketStorage,
+    protected readonly db: VersionedPowerSyncMongo,
+    options: MongoCompactOptions
+  ) {
     this.group_id = storage.group_id;
     this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;

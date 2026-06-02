@@ -20,9 +20,7 @@ export class PersistedBatchV3 extends PersistedBatch {
   currentData: { sourceTableId: bson.ObjectId; operation: mongo.AnyBulkWriteOperation<any> }[] = [];
   sourceTablePendingDeletes = new Map<string, InternalOpId>();
 
-  get db(): VersionedPowerSyncMongoV3 {
-    return super.db as VersionedPowerSyncMongoV3;
-  }
+  declare protected readonly db: VersionedPowerSyncMongoV3;
 
   // Abstract override from PersistedBatch (V3-specific error message)
 
