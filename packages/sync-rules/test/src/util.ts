@@ -109,12 +109,6 @@ export const EMPTY_DATA_SOURCE: BucketDataSource = {
   },
   debugWriteOutputTables: function (result: Record<string, { query: string }[]>): void {
     throw new Error('Function not implemented.');
-  },
-  equals(other) {
-    return other === this;
-  },
-  buildHash(hasher) {
-    hasher.addString(this.uniqueName);
   }
 };
 
@@ -133,14 +127,6 @@ export const EMPTY_PARAMETER_LOOKUP_SOURCE: ParameterIndexLookupCreator = {
   },
   tableSyncsParameters() {
     return false;
-  },
-
-  equals(other) {
-    return other === this;
-  },
-  buildHash(hasher) {
-    hasher.addString(this.sourceId.lookupName);
-    hasher.addString(this.sourceId.queryId);
   }
 };
 

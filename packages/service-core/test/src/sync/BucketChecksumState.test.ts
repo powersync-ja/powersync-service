@@ -44,12 +44,6 @@ describe('BucketChecksumState', () => {
     },
     tableSyncsParameters(_table: SourceTableRef): boolean {
       return false;
-    },
-    equals(other) {
-      return other === this;
-    },
-    buildHash(hasher) {
-      hasher.addString(this.sourceId.lookupName);
     }
   };
 

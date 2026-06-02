@@ -4,7 +4,6 @@ import {
   ScopedParameterLookup,
   UnscopedParameterLookup
 } from './BucketParameterQuerier.js';
-import { Equatable } from './compiler/equality.js';
 import { ColumnDefinition } from './ExpressionType.js';
 import { DEFAULT_HYDRATION_STATE, HydrationState, ParameterLookupDefinitionId } from './HydrationState.js';
 import { SourceTableRef } from './SourceTableRef.js';
@@ -89,7 +88,7 @@ export type ScopedEvaluateParameterRow = (sourceTable: SourceTableRef, row: Sqli
  * This does not require any "hydration" itself: All results are independent of bucket names.
  * The higher-level HydratedSyncRules will use a HydrationState to generate bucket names.
  */
-export interface BucketDataSource extends Equatable {
+export interface BucketDataSource {
   /**
    * Unique name of the data source within a replication stream.
    *
@@ -127,7 +126,7 @@ export interface BucketDataSource extends Equatable {
  *
  * This is only relevant for parameter queries and subqueries that query tables.
  */
-export interface ParameterIndexLookupCreator extends Equatable {
+export interface ParameterIndexLookupCreator {
   /**
    * lookupName + queryId is used to uniquely identify parameter queries for parameter storage.
    *

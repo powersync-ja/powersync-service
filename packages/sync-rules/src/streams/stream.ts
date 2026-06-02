@@ -9,7 +9,6 @@ import {
   HydratedBucketSource,
   ParameterIndexLookupCreator
 } from '../BucketSource.js';
-import { StableHasher } from '../compiler/equality.js';
 import { ColumnDefinition } from '../ExpressionType.js';
 import { SourceTableRef } from '../SourceTableRef.js';
 import { TablePattern } from '../TablePattern.js';
@@ -95,19 +94,6 @@ export class SyncStreamDataSource implements BucketDataSource {
 
   public get uniqueName(): string {
     return this.variant.defaultBucketPrefix(this.stream.name);
-  }
-
-  equals(other: unknown): boolean {
-    if (!(other instanceof SyncStreamDataSource)) {
-      return false;
-    }
-    // FIXME: implement this
-    return other === this;
-  }
-
-  buildHash(hasher: StableHasher): void {
-    // FIME: implement this
-    hasher.addString(this.uniqueName);
   }
 
   getSourceTables(): Set<TablePattern> {

@@ -16,7 +16,6 @@ import { StaticSqlParameterQuery } from './StaticSqlParameterQuery.js';
 import { TablePattern } from './TablePattern.js';
 import { TableValuedFunctionSqlParameterQuery } from './TableValuedFunctionSqlParameterQuery.js';
 import { CompatibilityContext } from './compatibility.js';
-import { StableHasher } from './compiler/equality.js';
 import { SqlRuleError } from './errors.js';
 import { EvaluateRowOptions, QueryParseOptions, SourceSchema, UnscopedEvaluationResult } from './types.js';
 
@@ -173,18 +172,6 @@ export class BucketDefinitionDataSource implements BucketDataSource {
    */
   get bucketParameters() {
     return this.descriptor.bucketParameters;
-  }
-
-  /**
-   * For BucketDefinitionDataSource, we only support equality matching by identity. We do not compare defintions
-   * across multiple sync rule versions.
-   */
-  equals(other: unknown): boolean {
-    return other === this;
-  }
-
-  buildHash(hasher: StableHasher): void {
-    hasher.addString(this.uniqueName);
   }
 
   public get uniqueName(): string {

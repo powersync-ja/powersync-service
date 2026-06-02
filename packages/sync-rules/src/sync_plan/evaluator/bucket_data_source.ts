@@ -1,6 +1,5 @@
 import { BucketDataSource } from '../../BucketSource.js';
 import { idFromData } from '../../cast.js';
-import { StableHasher } from '../../compiler/equality.js';
 import { ColumnDefinition } from '../../ExpressionType.js';
 import { SourceTableRef } from '../../SourceTableRef.js';
 import { TablePattern } from '../../TablePattern.js';
@@ -20,7 +19,6 @@ import {
 import { SqlExpression } from '../expression.js';
 import { ExpressionToSqlite } from '../expression_to_sql.js';
 import * as plan from '../plan.js';
-import { streamBucketDataSourceEquality } from '../plan_equality.js';
 import { SyncPlanSchemaAnalyzer } from '../schema_inference.js';
 import { StreamEvaluationContext } from './index.js';
 import { TableProcessorToSqlHelper } from './table_processor_to_sql.js';
@@ -46,17 +44,6 @@ export class PreparedStreamBucketDataSource implements BucketDataSource {
 
   get uniqueName(): string {
     return this.source.uniqueName;
-  }
-
-  equals(other: unknown): boolean {
-    if (!(other instanceof PreparedStreamBucketDataSource)) {
-      return false;
-    }
-    return streamBucketDataSourceEquality.equals(this.source, other.source);
-  }
-
-  buildHash(hasher: StableHasher): void {
-    streamBucketDataSourceEquality.hash(hasher, this.source);
   }
 
   get bucketParameters(): string[] {

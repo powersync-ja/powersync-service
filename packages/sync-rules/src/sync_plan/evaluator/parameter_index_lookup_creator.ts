@@ -1,6 +1,5 @@
 import { UnscopedParameterLookup } from '../../BucketParameterQuerier.js';
 import { ParameterIndexLookupCreator } from '../../BucketSource.js';
-import { StableHasher } from '../../compiler/equality.js';
 import { ParameterLookupDefinitionId } from '../../HydrationState.js';
 import { SourceTableRef } from '../../SourceTableRef.js';
 import { TablePattern } from '../../TablePattern.js';
@@ -39,20 +38,6 @@ export class PreparedParameterIndexLookupCreator implements ParameterIndexLookup
     });
     this.sourceTable = source.sourceTable.toTablePattern(defaultSchema);
     this.evaluatorInputs = translationHelper.mapper.instantiation;
-  }
-
-  buildHash(hasher: StableHasher): void {
-    // FIXME: Implement this
-    hasher.addString(this.sourceId.lookupName);
-    hasher.addString(this.sourceId.queryId);
-  }
-  equals(other: unknown): boolean {
-    // FIXME: Implement this
-    if (!(other instanceof PreparedParameterIndexLookupCreator)) {
-      return false;
-    }
-
-    return this === other;
   }
 
   getSourceTables(): Set<TablePattern> {

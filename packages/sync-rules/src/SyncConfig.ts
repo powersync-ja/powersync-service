@@ -105,22 +105,6 @@ export abstract class SyncConfig {
     return this.bucketParameterLookupSources.some((b) => b.tableSyncsParameters(table));
   }
 
-  /**
-   * Given a BucketDataSource within a different SyncConfig, return a BucketDataSource in this SyncConfig if the definition matches exactly.
-   */
-  getCompatibleBucketSource(source: BucketDataSource): BucketDataSource | null {
-    // TODO: Use a HashMap
-    return this.bucketDataSources.find((s) => s.equals(source)) ?? null;
-  }
-
-  /**
-   * Given a ParameterIndexLookupCreator within a different SyncConfig, return a ParameterIndexLookupCreator in this SyncConfig if the definition matches exactly.
-   */
-  getCompatibleParameterIndexLookupCreator(source: ParameterIndexLookupCreator): ParameterIndexLookupCreator | null {
-    // TODO: Use a HashMap
-    return this.bucketParameterLookupSources.find((s) => s.equals(source)) ?? null;
-  }
-
   debugGetOutputTables() {
     let result: Record<string, any[]> = {};
     for (let bucket of this.bucketDataSources) {

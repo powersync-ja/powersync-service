@@ -31,8 +31,6 @@ streams:
     const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
-    expect(first.equals(second)).toBe(true);
-    expect(hashCode(first)).toEqual(hashCode(second));
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -56,7 +54,6 @@ streams:
     const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
-    expect(first.equals(second)).toBe(false);
     expectSerializedBucketSources(firstYaml, secondYaml, false);
   });
 
@@ -80,7 +77,6 @@ streams:
     const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
-    expect(first.equals(second)).toBe(false);
     expectSerializedBucketSources(firstYaml, secondYaml, false);
   });
 
@@ -105,7 +101,6 @@ streams:
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
     expect(first.uniqueName).not.toEqual(second.uniqueName);
-    expect(first.equals(second)).toBe(false);
     expectSerializedBucketSources(firstYaml, secondYaml, false, true);
   });
 
@@ -137,8 +132,6 @@ streams:
     const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
-    expect(first.equals(second)).toBe(true);
-    expect(hashCode(first)).toEqual(hashCode(second));
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -162,8 +155,6 @@ streams:
     const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
-    expect(first.equals(second)).toBe(true);
-    expect(hashCode(first)).toEqual(hashCode(second));
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -191,8 +182,6 @@ streams:
     const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
-    expect(first.equals(second)).toBe(true);
-    expect(hashCode(first)).toEqual(hashCode(second));
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
@@ -222,20 +211,12 @@ streams:
     const first = firstBucketSource(sync.prepareWithoutHydration(firstYaml));
     const second = firstBucketSource(sync.prepareWithoutHydration(secondYaml));
 
-    expect(first.equals(second)).toBe(true);
-    expect(hashCode(first)).toEqual(hashCode(second));
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 });
 
 function firstBucketSource(config: SyncConfig): BucketDataSource {
   return config.bucketDataSources[0];
-}
-
-function hashCode(source: BucketDataSource): number {
-  const hasher = new StableHasher();
-  source.buildHash(hasher);
-  return hasher.buildHashCode();
 }
 
 function expectSerializedBucketSources(

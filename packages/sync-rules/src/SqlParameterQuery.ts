@@ -12,7 +12,6 @@ import {
   UnscopedParameterLookup
 } from './BucketParameterQuerier.js';
 import { CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
-import { StableHasher } from './compiler/equality.js';
 import { SqlRuleError } from './errors.js';
 import { BucketDataScope, ParameterLookupDefinitionId, ParameterLookupScope } from './HydrationState.js';
 import {
@@ -341,18 +340,6 @@ export class SqlParameterQuery implements ParameterIndexLookupCreator {
       lookupName: this.descriptorName,
       queryId: this.queryId
     };
-  }
-
-  buildHash(hasher: StableHasher): void {
-    hasher.addString(this.sourceId.lookupName);
-    hasher.addString(this.sourceId.queryId);
-  }
-
-  /**
-   * Only support reference equality for legacy sync rules - does not support incremental reprocessing.
-   */
-  equals(other: unknown): boolean {
-    return other === this;
   }
 
   tableSyncsParameters(table: SourceTableRef): boolean {
