@@ -81,7 +81,7 @@ export class PowerSyncMongo {
   versioned(storageConfig: StorageConfig & { incrementalReprocessing: false }): VersionedPowerSyncMongoV1;
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo;
   versioned(storageConfig: StorageConfig): VersionedPowerSyncMongo {
-    if (storageConfig.compressedBucketStorage || storageConfig.incrementalReprocessing) {
+    if (storageConfig.version >= storage.STORAGE_VERSION_3) {
       return new VersionedPowerSyncMongoV3(this, storageConfig);
     }
 

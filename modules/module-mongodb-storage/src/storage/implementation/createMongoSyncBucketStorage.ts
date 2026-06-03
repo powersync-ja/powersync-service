@@ -18,7 +18,7 @@ export function createMongoSyncBucketStorage(
   options: MongoSyncBucketStorageOptions
 ): MongoSyncBucketStorage {
   const storageConfig = sync_rules.getStorageConfig();
-  if (storageConfig.compressedBucketStorage || storageConfig.incrementalReprocessing) {
+  if (storageConfig.version >= storage.STORAGE_VERSION_3) {
     return new MongoSyncBucketStorageV3(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
   }
 
