@@ -51,7 +51,7 @@ describe('checkpoint retryable writes', () => {
       commandsStarted.push(event);
     });
 
-    const DEBUG_COMMANDS = true;
+    const DEBUG_COMMANDS = false;
     if (DEBUG_COMMANDS) {
       // For debugging: Log all commands
       client.on('commandStarted', (event) => {
