@@ -5,7 +5,6 @@ import {
   CurrentBucket as BaseCurrentBucket,
   SourceTableDocument as BaseSourceTableDocument,
   BucketParameterDocumentBase,
-  BucketStateDocumentBase,
   ReplicaId,
   SourceTableKey,
   TaggedBucketParameterDocument
@@ -46,10 +45,4 @@ export interface SourceTableDocument extends BaseSourceTableDocument {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
   latest_pending_delete?: InternalOpId | undefined;
-}
-
-export interface BucketStateDocument extends BucketStateDocumentBase {
-  _id: BucketStateDocumentBase['_id'] & {
-    d: BucketDefinitionId;
-  };
 }

@@ -3,14 +3,13 @@ import { logger, ReplicationAssertionError, ServiceAssertionError } from '@power
 import { addChecksums, storage, utils } from '@powersync/service-core';
 import { BucketDefinitionId } from '../BucketDefinitionMapping.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { BucketStateDocument } from '../common/models.js';
 import { BucketDataDocumentGeneric, SingleBucketStore } from '../common/SingleBucketStore.js';
 import { BucketStateDocumentBase } from '../models.js';
 import { DirtyBucket, MongoCompactor } from '../MongoCompactor.js';
 import { cacheKey } from '../OperationBatch.js';
 import { loadBucketDataDocument, serializeBucketData } from './bucket-format.js';
 import { chunkBucketData } from './chunking.js';
-import { BucketDataDocumentV3 } from './models.js';
+import { BucketDataDocumentV3, BucketStateDocumentV3 } from './models.js';
 import { MongoChecksumsV3 } from './MongoChecksumsV3.js';
 import type { MongoSyncBucketStorageV3 } from './MongoSyncBucketStorageV3.js';
 import { SingleBucketStoreV3 } from './SingleBucketStoreV3.js';
@@ -30,10 +29,10 @@ export class MongoCompactorV3 extends MongoCompactor {
     const collection = this.db.bucketState(this.group_id) as unknown as mongo.Collection<BucketStateDocumentBase>;
     yield* this.dirtyBucketBatchesForCollection(
       collection,
-      { d: new mongo.MinKey(), b: new mongo.MinKey() } as unknown as BucketStateDocument['_id'],
-      { d: new mongo.MaxKey(), b: new mongo.MaxKey() } as unknown as BucketStateDocument['_id'],
+      { d: new mongo.MinKey(), b: new mongo.MinKey() } as unknown as BucketStateDocumentV3['_id'],
+      { d: new mongo.MaxKey(), b: new mongo.MaxKey() } as unknown as BucketStateDocumentV3['_id'],
       options,
-      (bucketState) => (bucketState as BucketStateDocument)._id.d
+      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
     );
   }
 
@@ -46,14 +45,14 @@ export class MongoCompactorV3 extends MongoCompactor {
       {
         'estimate_since_compact.count': { $gte: options.minBucketChanges }
       } as unknown as mongo.Filter<BucketStateDocumentBase>,
-      (bucketState) => (bucketState as BucketStateDocument)._id.d
+      (bucketState) => (bucketState as BucketStateDocumentV3)._id.d
     );
   }
 
   protected async writeBucketStateUpdates(): Promise<void> {
     await this.db
       .bucketState(this.group_id)
-      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocument>[], {
+      .bulkWrite(this.bucketStateUpdates as mongo.AnyBulkWriteOperation<BucketStateDocumentV3>[], {
         ordered: false
       });
   }
