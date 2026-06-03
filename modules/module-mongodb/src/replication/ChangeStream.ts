@@ -715,6 +715,7 @@ export class ChangeStream {
                 const hasBufferedChanges = eventIndex < events.length - 1;
                 if (waitForCheckpointLsn != null || hasBufferedChanges) {
                   if (waitForCheckpointLsn == null) {
+                    using _ = tracer.span('source_checkpoint');
                     waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
                   }
                   continue;
@@ -754,6 +755,7 @@ export class ChangeStream {
               changeDocument.operationType == 'delete'
             ) {
               if (waitForCheckpointLsn == null) {
+                using _ = tracer.span('source_checkpoint');
                 waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
               }
 
