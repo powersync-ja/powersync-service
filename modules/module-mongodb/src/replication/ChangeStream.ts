@@ -515,7 +515,9 @@ export class ChangeStream {
     const bytesReplicatedMetric = this.metrics.getCounter(ReplicationMetric.DATA_REPLICATED_BYTES);
     const chunksReplicatedMetric = this.metrics.getCounter(ReplicationMetric.CHUNKS_REPLICATED);
 
-    const tracer = new PerformanceTracer('MongoDB streaming replication');
+    const tracer = new PerformanceTracer<
+      'storage' | 'evaluate' | 'batch' | 'source_checkpoint' | 'changestream' | 'processing'
+    >('MongoDB streaming replication');
     await this.storage.startBatch(
       {
         logger: this.logger,

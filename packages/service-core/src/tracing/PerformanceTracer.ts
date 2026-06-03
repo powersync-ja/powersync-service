@@ -24,7 +24,7 @@ export interface Span extends Disposable {
   nestedDurations: Record<string, number>;
 
   /**
-   *
+   * Total duration of this span in milliseconds, rounded up. Only valid after the span has ended.
    */
   durationMillis: number;
 
@@ -33,7 +33,7 @@ export interface Span extends Disposable {
    *
    * Safe to call multiple times. Any nested spans will automatically end as well.
    *
-   * Returns an aggregate record of category -> "selfDuration".
+   * Returns an aggregate record of category -> "selfDuration", in microseconds.
    */
   end(): Record<string, number>;
 }
