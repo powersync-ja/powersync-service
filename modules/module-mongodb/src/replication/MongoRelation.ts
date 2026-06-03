@@ -198,38 +198,33 @@ async function createCheckpointInner(
   db: mongo.Db,
   id: mongo.ObjectId | string
 ): Promise<string> {
-  const session = client.startSession();
-  try {
-    // We use an unique id per process, and clear documents on startup.
-    // This is so that we can filter events for our own process only, and ignore
-    // events from other processes.
+  // We use an unique id per process, and clear documents on startup.
+  // This is so that we can filter events for our own process only, and ignore
+  // events from other processes.
 
-    // We use a command instead of a regular update to avoid auto retries on writes.
-    // An auto retry on the write can trigger a weird edge case where the change stream event
-    // has the clusterTime of the first write, while the returned operation time is for the second no-op write.
-    // Instead, we do manual retries, which does not have the same write de-duplication logic.
-    // A sentinal-based approach would be better here, but that is a much bigger change.
+  // We use a command instead of a regular update to avoid auto retries on writes.
+  // An auto retry on the write can trigger a weird edge case where the change stream event
+  // has the clusterTime of the first write, while the returned operation time is for the second no-op write.
+  // Instead, we do manual retries, which does not have the same write de-duplication logic.
+  // A sentinal-based approach would be better here, but that is a much bigger change.
 
-    const response = await db.command({
-      findAndModify: '_powersync_checkpoints',
-      query: {
-        _id: id as any
-      },
-      new: true,
-      upsert: true,
-      update: {
-        $inc: { i: 1 }
-      }
-    });
-
-    const time = response.operationTime as mongo.Timestamp | undefined;
-    if (time == null) {
-      throw new ServiceError(ErrorCode.PSYNC_S1004, `clusterTime not available for checkpoint`);
+  const response = await db.command({
+    findAndModify: '_powersync_checkpoints',
+    query: {
+      _id: id as any
+    },
+    new: true,
+    upsert: true,
+    update: {
+      $inc: { i: 1 }
     }
-    return new MongoLSN({ timestamp: time }).comparable;
-  } finally {
-    await session.endSession();
+  });
+
+  const time = response.operationTime as mongo.Timestamp | undefined;
+  if (time == null) {
+    throw new ServiceError(ErrorCode.PSYNC_S1004, `clusterTime not available for checkpoint`);
   }
+  return new MongoLSN({ timestamp: time }).comparable;
 }
 
 const mongoTimeOptions: DateTimeSourceOptions = {
