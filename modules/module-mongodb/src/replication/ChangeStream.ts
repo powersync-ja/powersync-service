@@ -830,8 +830,8 @@ export class ChangeStream {
           }
 
           batchSpan.end();
-          const durations = outerSpan.end();
-          const duration = batchSpan.endAt - batchSpan.startAt;
+          const durationsMicroseconds = outerSpan.end();
+          const duration = batchSpan.durationMillis;
 
           this.logger.info(
             `Processed batch of ${events.length} changes / ${eventBatch.byteSize} bytes in ${duration}ms`,
@@ -839,7 +839,7 @@ export class ChangeStream {
               count: events.length,
               bytes: eventBatch.byteSize,
               duration,
-              t: durations
+              t: durationsMicroseconds
             }
           );
           outerSpan = tracer.span('batch');
