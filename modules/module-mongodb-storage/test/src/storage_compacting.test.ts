@@ -1849,4 +1849,91 @@ bucket_definitions:
     expect(allOps.length).toBe(5);
     expect(allOps.every((op) => op.op === 'PUT')).toBe(true);
   });
+
+  test('9. mixed-document maxOpId filtering preserves ops above horizon', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+    // Single document with two ops: one <= maxOpId, one > maxOpId
+    const doc = serializeBucketData(BUCKET, [
+      makeOp(200, 'A', 'old_A', ctx, sourceTableId),
+      makeOp(400, 'B', 'new_B', ctx, sourceTableId)
+    ]);
+    await insertDocs(collection, [doc]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 400n);
+
+    const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+    const checksumBefore = docsBefore.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+
+    await bucketStorage.compact({
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      maxOpId: 300n,
+      signal: null as any
+    });
+
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+    const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+    expect(checksumAfter).toBe(checksumBefore);
+
+    const allOps = await readAllOps(collection);
+    expect(allOps.length).toBe(2);
+
+    const op400 = allOps.find((op) => op.o === 400n);
+    expect(op400).toBeDefined();
+    expect(op400!.op).toBe('PUT');
+    expect(op400!.row_id).toBe('B');
+  });
+
+  test('10. compacted documents have non-overlapping ranges', async () => {
+    const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+    // Four documents with disjoint ranges.
+    // Doc2 is skipped (all ops > maxOpId=300).
+    // Doc3 is mixed (ops on both sides of the horizon).
+    // Under current code Doc1+Doc3 are processed together; Doc2 is skipped.
+    // Under any fix, no two documents should end up with overlapping [min_op, _id.o] ranges.
+    const doc1 = serializeBucketData(BUCKET, [
+      makeOp(100, 'A', 'a1', ctx, sourceTableId),
+      makeOp(200, 'B', 'b1', ctx, sourceTableId)
+    ]);
+    const doc2 = serializeBucketData(BUCKET, [
+      makeOp(350, 'C', 'c1', ctx, sourceTableId),
+      makeOp(400, 'D', 'd1', ctx, sourceTableId)
+    ]);
+    const doc3 = serializeBucketData(BUCKET, [
+      makeOp(250, 'E', 'e1', ctx, sourceTableId),
+      makeOp(500, 'F', 'f1', ctx, sourceTableId)
+    ]);
+    const doc4 = serializeBucketData(BUCKET, [
+      makeOp(600, 'G', 'g1', ctx, sourceTableId),
+      makeOp(700, 'H', 'h1', ctx, sourceTableId)
+    ]);
+
+    await insertDocs(collection, [doc1, doc2, doc3, doc4]);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 700n);
+
+    await bucketStorage.compact({
+      clearBatchLimit: 200,
+      moveBatchLimit: 10,
+      moveBatchQueryLimit: 10,
+      minBucketChanges: 1,
+      minChangeRatio: 0,
+      maxOpId: 300n,
+      signal: null as any
+    });
+
+    const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
+
+    // Every pair of documents must have disjoint [min_op, _id.o] ranges.
+    const overlaps = docsAfter.flatMap((a, i) =>
+      docsAfter
+        .slice(i + 1)
+        .filter((b) => a._id.o >= b.min_op && b._id.o >= a.min_op)
+        .map((b) => `[${a.min_op}, ${a._id.o}] vs [${b.min_op}, ${b._id.o}]`)
+    );
+    expect(overlaps).toEqual([]);
+  });
 });
