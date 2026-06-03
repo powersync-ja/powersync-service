@@ -17,7 +17,8 @@ import {
   SourceTableDocument,
   SourceTableKey,
   SyncRuleCheckpointFields,
-  SyncRuleDocumentBase
+  SyncRuleDocumentBase,
+  TaggedBucketParameterDocument
 } from '../models.js';
 
 /**
@@ -149,4 +150,11 @@ export function serializeParameterLookup(lookup: ScopedParameterLookup): bson.Bi
 
 export function deserializeParameterLookup(lookup: bson.Binary, indexId: ParameterIndexId): SqliteJsonValue[] {
   return [indexId, '', ...deserializeParameterLookupCore(lookup)];
+}
+
+export function taggedBucketParameterDocumentToTagged(
+  document: TaggedBucketParameterDocument
+): BucketParameterDocumentV3 {
+  const { index: _index, ...rest } = document;
+  return rest as BucketParameterDocumentV3;
 }

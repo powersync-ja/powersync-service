@@ -5,7 +5,6 @@ import { BucketDataSource, BucketDefinitionId } from '@powersync/service-sync-ru
 import * as bson from 'bson';
 import { mongoTableId } from '../../../utils/util.js';
 import { BucketDataDoc } from '../common/BucketDataDoc.js';
-import { taggedBucketParameterDocumentToTagged } from '../common/models.js';
 import {
   BucketStateUpdate,
   PersistedBatch,
@@ -19,7 +18,8 @@ import {
   BucketStateDocumentV3,
   CurrentDataDocumentV3,
   serializeParameterLookup,
-  SourceTableDocumentV3
+  SourceTableDocumentV3,
+  taggedBucketParameterDocumentToTagged
 } from './models.js';
 import { VersionedPowerSyncMongoV3 } from './VersionedPowerSyncMongoV3.js';
 

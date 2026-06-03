@@ -3,12 +3,8 @@ import { InternalOpId, storage } from '@powersync/service-core';
 import { ParameterIndexId, SqliteJsonValue } from '@powersync/service-sync-rules';
 import { event_types } from '@powersync/service-types';
 import * as bson from 'bson';
-import type {
-  CurrentDataDocument as CurrentDataDocumentV3,
-  RecordedLookup,
-  SourceTableDocument as SourceTableDocumentV3
-} from './common/models.js';
 import type { CurrentDataDocument, SourceTableDocumentV1 } from './v1/models.js';
+import type { CurrentDataDocumentV3, RecordedLookupV3, SourceTableDocumentV3 } from './v3/models.js';
 
 /**
  * Replica id uniquely identifying a row on the source database.
@@ -311,5 +307,5 @@ export interface ClientConnectionDocument extends event_types.ClientConnection {
 
 export type CurrentDataDocumentId = CurrentDataDocument['_id'] | CurrentDataDocumentV3['_id'];
 export type CommonCurrentBucket = CurrentBucket;
-export type CommonCurrentLookup = bson.Binary | RecordedLookup;
+export type CommonCurrentLookup = bson.Binary | RecordedLookupV3;
 export type CommonSourceTableDocument = SourceTableDocumentV1 | SourceTableDocumentV3;
