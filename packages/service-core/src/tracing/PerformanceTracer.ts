@@ -2,19 +2,38 @@ import { traceWriter } from './TraceWriter.js';
 
 export interface Span extends Disposable {
   name: string;
+  /**
+   * Start time in microseconds since an arbitrary epoch.
+   */
   startAt: number;
+  /**
+   * End time in microseconds since an arbitrary epoch.
+   */
   endAt: number;
+  /**
+   * Time spent not in nested spans.
+   */
   selfDuration: number;
+
   nestedSince: number | undefined;
   subtrackFromSelf: number;
+
+  /**
+   * Durations spent in nested spans, in microseconds.
+   */
   nestedDurations: Record<string, number>;
+
+  /**
+   * Total duration of this span in milliseconds, rounded up. Only valid after the span has ended.
+   */
+  durationMillis: number;
 
   /**
    * End the span - same as [Symbol.dispose]().
    *
    * Safe to call multiple times. Any nested spans will automatically end as well.
    *
-   * Returns an aggregate record of category -> "selfDuration".
+   * Returns an aggregate record of category -> "selfDuration", in microseconds.
    */
   end(): Record<string, number>;
 }
@@ -114,6 +133,10 @@ export class PerformanceTracer<K extends string> {
           parent.nestedSince = undefined;
         }
         return this.nestedDurations;
+      },
+
+      get durationMillis() {
+        return Math.ceil((this.endAt - this.startAt) / 1000);
       },
       [Symbol.dispose]() {
         this.end();
