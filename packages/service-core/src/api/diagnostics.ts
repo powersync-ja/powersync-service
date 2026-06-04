@@ -1,4 +1,4 @@
-import { logger } from '@powersync/lib-services-framework';
+import { logger, ServiceAssertionError } from '@powersync/lib-services-framework';
 import { DEFAULT_TAG, SourceTableRef, SyncConfigWithErrors } from '@powersync/service-sync-rules';
 import { ReplicationError, SyncRulesStatus, TableInfo } from '@powersync/service-types';
 
@@ -30,9 +30,16 @@ export const DEFAULT_DATASOURCE_ID = 'default';
 export async function getSyncRulesStatus(
   bucketStorage: storage.BucketStorageFactory,
   apiHandler: RouteAPI,
-  sync_rules: storage.PersistedSyncRulesContent | null,
+  sync_rules: storage.PersistedSyncConfigContent | null,
   options: DiagnosticsOptions,
-  syncConfigStatus?: storage.PersistedSyncConfigStatus | null
+  syncConfigStatus?: storage.PersistedSyncConfigStatus | null,
+  /**
+   * Storage instance for the replication stream of this config.
+   *
+   * Required to populate live status (snapshot/checkpoint info). The content object
+   * itself is no longer a replication stream, so the caller must resolve this.
+   */
+  systemStorage?: storage.SyncRulesBucketStorage
 ): Promise<SyncRulesStatus | undefined> {
   if (sync_rules == null) {
     return undefined;
@@ -47,7 +54,12 @@ export async function getSyncRulesStatus(
   let persisted: storage.PersistedSyncRules;
   try {
     persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
-    parsed = persisted.syncConfigs[0];
+    // A content object represents a single sync config, so its parsed result has exactly one entry.
+    const [singleConfig] = persisted.syncConfigs;
+    if (singleConfig == null) {
+      throw new ServiceAssertionError('Expected one sync config');
+    }
+    parsed = singleConfig;
   } catch (e) {
     return {
       content: include_content ? sync_rules.sync_rules_content : undefined,
@@ -61,8 +73,7 @@ export async function getSyncRulesStatus(
   // This method can run under some situations if no connection is configured yet.
   // It will return a default tag in such a case. This default tag is not module specific.
   const tag = sourceConfig.tag ?? DEFAULT_TAG;
-  const systemStorage = live_status ? bucketStorage.getInstance(sync_rules) : undefined;
-  const status = await systemStorage?.getStatus();
+  const status = live_status ? await systemStorage?.getStatus() : undefined;
   let replication_lag_bytes: number | undefined = undefined;
   let slot_wal_budget: SlotWalBudgetInfo | undefined = undefined;
 

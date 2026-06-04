@@ -33,7 +33,7 @@ export class BinlogStreamTestContext {
   private streamPromise?: Promise<void>;
   public storage?: SyncRulesBucketStorage;
   private replicationDone = false;
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
 
   static async open(factory: storage.TestStorageFactory, options?: { doNotClear?: boolean }) {
     const f = await factory({ doNotClear: options?.doNotClear });
@@ -71,11 +71,11 @@ export class BinlogStreamTestContext {
   }
 
   async updateSyncRules(content: string): Promise<SyncRulesBucketStorage> {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: LEGACY_STORAGE_VERSION })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(replicationStream.id))[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
@@ -86,7 +86,11 @@ export class BinlogStreamTestContext {
     }
 
     this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    const replicationStream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Next replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
@@ -97,12 +101,16 @@ export class BinlogStreamTestContext {
     }
 
     this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    const replicationStream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Active replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     this.replicationDone = true;
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncRulesContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync config not configured - call updateSyncRules() first');
     }

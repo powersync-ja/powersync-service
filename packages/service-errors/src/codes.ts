@@ -534,5 +534,10 @@ export enum ErrorCode {
    *
    * When a sync config is specified in the service config, the dynamic sync config API is disabled.
    */
-  PSYNC_S4105 = 'PSYNC_S4105'
+  PSYNC_S4105 = 'PSYNC_S4105',
+
+  /**
+   * Sync config reprocess is blocked because another sync config is deploying.
+   */
+  PSYNC_S4106 = 'PSYNC_S4106'
 }

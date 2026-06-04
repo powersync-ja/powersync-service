@@ -35,7 +35,7 @@ import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContentV1 } from './MongoPersistedSyncRulesContent.js';
+import { MongoPersistedSyncConfigContentV1 } from './MongoPersistedSyncRulesContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
@@ -52,7 +52,6 @@ interface WriterSyncState {
   lastCheckpointLsn: string | null;
   resumeFromLsn: string | null;
   keepaliveOp: InternalOpId | null;
-  syncConfigId?: bson.ObjectId | null;
   syncConfigIds?: bson.ObjectId[];
 }
 
@@ -85,7 +84,7 @@ export abstract class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    protected readonly sync_rules: MongoPersistedSyncRulesContentV1,
+    protected readonly sync_rules: MongoPersistedSyncConfigContentV1,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
@@ -215,7 +214,6 @@ export abstract class MongoSyncBucketStorage
       skipExistingRows: options.skipExistingRows ?? false,
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
-      syncConfigId: state.syncConfigId,
       syncConfigIds: state.syncConfigIds,
       tracer: options.tracer
     };

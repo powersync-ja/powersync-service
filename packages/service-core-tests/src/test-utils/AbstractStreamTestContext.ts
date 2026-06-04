@@ -14,7 +14,8 @@ import { fromAsync } from './stream_utils.js';
 
 export abstract class AbstractStreamTestContext implements AsyncDisposable {
   protected abortController = new AbortController();
-  protected syncRulesContent?: storage.PersistedSyncRulesContent;
+  protected syncRulesContent?: storage.PersistedSyncConfigContent;
+  protected replicationStream?: storage.PersistedReplicationStream;
   public storage?: SyncRulesBucketStorage;
   protected settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
 
@@ -44,11 +45,12 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules(
+    const stream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.replicationStream = stream;
+    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(stream.id))[0];
+    this.storage = this.factory.getInstance(stream);
     return this.storage!;
   }
 
@@ -57,9 +59,14 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     if (syncRules == null) {
       throw new Error(`Next sync rules not available`);
     }
+    const stream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    if (stream == null) {
+      throw new Error(`Next replication stream not available`);
+    }
 
     this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.replicationStream = stream;
+    this.storage = this.factory.getInstance(stream);
     return this.storage!;
   }
 
@@ -68,13 +75,17 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     if (syncRules == null) {
       throw new Error(`Active sync rules not available`);
     }
+    const storage = await this.factory.getActiveStorage();
+    if (storage == null) {
+      throw new Error(`Active replication stream not available`);
+    }
 
     this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.storage = storage;
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncRulesContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync rules not configured - call updateSyncRules() first');
     }

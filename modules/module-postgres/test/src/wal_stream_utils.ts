@@ -20,7 +20,7 @@ import { clearTestDb, getClientCheckpoint, TEST_CONNECTION_OPTIONS } from './uti
 export class WalStreamTestContext implements AsyncDisposable {
   private _walStream?: WalStream;
   private abortController = new AbortController();
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
   public storage?: SyncRulesBucketStorage;
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
 
@@ -89,11 +89,11 @@ export class WalStreamTestContext implements AsyncDisposable {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(replicationStream.id))[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
@@ -104,7 +104,11 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    const replicationStream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Next replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
@@ -115,11 +119,15 @@ export class WalStreamTestContext implements AsyncDisposable {
     }
 
     this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    const replicationStream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Active replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncRulesContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync config not configured - call updateSyncRules() first');
     }

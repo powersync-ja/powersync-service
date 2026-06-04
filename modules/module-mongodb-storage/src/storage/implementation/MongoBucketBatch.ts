@@ -44,7 +44,6 @@ export interface MongoBucketBatchOptions {
   syncRules: HydratedSyncConfig;
   groupId: number;
   slotName: string;
-  syncConfigId?: bson.ObjectId | null;
   syncConfigIds?: bson.ObjectId[];
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;

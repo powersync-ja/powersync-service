@@ -57,9 +57,10 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
       const { checkpoint } = await populate(bucketStorage, 1);
 
-      return { bucketStorage, checkpoint, factory, syncRules };
+      return { bucketStorage, checkpoint, factory, syncRules: syncRulesContent };
     };
 
     test('full compact', async () => {
@@ -115,6 +116,7 @@ bucket_definitions:
     `)
       );
       const bucketStorage = factory.getInstance(syncRules);
+      const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
       const storageDb = (bucketStorage as any).db;
 
       await populate(bucketStorage, 2);
@@ -141,7 +143,7 @@ bucket_definitions:
       expect(result2.buckets).toEqual(0);
 
       const users = ['u1', 'u2'];
-      const userRequests = users.map((user) => bucketRequest(syncRules, `by_user2["${user}"]`));
+      const userRequests = users.map((user) => bucketRequest(syncRulesContent, `by_user2["${user}"]`));
       const [u1Request, u2Request] = userRequests;
       const checksumAfter = await bucketStorage.getChecksums(checkpoint, userRequests);
       expect(checksumAfter.get(u1Request.bucket)).toEqual({

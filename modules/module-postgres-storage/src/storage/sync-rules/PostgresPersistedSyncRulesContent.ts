@@ -3,9 +3,7 @@ import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { models } from '../../types/types.js';
 
-export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRulesContent {
-  current_lock: storage.ReplicationLock | null = null;
-
+export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncConfigContent {
   constructor(
     private db: lib_postgres.DatabaseClient,
     row: models.SyncRulesDecoded
@@ -23,6 +21,26 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
       state: row.state as storage.SyncRuleState,
       storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
+  }
+}
+
+export class PostgresPersistedReplicationStream extends storage.PersistedReplicationStream {
+  current_lock: storage.ReplicationLock | null = null;
+
+  constructor(
+    private db: lib_postgres.DatabaseClient,
+    private readonly row: models.SyncRulesDecoded
+  ) {
+    super({
+      id: Number(row.id),
+      slot_name: row.slot_name,
+      state: row.state as storage.SyncRuleState,
+      storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
+    });
+  }
+
+  toSyncConfigContent(): PostgresPersistedSyncRulesContent {
+    return new PostgresPersistedSyncRulesContent(this.db, this.row);
   }
 
   async lock(): Promise<storage.ReplicationLock> {
@@ -51,32 +69,5 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
         return lockHandle.release();
       }
     });
-  }
-}
-
-export class PostgresPersistedReplicationStream extends storage.PersistedReplicationStream {
-  current_lock: storage.ReplicationLock | null = null;
-
-  constructor(
-    private db: lib_postgres.DatabaseClient,
-    private readonly row: models.SyncRulesDecoded
-  ) {
-    super({
-      id: Number(row.id),
-      slot_name: row.slot_name,
-      state: row.state as storage.SyncRuleState,
-      storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
-    });
-  }
-
-  toSyncRulesContent(): PostgresPersistedSyncRulesContent {
-    return new PostgresPersistedSyncRulesContent(this.db, this.row);
-  }
-
-  async lock(): Promise<storage.ReplicationLock> {
-    const content = this.toSyncRulesContent();
-    const lock = await content.lock();
-    this.current_lock = lock;
-    return lock;
   }
 }

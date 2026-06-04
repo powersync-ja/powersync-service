@@ -156,8 +156,16 @@ export const reprocessSyncRules = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = payload.context.service_context;
-    const apiHandler = payload.context.service_context.routerEngine.getAPI();
-    const sync_rules = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
+    const next = await activeBucketStorage.getDeployingSyncConfigContent();
+    if (next != null) {
+      throw new errors.ServiceError({
+        status: 409,
+        code: ErrorCode.PSYNC_S4106,
+        description: 'Busy processing sync config - cannot reprocess'
+      });
+    }
+
+    const sync_rules = await activeBucketStorage.getActiveSyncConfigContent();
     if (sync_rules == null) {
       throw new errors.ServiceError({
         status: 422,
@@ -167,7 +175,7 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules(
-      updateSyncRulesFromYaml(sync_rules.syncConfigs[0].config.content, {
+      updateSyncRulesFromYaml(sync_rules.sync_rules_content, {
         // This sync config already passed validation. But if the rules are not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true

@@ -17,6 +17,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -53,7 +54,7 @@ bucket_definitions:
 
     const checkpoint = writer.last_flushed_op!;
 
-    const request = bucketRequest(syncRules, 'global[]');
+    const request = bucketRequest(syncRulesContent, 'global[]');
 
     const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = batchBefore.chunkData.data;
@@ -124,6 +125,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -168,7 +170,7 @@ bucket_definitions:
     await writer.flush();
 
     const checkpoint = writer.last_flushed_op!;
-    const request = bucketRequest(syncRules, 'global[]');
+    const request = bucketRequest(syncRulesContent, 'global[]');
 
     const batchBefore = await test_utils.oneFromAsync(bucketStorage.getBucketDataBatch(checkpoint, [request]));
     const dataBefore = batchBefore.chunkData.data;
@@ -240,6 +242,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -275,7 +278,7 @@ bucket_definitions:
     await writer.flush();
 
     const checkpoint1 = writer.last_flushed_op!;
-    const request = bucketRequest(syncRules, 'global[]');
+    const request = bucketRequest(syncRulesContent, 'global[]');
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable2 = await test_utils.resolveTestTable(writer2, 'test', ['id'], config);
     await writer2.save({
@@ -328,6 +331,7 @@ bucket_definitions:
               - select * from test where b = bucket.b`)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -413,7 +417,7 @@ bucket_definitions:
     const batchAfter = await test_utils.fromAsync(
       bucketStorage.getBucketDataBatch(
         checkpoint,
-        bucketRequestMap(syncRules, [
+        bucketRequestMap(syncRulesContent, [
           ['grouped["b1"]', 0n],
           ['grouped["b2"]', 0n]
         ])
@@ -458,6 +462,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -513,7 +518,7 @@ bucket_definitions:
     await writer2.commit('2/1');
     await writer2.flush();
     const checkpoint2 = writer2.last_flushed_op!;
-    const request = bucketRequest(syncRules, 'global[]');
+    const request = bucketRequest(syncRulesContent, 'global[]');
     await bucketStorage.clearChecksumCache();
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, [request]);
     const globalChecksum = checksumAfter.get(request.bucket);
@@ -536,6 +541,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -562,7 +568,7 @@ bucket_definitions:
     await writer.flush();
 
     // Get checksums here just to populate the cache
-    await bucketStorage.getChecksums(writer.last_flushed_op!, bucketRequests(syncRules, ['global[]']));
+    await bucketStorage.getChecksums(writer.last_flushed_op!, bucketRequests(syncRulesContent, ['global[]']));
     await using writer2 = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable2 = await test_utils.resolveTestTable(writer2, 'test', ['id'], config);
     await writer2.save({
@@ -585,7 +591,7 @@ bucket_definitions:
     });
 
     const checkpoint2 = writer2.last_flushed_op!;
-    const request = bucketRequest(syncRules, 'global[]');
+    const request = bucketRequest(syncRulesContent, 'global[]');
     // Check that the checksum was correctly updated with the clear operation after having a cached checksum
     const checksumAfter = await bucketStorage.getChecksums(checkpoint2, [request]);
     const globalChecksum = checksumAfter.get(request.bucket);
@@ -607,6 +613,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -646,7 +653,7 @@ bucket_definitions:
     });
 
     const batchAfterDefaultCompact = await test_utils.oneFromAsync(
-      bucketStorage.getBucketDataBatch(checkpoint2, bucketRequestMap(syncRules, [['global[]', 0n]]))
+      bucketStorage.getBucketDataBatch(checkpoint2, bucketRequestMap(syncRulesContent, [['global[]', 0n]]))
     );
 
     // Operation 1 should remain a PUT because op_id=2 is above the default maxOpId checkpoint.

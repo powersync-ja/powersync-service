@@ -41,7 +41,7 @@ import { PostgresCompactor } from './PostgresCompactor.js';
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
   db: lib_postgres.DatabaseClient;
-  sync_rules: storage.PersistedSyncRulesContent;
+  sync_rules: storage.PersistedSyncConfigContent;
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
 };
@@ -53,7 +53,7 @@ export class PostgresSyncRulesStorage
   [framework.DO_NOT_LOG] = true;
 
   public readonly group_id: number;
-  public readonly sync_rules: storage.PersistedSyncRulesContent;
+  public readonly sync_rules: storage.PersistedSyncConfigContent;
   public readonly slot_name: string;
   public readonly factory: PostgresBucketStorageFactory;
   public readonly storageConfig: StorageVersionConfig;

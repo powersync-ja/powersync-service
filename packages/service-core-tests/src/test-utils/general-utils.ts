@@ -15,6 +15,21 @@ export const BATCH_OPTIONS: storage.CreateWriterOptions = {
 };
 
 /**
+ * Deploy a sync config and return both the replication stream (for {@link storage.BucketStorageFactory.getInstance})
+ * and the deployed config content (for parsing / bucket requests).
+ *
+ * Replication streams and sync config content are separate concerns since one stream can hold multiple configs.
+ */
+export async function deploySyncRules(
+  factory: storage.BucketStorageFactory,
+  options: storage.UpdateSyncRulesOptions
+): Promise<{ stream: storage.PersistedReplicationStream; content: storage.PersistedSyncConfigContent }> {
+  const stream = await factory.updateSyncRules(options);
+  const content = (await factory.getReplicationStreamConfigs(stream.id))[0];
+  return { stream, content };
+}
+
+/**
  * With newer storage versions, we need actual test tables, resolved via the writer.
  */
 export async function resolveTestTable(
@@ -78,7 +93,7 @@ export function getBatchData(
 }
 
 function isParsedSyncRules(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules
+  syncRules: storage.PersistedSyncConfigContent | storage.PersistedSyncRules
 ): syncRules is storage.PersistedSyncRules {
   return (syncRules as storage.PersistedSyncRules).syncConfigs !== undefined;
 }
@@ -88,7 +103,7 @@ function isParsedSyncRules(
  * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
  */
 export function bucketRequest(
-  syncRules: storage.PersistedSyncRulesContent | storage.PersistedSyncRules,
+  syncRules: storage.PersistedSyncConfigContent | storage.PersistedSyncRules,
   bucket: string,
   start?: InternalOpId | string | number
 ): BucketDataRequest {
@@ -97,7 +112,9 @@ export function bucketRequest(
   const parameterStart = bucket.indexOf('[');
   const definitionName = bucket.substring(0, parameterStart);
   const parameters = bucket.substring(parameterStart);
-  const source = parsed.syncConfigs[0].config.bucketDataSources.find((b) => b.uniqueName === definitionName);
+  const source = parsed.syncConfigs
+    .flatMap((config) => config.config.bucketDataSources)
+    .find((b) => b.uniqueName === definitionName);
 
   if (source == null) {
     throw new Error(`Failed to find global bucket ${bucket}`);

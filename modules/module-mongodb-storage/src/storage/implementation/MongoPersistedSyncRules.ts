@@ -36,8 +36,19 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   ) {
     this.slot_name = slotName;
     this.syncConfigs = syncConfigs.map((config) => config.syncConfig);
-    // Compatibility must match between them all.
-    const compatibility = this.syncConfigs[0].config.compatibility;
+    if (this.syncConfigs.length == 0) {
+      throw new ServiceAssertionError(`At least one sync config is required`);
+    }
+    const [firstConfig] = this.syncConfigs;
+    const compatibility = firstConfig.config.compatibility;
+    for (const config of this.syncConfigs) {
+      if (config.config.compatibility.equals(compatibility)) {
+        continue;
+      }
+      throw new ServiceAssertionError(
+        `All sync configs in a replication stream must use the same compatibility options`
+      );
+    }
 
     if (storageConfig.incrementalReprocessing) {
       if (syncConfigs.some((c) => c.mapping == null)) {
@@ -47,11 +58,19 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
       this.hydrationState = new MongoHydrationState(mappedConfigs, this.id);
       this.mapping = new MultiSyncConfigBucketDefinitionMapping(mappedConfigs);
     } else if (!compatibility.isEnabled(CompatibilityOption.versionedBucketIds) && !storageConfig.versionedBuckets) {
+      const [syncConfig] = syncConfigs;
+      if (syncConfigs.length != 1 || syncConfig == null) {
+        throw new ServiceAssertionError(`Non-incremental storage requires exactly one sync config`);
+      }
       this.hydrationState = DEFAULT_HYDRATION_STATE;
-      this.mapping = syncConfigs[0].mapping ?? new BucketDefinitionMapping();
+      this.mapping = syncConfig.mapping ?? new BucketDefinitionMapping();
     } else {
+      const [syncConfig] = syncConfigs;
+      if (syncConfigs.length != 1 || syncConfig == null) {
+        throw new ServiceAssertionError(`Non-incremental storage requires exactly one sync config`);
+      }
       this.hydrationState = versionedHydrationState(this.id);
-      this.mapping = syncConfigs[0].mapping ?? new BucketDefinitionMapping();
+      this.mapping = syncConfig.mapping ?? new BucketDefinitionMapping();
     }
   }
 

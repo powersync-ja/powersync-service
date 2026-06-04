@@ -30,7 +30,7 @@ export class ChangeStreamTestContext {
   private _walStream?: ChangeStream;
   private abortController = new AbortController();
   private settledReplicationPromise?: Promise<PromiseSettledResult<void>>;
-  private syncRulesContent?: storage.PersistedSyncRulesContent;
+  private syncRulesContent?: storage.PersistedSyncConfigContent;
   public storage?: SyncRulesBucketStorage;
 
   /**
@@ -101,11 +101,11 @@ export class ChangeStreamTestContext {
   }
 
   async updateSyncRules(content: string) {
-    const syncRules = await this.factory.updateSyncRules(
+    const replicationStream = await this.factory.updateSyncRules(
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
-    this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(replicationStream.id))[0];
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
@@ -116,11 +116,15 @@ export class ChangeStreamTestContext {
     }
 
     this.syncRulesContent = syncRules;
-    this.storage = this.factory.getInstance(syncRules);
+    const replicationStream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    if (replicationStream == null) {
+      throw new Error(`Next replication stream not available`);
+    }
+    this.storage = this.factory.getInstance(replicationStream);
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncRulesContent {
+  private getSyncRulesContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync config not configured - call updateSyncRules() first');
     }

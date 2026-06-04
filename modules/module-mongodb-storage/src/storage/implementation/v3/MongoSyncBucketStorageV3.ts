@@ -26,8 +26,8 @@ import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import {
-  MongoPersistedSyncRulesContentV1,
-  MongoPersistedSyncRulesContentV3
+  MongoPersistedSyncConfigContentV1,
+  MongoPersistedSyncConfigContentV3
 } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
@@ -49,25 +49,21 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   declare readonly db: VersionedPowerSyncMongoV3;
   declare readonly checksums: MongoChecksumsV3;
 
-  private readonly syncRulesV3: MongoPersistedSyncRulesContentV3;
+  private readonly syncRulesV3: MongoPersistedSyncConfigContentV3;
 
   constructor(
     factory: MongoBucketStorage,
     group_id: number,
-    sync_rules: MongoPersistedSyncRulesContentV1,
+    sync_rules: MongoPersistedSyncConfigContentV1,
     slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
     super(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
-    if (!(sync_rules instanceof MongoPersistedSyncRulesContentV3)) {
+    if (!(sync_rules instanceof MongoPersistedSyncConfigContentV3)) {
       throw new ServiceAssertionError('Missing sync config id for storage v3');
     }
     this.syncRulesV3 = sync_rules;
-  }
-
-  private get syncConfigId(): bson.ObjectId {
-    return this.syncRulesV3.syncConfigObjectId;
   }
 
   private get syncConfigIds(): bson.ObjectId[] {
@@ -203,7 +199,6 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       lastCheckpointLsn: checkpointLsn,
       resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
       keepaliveOp,
-      syncConfigId: this.syncConfigId,
       syncConfigIds: this.syncConfigIds
     };
   }

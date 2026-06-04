@@ -80,21 +80,7 @@ export abstract class PersistedReplicationStream implements PersistedReplication
   abstract lock(): Promise<ReplicationLock>;
 }
 
-export interface PersistedSyncConfigContent {
-  readonly id: number;
-  readonly replicationJobId: string;
-  readonly syncConfigId: PersistedSyncConfigId | null;
-  readonly replicationStreamId: number;
-  readonly sync_rules_content: string;
-  readonly compiled_plan: SerializedSyncPlan | null;
-  readonly storageVersion: number;
-  readonly logger: Logger;
-
-  parsed(options: ParseSyncRulesOptions): PersistedSyncRules;
-  asUpdateOptions(options?: Omit<UpdateSyncRulesOptions, 'config'>): UpdateSyncRulesOptions;
-}
-
-export interface PersistedSyncRulesContentData {
+export interface PersistedSyncConfigContentData {
   readonly id: number;
   readonly sync_rules_content: string;
   readonly compiled_plan: SerializedSyncPlan | null;
@@ -116,36 +102,47 @@ export interface PersistedSyncRulesContentData {
   readonly replicationJobId?: string;
 }
 
-export abstract class PersistedSyncRulesContent
-  extends PersistedReplicationStream
-  implements PersistedSyncRulesContentData, PersistedSyncConfigContent
-{
-  readonly replicationStreamId!: number;
-  readonly sync_rules_content!: string;
-  readonly compiled_plan!: SerializedSyncPlan | null;
-  readonly active!: boolean;
-  readonly syncConfigId!: PersistedSyncConfigId | null;
+/**
+ * Immutable sync config content for one sync config inside a replication stream.
+ *
+ * This represents the parsed/compiled config plus the per-config status, but
+ * deliberately does NOT expose stream lifecycle concerns (locking, terminating).
+ * Use {@link PersistedReplicationStream} for those.
+ */
+export abstract class PersistedSyncConfigContent implements PersistedSyncConfigContentData {
+  readonly id: number;
+  readonly replicationJobId: string;
+  readonly replicationStreamId: number;
+  readonly sync_rules_content: string;
+  readonly compiled_plan: SerializedSyncPlan | null;
+  readonly slot_name: string;
+  readonly active: boolean;
+  readonly state: SyncRuleState;
+  readonly storageVersion: number;
+  readonly logger: Logger;
+  readonly syncConfigId: PersistedSyncConfigId | null;
 
-  readonly last_checkpoint_lsn!: string | null;
+  readonly last_checkpoint_lsn: string | null;
 
   readonly last_fatal_error?: string | null;
   readonly last_fatal_error_ts?: Date | null;
   readonly last_keepalive_ts?: Date | null;
   readonly last_checkpoint_ts?: Date | null;
 
-  abstract readonly current_lock: ReplicationLock | null;
-
-  constructor(data: PersistedSyncRulesContentData) {
-    super({
-      id: data.id,
-      slot_name: data.slot_name,
-      state: data.state ?? (data.active ? SyncRuleState.ACTIVE : SyncRuleState.PROCESSING),
-      storageVersion: data.storageVersion,
-      replicationJobId: data.replicationJobId
-    });
+  constructor(data: PersistedSyncConfigContentData) {
     Object.assign(this, data);
+    this.id = data.id;
+    this.replicationJobId = data.replicationJobId ?? String(data.id);
     this.replicationStreamId = data.id;
+    this.sync_rules_content = data.sync_rules_content;
+    this.compiled_plan = data.compiled_plan;
+    this.slot_name = data.slot_name;
+    this.active = data.active;
+    this.state = data.state ?? (data.active ? SyncRuleState.ACTIVE : SyncRuleState.PROCESSING);
+    this.storageVersion = data.storageVersion;
     this.syncConfigId = data.syncConfigId ?? null;
+    this.last_checkpoint_lsn = data.last_checkpoint_lsn;
+    this.logger = defaultLogger.child({ prefix: `[${this.slot_name}] ` });
   }
 
   /**
@@ -153,9 +150,23 @@ export abstract class PersistedSyncRulesContent
    *
    * This may throw if the persisted storage version is not supported.
    */
-  parsed(options: ParseSyncRulesOptions): PersistedSyncRules {
-    let hydrationState: HydrationState;
+  getStorageConfig(): StorageVersionConfig {
+    const storageConfig = STORAGE_VERSION_CONFIG[this.storageVersion];
+    if (storageConfig == null) {
+      throw new ServiceError(
+        ErrorCode.PSYNC_S1005,
+        `Unsupported storage version ${this.storageVersion} for replication stream ${this.id}`
+      );
+    }
+    return storageConfig;
+  }
 
+  /**
+   * Parse only this config's content into a single {@link SyncConfigWithErrors}.
+   *
+   * This does not depend on any other configs in the same replication stream.
+   */
+  protected parseSingleConfig(options: ParseSyncRulesOptions): SyncConfigWithErrors {
     // Do we have a compiled sync plan? If so, restore from there instead of parsing everything again.
     let config: SyncConfigWithErrors;
     if (this.compiled_plan != null) {
@@ -198,6 +209,12 @@ export abstract class PersistedSyncRulesContent
     } else {
       config = SqlSyncRules.fromYaml(this.sync_rules_content, options);
     }
+    return config;
+  }
+
+  parsed(options: ParseSyncRulesOptions): PersistedSyncRules {
+    let hydrationState: HydrationState;
+    const config = this.parseSingleConfig(options);
 
     const storageConfig = this.getStorageConfig();
     if (
@@ -222,9 +239,9 @@ export abstract class PersistedSyncRulesContent
 
   asUpdateOptions(options?: Omit<UpdateSyncRulesOptions, 'config'>): UpdateSyncRulesOptions {
     // defaultSchema is not relevant for the parsed version here
-    const parsed = this.parsed({ defaultSchema: 'not_applicable' });
+    const parsed = this.parseSingleConfig({ defaultSchema: 'not_applicable' });
     return {
-      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed: parsed.syncConfigs[0] },
+      config: { yaml: this.sync_rules_content, plan: this.compiled_plan, parsed },
       ...options
     };
   }
@@ -241,8 +258,6 @@ export abstract class PersistedSyncRulesContent
       last_checkpoint_ts: this.last_checkpoint_ts
     };
   }
-
-  abstract lock(): Promise<ReplicationLock>;
 }
 
 export interface PersistedSyncRules {

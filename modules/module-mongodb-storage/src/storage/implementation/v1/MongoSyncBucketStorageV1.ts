@@ -27,7 +27,7 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import { MongoPersistedSyncRulesContentV1 } from '../MongoPersistedSyncRulesContent.js';
+import { MongoPersistedSyncConfigContentV1 } from '../MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
@@ -50,7 +50,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   constructor(
     factory: MongoBucketStorage,
     group_id: number,
-    sync_rules: MongoPersistedSyncRulesContentV1,
+    sync_rules: MongoPersistedSyncConfigContentV1,
     slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
@@ -94,8 +94,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     return {
       lastCheckpointLsn: checkpointLsn,
       resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
-      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null,
-      syncConfigId: null
+      keepaliveOp: doc?.keepalive_op ? BigInt(doc.keepalive_op) : null
     };
   }
 

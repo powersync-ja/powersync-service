@@ -40,15 +40,15 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
     return getMongoStorageConfig(this.storageVersion);
   }
 
-  toSyncRulesContent(): MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 {
+  toSyncConfigContent(): MongoPersistedSyncConfigContentV1 | MongoPersistedSyncConfigContentV3 {
     if (this.getStorageConfig().incrementalReprocessing) {
       if (this.configs.length == 0) {
         throw new ServiceAssertionError(`Cannot create v3 storage without sync config definitions`);
       }
-      return new MongoPersistedSyncRulesContentV3(this.db, this.doc as ReplicationStreamDocumentV3, this.configs);
+      return new MongoPersistedSyncConfigContentV3(this.db, this.doc as ReplicationStreamDocumentV3, this.configs);
     }
 
-    return new MongoPersistedSyncRulesContentV1(this.db, this.doc as SyncRuleDocumentV1);
+    return new MongoPersistedSyncConfigContentV1(this.db, this.doc as SyncRuleDocumentV1);
   }
 
   async lock(session?: mongo.ClientSession) {
@@ -58,14 +58,13 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
   }
 }
 
-abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncRulesContent {
-  public current_lock: MongoSyncRulesLock | null = null;
+abstract class MongoPersistedSyncConfigContentBase extends storage.PersistedSyncConfigContent {
   public readonly mapping: BucketDefinitionMapping;
   public readonly syncConfigObjectId: bson.ObjectId | null;
 
   protected constructor(
     protected readonly db: PowerSyncMongo,
-    options: Omit<ConstructorParameters<typeof storage.PersistedSyncRulesContent>[0], 'syncConfigId'> & {
+    options: Omit<storage.PersistedSyncConfigContentData, 'syncConfigId'> & {
       mapping: BucketDefinitionMapping;
       syncConfigId: bson.ObjectId | null;
     }
@@ -86,20 +85,18 @@ abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncR
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
     const parsed = super.parsed(options);
     const storageConfig = this.getStorageConfig();
+    const [syncConfig] = parsed.syncConfigs;
+    if (syncConfig == null) {
+      throw new ServiceAssertionError(`Expected one parsed sync config`);
+    }
 
     return new MongoPersistedSyncRules(parsed.id, storageConfig, parsed.slot_name, [
-      { syncConfig: parsed.syncConfigs[0], mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
+      { syncConfig, mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
     ]);
-  }
-
-  async lock(session?: mongo.ClientSession) {
-    const lock = await MongoSyncRulesLock.createLock(this.db.versioned(this.getStorageConfig()), this, session);
-    this.current_lock = lock;
-    return lock;
   }
 }
 
-export class MongoPersistedSyncRulesContentV1 extends MongoPersistedSyncRulesContentBase {
+export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigContentBase {
   constructor(db: PowerSyncMongo, doc: SyncRuleDocumentV1) {
     super(db, {
       id: doc._id,
@@ -121,7 +118,7 @@ export class MongoPersistedSyncRulesContentV1 extends MongoPersistedSyncRulesCon
   }
 }
 
-export class MongoPersistedSyncRulesContentV3 extends MongoPersistedSyncRulesContentBase {
+export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigContentBase {
   declare public readonly syncConfigObjectId: bson.ObjectId;
   private readonly doc: ReplicationStreamDocumentV3;
   private readonly configs: SyncConfigDefinition[];
@@ -168,11 +165,15 @@ export class MongoPersistedSyncRulesContentV3 extends MongoPersistedSyncRulesCon
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
     const storageConfig = this.getStorageConfig();
     const syncConfigs = this.configs.map((config) => {
-      const content = new MongoPersistedSyncRulesContentV3(this.db, this.doc, config);
-      const parsed = storage.PersistedSyncRulesContent.prototype.parsed.call(content, options);
+      const content = new MongoPersistedSyncConfigContentV3(this.db, this.doc, config);
+      const parsed = storage.PersistedSyncConfigContent.prototype.parsed.call(content, options);
+      const [syncConfig] = parsed.syncConfigs;
+      if (syncConfig == null) {
+        throw new ServiceAssertionError(`Expected one parsed sync config`);
+      }
       return {
         syncConfigId: config._id.toHexString(),
-        syncConfig: parsed.syncConfigs[0],
+        syncConfig,
         mapping: BucketDefinitionMapping.fromSyncConfig(config)
       };
     });

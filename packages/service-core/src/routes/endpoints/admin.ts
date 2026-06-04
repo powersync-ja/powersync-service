@@ -67,7 +67,8 @@ export const diagnostics = routeDefinition({
     } = service_context;
     const active = await activeBucketStorage.getActiveSyncConfigContent();
     const activeConfigStatus = await activeBucketStorage.getActiveSyncConfigStatus();
-    const deploying = await activeBucketStorage.getDeployingSyncConfigContents();
+    const activeStorage = await activeBucketStorage.getActiveStorage();
+    const deploying = await activeBucketStorage.getDeployingSyncConfigContent();
 
     const active_status = await api.getSyncRulesStatus(
       activeBucketStorage,
@@ -78,20 +79,29 @@ export const diagnostics = routeDefinition({
         check_connection: status.connected,
         live_status: true
       },
-      activeConfigStatus
+      activeConfigStatus,
+      activeStorage ?? undefined
     );
 
-    const deploying_statuses = (
-      await Promise.all(
-        deploying.map((syncConfig) =>
-          api.getSyncRulesStatus(activeBucketStorage, apiHandler, syncConfig, {
-            include_content,
-            check_connection: status.connected,
-            live_status: true
-          })
-        )
-      )
-    ).filter((status) => status != null);
+    const deploying_status =
+      deploying == null
+        ? undefined
+        : await (async (syncConfig) => {
+            const stream = await activeBucketStorage.getReplicationStream(syncConfig.replicationStreamId);
+            const systemStorage = stream == null ? undefined : activeBucketStorage.getInstance(stream);
+            return api.getSyncRulesStatus(
+              activeBucketStorage,
+              apiHandler,
+              syncConfig,
+              {
+                include_content,
+                check_connection: status.connected,
+                live_status: true
+              },
+              syncConfig.getSyncConfigStatus(),
+              systemStorage
+            );
+          })(deploying);
 
     return internal_routes.DiagnosticsResponse.encode({
       connections: [
@@ -102,8 +112,7 @@ export const diagnostics = routeDefinition({
         }
       ],
       active_sync_rules: active_status,
-      deploying_sync_rules: deploying_statuses[0],
-      deploying_sync_configs: deploying_statuses
+      deploying_sync_rules: deploying_status
     });
   }
 });
@@ -135,10 +144,14 @@ export const reprocess = routeDefinition({
     const apiHandler = service_context.routerEngine.getAPI();
     const next = await activeBucketStorage.getDeployingSyncConfigContent();
     if (next != null) {
-      throw new Error(`Busy processing sync config - cannot reprocess`);
+      throw new errors.ServiceError({
+        status: 409,
+        code: ErrorCode.PSYNC_S4106,
+        description: 'Busy processing sync config - cannot reprocess'
+      });
     }
 
-    const active = await activeBucketStorage.getActiveSyncRules(apiHandler.getParseSyncRulesOptions());
+    const active = await activeBucketStorage.getActiveSyncConfigContent();
     if (active == null) {
       throw new errors.ServiceError({
         status: 422,
@@ -146,13 +159,12 @@ export const reprocess = routeDefinition({
         description: 'No active sync config'
       });
     }
-
     // There are some differences between this and using asUpdateOptions():
     // 1. This always re-parses the source YAML. If there are changes to the sync stream compiler, that can affect the sync plan.
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
     const new_rules = await activeBucketStorage.updateSyncRules(
-      storage.updateSyncRulesFromYaml(active.syncConfigs[0].config.content, {
+      storage.updateSyncRulesFromYaml(active.sync_rules_content, {
         // This sync config already passed validation. But if the config is not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true
@@ -174,19 +186,13 @@ export const reprocess = routeDefinition({
   }
 });
 
-class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesContent {
+class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigContent {
   constructor(
     private readonly apiHandler: api.RouteAPI,
     private readonly schema: SourceSchema,
-    data: storage.PersistedSyncRulesContentData
+    data: storage.PersistedSyncConfigContentData
   ) {
     super(data);
-  }
-
-  current_lock: storage.ReplicationLock | null = null;
-
-  async lock(): Promise<storage.ReplicationLock> {
-    throw new Error('Lock not implemented');
   }
 
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
@@ -196,11 +202,12 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesConten
     });
 
     return {
-      ...this,
+      id: this.id,
+      slot_name: this.slot_name,
       syncConfigs: [syncConfig],
       hydrationState: DEFAULT_HYDRATION_STATE,
       hydratedSyncConfig() {
-        return this.syncConfigs[0].config.hydrate({
+        return syncConfig.config.hydrate({
           hydrationState: DEFAULT_HYDRATION_STATE,
           sqlite: nodeSqlite(sqlite)
         });

@@ -12,9 +12,10 @@ import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
 import {
   ParseSyncRulesOptions,
   PersistedReplicationStream,
+  PersistedSyncConfigContent,
+  PersistedSyncConfigId,
   PersistedSyncConfigStatus,
-  PersistedSyncRules,
-  PersistedSyncRulesContent
+  PersistedSyncRules
 } from './PersistedSyncRulesContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
@@ -38,7 +39,7 @@ export abstract class BucketStorageFactory
    */
   async configureSyncRules(
     options: UpdateSyncRulesOptions
-  ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedSyncRulesContent; lock?: ReplicationLock }> {
+  ): Promise<{ updated: boolean; persisted_sync_rules?: PersistedReplicationStream; lock?: ReplicationLock }> {
     const deploying = await this.getDeployingSyncConfigContent();
     const active = await this.getActiveSyncConfigContent();
 
@@ -66,7 +67,7 @@ export abstract class BucketStorageFactory
   /**
    * Deploy new sync config.
    */
-  abstract updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedSyncRulesContent>;
+  abstract updateSyncRules(options: UpdateSyncRulesOptions): Promise<PersistedReplicationStream>;
 
   /**
    * Indicate that a slot was removed, and we should re-sync by creating
@@ -91,7 +92,7 @@ export abstract class BucketStorageFactory
   /**
    * Get the sync config used for querying.
    */
-  abstract getActiveSyncConfigContent(): Promise<PersistedSyncRulesContent | null>;
+  abstract getActiveSyncConfigContent(): Promise<PersistedSyncConfigContent | null>;
 
   /**
    * Get status for the active sync config.
@@ -99,14 +100,19 @@ export abstract class BucketStorageFactory
   abstract getActiveSyncConfigStatus(): Promise<PersistedSyncConfigStatus | null>;
 
   /**
-   * Get sync configs that are still deploying.
+   * Get the sync config that is still deploying.
    */
-  abstract getDeployingSyncConfigContents(): Promise<PersistedSyncRulesContent[]>;
+  abstract getDeployingSyncConfigContent(): Promise<PersistedSyncConfigContent | null>;
 
   /**
    * Get sync configs associated with a replication stream.
    */
-  abstract getReplicationStreamConfigs(replicationStreamId: number): Promise<PersistedSyncRulesContent[]>;
+  abstract getReplicationStreamConfigs(replicationStreamId: number): Promise<PersistedSyncConfigContent[]>;
+
+  /**
+   * Get one exact sync config by persisted config id.
+   */
+  abstract getSyncConfigContent(syncConfigId: PersistedSyncConfigId): Promise<PersistedSyncConfigContent | null>;
 
   /**
    * Get per-config statuses associated with a replication stream.
@@ -116,11 +122,12 @@ export abstract class BucketStorageFactory
   }
 
   /**
-   * Get one sync config that is still deploying, for legacy routes that can only display one.
+   * Get a replication stream by id, regardless of state.
+   *
+   * This is the canonical way to obtain a {@link PersistedReplicationStream} for use with
+   * {@link getInstance} when starting from a {@link PersistedSyncConfigContent}.
    */
-  async getDeployingSyncConfigContent(): Promise<PersistedSyncRulesContent | null> {
-    return (await this.getDeployingSyncConfigContents())[0] ?? null;
-  }
+  abstract getReplicationStream(replicationStreamId: number): Promise<PersistedReplicationStream | null>;
 
   /**
    * Get all replication streams currently replicating.
