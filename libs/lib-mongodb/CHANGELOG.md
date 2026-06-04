@@ -1,5 +1,14 @@
 # @powersync/lib-service-mongodb
 
+## 0.6.26
+
+### Patch Changes
+
+- 99d33d5: Normalize socket addresses to bare hostnames before IP-range validation, so direct-IP literals with any port form are recognized as IPs.
+- Updated dependencies [99d33d5]
+- Updated dependencies [a94b6c3]
+  - @powersync/lib-services-framework@0.9.5
+
 ## 0.6.25
 
 ### Patch Changes
