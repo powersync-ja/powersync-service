@@ -15,9 +15,18 @@ import {
   SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import { SyncConfigWithMapping, SyncConfigWithRequiredMapping } from './BucketDefinitionMapping.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
 
+interface SyncConfigWithMapping {
+  syncConfig: SyncConfigWithErrors;
+  mapping: BucketDefinitionMapping | null;
+}
+
+interface SyncConfigWithRequiredMapping {
+  syncConfig: SyncConfigWithErrors;
+  mapping: BucketDefinitionMapping;
+}
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly hydrationState: HydrationState;
   public readonly syncConfigWithErrors: SyncConfigWithErrors;

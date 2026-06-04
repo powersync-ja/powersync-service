@@ -53,7 +53,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
+    const syncRules = await this.factory.getDeployingSyncConfigContent();
     if (syncRules == null) {
       throw new Error(`Next sync rules not available`);
     }
@@ -64,7 +64,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
   }
 
   async loadActiveSyncRules() {
-    const syncRules = await this.factory.getActiveSyncRulesContent();
+    const syncRules = await this.factory.getActiveSyncConfigContent();
     if (syncRules == null) {
       throw new Error(`Active sync rules not available`);
     }

@@ -63,6 +63,7 @@ export class MongoPersistedSyncRulesContentV1 extends MongoPersistedSyncRulesCon
       last_checkpoint_ts: doc.last_checkpoint_ts,
       last_keepalive_ts: doc.last_keepalive_ts,
       active: doc.state == SyncRuleState.ACTIVE,
+      state: doc.state,
       storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION,
       mapping: new BucketDefinitionMapping(),
       syncConfigId: null
@@ -90,6 +91,7 @@ export class MongoPersistedSyncRulesContentV3 extends MongoPersistedSyncRulesCon
       last_checkpoint_ts: doc.last_checkpoint_ts,
       last_keepalive_ts: doc.last_keepalive_ts,
       active: doc.state == SyncRuleState.ACTIVE && state.state == SyncRuleState.ACTIVE,
+      state: state.state,
       storageVersion: doc.storage_version,
       mapping: BucketDefinitionMapping.fromSyncConfig(config),
       syncConfigId: config._id

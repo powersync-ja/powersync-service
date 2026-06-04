@@ -52,23 +52,23 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     syncRules: storage.PersistedSyncRulesContent,
     options?: GetIntanceOptions
   ): storage.SyncRulesBucketStorage {
-    const storage = new PostgresSyncRulesStorage({
+    const syncRuleStorage = new PostgresSyncRulesStorage({
       factory: this,
       db: this.db,
       sync_rules: syncRules,
       batchLimits: this.options.config.batch_limits
     });
     if (!options?.skipLifecycleHooks) {
-      this.iterateListeners((cb) => cb.syncStorageCreated?.(storage));
+      this.iterateListeners((cb) => cb.syncStorageCreated?.(syncRuleStorage));
     }
-    storage.registerListener({
+    syncRuleStorage.registerListener({
       batchStarted: (batch) => {
         batch.registerListener({
           replicationEvent: (payload) => this.iterateListeners((cb) => cb.replicationEvent?.(payload))
         });
       }
     });
-    return storage;
+    return syncRuleStorage;
   }
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
@@ -253,8 +253,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async restartReplication(sync_rules_group_id: number): Promise<void> {
-    const next = await this.getNextSyncRulesContent();
-    const active = await this.getActiveSyncRulesContent();
+    const next = await this.getDeployingSyncConfigContent();
+    const active = await this.getActiveSyncConfigContent();
 
     // In both the below cases, we create a new replication stream.
     // The current one will continue serving sync requests until the next one has finished processing.
@@ -299,7 +299,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     }
   }
 
-  async getActiveSyncRulesContent(): Promise<storage.PersistedSyncRulesContent | null> {
+  async getActiveSyncConfigContent(): Promise<storage.PersistedSyncRulesContent | null> {
     const activeRow = await this.db.sql`
       SELECT
         *
@@ -322,8 +322,17 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     return new PostgresPersistedSyncRulesContent(this.db, activeRow);
   }
 
-  async getNextSyncRulesContent(): Promise<storage.PersistedSyncRulesContent | null> {
-    const nextRow = await this.db.sql`
+  async getActiveSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
+    const content = await this.getActiveSyncConfigContent();
+    if (content == null) {
+      return null;
+    }
+
+    return content.getSyncConfigStatus();
+  }
+
+  async getDeployingSyncConfigContents(): Promise<storage.PersistedSyncRulesContent[]> {
+    const rows = await this.db.sql`
       SELECT
         *
       FROM
@@ -332,19 +341,14 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
       ORDER BY
         id DESC
-      LIMIT
-        1
     `
       .decoded(models.SyncRules)
-      .first();
-    if (!nextRow) {
-      return null;
-    }
+      .rows();
 
-    return new PostgresPersistedSyncRulesContent(this.db, nextRow);
+    return rows.map((row) => new PostgresPersistedSyncRulesContent(this.db, row));
   }
 
-  async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
+  async getReplicatingReplicationStreams(): Promise<storage.PersistedSyncRulesContent[]> {
     const rows = await this.db.sql`
       SELECT
         *
@@ -360,7 +364,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     return rows.map((row) => new PostgresPersistedSyncRulesContent(this.db, row));
   }
 
-  async getStoppedSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
+  async getStoppedReplicationStreams(): Promise<storage.PersistedSyncRulesContent[]> {
     const rows = await this.db.sql`
       SELECT
         *
@@ -376,7 +380,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async getActiveStorage(): Promise<SyncRulesBucketStorage | null> {
-    const content = await this.getActiveSyncRulesContent();
+    const content = await this.getActiveSyncConfigContent();
     if (content == null) {
       return null;
     }

@@ -20,6 +20,7 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
       last_checkpoint_ts: row.last_checkpoint_ts ? new Date(row.last_checkpoint_ts) : null,
       last_keepalive_ts: row.last_keepalive_ts ? new Date(row.last_keepalive_ts) : null,
       active: row.state == 'ACTIVE',
+      state: row.state as storage.SyncRuleState,
       storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
   }

@@ -110,7 +110,7 @@ export class ChangeStreamTestContext {
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
+    const syncRules = await this.factory.getDeployingSyncConfigContent();
     if (syncRules == null) {
       throw new Error(`Next sync config not available`);
     }

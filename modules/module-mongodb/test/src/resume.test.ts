@@ -67,7 +67,7 @@ function defineResumeTest({ factory: factoryGenerator, storageVersion }: Storage
 
     // Create a new context without updating the sync config
     await using context2 = new ChangeStreamTestContext(factory, connectionManager, {}, storageVersion);
-    const activeContent = await factory.getActiveSyncRulesContent();
+    const activeContent = await factory.getActiveSyncConfigContent();
     context2.storage = factory.getInstance(activeContent!);
 
     // If this test times out, it likely didn't throw the expected error here.

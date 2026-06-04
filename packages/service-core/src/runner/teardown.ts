@@ -40,18 +40,18 @@ async function terminateSyncRules(storageFactory: storage.BucketStorageFactory, 
   const locks: storage.ReplicationLock[] = [];
   while (Date.now() - start < 120_000) {
     let retry = false;
-    const replicatingSyncRules = await storageFactory.getReplicatingSyncRules();
+    const replicatingSyncRules = await storageFactory.getReplicatingReplicationStreams();
     // Lock all the replicating replication streams
     for (const replicatingSyncRule of replicatingSyncRules) {
       const lock = await replicatingSyncRule.lock();
       locks.push(lock);
     }
 
-    const stoppedSyncRules = await storageFactory.getStoppedSyncRules();
+    const stoppedSyncRules = await storageFactory.getStoppedReplicationStreams();
     const combinedSyncRules = [...replicatingSyncRules, ...stoppedSyncRules];
     try {
       // Clean up any module specific configuration for the replication stream
-      await moduleManager.tearDown({ syncRules: combinedSyncRules });
+      await moduleManager.tearDown({ replicationStreams: combinedSyncRules, syncRules: combinedSyncRules });
 
       // Mark the replication stream as terminated
       for (let syncRules of combinedSyncRules) {

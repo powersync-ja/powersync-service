@@ -189,12 +189,12 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     let configuredLock = options?.configured_lock;
 
     const existingJobs = new Map<number, T>(this.replicationJobs.entries());
-    const replicatingSyncRules = await this.storage.getReplicatingSyncRules();
+    const replicatingSyncRules = await this.storage.getReplicatingReplicationStreams();
     const newJobs = new Map<number, T>();
     let activeJob: T | undefined = undefined;
     for (let syncRules of replicatingSyncRules) {
       const existingJob = existingJobs.get(syncRules.id);
-      if (syncRules.active && activeJob == null) {
+      if (syncRules.state == storage.SyncRuleState.ACTIVE && activeJob == null) {
         activeJob = existingJob;
       }
       if (existingJob && !existingJob.isStopped) {
@@ -214,15 +214,15 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           } else {
             lock = await syncRules.lock();
           }
-          const storage = this.storage.getInstance(syncRules);
+          const syncRuleStorage = this.storage.getInstance(syncRules);
           const newJob = this.createJob({
             lock: lock,
-            storage: storage
+            storage: syncRuleStorage
           });
 
           newJobs.set(syncRules.id, newJob);
           newJob.start();
-          if (syncRules.active) {
+          if (syncRules.state == storage.SyncRuleState.ACTIVE) {
             activeJob = newJob;
           }
           this.lockAlerted = false;
@@ -259,7 +259,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     }
 
     // Replication stream stopped previously, including by a different process.
-    const stopped = await this.storage.getStoppedSyncRules();
+    const stopped = await this.storage.getStoppedReplicationStreams();
     for (let syncRules of stopped) {
       if (this.clearingJobs.has(syncRules.id)) {
         // Already in progress

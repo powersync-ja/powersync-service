@@ -15,16 +15,6 @@ import {
 } from '@powersync/service-sync-rules';
 import { SyncConfigDefinition } from '../storage-index.js';
 
-export interface SyncConfigWithMapping {
-  syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping | null;
-}
-
-export interface SyncConfigWithRequiredMapping {
-  syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping;
-}
-
 export interface SerializedSyncConfigWithMapping {
   plan: SerializedSyncPlanV1;
   mapping: BucketDefinitionMapping;

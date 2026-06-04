@@ -110,7 +110,7 @@ export const currentSyncRules = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
 
-    const sync_rules = await activeBucketStorage.getActiveSyncRulesContent();
+    const sync_rules = await activeBucketStorage.getActiveSyncConfigContent();
     if (!sync_rules) {
       throw new errors.ServiceError({
         status: 422,
@@ -121,7 +121,7 @@ export const currentSyncRules = routeDefinition({
 
     const apiHandler = service_context.routerEngine.getAPI();
     const info = await debugSyncRules(apiHandler, sync_rules.sync_rules_content);
-    const next = await activeBucketStorage.getNextSyncRulesContent();
+    const next = await activeBucketStorage.getDeployingSyncConfigContent();
 
     const next_info = next ? await debugSyncRules(apiHandler, next.sync_rules_content) : null;
 

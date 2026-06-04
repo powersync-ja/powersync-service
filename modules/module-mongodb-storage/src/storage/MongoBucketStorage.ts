@@ -107,8 +107,8 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   async restartReplication(sync_rules_group_id: number) {
-    const next = await this.getNextSyncRulesContent();
-    const active = await this.getActiveSyncRulesContent();
+    const next = await this.getDeployingSyncConfigContent();
+    const active = await this.getActiveSyncConfigContent();
 
     if (next != null && next.id == sync_rules_group_id) {
       // We need to redo the "next" replication stream
@@ -414,7 +414,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return rules!;
   }
 
-  async getActiveSyncRulesContent(): Promise<
+  async getActiveSyncConfigContent(): Promise<
     MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 | null
   > {
     const doc = await this.db.sync_rules.findOne(
@@ -427,45 +427,66 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return this.getSyncRulesContent(doc, [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED]);
   }
 
-  private async getSyncRulesContent(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
-    if (doc == null) {
+  async getActiveSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
+    const content = await this.getActiveSyncConfigContent();
+    if (content == null) {
       return null;
+    }
+
+    return content.getSyncConfigStatus();
+  }
+
+  private async getSyncRulesContent(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
+    return (await this.getSyncRulesContents(doc, stateFilter))[0] ?? null;
+  }
+
+  private async getSyncRulesContents(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
+    if (doc == null) {
+      return [];
     }
     const storageConfig = getMongoStorageConfig(doc.storage_version ?? LEGACY_STORAGE_VERSION);
 
     if (storageConfig.incrementalReprocessing) {
       const v3 = doc as ReplicationStreamDocumentV3;
-      const active = v3.sync_configs.find((c) => stateFilter.includes(c.state));
-      if (active == null) {
-        return null;
+      const matching = v3.sync_configs.filter((c) => stateFilter.includes(c.state));
+      if (matching.length == 0) {
+        return [];
       }
 
       // TODO: cache the config. It could specifically help for the main replication loop
       // that checks for active replication streams.
       // It is not a major bottleneck though, since it only runs once every couple of seconds at most.
       const db = this.db.versioned(storageConfig) as VersionedPowerSyncMongoV3;
-      const syncConfigDoc = await db.syncConfigDefinitions.findOne({ _id: active._id });
-      if (syncConfigDoc == null) {
-        return null;
-      }
-      return new MongoPersistedSyncRulesContentV3(this.db, v3, syncConfigDoc);
+      const syncConfigDocs = await db.syncConfigDefinitions
+        .find({
+          _id: { $in: matching.map((config) => config._id) }
+        })
+        .toArray();
+
+      return syncConfigDocs.map((syncConfigDoc) => new MongoPersistedSyncRulesContentV3(this.db, v3, syncConfigDoc));
     }
 
-    return new MongoPersistedSyncRulesContentV1(this.db, doc as SyncRuleDocumentV1);
+    return [new MongoPersistedSyncRulesContentV1(this.db, doc as SyncRuleDocumentV1)];
   }
 
-  async getNextSyncRulesContent(): Promise<MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 | null> {
-    const doc = await this.db.sync_rules.findOne(
-      {
-        state: storage.SyncRuleState.PROCESSING
-      },
-      { sort: { _id: -1 }, limit: 1 }
-    );
+  async getDeployingSyncConfigContents(): Promise<
+    (MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3)[]
+  > {
+    const docs = await this.db.sync_rules
+      .find(
+        {
+          state: storage.SyncRuleState.PROCESSING
+        },
+        { sort: { _id: -1 } }
+      )
+      .toArray();
 
-    return this.getSyncRulesContent(doc, [storage.SyncRuleState.PROCESSING]);
+    return (await Promise.all(docs.map((doc) => this.getSyncRulesContents(doc, [storage.SyncRuleState.PROCESSING]))))
+      .flat()
+      .filter((r) => r != null);
   }
 
-  async getReplicatingSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
+  async getReplicatingReplicationStreams(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
         state: { $in: [storage.SyncRuleState.PROCESSING, storage.SyncRuleState.ACTIVE] }
@@ -481,7 +502,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     ).filter((r) => r != null);
   }
 
-  async getStoppedSyncRules(): Promise<storage.PersistedSyncRulesContent[]> {
+  async getStoppedReplicationStreams(): Promise<storage.PersistedSyncRulesContent[]> {
     const docs = await this.db.sync_rules
       .find({
         state: storage.SyncRuleState.STOP
@@ -498,7 +519,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
   }
 
   async getActiveStorage(): Promise<MongoSyncBucketStorage | null> {
-    const content = await this.getActiveSyncRulesContent();
+    const content = await this.getActiveSyncConfigContent();
     if (content == null) {
       return null;
     }

@@ -1609,7 +1609,7 @@ bucket_definitions:
     const cp2 = await bucketStorage.getCheckpoint();
     expect(cp2.lsn).toEqual('3/1');
 
-    const activeSyncRules = await factory.getActiveSyncRulesContent();
+    const activeSyncRules = await factory.getActiveSyncConfigContent();
     expect(activeSyncRules?.id).toEqual(syncRules.id);
 
     // At this point, it should be a truely empty checkpoint

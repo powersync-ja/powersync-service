@@ -65,14 +65,21 @@ export const diagnostics = routeDefinition({
     const {
       storageEngine: { activeBucketStorage }
     } = service_context;
-    const active = await activeBucketStorage.getActiveSyncRulesContent();
-    const next = await activeBucketStorage.getNextSyncRulesContent();
+    const active = await activeBucketStorage.getActiveSyncConfigContent();
+    const activeConfigStatus = await activeBucketStorage.getActiveSyncConfigStatus();
+    const next = await activeBucketStorage.getDeployingSyncConfigContent();
 
-    const active_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, active, {
-      include_content,
-      check_connection: status.connected,
-      live_status: true
-    });
+    const active_status = await api.getSyncRulesStatus(
+      activeBucketStorage,
+      apiHandler,
+      active,
+      {
+        include_content,
+        check_connection: status.connected,
+        live_status: true
+      },
+      activeConfigStatus
+    );
 
     const next_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, next, {
       include_content,

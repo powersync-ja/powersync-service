@@ -820,7 +820,7 @@ bucket_definitions:
 
     // Simulate an error
     await context.storage!.reportError(new Error('simulated error'));
-    const syncRules = await context.factory.getActiveSyncRulesContent();
+    const syncRules = await context.factory.getActiveSyncConfigContent();
     expect(syncRules).toBeTruthy();
     expect(syncRules?.last_fatal_error).toEqual('simulated error');
 
@@ -830,7 +830,7 @@ bucket_definitions:
     // Just wait, and check that the error is cleared automatically.
     await vi.waitUntil(
       async () => {
-        const error = (await context.factory.getActiveSyncRulesContent())?.last_fatal_error;
+        const error = (await context.factory.getActiveSyncConfigContent())?.last_fatal_error;
         return error == null;
       },
       { timeout: 2_000 }

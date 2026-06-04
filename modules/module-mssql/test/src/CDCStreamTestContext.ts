@@ -84,7 +84,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getNextSyncRulesContent();
+    const syncRules = await this.factory.getDeployingSyncConfigContent();
     if (syncRules == null) {
       throw new Error(`Next replication stream not available`);
     }
@@ -95,7 +95,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async loadActiveSyncRules() {
-    const syncRules = await this.factory.getActiveSyncRulesContent();
+    const syncRules = await this.factory.getActiveSyncConfigContent();
     if (syncRules == null) {
       throw new Error(`Active replication stream not available`);
     }

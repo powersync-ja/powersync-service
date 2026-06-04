@@ -31,7 +31,8 @@ export async function getSyncRulesStatus(
   bucketStorage: storage.BucketStorageFactory,
   apiHandler: RouteAPI,
   sync_rules: storage.PersistedSyncRulesContent | null,
-  options: DiagnosticsOptions
+  options: DiagnosticsOptions,
+  syncConfigStatus?: storage.PersistedSyncConfigStatus | null
 ): Promise<SyncRulesStatus | undefined> {
   if (sync_rules == null) {
     return undefined;
@@ -136,11 +137,13 @@ export async function getSyncRulesStatus(
   }
 
   const errors = tables_flat.flatMap((info) => info.errors);
-  if (sync_rules.last_fatal_error) {
+  const statusSource = syncConfigStatus ?? sync_rules;
+
+  if (statusSource.last_fatal_error) {
     errors.push({
       level: 'fatal',
-      message: sync_rules.last_fatal_error,
-      ts: sync_rules.last_fatal_error_ts?.toISOString()
+      message: statusSource.last_fatal_error,
+      ts: statusSource.last_fatal_error_ts?.toISOString()
     });
   }
   errors.push(...syncRuleErrors.map((error) => syncConfigYamlErrorToReplicationError(error, now)));
@@ -171,7 +174,7 @@ export async function getSyncRulesStatus(
   if (live_status && status?.active) {
     // Check replication lag for active replication stream.
     // Right now we exclude mysql, since it we don't have consistent keepalives for it.
-    if (sync_rules.last_checkpoint_ts == null && sync_rules.last_keepalive_ts == null) {
+    if (statusSource.last_checkpoint_ts == null && statusSource.last_keepalive_ts == null) {
       errors.push({
         level: 'warning',
         message: 'No checkpoint found, cannot calculate replication lag',
@@ -179,8 +182,8 @@ export async function getSyncRulesStatus(
       });
     } else {
       const lastTime = Math.max(
-        sync_rules.last_checkpoint_ts?.getTime() ?? 0,
-        sync_rules.last_keepalive_ts?.getTime() ?? 0
+        statusSource.last_checkpoint_ts?.getTime() ?? 0,
+        statusSource.last_keepalive_ts?.getTime() ?? 0
       );
       const lagSeconds = Math.round((Date.now() - lastTime) / 1000);
       // On idle instances, keepalive messages are only persisted every 60 seconds.
@@ -213,8 +216,8 @@ export async function getSyncRulesStatus(
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?
         last_lsn: status?.checkpoint_lsn ?? undefined,
-        last_checkpoint_ts: sync_rules.last_checkpoint_ts?.toISOString(),
-        last_keepalive_ts: sync_rules.last_keepalive_ts?.toISOString(),
+        last_checkpoint_ts: statusSource.last_checkpoint_ts?.toISOString(),
+        last_keepalive_ts: statusSource.last_keepalive_ts?.toISOString(),
         replication_lag_bytes: replication_lag_bytes,
         wal_status: slot_wal_budget?.wal_status,
         safe_wal_size: slot_wal_budget?.safe_wal_size,
