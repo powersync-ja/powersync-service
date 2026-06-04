@@ -142,6 +142,7 @@ export class MongoCompactorV3 extends MongoCompactor {
     const seen = new Map<string, bigint>();
     let trackingSize = 0;
 
+    // --- Read batch from MongoDB ---
     while (true) {
       this.signal?.throwIfAborted();
 
@@ -183,6 +184,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         break;
       }
 
+      // --- Cut batch to byte limit ---
       let cumulativeBytes = 0;
       let batchCutIndex = rawBatch.length;
 
@@ -198,23 +200,25 @@ export class MongoCompactorV3 extends MongoCompactor {
 
       const batchDocs = rawBatch.slice(0, batchCutIndex);
 
-      // Decode ops from batch documents, filtering out ops above maxOpId.
-      // Track which documents have at least one op <= maxOpId — only those
-      // are included in the scoped delete range.
+      // --- Decode documents into individual ops ---
+      // Processable: document has at least one op <= maxOpId.
+      // Only processable docs are deleted and recreated; the rest survive untouched.
       const batchOps: BucketDataDoc[] = [];
       const processableDocs: (BucketDataDocumentV3 & { bsonSize: number | bigint })[] = [];
 
       for (const doc of batchDocs) {
         let hasRelevantOp = false;
+        const candidateOps: BucketDataDoc[] = [];
         for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
+          candidateOps.push(op);
           if (op.o <= this.maxOpId) {
-            batchOps.push(op);
             hasRelevantOp = true;
           }
         }
         if (hasRelevantOp) {
           processableDocs.push(doc);
-        }
+          batchOps.push(...candidateOps);
+        } // else: candidateOps discarded — document has no ops <= maxOpId
       }
 
       if (processableDocs.length == 0) {
@@ -239,11 +243,15 @@ export class MongoCompactorV3 extends MongoCompactor {
       // Sort ops by o descending for newest-first dedup
       batchOps.sort((a, b) => (b.o > a.o ? 1 : b.o < a.o ? -1 : 0));
 
-      // Dedup: process newest-to-oldest
+      // --- Dedup: newest-first, superseded → MOVE ---
       const surviving: BucketDataDoc[] = [];
 
       for (const op of batchOps) {
         if (op.op == 'PUT' || op.op == 'REMOVE') {
+          if (op.o > this.maxOpId) {
+            surviving.push(op);
+            continue; // Do not dedup ops above compaction horizon
+          }
           const key = `${op.table}/${op.row_id}/${cacheKey(op.source_table!, op.source_key!)}`;
           const targetOp = seen.get(key);
           if (targetOp != null) {
@@ -291,10 +299,11 @@ export class MongoCompactorV3 extends MongoCompactor {
       // Reverse back to ascending order for rechunking
       surviving.reverse();
 
-      // Rechunk surviving ops
+      // --- Rechunk survivors into new V3 documents ---
       const chunks = chunkBucketData(surviving);
       const newDocs = chunks.map((chunk) => serializeBucketData(bucket, chunk));
 
+      // --- Commit: scoped delete + insert in transaction ---
       const session = this.db.client.startSession();
       try {
         await session.withTransaction(
@@ -318,7 +327,7 @@ export class MongoCompactorV3 extends MongoCompactor {
         await session.endSession();
       }
 
-      // Accumulate bucket state
+      // --- Accumulate bucket state ---
       for (const chunk of chunks) {
         for (const op of chunk) {
           totalChecksum = addChecksums(totalChecksum, Number(op.checksum));
@@ -327,7 +336,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       }
       totalOpCount += surviving.length;
 
-      // Update upperBound for next batch pagination
+      // --- Advance to next batch ---
       upperBound = rawBatch[batchCutIndex - 1]._id as typeof upperBound;
 
       if (batchCutIndex < rawBatch.length) {
@@ -344,6 +353,7 @@ export class MongoCompactorV3 extends MongoCompactor {
       this.logger.info(`Compacted batch of ${batchDocs.length} documents for bucket ${bucket}`);
     }
 
+    // --- Finalize: update bucket checksums and state ---
     this.updateBucketChecksums({
       bucket,
       definitionId: resolvedDefinitionId,

@@ -692,7 +692,7 @@ bucket_definitions:
     }
   });
 
-  test('compaction with maxOpId filtering - ops above maxOpId excluded', async () => {
+  test('compaction with maxOpId filtering - ops above maxOpId preserved as pass-through', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3Storage();
     const ops = [
       makeOp(10, 'A', 'a1', ctx, sourceTableId),
@@ -707,9 +707,21 @@ bucket_definitions:
 
     const docsAfter = await collection.find({ '_id.b': BUCKET }).sort({ '_id.o': 1 }).toArray();
     const allOpsAfter = docsAfter.flatMap((d) => d.ops);
-    for (const op of allOpsAfter) {
-      expect(op.o).toBeLessThanOrEqual(15n);
-    }
+
+    // All ops survive: ops <= maxOpId are deduplicated, ops > maxOpId pass through.
+    expect(allOpsAfter.length).toBe(3);
+    // Ops <= maxOpId still present
+    const opsBelow = allOpsAfter.filter((op) => op.o <= 15n);
+    expect(opsBelow.length).toBe(1);
+    expect(opsBelow[0].op).toBe('PUT');
+    // Ops > maxOpId preserved unchanged
+    const opsAbove = allOpsAfter.filter((op) => op.o > 15n);
+    expect(opsAbove.length).toBe(2);
+    expect(opsAbove.every((op) => op.op === 'PUT')).toBe(true);
+
+    // Checksum preserved
+    const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+    expect(checksumAfter).toBe(Number(doc1.checksum));
   });
 
   test('checksum consistency - aggregation pipeline matches JavaScript addChecksums', async () => {
@@ -1890,30 +1902,31 @@ bucket_definitions:
   test('10. compacted documents have non-overlapping ranges', async () => {
     const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
 
-    // Four documents with disjoint ranges.
-    // Doc2 is skipped (all ops > maxOpId=300).
-    // Doc3 is mixed (ops on both sides of the horizon).
-    // Under current code Doc1+Doc3 are processed together; Doc2 is skipped.
-    // Under any fix, no two documents should end up with overlapping [min_op, _id.o] ranges.
+    // Four documents with truly disjoint [min_op, _id.o] ranges.
+    // maxOpId=350: doc1+doc2 are processable, doc3+doc4 are not.
+    // Compaction must preserve range disjointness after rechunking.
     const doc1 = serializeBucketData(BUCKET, [
       makeOp(100, 'A', 'a1', ctx, sourceTableId),
       makeOp(200, 'B', 'b1', ctx, sourceTableId)
-    ]);
+    ]);                                 // range [100, 200]
     const doc2 = serializeBucketData(BUCKET, [
-      makeOp(350, 'C', 'c1', ctx, sourceTableId),
+      makeOp(300, 'C', 'c1', ctx, sourceTableId),
       makeOp(400, 'D', 'd1', ctx, sourceTableId)
-    ]);
+    ]);                                 // range [300, 400], mixed (300≤350, 400>350)
     const doc3 = serializeBucketData(BUCKET, [
-      makeOp(250, 'E', 'e1', ctx, sourceTableId),
-      makeOp(500, 'F', 'f1', ctx, sourceTableId)
-    ]);
+      makeOp(500, 'E', 'e1', ctx, sourceTableId),
+      makeOp(600, 'F', 'f1', ctx, sourceTableId)
+    ]);                                 // range [500, 600], all >350
     const doc4 = serializeBucketData(BUCKET, [
-      makeOp(600, 'G', 'g1', ctx, sourceTableId),
-      makeOp(700, 'H', 'h1', ctx, sourceTableId)
-    ]);
+      makeOp(700, 'G', 'g1', ctx, sourceTableId),
+      makeOp(800, 'H', 'h1', ctx, sourceTableId)
+    ]);                                 // range [700, 800], all >350
 
     await insertDocs(collection, [doc1, doc2, doc3, doc4]);
-    await insertBucketState(bucketStateCollection, ctx.definitionId, 700n);
+    await insertBucketState(bucketStateCollection, ctx.definitionId, 800n);
+
+    const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+    const checksumBefore = docsBefore.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
 
     await bucketStorage.compact({
       clearBatchLimit: 200,
@@ -1921,7 +1934,7 @@ bucket_definitions:
       moveBatchQueryLimit: 10,
       minBucketChanges: 1,
       minChangeRatio: 0,
-      maxOpId: 300n,
+      maxOpId: 350n,
       signal: null as any
     });
 
@@ -1935,5 +1948,9 @@ bucket_definitions:
         .map((b) => `[${a.min_op}, ${a._id.o}] vs [${b.min_op}, ${b._id.o}]`)
     );
     expect(overlaps).toEqual([]);
+
+    // Checksum must be preserved across compaction
+    const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
+    expect(checksumAfter).toBe(checksumBefore);
   });
 });
