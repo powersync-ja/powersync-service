@@ -14,7 +14,7 @@ export type BucketDataDocumentGenericId = {
 /**
  * This document is never actually constructed - we use it as a "virtual" type.
  *
- * The actual implementations are BucketDataDocumentV1 or BucketDataDocument.
+ * The actual implementations are BucketDataDocumentV1 or BucketDataDocumentV3.
  * They don't fully satisfy this interface, but this works to share common implementations.
  *
  * The idea is that we can have a common implementation between V1 & V3, using this type,
