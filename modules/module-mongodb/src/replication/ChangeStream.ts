@@ -713,11 +713,15 @@ export class ChangeStream {
                 // change stream events, collapse standalone checkpoints into the normal batch
                 // checkpoint flow to avoid commit churn under sustained load.
                 const hasBufferedChanges = eventIndex < events.length - 1;
-                if (waitForCheckpointLsn != null || hasBufferedChanges) {
-                  if (waitForCheckpointLsn == null) {
-                    waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
-                  }
+                if (hasBufferedChanges && waitForCheckpointLsn == null) {
+                  // Buffered changes - create a new batch checkpoint to rate limit commits
+                  waitForCheckpointLsn = await createCheckpoint(this.client, this.defaultDb, this.checkpointStreamId);
                   continue;
+                } else if (waitForCheckpointLsn != null) {
+                  // Skip this checkpoint - wait for the batch checkpoint.
+                  continue;
+                } else {
+                  // No buffered changes, and no batch checkpoint pending - commit immediately.
                 }
               } else if (!this.checkpointStreamId.equals(checkpointId)) {
                 continue;
