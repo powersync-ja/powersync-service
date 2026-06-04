@@ -239,6 +239,9 @@ export class MongoCompactorV3 extends MongoCompactor {
       // A continuous range could catch non-processable documents (all ops > maxOpId)
       // that happen to fall between processable documents in _id.o sort order.
       const idsToDelete = processableDocs.map((d) => d._id);
+      const expectedDocCount = processableDocs.length;
+      const expectedChecksum = processableDocs.reduce((sum, doc) => sum + doc.checksum, 0n);
+      const expectedOpCount = processableDocs.reduce((sum, doc) => sum + doc.count, 0);
 
       // Sort ops by o descending for newest-first dedup
       batchOps.sort((a, b) => (b.o > a.o ? 1 : b.o < a.o ? -1 : 0));
@@ -308,6 +311,37 @@ export class MongoCompactorV3 extends MongoCompactor {
       try {
         await session.withTransaction(
           async () => {
+            // Verify documents haven't been modified since we read them.
+            // This aggregate anchors the transaction snapshot and catches
+            // concurrent compaction jobs that modified the same documents.
+            const verification = await bucketContext.collection
+              .aggregate<{ docCount: number; checksumSum: bigint | null; opCountSum: number | null }>(
+                [
+                  { $match: { _id: { $in: idsToDelete } as any } },
+                  {
+                    $group: {
+                      _id: null,
+                      docCount: { $sum: 1 },
+                      checksumSum: { $sum: '$checksum' },
+                      opCountSum: { $sum: '$count' }
+                    }
+                  }
+                ],
+                { session }
+              )
+              .next();
+
+            if (
+              verification == null ||                  // all docs deleted
+              verification.docCount !== expectedDocCount ||    // some docs deleted
+              verification.checksumSum !== expectedChecksum || // docs modified in-place
+              verification.opCountSum !== expectedOpCount      // ops added/removed within docs
+            ) {
+              throw new Error(
+                `Concurrent modification detected in bucket ${bucket}. Aborting compaction for this batch.`
+              );
+            }
+
             await bucketContext.collection.deleteMany(
               {
                 _id: { $in: idsToDelete }
