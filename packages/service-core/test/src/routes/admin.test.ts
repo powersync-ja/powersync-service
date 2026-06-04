@@ -1,5 +1,6 @@
-import { BasicRouterRequest, Context, JwtPayload, storage } from '@/index.js';
+import { BasicRouterRequest, Context, JwtPayload, PersistedSyncRules, storage } from '@/index.js';
 import { logger } from '@powersync/lib-services-framework';
+import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
 import { diagnostics, reprocess, validate } from '../../../src/routes/endpoints/admin.js';
 import { mockServiceContext } from './mocks.js';
@@ -62,7 +63,15 @@ bucket_definitions:
       last_fatal_error_ts: null,
       last_keepalive_ts: lastKeepaliveTs,
       last_checkpoint_ts: lastCheckpointTs,
-      parsed: vi.fn(),
+      parsed(options?: any) {
+        const syncRules = SqlSyncRules.fromYaml(content.sync_rules_content, {
+          ...options,
+          defaultSchema: 'public'
+        });
+        return {
+          syncConfigs: [syncRules]
+        } as PersistedSyncRules;
+      },
       asUpdateOptions: vi.fn(),
       getStorageConfig: vi.fn(),
       getSyncConfigStatus() {
