@@ -1908,19 +1908,19 @@ bucket_definitions:
     const doc1 = serializeBucketData(BUCKET, [
       makeOp(100, 'A', 'a1', ctx, sourceTableId),
       makeOp(200, 'B', 'b1', ctx, sourceTableId)
-    ]);                                 // range [100, 200]
+    ]); // range [100, 200]
     const doc2 = serializeBucketData(BUCKET, [
       makeOp(300, 'C', 'c1', ctx, sourceTableId),
       makeOp(400, 'D', 'd1', ctx, sourceTableId)
-    ]);                                 // range [300, 400], mixed (300≤350, 400>350)
+    ]); // range [300, 400], mixed (300≤350, 400>350)
     const doc3 = serializeBucketData(BUCKET, [
       makeOp(500, 'E', 'e1', ctx, sourceTableId),
       makeOp(600, 'F', 'f1', ctx, sourceTableId)
-    ]);                                 // range [500, 600], all >350
+    ]); // range [500, 600], all >350
     const doc4 = serializeBucketData(BUCKET, [
       makeOp(700, 'G', 'g1', ctx, sourceTableId),
       makeOp(800, 'H', 'h1', ctx, sourceTableId)
-    ]);                                 // range [700, 800], all >350
+    ]); // range [700, 800], all >350
 
     await insertDocs(collection, [doc1, doc2, doc3, doc4]);
     await insertBucketState(bucketStateCollection, ctx.definitionId, 800n);

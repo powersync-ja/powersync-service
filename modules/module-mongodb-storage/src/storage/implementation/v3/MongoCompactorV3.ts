@@ -332,10 +332,10 @@ export class MongoCompactorV3 extends MongoCompactor {
               .next();
 
             if (
-              verification == null ||                  // all docs deleted
-              verification.docCount !== expectedDocCount ||    // some docs deleted
+              verification == null || // all docs deleted
+              verification.docCount !== expectedDocCount || // some docs deleted
               verification.checksumSum !== expectedChecksum || // docs modified in-place
-              verification.opCountSum !== expectedOpCount      // ops added/removed within docs
+              verification.opCountSum !== expectedOpCount // ops added/removed within docs
             ) {
               throw new Error(
                 `Concurrent modification detected in bucket ${bucket}. Aborting compaction for this batch.`
