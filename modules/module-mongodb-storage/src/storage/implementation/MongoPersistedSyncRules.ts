@@ -12,25 +12,21 @@ import {
   nodeSqlite,
   ParameterIndexLookupCreator,
   ParameterLookupScope,
-  SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
-import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import {
+  BucketDefinitionMapping,
+  MultiSyncConfigBucketDefinitionMapping,
+  SyncConfigWithMapping,
+  SyncConfigWithRequiredMapping
+} from './BucketDefinitionMapping.js';
 import { StorageConfig } from './models.js';
 
-interface SyncConfigWithMapping {
-  syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping | null;
-}
-
-interface SyncConfigWithRequiredMapping {
-  syncConfig: SyncConfigWithErrors;
-  mapping: BucketDefinitionMapping;
-}
 export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   public readonly hydrationState: HydrationState;
-  public readonly syncConfigWithErrors: SyncConfigWithErrors;
+  public readonly syncConfigs: storage.PersistedSyncRules['syncConfigs'];
   public readonly slot_name: string;
+  public readonly mapping: BucketDefinitionMapping;
 
   constructor(
     public readonly id: number,
@@ -39,27 +35,33 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
     syncConfigs: SyncConfigWithMapping[]
   ) {
     this.slot_name = slotName;
-    // FIXME: Update the interface to support multiple sync configs
-    this.syncConfigWithErrors = syncConfigs[0].syncConfig;
+    this.syncConfigs = syncConfigs.map((config) => config.syncConfig);
     // Compatibility must match between them all.
-    const compatibility = this.syncConfigWithErrors.config.compatibility;
+    const compatibility = this.syncConfigs[0].config.compatibility;
 
     if (storageConfig.incrementalReprocessing) {
       if (syncConfigs.some((c) => c.mapping == null)) {
         throw new ServiceAssertionError(`mapping is required for v3 storage`);
       }
-      this.hydrationState = new MongoHydrationState(syncConfigs as SyncConfigWithRequiredMapping[], this.id);
+      const mappedConfigs = syncConfigs as SyncConfigWithRequiredMapping[];
+      this.hydrationState = new MongoHydrationState(mappedConfigs, this.id);
+      this.mapping = new MultiSyncConfigBucketDefinitionMapping(mappedConfigs);
     } else if (!compatibility.isEnabled(CompatibilityOption.versionedBucketIds) && !storageConfig.versionedBuckets) {
       this.hydrationState = DEFAULT_HYDRATION_STATE;
+      this.mapping = syncConfigs[0].mapping ?? new BucketDefinitionMapping();
     } else {
       this.hydrationState = versionedHydrationState(this.id);
+      this.mapping = syncConfigs[0].mapping ?? new BucketDefinitionMapping();
     }
   }
 
   hydratedSyncConfig(): HydratedSyncConfig {
-    return this.syncConfigWithErrors.config.hydrate({
-      hydrationState: this.hydrationState,
-      sqlite: nodeSqlite(sqlite)
+    return new HydratedSyncConfig({
+      definitions: this.syncConfigs.map((config) => config.config),
+      createParams: {
+        hydrationState: this.hydrationState,
+        sqlite: nodeSqlite(sqlite)
+      }
     });
   }
 }

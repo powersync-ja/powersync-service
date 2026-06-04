@@ -20,6 +20,17 @@ export interface SerializedSyncConfigWithMapping {
   mapping: BucketDefinitionMapping;
 }
 
+export interface SyncConfigWithMapping {
+  syncConfig: SyncConfigWithErrors;
+  mapping: BucketDefinitionMapping | null;
+}
+
+export interface SyncConfigWithRequiredMapping {
+  syncConfigId?: string;
+  syncConfig: SyncConfigWithErrors;
+  mapping: BucketDefinitionMapping;
+}
+
 /**
  * Represents a mapping from bucket data sources and parameter lookup sources to stable IDs used for bucket definition and parameter index persistence.
  *
@@ -128,6 +139,10 @@ export class BucketDefinitionMapping {
     return this.bucketSourceIdByName(source.uniqueName);
   }
 
+  bucketSourceSyncConfigId(_source: BucketDataSource): string | undefined {
+    return undefined;
+  }
+
   bucketSourceIdByName(uniqueName: string): BucketDefinitionId {
     const defId = this.definitions[uniqueName];
     if (defId == null) {
@@ -148,6 +163,10 @@ export class BucketDefinitionMapping {
     return this.parameterLookupIdByKey(parameterLookupKey(source.sourceId));
   }
 
+  parameterLookupSyncConfigId(_source: ParameterIndexLookupCreator): string | undefined {
+    return undefined;
+  }
+
   parameterLookupIdByKey(key: string): ParameterIndexId {
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
@@ -161,6 +180,68 @@ export class BucketDefinitionMapping {
       definitions: { ...this.definitions },
       parameter_indexes: { ...this.parameterLookupMapping }
     };
+  }
+}
+
+export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapping {
+  private bucketDataSourceMappings = new WeakMap<BucketDataSource, BucketDefinitionMapping>();
+  private bucketDataSourceSyncConfigIds = new WeakMap<BucketDataSource, string>();
+  private parameterLookupMappings = new WeakMap<ParameterIndexLookupCreator, BucketDefinitionMapping>();
+  private parameterLookupSyncConfigIds = new WeakMap<ParameterIndexLookupCreator, string>();
+  private mappings: BucketDefinitionMapping[];
+
+  constructor(syncConfigs: SyncConfigWithRequiredMapping[]) {
+    super();
+    this.mappings = syncConfigs.map((config) => config.mapping);
+
+    for (const config of syncConfigs) {
+      for (const source of config.syncConfig.config.bucketDataSources) {
+        this.bucketDataSourceMappings.set(source, config.mapping);
+        if (config.syncConfigId != null) {
+          this.bucketDataSourceSyncConfigIds.set(source, config.syncConfigId);
+        }
+      }
+      for (const source of config.syncConfig.config.bucketParameterLookupSources) {
+        this.parameterLookupMappings.set(source, config.mapping);
+        if (config.syncConfigId != null) {
+          this.parameterLookupSyncConfigIds.set(source, config.syncConfigId);
+        }
+      }
+    }
+  }
+
+  bucketSourceId(source: BucketDataSource): BucketDefinitionId {
+    const mapping = this.bucketDataSourceMappings.get(source);
+    if (mapping == null) {
+      throw new ServiceAssertionError(`No mapping found for bucket source ${source.uniqueName}`);
+    }
+    return mapping.bucketSourceId(source);
+  }
+
+  bucketSourceSyncConfigId(source: BucketDataSource): string | undefined {
+    return this.bucketDataSourceSyncConfigIds.get(source);
+  }
+
+  allBucketDefinitionIds(): BucketDefinitionId[] {
+    return [...new Set(this.mappings.flatMap((mapping) => mapping.allBucketDefinitionIds()))];
+  }
+
+  parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
+    const mapping = this.parameterLookupMappings.get(source);
+    if (mapping == null) {
+      throw new ServiceAssertionError(
+        `No mapping found for parameter lookup source ${source.sourceId.lookupName}#${source.sourceId.queryId}`
+      );
+    }
+    return mapping.parameterLookupId(source);
+  }
+
+  parameterLookupSyncConfigId(source: ParameterIndexLookupCreator): string | undefined {
+    return this.parameterLookupSyncConfigIds.get(source);
+  }
+
+  allParameterIndexIds(): ParameterIndexId[] {
+    return [...new Set(this.mappings.flatMap((mapping) => mapping.allParameterIndexIds()))];
   }
 }
 

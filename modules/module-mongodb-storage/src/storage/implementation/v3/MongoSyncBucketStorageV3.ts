@@ -67,7 +67,11 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   }
 
   private get syncConfigId(): bson.ObjectId {
-    return this.syncRulesV3.syncConfigId;
+    return this.syncRulesV3.syncConfigObjectId;
+  }
+
+  private get syncConfigIds(): bson.ObjectId[] {
+    return this.syncRulesV3.syncConfigIds;
   }
 
   private get syncRulesCollection(): mongo.Collection<ReplicationStreamDocumentV3> {
@@ -79,7 +83,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
       _id: this.group_id,
       sync_configs: {
         $elemMatch: {
-          _id: this.syncConfigId,
+          _id: { $in: this.syncConfigIds },
           ...extra
         }
       }
@@ -89,27 +93,16 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   private syncConfigProjection(extra: mongo.Document = {}): mongo.Document {
     return {
       ...extra,
-      sync_configs: {
-        $elemMatch: {
-          _id: this.syncConfigId
-        }
-      }
+      sync_configs: 1
     };
   }
 
   private syncConfigArrayFilters(): mongo.UpdateOptions['arrayFilters'] {
-    return [{ 'config._id': this.syncConfigId }];
+    return [{ 'config._id': { $in: this.syncConfigIds } }];
   }
 
-  /**
-   * For now, we only support a single sync config per replication stream.
-   *
-   * In the future we'll add support for multiple.
-   */
-  private selectedSyncConfig(
-    doc: Pick<ReplicationStreamDocumentV3, 'sync_configs'> | null
-  ): SyncRuleConfigStateV3 | null {
-    return doc?.sync_configs?.[0] ?? null;
+  private selectedSyncConfigs(doc: Pick<ReplicationStreamDocumentV3, 'sync_configs'> | null): SyncRuleConfigStateV3[] {
+    return doc?.sync_configs?.filter((config) => this.syncConfigIds.some((id) => id.equals(config._id))) ?? [];
   }
 
   protected async initializeVersionStorage(): Promise<void> {
@@ -174,13 +167,21 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
         projection: this.syncConfigProjection()
       }
     );
-    const syncConfig = this.selectedSyncConfig(doc);
-    if (!syncConfig?.snapshot_done) {
+    const syncConfigs = this.selectedSyncConfigs(doc);
+    if (syncConfigs.length == 0 || syncConfigs.some((config) => !config.snapshot_done)) {
       return null;
     }
+    const checkpoint = syncConfigs.reduce<bigint | null>((min, config) => {
+      const value = config.last_checkpoint ?? 0n;
+      return min == null || value < min ? value : min;
+    }, null);
     return {
-      checkpoint: syncConfig.last_checkpoint ?? 0n,
-      lsn: syncConfig.last_checkpoint_lsn ?? null
+      checkpoint: checkpoint ?? 0n,
+      lsn:
+        syncConfigs
+          .map((config) => config.last_checkpoint_lsn)
+          .filter((lsn) => lsn != null)
+          .sort()[0] ?? null
     };
   }
 
@@ -188,13 +189,22 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
       projection: this.syncConfigProjection({ snapshot_lsn: 1 })
     });
-    const syncConfig = this.selectedSyncConfig(doc);
-    const checkpointLsn = syncConfig?.last_checkpoint_lsn ?? null;
+    const syncConfigs = this.selectedSyncConfigs(doc);
+    const checkpointLsn =
+      syncConfigs
+        .map((config) => config.last_checkpoint_lsn)
+        .filter((lsn) => lsn != null)
+        .sort()[0] ?? null;
+    const keepaliveOp = syncConfigs.reduce<bigint | null>((min, config) => {
+      const value = config.keepalive_op ?? null;
+      return value != null && (min == null || value < min) ? value : min;
+    }, null);
     return {
       lastCheckpointLsn: checkpointLsn,
       resumeFromLsn: maxLsn(checkpointLsn, doc?.snapshot_lsn),
-      keepaliveOp: syncConfig?.keepalive_op ?? null,
-      syncConfigId: this.syncConfigId
+      keepaliveOp,
+      syncConfigId: this.syncConfigId,
+      syncConfigIds: this.syncConfigIds
     };
   }
 
@@ -217,17 +227,29 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     const doc = await this.syncRulesCollection.findOne(this.syncConfigMatch(), {
       projection: this.syncConfigProjection({ state: 1, snapshot_lsn: 1, keepalive_op: 1 })
     });
-    const syncConfig = this.selectedSyncConfig(doc);
-    if (doc == null || syncConfig == null) {
+    const syncConfigs = this.selectedSyncConfigs(doc);
+    if (doc == null || syncConfigs.length == 0) {
       throw new ServiceAssertionError('Cannot find replication stream status');
     }
+    const active = syncConfigs.some(
+      (config) => doc.state == storage.SyncRuleState.ACTIVE && config.state == storage.SyncRuleState.ACTIVE
+    );
+    const checkpointLsn =
+      syncConfigs
+        .map((config) => config.last_checkpoint_lsn)
+        .filter((lsn) => lsn != null)
+        .sort()[0] ?? null;
+    const keepaliveOp = syncConfigs.reduce<bigint | null>((min, config) => {
+      const value = config.keepalive_op ?? null;
+      return value != null && (min == null || value < min) ? value : min;
+    }, null);
 
     return {
-      snapshot_done: syncConfig.snapshot_done ?? false,
+      snapshot_done: syncConfigs.every((config) => config.snapshot_done ?? false),
       snapshot_lsn: doc.snapshot_lsn ?? null,
-      active: doc.state == storage.SyncRuleState.ACTIVE && syncConfig.state == storage.SyncRuleState.ACTIVE,
-      checkpoint_lsn: syncConfig.last_checkpoint_lsn ?? null,
-      keepalive_op: syncConfig.keepalive_op ?? null
+      active,
+      checkpoint_lsn: checkpointLsn,
+      keepalive_op: keepaliveOp
     };
   }
 

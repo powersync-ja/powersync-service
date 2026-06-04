@@ -1756,7 +1756,7 @@ streams:
 `)
     );
 
-    const { errors } = deployed.parsed({ defaultSchema: 'ignored' }).syncConfigWithErrors;
+    const { errors } = deployed.parsed({ defaultSchema: 'ignored' }).syncConfigs[0];
     expect(errors).toHaveLength(1);
     expect(errors[0].message).toStrictEqual('Expected a SELECT statement');
     expect(errors[0].location).toStrictEqual({

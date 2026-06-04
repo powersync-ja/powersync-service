@@ -167,7 +167,7 @@ export const reprocessSyncRules = routeDefinition({
     }
 
     const new_rules = await activeBucketStorage.updateSyncRules(
-      updateSyncRulesFromYaml(sync_rules.syncConfigWithErrors.config.content, {
+      updateSyncRulesFromYaml(sync_rules.syncConfigs[0].config.content, {
         // This sync config already passed validation. But if the rules are not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true

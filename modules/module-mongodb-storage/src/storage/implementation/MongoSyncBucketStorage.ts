@@ -27,6 +27,7 @@ import { LRUCache } from 'lru-cache';
 import * as timers from 'timers/promises';
 import { retryOnMongoMaxTimeMSExpired } from '../../utils/util.js';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { MongoSyncBucketStorageContext } from './common/MongoSyncBucketStorageContext.js';
 import type { VersionedPowerSyncMongo } from './db.js';
 import { StorageConfig } from './models.js';
@@ -52,6 +53,7 @@ interface WriterSyncState {
   resumeFromLsn: string | null;
   keepaliveOp: InternalOpId | null;
   syncConfigId?: bson.ObjectId | null;
+  syncConfigIds?: bson.ObjectId[];
 }
 
 /**
@@ -195,12 +197,15 @@ export abstract class MongoSyncBucketStorage
     await this.initializeStorage();
 
     const state = await this.getWriterSyncState();
+    const parsed = this.sync_rules.parsed(options) as storage.PersistedSyncRules & {
+      mapping?: BucketDefinitionMapping;
+    };
 
     const batchOptions: MongoBucketBatchOptions = {
       logger: options.logger ?? this.logger,
       db: this.db,
-      syncRules: this.sync_rules.parsed(options).hydratedSyncConfig(),
-      mapping: this.sync_rules.mapping,
+      syncRules: parsed.hydratedSyncConfig(),
+      mapping: parsed.mapping ?? this.sync_rules.mapping,
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: state.lastCheckpointLsn,
@@ -211,6 +216,7 @@ export abstract class MongoSyncBucketStorage
       markRecordUnavailable: options.markRecordUnavailable,
       hooks: options.hooks,
       syncConfigId: state.syncConfigId,
+      syncConfigIds: state.syncConfigIds,
       tracer: options.tracer
     };
     const writer = this.createWriterImpl(batchOptions);

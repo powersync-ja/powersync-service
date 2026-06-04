@@ -52,7 +52,12 @@ export const DiagnosticsResponse = t.object({
    *
    * Sync-config-level errors are listed here.
    */
-  deploying_sync_rules: SyncRulesStatus.optional()
+  deploying_sync_rules: SyncRulesStatus.optional(),
+
+  /**
+   * All sync configs in the process of being deployed / initial replication.
+   */
+  deploying_sync_configs: t.array(SyncRulesStatus).optional()
 });
 export type DiagnosticsResponse = t.Encoded<typeof DiagnosticsResponse>;
 

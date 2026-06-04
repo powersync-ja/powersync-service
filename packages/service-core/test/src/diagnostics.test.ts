@@ -33,7 +33,7 @@ function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.Persi
         defaultSchema: 'public'
       });
       return {
-        syncConfigWithErrors: syncRules
+        syncConfigs: [syncRules]
       } as PersistedSyncRules;
     },
     lock() {
@@ -151,5 +151,29 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       (e) => e.message.includes('WAL budget') || e.message.includes('PSYNC_S1146')
     );
     expect(walErrors).toHaveLength(0);
+  });
+
+  test('uses separate sync config status for status-derived diagnostics fields', async () => {
+    const configStatus: storage.PersistedSyncConfigStatus = {
+      id: 'config-a',
+      replicationStreamId: 1,
+      state: storage.SyncRuleState.ACTIVE,
+      last_checkpoint_lsn: 'config_lsn',
+      last_fatal_error: 'config failed',
+      last_fatal_error_ts: new Date('2026-01-01T00:00:00.000Z'),
+      last_keepalive_ts: new Date('2026-01-01T00:01:00.000Z'),
+      last_checkpoint_ts: new Date('2026-01-01T00:02:00.000Z')
+    };
+    const result = await getSyncRulesStatus(
+      makeBucketStorage(),
+      makeRouteAPI(),
+      makeSyncRulesContent(),
+      OPTIONS,
+      configStatus
+    );
+
+    expect(result!.connections[0].last_checkpoint_ts).toBe('2026-01-01T00:02:00.000Z');
+    expect(result!.connections[0].last_keepalive_ts).toBe('2026-01-01T00:01:00.000Z');
+    expect(result!.errors.some((error) => error.message == 'config failed')).toBe(true);
   });
 });

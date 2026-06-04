@@ -53,3 +53,30 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncRule
     });
   }
 }
+
+export class PostgresPersistedReplicationStream extends storage.PersistedReplicationStream {
+  current_lock: storage.ReplicationLock | null = null;
+
+  constructor(
+    private db: lib_postgres.DatabaseClient,
+    private readonly row: models.SyncRulesDecoded
+  ) {
+    super({
+      id: Number(row.id),
+      slot_name: row.slot_name,
+      state: row.state as storage.SyncRuleState,
+      storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
+    });
+  }
+
+  toSyncRulesContent(): PostgresPersistedSyncRulesContent {
+    return new PostgresPersistedSyncRulesContent(this.db, this.row);
+  }
+
+  async lock(): Promise<storage.ReplicationLock> {
+    const content = this.toSyncRulesContent();
+    const lock = await content.lock();
+    this.current_lock = lock;
+    return lock;
+  }
+}

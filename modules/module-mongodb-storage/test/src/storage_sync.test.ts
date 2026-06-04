@@ -5,6 +5,7 @@ import * as bson from 'bson';
 import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 import { MongoBucketStorage } from '../../src/storage/MongoBucketStorage.js';
+import { MongoPersistedReplicationStream } from '../../src/storage/implementation/MongoPersistedSyncRulesContent.js';
 import { MongoSyncBucketStorage } from '../../src/storage/implementation/createMongoSyncBucketStorage.js';
 import { SourceRecordStoreV3 } from '../../src/storage/implementation/v3/SourceRecordStoreV3.js';
 import type { VersionedPowerSyncMongoV3 } from '../../src/storage/implementation/v3/VersionedPowerSyncMongoV3.js';
@@ -586,6 +587,74 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     expect(parameterIndexId).toBeDefined();
     const parameterEntry = await db.parameterIndexV3(syncRules.id, parameterIndexId!).findOne({});
     expect(deserializeParameterLookup(parameterEntry!.lookup)).toEqual(['shape-check']);
+  });
+
+  test.runIf(storageVersion >= 3)('keeps compatible deploying sync configs in one replication stream', async () => {
+    await using factory = await storageConfig.factory();
+
+    const first = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+streams:
+  by_owner:
+    query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
+`,
+        { storageVersion }
+      )
+    );
+    const second = await factory.updateSyncRules(
+      updateSyncRulesFromYaml(
+        `
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+`,
+        { storageVersion }
+      )
+    );
+
+    expect(second.id).toEqual(first.id);
+
+    const mongoFactory = factory as MongoBucketStorage;
+    const stream = (await mongoFactory.db.sync_rules.findOne({ _id: first.id })) as ReplicationStreamDocumentV3;
+    expect(stream.sync_configs).toHaveLength(2);
+
+    const replicatingStreams = await factory.getReplicatingReplicationStreams();
+    expect(replicatingStreams).toHaveLength(1);
+    expect(replicatingStreams[0].id).toEqual(first.id);
+    expect(replicatingStreams[0].replicationJobId).toContain(stream.sync_configs[0]._id.toHexString());
+    expect(replicatingStreams[0].replicationJobId).toContain(stream.sync_configs[1]._id.toHexString());
+
+    const configs = await factory.getReplicationStreamConfigs(first.id);
+    expect(configs).toHaveLength(2);
+    const statuses = await factory.getReplicationStreamConfigStatuses(first.id);
+    expect(statuses.map((status) => status.id).sort()).toEqual(
+      stream.sync_configs.map((config) => config._id.toHexString()).sort()
+    );
+    const parsed = (replicatingStreams[0] as MongoPersistedReplicationStream)
+      .toSyncRulesContent()
+      .parsed(test_utils.PARSE_OPTIONS);
+    expect(parsed.syncConfigs).toHaveLength(2);
+    expect(parsed.hydratedSyncConfig().bucketDataSources).toHaveLength(2);
+
+    const bucketStorage = mongoFactory.getInstance(replicatingStreams[0]) as MongoSyncBucketStorage;
+    await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const sourceTableId = new bson.ObjectId('6544e3899293153fa7b3834b');
+    const resolved = await writer.resolveTables({
+      connection_id: 1,
+      source: sourceDescriptor('todos', { objectId: 'todos-relation' }),
+      idGenerator: objectIdGenerator(sourceTableId.toHexString())
+    });
+    expect(resolved.tables).toHaveLength(1);
+    expect(resolved.tables[0].bucketDataSources).toHaveLength(2);
+
+    const sourceTable = await (bucketStorage.db as VersionedPowerSyncMongoV3)
+      .sourceTablesV3(first.id)
+      .findOne({ _id: sourceTableId });
+    expect(sourceTable?.bucket_data_source_ids).toHaveLength(2);
+    expect(Object.values(sourceTable?.bucket_data_source_sync_config_ids ?? {}).sort()).toEqual(
+      stream.sync_configs.map((config) => [config._id.toHexString()]).sort()
+    );
   });
 
   test.runIf(storageVersion < 3)('can replace processing legacy sync rules', async () => {

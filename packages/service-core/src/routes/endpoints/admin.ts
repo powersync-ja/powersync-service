@@ -67,7 +67,7 @@ export const diagnostics = routeDefinition({
     } = service_context;
     const active = await activeBucketStorage.getActiveSyncConfigContent();
     const activeConfigStatus = await activeBucketStorage.getActiveSyncConfigStatus();
-    const next = await activeBucketStorage.getDeployingSyncConfigContent();
+    const deploying = await activeBucketStorage.getDeployingSyncConfigContents();
 
     const active_status = await api.getSyncRulesStatus(
       activeBucketStorage,
@@ -81,11 +81,17 @@ export const diagnostics = routeDefinition({
       activeConfigStatus
     );
 
-    const next_status = await api.getSyncRulesStatus(activeBucketStorage, apiHandler, next, {
-      include_content,
-      check_connection: status.connected,
-      live_status: true
-    });
+    const deploying_statuses = (
+      await Promise.all(
+        deploying.map((syncConfig) =>
+          api.getSyncRulesStatus(activeBucketStorage, apiHandler, syncConfig, {
+            include_content,
+            check_connection: status.connected,
+            live_status: true
+          })
+        )
+      )
+    ).filter((status) => status != null);
 
     return internal_routes.DiagnosticsResponse.encode({
       connections: [
@@ -96,7 +102,8 @@ export const diagnostics = routeDefinition({
         }
       ],
       active_sync_rules: active_status,
-      deploying_sync_rules: next_status
+      deploying_sync_rules: deploying_statuses[0],
+      deploying_sync_configs: deploying_statuses
     });
   }
 });
@@ -126,7 +133,7 @@ export const reprocess = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
     const apiHandler = service_context.routerEngine.getAPI();
-    const next = await activeBucketStorage.getNextSyncRules(apiHandler.getParseSyncRulesOptions());
+    const next = await activeBucketStorage.getDeployingSyncConfigContent();
     if (next != null) {
       throw new Error(`Busy processing sync config - cannot reprocess`);
     }
@@ -145,7 +152,7 @@ export const reprocess = routeDefinition({
     // 2. If the source does not set the storage version, this will update it do the current version.
     // We can consider tweaking this behavior in the future.
     const new_rules = await activeBucketStorage.updateSyncRules(
-      storage.updateSyncRulesFromYaml(active.syncConfigWithErrors.config.content, {
+      storage.updateSyncRulesFromYaml(active.syncConfigs[0].config.content, {
         // This sync config already passed validation. But if the config is not valid anymore due
         // to a service change, we do want to report the error here.
         validate: true
@@ -183,15 +190,17 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncRulesConten
   }
 
   parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+    const syncConfig = SqlSyncRules.fromYaml(this.sync_rules_content, {
+      ...this.apiHandler.getParseSyncRulesOptions(),
+      schema: this.schema
+    });
+
     return {
       ...this,
-      syncConfigWithErrors: SqlSyncRules.fromYaml(this.sync_rules_content, {
-        ...this.apiHandler.getParseSyncRulesOptions(),
-        schema: this.schema
-      }),
+      syncConfigs: [syncConfig],
       hydrationState: DEFAULT_HYDRATION_STATE,
       hydratedSyncConfig() {
-        return this.syncConfigWithErrors.config.hydrate({
+        return this.syncConfigs[0].config.hydrate({
           hydrationState: DEFAULT_HYDRATION_STATE,
           sqlite: nodeSqlite(sqlite)
         });

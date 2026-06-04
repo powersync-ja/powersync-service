@@ -17,7 +17,7 @@ export class MongoSyncRulesLock implements storage.ReplicationLock {
    */
   static async createLock(
     db: VersionedPowerSyncMongo,
-    sync_rules: storage.PersistedSyncRulesContent,
+    sync_rules: storage.PersistedReplicationStream,
     session?: mongo.ClientSession
   ): Promise<MongoSyncRulesLock> {
     const lockId = crypto.randomBytes(8).toString('hex');

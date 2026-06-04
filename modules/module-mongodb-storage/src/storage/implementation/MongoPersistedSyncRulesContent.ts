@@ -10,22 +10,73 @@ import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig } from './models.js';
 import { SyncRuleDocumentV1 } from './v1/models.js';
 
+export class MongoPersistedReplicationStream extends storage.PersistedReplicationStream {
+  public current_lock: MongoSyncRulesLock | null = null;
+
+  constructor(
+    private readonly db: PowerSyncMongo,
+    private readonly doc: SyncRuleDocumentV1 | ReplicationStreamDocumentV3,
+    private readonly configs: SyncConfigDefinition[] = []
+  ) {
+    const storageVersion = doc.storage_version ?? storage.LEGACY_STORAGE_VERSION;
+    const replicationJobId =
+      configs.length == 0
+        ? String(doc._id)
+        : `${doc._id}:${configs
+            .map((config) => config._id.toHexString())
+            .sort()
+            .join(',')}`;
+
+    super({
+      id: doc._id,
+      slot_name: doc.slot_name ?? `powersync_${doc._id}`,
+      state: doc.state,
+      storageVersion,
+      replicationJobId
+    });
+  }
+
+  getStorageConfig() {
+    return getMongoStorageConfig(this.storageVersion);
+  }
+
+  toSyncRulesContent(): MongoPersistedSyncRulesContentV1 | MongoPersistedSyncRulesContentV3 {
+    if (this.getStorageConfig().incrementalReprocessing) {
+      if (this.configs.length == 0) {
+        throw new ServiceAssertionError(`Cannot create v3 storage without sync config definitions`);
+      }
+      return new MongoPersistedSyncRulesContentV3(this.db, this.doc as ReplicationStreamDocumentV3, this.configs);
+    }
+
+    return new MongoPersistedSyncRulesContentV1(this.db, this.doc as SyncRuleDocumentV1);
+  }
+
+  async lock(session?: mongo.ClientSession) {
+    const lock = await MongoSyncRulesLock.createLock(this.db.versioned(this.getStorageConfig()), this, session);
+    this.current_lock = lock;
+    return lock;
+  }
+}
+
 abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncRulesContent {
   public current_lock: MongoSyncRulesLock | null = null;
   public readonly mapping: BucketDefinitionMapping;
-  public readonly syncConfigId: bson.ObjectId | null;
+  public readonly syncConfigObjectId: bson.ObjectId | null;
 
   protected constructor(
     protected readonly db: PowerSyncMongo,
-    options: ConstructorParameters<typeof storage.PersistedSyncRulesContent>[0] & {
+    options: Omit<ConstructorParameters<typeof storage.PersistedSyncRulesContent>[0], 'syncConfigId'> & {
       mapping: BucketDefinitionMapping;
       syncConfigId: bson.ObjectId | null;
     }
   ) {
     const { mapping, syncConfigId, ...base } = options;
-    super(base);
+    super({
+      ...base,
+      syncConfigId: syncConfigId?.toHexString() ?? null
+    });
     this.mapping = mapping;
-    this.syncConfigId = syncConfigId;
+    this.syncConfigObjectId = syncConfigId;
   }
 
   getStorageConfig() {
@@ -36,9 +87,8 @@ abstract class MongoPersistedSyncRulesContentBase extends storage.PersistedSyncR
     const parsed = super.parsed(options);
     const storageConfig = this.getStorageConfig();
 
-    // FIXME: Multiple SyncConfigs
     return new MongoPersistedSyncRules(parsed.id, storageConfig, parsed.slot_name, [
-      { syncConfig: parsed.syncConfigWithErrors, mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
+      { syncConfig: parsed.syncConfigs[0], mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
     ]);
   }
 
@@ -72,17 +122,30 @@ export class MongoPersistedSyncRulesContentV1 extends MongoPersistedSyncRulesCon
 }
 
 export class MongoPersistedSyncRulesContentV3 extends MongoPersistedSyncRulesContentBase {
-  declare public readonly syncConfigId: bson.ObjectId;
+  declare public readonly syncConfigObjectId: bson.ObjectId;
+  private readonly doc: ReplicationStreamDocumentV3;
+  private readonly configs: SyncConfigDefinition[];
+  public readonly syncConfigIds: bson.ObjectId[];
 
-  constructor(db: PowerSyncMongo, doc: ReplicationStreamDocumentV3, config: SyncConfigDefinition) {
-    const state = doc.sync_configs.find((c) => c._id.equals(config._id));
+  constructor(
+    db: PowerSyncMongo,
+    doc: ReplicationStreamDocumentV3,
+    config: SyncConfigDefinition | SyncConfigDefinition[]
+  ) {
+    const configs = Array.isArray(config) ? config : [config];
+    const selected = configs[0];
+    const replicationJobId = `${doc._id}:${configs
+      .map((config) => config._id.toHexString())
+      .sort()
+      .join(',')}`;
+    const state = doc.sync_configs.find((c) => c._id.equals(selected._id));
     if (state == null) {
-      throw new ServiceAssertionError(`Cannot find sync config ${config._id} in replication stream ${doc._id}`);
+      throw new ServiceAssertionError(`Cannot find sync config ${selected._id} in replication stream ${doc._id}`);
     }
     super(db, {
       id: doc._id,
-      sync_rules_content: config.content,
-      compiled_plan: config.serialized_plan ?? null,
+      sync_rules_content: selected.content,
+      compiled_plan: selected.serialized_plan ?? null,
 
       last_checkpoint_lsn: state?.last_checkpoint_lsn ?? null,
       slot_name: doc.slot_name ?? `powersync_${doc._id}`,
@@ -93,8 +156,27 @@ export class MongoPersistedSyncRulesContentV3 extends MongoPersistedSyncRulesCon
       active: doc.state == SyncRuleState.ACTIVE && state.state == SyncRuleState.ACTIVE,
       state: state.state,
       storageVersion: doc.storage_version,
-      mapping: BucketDefinitionMapping.fromSyncConfig(config),
-      syncConfigId: config._id
+      mapping: BucketDefinitionMapping.fromSyncConfig(selected),
+      syncConfigId: selected._id,
+      replicationJobId
     });
+    this.doc = doc;
+    this.configs = configs;
+    this.syncConfigIds = configs.map((config) => config._id);
+  }
+
+  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+    const storageConfig = this.getStorageConfig();
+    const syncConfigs = this.configs.map((config) => {
+      const content = new MongoPersistedSyncRulesContentV3(this.db, this.doc, config);
+      const parsed = storage.PersistedSyncRulesContent.prototype.parsed.call(content, options);
+      return {
+        syncConfigId: config._id.toHexString(),
+        syncConfig: parsed.syncConfigs[0],
+        mapping: BucketDefinitionMapping.fromSyncConfig(config)
+      };
+    });
+
+    return new MongoPersistedSyncRules(this.id, storageConfig, this.slot_name, syncConfigs);
   }
 }

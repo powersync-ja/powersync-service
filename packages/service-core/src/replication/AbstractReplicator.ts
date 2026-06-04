@@ -38,10 +38,10 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
   protected logger: winston.Logger;
   private lockAlerted: boolean = false;
   /**
-   *  Map of replication jobs by replication stream id. Usually there is only one running job, but there could be two when
-   *  transitioning to a new replication stream.
+   *  Map of replication jobs by replication stream job id. Usually there is only one running job, but there could be two
+   *  when transitioning to a new replication stream.
    */
-  private replicationJobs = new Map<number, T>();
+  private replicationJobs = new Map<string, T>();
 
   /**
    * Map of replciation stream ids to promises that are clearing the replication stream.
@@ -188,48 +188,49 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
     let configuredLock = options?.configured_lock;
 
-    const existingJobs = new Map<number, T>(this.replicationJobs.entries());
-    const replicatingSyncRules = await this.storage.getReplicatingReplicationStreams();
-    const newJobs = new Map<number, T>();
+    const existingJobs = new Map<string, T>(this.replicationJobs.entries());
+    const replicatingStreams = await this.storage.getReplicatingReplicationStreams();
+    const newJobs = new Map<string, T>();
     let activeJob: T | undefined = undefined;
-    for (let syncRules of replicatingSyncRules) {
-      const existingJob = existingJobs.get(syncRules.id);
-      if (syncRules.state == storage.SyncRuleState.ACTIVE && activeJob == null) {
+    for (let replicationStream of replicatingStreams) {
+      const jobId = replicationStream.replicationJobId;
+      const existingJob = existingJobs.get(jobId);
+      if (replicationStream.state == storage.SyncRuleState.ACTIVE && activeJob == null) {
         activeJob = existingJob;
       }
       if (existingJob && !existingJob.isStopped) {
         // No change
-        existingJobs.delete(syncRules.id);
-        newJobs.set(syncRules.id, existingJob);
+        existingJobs.delete(jobId);
+        newJobs.set(jobId, existingJob);
       } else if (existingJob && existingJob.isStopped) {
         // Stopped (e.g. fatal error).
         // Remove from the list. Next refresh call will restart the job.
-        existingJobs.delete(syncRules.id);
+        existingJobs.delete(jobId);
       } else {
         // New sync config was found (or resume after restart)
         try {
           let lock: storage.ReplicationLock;
-          if (configuredLock?.sync_rules_id == syncRules.id) {
+          if (configuredLock?.sync_rules_id == replicationStream.id) {
             lock = configuredLock;
           } else {
-            lock = await syncRules.lock();
+            lock = await replicationStream.lock();
           }
-          const syncRuleStorage = this.storage.getInstance(syncRules);
+          const syncRuleStorage = this.storage.getInstance(replicationStream);
           const newJob = this.createJob({
             lock: lock,
             storage: syncRuleStorage
           });
 
-          newJobs.set(syncRules.id, newJob);
+          newJobs.set(jobId, newJob);
           newJob.start();
-          if (syncRules.state == storage.SyncRuleState.ACTIVE) {
+          if (replicationStream.state == storage.SyncRuleState.ACTIVE) {
             activeJob = newJob;
           }
           this.lockAlerted = false;
         } catch (e) {
           if (e?.errorData?.code === ErrorCode.PSYNC_S1003) {
             if (!this.lockAlerted) {
-              syncRules.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
+              replicationStream.logger.info(`[${e.errorData.code}] ${e.errorData.description}`);
               this.lockAlerted = true;
             }
           } else {
@@ -237,7 +238,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
             // for example from stricter validation that was added.
             // This will be retried every couple of seconds.
             // When new (valid) sync config is deployed and processed, this one be disabled.
-            syncRules.logger.error('Failed to start replication for new sync config', e);
+            replicationStream.logger.error('Failed to start replication for new sync config', e);
           }
         }
       }
@@ -260,8 +261,8 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
 
     // Replication stream stopped previously, including by a different process.
     const stopped = await this.storage.getStoppedReplicationStreams();
-    for (let syncRules of stopped) {
-      if (this.clearingJobs.has(syncRules.id)) {
+    for (let replicationStream of stopped) {
+      if (this.clearingJobs.has(replicationStream.id)) {
         // Already in progress
         continue;
       }
@@ -269,15 +270,15 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
       // We clear storage asynchronously.
       // It is important to be able to continue running the refresh loop, otherwise we cannot
       // retry locked replication stream, for example.
-      const syncRuleStorage = this.storage.getInstance(syncRules, { skipLifecycleHooks: true });
+      const syncRuleStorage = this.storage.getInstance(replicationStream, { skipLifecycleHooks: true });
       const promise = this.terminateSyncRules(syncRuleStorage)
         .catch((e) => {
           syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
         })
         .finally(() => {
-          this.clearingJobs.delete(syncRules.id);
+          this.clearingJobs.delete(replicationStream.id);
         });
-      this.clearingJobs.set(syncRules.id, promise);
+      this.clearingJobs.set(replicationStream.id, promise);
     }
   }
 

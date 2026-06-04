@@ -995,7 +995,7 @@ streams:
     const bucketStorage = factory.getInstance(syncRules);
     const parsedSyncRules = syncRules.parsed(test_utils.PARSE_OPTIONS);
     const hydrationState = parsedSyncRules.hydrationState;
-    const syncConfig = parsedSyncRules.syncConfigWithErrors.config;
+    const syncConfig = parsedSyncRules.syncConfigs[0].config;
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const paramATable = await test_utils.resolveTestTable(writer, 'param_a', ['id'], config, 1);

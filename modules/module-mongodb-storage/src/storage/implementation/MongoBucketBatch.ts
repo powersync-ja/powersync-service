@@ -45,6 +45,7 @@ export interface MongoBucketBatchOptions {
   groupId: number;
   slotName: string;
   syncConfigId?: bson.ObjectId | null;
+  syncConfigIds?: bson.ObjectId[];
   lastCheckpointLsn: string | null;
   keepaliveOp: InternalOpId | null;
   resumeFromLsn: string | null;
