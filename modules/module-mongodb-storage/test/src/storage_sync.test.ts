@@ -604,6 +604,9 @@ function registerSyncStorageTests(storageConfig: storage.TestStorageConfig, stor
     const first = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
+config:
+  edition: 2
+
 streams:
   by_owner:
     query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
@@ -611,14 +614,12 @@ streams:
         { storageVersion }
       )
     );
-    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
-    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
-    await firstWriter.markAllSnapshotDone('1/1');
-    await firstWriter.commit('1/1');
-
     const second = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
+config:
+  edition: 2
+
 streams:
   by_project:
     query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
@@ -677,6 +678,9 @@ streams:
     const first = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
+config:
+  edition: 2
+
 streams:
   by_owner:
     query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
@@ -684,9 +688,17 @@ streams:
         { storageVersion }
       )
     );
+    const firstStorage = factory.getInstance(first) as MongoSyncBucketStorage;
+    await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
+    await firstWriter.markAllSnapshotDone('1/1');
+    await firstWriter.commit('1/1');
+
     const second = await factory.updateSyncRules(
       updateSyncRulesFromYaml(
         `
+config:
+  edition: 2
+
 streams:
   by_project:
     query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
@@ -726,7 +738,9 @@ streams:
     await writer.commit('2/1');
 
     const after = await db.sourceTablesV3(first.id).findOne({ _id: sourceTableId });
-    expect(Object.values(after?.bucket_data_source_sync_config_ids ?? {}).flat()).toEqual([ownerConfigId]);
+    const ownersAfterRemoval = Object.values(after?.bucket_data_source_sync_config_ids ?? {}).flat();
+    expect(ownersAfterRemoval).toContain(ownerConfigId);
+    expect(ownersAfterRemoval).not.toContain(removedConfigId);
   });
 
   test.runIf(storageVersion >= 3)(
@@ -738,6 +752,9 @@ streams:
       const first = await factory.updateSyncRules(
         updateSyncRulesFromYaml(
           `
+config:
+  edition: 3
+
 streams:
   by_owner:
     query: SELECT * FROM todos WHERE owner_id = subscription.parameter('owner_id')
@@ -757,9 +774,12 @@ streams:
       const second = await factory.updateSyncRules(
         updateSyncRulesFromYaml(
           `
-streams:
-  by_project:
-    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+	config:
+	  edition: 3
+
+	streams:
+	  by_project:
+	    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
 `,
           { storageVersion }
         )

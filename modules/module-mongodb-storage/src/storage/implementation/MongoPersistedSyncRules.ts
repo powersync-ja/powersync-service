@@ -110,8 +110,6 @@ class MongoHydrationState implements HydrationState {
     }
     const mapping = syncConfig.mapping;
     const defId = mapping.bucketSourceId(source);
-    // Keep this aligned with versionedHydrationState() for now.
-    //
     // Previous Mongo-specific behavior:
     // return {
     //   bucketPrefix: defId,
