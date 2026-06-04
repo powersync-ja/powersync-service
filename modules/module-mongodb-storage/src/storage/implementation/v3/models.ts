@@ -154,9 +154,6 @@ export function taggedBucketParameterDocumentToV3(document: TaggedBucketParamete
 export interface SourceTableDocumentV3 extends SourceTableDocument {
   bucket_data_source_ids: BucketDefinitionId[];
   parameter_lookup_source_ids: ParameterIndexId[];
-  bucket_data_source_sync_config_ids?: Partial<Record<BucketDefinitionId, string[]>>;
-  parameter_lookup_source_sync_config_ids?: Partial<Record<ParameterIndexId, string[]>>;
-  event_sync_config_ids?: string[];
   latest_pending_delete?: InternalOpId | undefined;
 }
 

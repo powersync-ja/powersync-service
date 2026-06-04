@@ -666,12 +666,9 @@ streams:
       .sourceTablesV3(second.id)
       .findOne({ _id: sourceTableId });
     expect(sourceTable?.bucket_data_source_ids).toHaveLength(1);
-    expect(Object.values(sourceTable?.bucket_data_source_sync_config_ids ?? {}).sort()).toEqual(
-      stream.sync_configs.map((config) => [config._id.toHexString()]).sort()
-    );
   });
 
-  test.runIf(storageVersion >= 3)('removing one config keeps shared source-table ownership', async () => {
+  test.runIf(storageVersion >= 3)('removing one config keeps shared source-table membership', async () => {
     await using factory = await storageConfig.factory();
     const mongoFactory = factory as MongoBucketStorage;
 
@@ -708,13 +705,6 @@ streams:
     );
     expect(second.id).toEqual(first.id);
 
-    const stream = (await mongoFactory.db.sync_rules.findOne({ _id: first.id })) as ReplicationStreamDocumentV3;
-    const ownerConfigId = stream.sync_configs
-      .find((config) => config.state == storage.SyncRuleState.PROCESSING)!
-      ._id.toHexString();
-    const removedConfigId = stream.sync_configs
-      .find((config) => config.state == storage.SyncRuleState.ACTIVE)!
-      ._id.toHexString();
     const bucketStorage = mongoFactory.getInstance(second) as MongoSyncBucketStorage;
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const sourceTableId = new bson.ObjectId('6544e3899293153fa7b3834c');
@@ -729,18 +719,15 @@ streams:
 
     const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     const before = await db.sourceTablesV3(first.id).findOne({ _id: sourceTableId });
-    expect(Object.values(before?.bucket_data_source_sync_config_ids ?? {}).sort()).toEqual([
-      [ownerConfigId],
-      [removedConfigId]
-    ]);
+    expect(before?.bucket_data_source_ids).toHaveLength(2);
 
     await writer.markAllSnapshotDone('2/1');
     await writer.commit('2/1');
 
-    const after = await db.sourceTablesV3(first.id).findOne({ _id: sourceTableId });
-    const ownersAfterRemoval = Object.values(after?.bucket_data_source_sync_config_ids ?? {}).flat();
-    expect(ownersAfterRemoval).toContain(ownerConfigId);
-    expect(ownersAfterRemoval).not.toContain(removedConfigId);
+    const activeStorage = (await factory.getActiveStorage()) as MongoSyncBucketStorage;
+    await using activeWriter = await activeStorage.createWriter(test_utils.BATCH_OPTIONS);
+    const activeStatus = await activeWriter.getSourceTableStatus(resolved.tables[0]);
+    expect(activeStatus?.bucketDataSources).toHaveLength(1);
   });
 
   test.runIf(storageVersion >= 3)(

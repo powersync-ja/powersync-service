@@ -1,5 +1,4 @@
 import * as lib_mongo from '@powersync/lib-service-mongodb';
-import { mongo } from '@powersync/lib-service-mongodb';
 import { ReplicationAssertionError } from '@powersync/lib-services-framework';
 import { ColumnDescriptor, storage } from '@powersync/service-core';
 import { HydratedSyncConfig, MatchingSources } from '@powersync/service-sync-rules';
@@ -19,76 +18,11 @@ function sameStringArray(left: string[], right: string[]) {
   return left.length == right.length && left.every((value, index) => value == right[index]);
 }
 
-function mergeStableIds(existing: string[], added: Iterable<string>): string[] {
-  return [...new Set([...existing, ...added])].sort();
-}
-
-function hasSelectedOwner(owners: readonly string[] | undefined, selectedSyncConfigIds: Set<string>): boolean {
-  return owners?.some((id) => selectedSyncConfigIds.has(id)) ?? false;
-}
-
-function updateMembershipOwners<T extends string>(
-  ids: T[],
-  existingOwners: Partial<Record<T, string[]>> | undefined,
-  desiredOwners: Map<T, string[]>,
-  selectedSyncConfigIds: Set<string>,
-  options?: { addMissingDesiredIds?: boolean }
-): Partial<Record<T, string[]>> {
-  const updated: Partial<Record<T, string[]>> = {};
-  for (const id of ids) {
-    const remainingOwners = (existingOwners?.[id] ?? [...selectedSyncConfigIds]).filter(
-      (owner) => !selectedSyncConfigIds.has(owner)
-    );
-    const ownersToAdd = desiredOwners.get(id);
-    if (ownersToAdd != null) {
-      updated[id] = mergeStableIds(remainingOwners, ownersToAdd);
-    } else if (remainingOwners.length > 0) {
-      updated[id] = remainingOwners;
-    }
-  }
-
-  if (options?.addMissingDesiredIds) {
-    for (const [id, owners] of desiredOwners) {
-      if (updated[id] == null) {
-        updated[id] = owners;
-      }
-    }
-  }
-  return updated;
-}
-
-function addDesiredOwner<T extends string>(
-  owners: Map<T, string[]>,
-  id: T,
-  syncConfigId: string | undefined,
-  fallbackSyncConfigIds: string[]
-) {
-  owners.set(id, mergeStableIds(owners.get(id) ?? [], syncConfigId == null ? fallbackSyncConfigIds : [syncConfigId]));
-}
-
-function removeOwners<T extends string>(
-  ids: T[],
-  owners: Partial<Record<T, string[]>> | undefined,
-  removedSyncConfigIds: Set<string>
-): { ids: T[]; owners: Partial<Record<T, string[]>> } {
-  const retainedOwners: Partial<Record<T, string[]>> = {};
-  const retainedIds: T[] = [];
-  for (const id of ids) {
-    const retained = (owners?.[id] ?? []).filter((owner) => !removedSyncConfigIds.has(owner));
-    if (retained.length > 0) {
-      retainedIds.push(id);
-      retainedOwners[id] = retained;
-    }
-  }
-  return { ids: retainedIds, owners: retainedOwners };
-}
-
 export class MongoBucketBatchV3 extends MongoBucketBatch {
   declare public readonly db: VersionedPowerSyncMongoV3;
 
   private readonly store: SourceRecordStore;
   private readonly syncConfigIds: bson.ObjectId[];
-  private readonly syncConfigIdStrings: string[];
   private needsActivationV3 = true;
   private lastWaitingLogThrottledV3 = 0;
 
@@ -99,7 +33,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       throw new ReplicationAssertionError('Missing sync config id for v3 batch');
     }
     this.syncConfigIds = syncConfigIds;
-    this.syncConfigIdStrings = syncConfigIds.map((id) => id.toHexString()).sort();
     this.store = new SourceRecordStoreV3(this.db, this.group_id, this.mapping);
   }
 
@@ -166,27 +99,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       );
       const desiredBucketIds = new Set(bucketSourceById.keys());
       const desiredLookupIds = new Set(parameterLookupSourceById.keys());
-      const desiredBucketOwners = new Map<string, string[]>();
-      for (const source of matchingSources.bucketDataSources) {
-        addDesiredOwner(
-          desiredBucketOwners,
-          this.mapping.bucketSourceId(source),
-          this.mapping.bucketSourceSyncConfigId(source),
-          this.syncConfigIdStrings
-        );
-      }
-      const desiredLookupOwners = new Map<string, string[]>();
-      for (const source of matchingSources.parameterLookupSources) {
-        addDesiredOwner(
-          desiredLookupOwners,
-          this.mapping.parameterLookupId(source),
-          this.mapping.parameterLookupSyncConfigId(source),
-          this.syncConfigIdStrings
-        );
-      }
       const desiredHasMembership = desiredBucketIds.size > 0 || desiredLookupIds.size > 0;
       const triggersEvent = syncRules.tableTriggersEvent(ref);
-      const selectedSyncConfigIds = new Set(this.syncConfigIdStrings);
 
       const coveredBucketIds = new Set<string>();
       const coveredLookupIds = new Set<string>();
@@ -195,58 +109,25 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       let retainedEventOnlyTable = false;
 
       for (const doc of exactDocs) {
-        const bucketOwners = updateMembershipOwners(
-          doc.bucket_data_source_ids,
-          doc.bucket_data_source_sync_config_ids,
-          desiredBucketOwners,
-          selectedSyncConfigIds
-        );
-        const parameterOwners = updateMembershipOwners(
-          doc.parameter_lookup_source_ids,
-          doc.parameter_lookup_source_sync_config_ids,
-          desiredLookupOwners,
-          selectedSyncConfigIds
-        );
-        const bucketDataSourceIds = Object.keys(bucketOwners);
-        const parameterLookupSourceIds = Object.keys(parameterOwners);
-        const selectedBucketDataSourceIds = bucketDataSourceIds.filter((id) =>
-          hasSelectedOwner(bucketOwners[id], selectedSyncConfigIds)
-        );
-        const selectedParameterLookupSourceIds = parameterLookupSourceIds.filter((id) =>
-          hasSelectedOwner(parameterOwners[id], selectedSyncConfigIds)
-        );
-        const coversDesiredMembership =
-          selectedBucketDataSourceIds.length > 0 || selectedParameterLookupSourceIds.length > 0;
-        const eventOwners = mergeStableIds(
-          (doc.event_sync_config_ids ?? []).filter((id) => !selectedSyncConfigIds.has(id)),
-          triggersEvent ? selectedSyncConfigIds : []
-        );
-        const coversEventOnlyTable =
-          !desiredHasMembership &&
-          triggersEvent &&
-          hasSelectedOwner(eventOwners, selectedSyncConfigIds) &&
-          !retainedEventOnlyTable;
+        const bucketDataSourceIds = doc.bucket_data_source_ids.filter((id) => desiredBucketIds.has(id));
+        const parameterLookupSourceIds = doc.parameter_lookup_source_ids.filter((id) => desiredLookupIds.has(id));
+        const coversDesiredMembership = bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0;
+        const coversEventOnlyTable = !desiredHasMembership && triggersEvent && !retainedEventOnlyTable;
 
-        for (const id of selectedBucketDataSourceIds) {
+        for (const id of bucketDataSourceIds) {
           coveredBucketIds.add(id);
         }
-        for (const id of selectedParameterLookupSourceIds) {
+        for (const id of parameterLookupSourceIds) {
           coveredLookupIds.add(id);
         }
 
         const updates: Partial<SourceTableDocumentV3> = {};
         if (
           !sameStringArray(doc.bucket_data_source_ids, bucketDataSourceIds) ||
-          !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds) ||
-          JSON.stringify(doc.bucket_data_source_sync_config_ids ?? {}) != JSON.stringify(bucketOwners) ||
-          JSON.stringify(doc.parameter_lookup_source_sync_config_ids ?? {}) != JSON.stringify(parameterOwners) ||
-          !sameStringArray(doc.event_sync_config_ids ?? [], eventOwners)
+          !sameStringArray(doc.parameter_lookup_source_ids, parameterLookupSourceIds)
         ) {
           updates.bucket_data_source_ids = bucketDataSourceIds;
           updates.parameter_lookup_source_ids = parameterLookupSourceIds;
-          updates.bucket_data_source_sync_config_ids = bucketOwners;
-          updates.parameter_lookup_source_sync_config_ids = parameterOwners;
-          updates.event_sync_config_ids = eventOwners;
         }
         if (Object.keys(updates).length > 0) {
           await col.updateOne({ _id: doc._id }, { $set: updates }, { session });
@@ -261,16 +142,13 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             {
               ...doc,
               bucket_data_source_ids: bucketDataSourceIds,
-              parameter_lookup_source_ids: parameterLookupSourceIds,
-              bucket_data_source_sync_config_ids: bucketOwners,
-              parameter_lookup_source_sync_config_ids: parameterOwners,
-              event_sync_config_ids: eventOwners
+              parameter_lookup_source_ids: parameterLookupSourceIds
             },
             connectionTag,
             syncRules,
             {
-              bucketDataSources: selectedBucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
-              parameterLookupSources: selectedParameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
+              bucketDataSources: bucketDataSourceIds.map((id) => bucketSourceById.get(id)!),
+              parameterLookupSources: parameterLookupSourceIds.map((id) => parameterLookupSourceById.get(id)!)
             }
           );
           table.storeCurrentData = sendsCompleteRows !== true;
@@ -308,22 +186,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           snapshot_done: false,
           snapshot_status: undefined,
           bucket_data_source_ids: uncoveredBucketIds,
-          parameter_lookup_source_ids: uncoveredLookupIds,
-          bucket_data_source_sync_config_ids: updateMembershipOwners(
-            [],
-            undefined,
-            new Map(uncoveredBucketIds.map((id) => [id, desiredBucketOwners.get(id) ?? this.syncConfigIdStrings])),
-            selectedSyncConfigIds,
-            { addMissingDesiredIds: true }
-          ),
-          parameter_lookup_source_sync_config_ids: updateMembershipOwners(
-            [],
-            undefined,
-            new Map(uncoveredLookupIds.map((id) => [id, desiredLookupOwners.get(id) ?? this.syncConfigIdStrings])),
-            selectedSyncConfigIds,
-            { addMissingDesiredIds: true }
-          ),
-          event_sync_config_ids: triggersEvent ? this.syncConfigIdStrings : []
+          parameter_lookup_source_ids: uncoveredLookupIds
         };
 
         await col.insertOne(createDoc, { session });
@@ -402,17 +265,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     doc: SourceTableDocumentV3,
     syncRules: HydratedSyncConfig
   ): MatchingSources {
-    const selectedSyncConfigIds = new Set(this.syncConfigIdStrings);
-    const bucketDataSourceIds = new Set(
-      doc.bucket_data_source_ids.filter((id) =>
-        hasSelectedOwner(doc.bucket_data_source_sync_config_ids?.[id], selectedSyncConfigIds)
-      )
-    );
-    const parameterLookupSourceIds = new Set(
-      doc.parameter_lookup_source_ids.filter((id) =>
-        hasSelectedOwner(doc.parameter_lookup_source_sync_config_ids?.[id], selectedSyncConfigIds)
-      )
-    );
+    const bucketDataSourceIds = new Set(doc.bucket_data_source_ids);
+    const parameterLookupSourceIds = new Set(doc.parameter_lookup_source_ids);
 
     return {
       bucketDataSources: syncRules.bucketDataSources.filter((source) =>
@@ -650,9 +504,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         processingStates.length > 0 &&
         processingStates.every((state) => state.snapshot_done && state.last_checkpoint != null)
       ) {
-        const stoppedSyncConfigIds = states
-          .filter((state) => state.state == storage.SyncRuleState.ACTIVE)
-          .map((state) => state._id.toHexString());
         await this.db.sync_rules.updateOne(
           {
             _id: this.group_id,
@@ -672,7 +523,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
             ]
           }
         );
-        await this.removeSourceTableOwners(stoppedSyncConfigIds, session);
         activated = true;
       } else if (doc.state != storage.SyncRuleState.PROCESSING && doc.state != storage.SyncRuleState.ACTIVE) {
         this.needsActivationV3 = false;
@@ -682,61 +532,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       this.logger.info(`Activated new replication stream at ${lsn}`);
       await this.db.notifyCheckpoint();
       this.needsActivationV3 = false;
-    }
-  }
-
-  private async removeSourceTableOwners(removedSyncConfigIdList: string[], session: mongo.ClientSession) {
-    if (removedSyncConfigIdList.length == 0) {
-      return;
-    }
-
-    const removedSyncConfigIds = new Set(removedSyncConfigIdList);
-    const updates: mongo.AnyBulkWriteOperation<SourceTableDocumentV3>[] = [];
-    const sourceTables = await this.db.sourceTablesV3(this.group_id).find({}, { session }).toArray();
-    for (const sourceTable of sourceTables) {
-      const bucket = removeOwners(
-        sourceTable.bucket_data_source_ids,
-        sourceTable.bucket_data_source_sync_config_ids,
-        removedSyncConfigIds
-      );
-      const parameters = removeOwners(
-        sourceTable.parameter_lookup_source_ids,
-        sourceTable.parameter_lookup_source_sync_config_ids,
-        removedSyncConfigIds
-      );
-      const eventSyncConfigIds = (sourceTable.event_sync_config_ids ?? []).filter(
-        (id) => !removedSyncConfigIds.has(id)
-      );
-
-      if (
-        sameStringArray(sourceTable.bucket_data_source_ids, bucket.ids) &&
-        sameStringArray(sourceTable.parameter_lookup_source_ids, parameters.ids) &&
-        JSON.stringify(sourceTable.bucket_data_source_sync_config_ids ?? {}) == JSON.stringify(bucket.owners) &&
-        JSON.stringify(sourceTable.parameter_lookup_source_sync_config_ids ?? {}) ==
-          JSON.stringify(parameters.owners) &&
-        sameStringArray(sourceTable.event_sync_config_ids ?? [], eventSyncConfigIds)
-      ) {
-        continue;
-      }
-
-      updates.push({
-        updateOne: {
-          filter: { _id: sourceTable._id },
-          update: {
-            $set: {
-              bucket_data_source_ids: bucket.ids,
-              parameter_lookup_source_ids: parameters.ids,
-              bucket_data_source_sync_config_ids: bucket.owners,
-              parameter_lookup_source_sync_config_ids: parameters.owners,
-              event_sync_config_ids: eventSyncConfigIds
-            }
-          }
-        }
-      });
-    }
-
-    if (updates.length > 0) {
-      await this.db.sourceTablesV3(this.group_id).bulkWrite(updates, { session, ordered: false });
     }
   }
 

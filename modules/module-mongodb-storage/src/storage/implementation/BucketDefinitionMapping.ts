@@ -139,10 +139,6 @@ export class BucketDefinitionMapping {
     return this.bucketSourceIdByName(source.uniqueName);
   }
 
-  bucketSourceSyncConfigId(_source: BucketDataSource): string | undefined {
-    return undefined;
-  }
-
   bucketSourceIdByName(uniqueName: string): BucketDefinitionId {
     const defId = this.definitions[uniqueName];
     if (defId == null) {
@@ -163,10 +159,6 @@ export class BucketDefinitionMapping {
     return this.parameterLookupIdByKey(parameterLookupKey(source.sourceId));
   }
 
-  parameterLookupSyncConfigId(_source: ParameterIndexLookupCreator): string | undefined {
-    return undefined;
-  }
-
   parameterLookupIdByKey(key: string): ParameterIndexId {
     const defId = this.parameterLookupMapping[key];
     if (defId == null) {
@@ -185,9 +177,9 @@ export class BucketDefinitionMapping {
 
 export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapping {
   private bucketDataSourceMappings = new WeakMap<BucketDataSource, BucketDefinitionMapping>();
-  private bucketDataSourceSyncConfigIds = new WeakMap<BucketDataSource, string>();
+  private bucketDataSourceMappingsByName = new Map<string, SyncConfigWithRequiredMapping[]>();
   private parameterLookupMappings = new WeakMap<ParameterIndexLookupCreator, BucketDefinitionMapping>();
-  private parameterLookupSyncConfigIds = new WeakMap<ParameterIndexLookupCreator, string>();
+  private parameterLookupMappingsByKey = new Map<string, SyncConfigWithRequiredMapping[]>();
   private mappings: BucketDefinitionMapping[];
 
   constructor(syncConfigs: SyncConfigWithRequiredMapping[]) {
@@ -197,29 +189,26 @@ export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapp
     for (const config of syncConfigs) {
       for (const source of config.syncConfig.config.bucketDataSources) {
         this.bucketDataSourceMappings.set(source, config.mapping);
-        if (config.syncConfigId != null) {
-          this.bucketDataSourceSyncConfigIds.set(source, config.syncConfigId);
-        }
+        addMappingEntry(this.bucketDataSourceMappingsByName, source.uniqueName, config);
       }
       for (const source of config.syncConfig.config.bucketParameterLookupSources) {
         this.parameterLookupMappings.set(source, config.mapping);
-        if (config.syncConfigId != null) {
-          this.parameterLookupSyncConfigIds.set(source, config.syncConfigId);
-        }
+        addMappingEntry(this.parameterLookupMappingsByKey, parameterLookupKey(source.sourceId), config);
       }
     }
   }
 
   bucketSourceId(source: BucketDataSource): BucketDefinitionId {
     const mapping = this.bucketDataSourceMappings.get(source);
-    if (mapping == null) {
+    if (mapping != null) {
+      return mapping.bucketSourceId(source);
+    }
+
+    const id = this.unambiguousBucketSourceIdByName(source.uniqueName);
+    if (id == null) {
       throw new ServiceAssertionError(`No mapping found for bucket source ${source.uniqueName}`);
     }
-    return mapping.bucketSourceId(source);
-  }
-
-  bucketSourceSyncConfigId(source: BucketDataSource): string | undefined {
-    return this.bucketDataSourceSyncConfigIds.get(source);
+    return id;
   }
 
   allBucketDefinitionIds(): BucketDefinitionId[] {
@@ -228,23 +217,47 @@ export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapp
 
   parameterLookupId(source: ParameterIndexLookupCreator): ParameterIndexId {
     const mapping = this.parameterLookupMappings.get(source);
-    if (mapping == null) {
+    if (mapping != null) {
+      return mapping.parameterLookupId(source);
+    }
+
+    const key = parameterLookupKey(source.sourceId);
+    const id = this.unambiguousParameterLookupIdByKey(key);
+    if (id == null) {
       throw new ServiceAssertionError(
         `No mapping found for parameter lookup source ${source.sourceId.lookupName}#${source.sourceId.queryId}`
       );
     }
-    return mapping.parameterLookupId(source);
-  }
-
-  parameterLookupSyncConfigId(source: ParameterIndexLookupCreator): string | undefined {
-    return this.parameterLookupSyncConfigIds.get(source);
+    return id;
   }
 
   allParameterIndexIds(): ParameterIndexId[] {
     return [...new Set(this.mappings.flatMap((mapping) => mapping.allParameterIndexIds()))];
   }
+
+  private unambiguousBucketSourceIdByName(uniqueName: string): BucketDefinitionId | null {
+    const entries = this.bucketDataSourceMappingsByName.get(uniqueName) ?? [];
+    const ids = new Set(entries.map((entry) => entry.mapping.bucketSourceIdByName(uniqueName)));
+    return ids.size == 1 ? [...ids][0] : null;
+  }
+
+  private unambiguousParameterLookupIdByKey(key: string): ParameterIndexId | null {
+    const entries = this.parameterLookupMappingsByKey.get(key) ?? [];
+    const ids = new Set(entries.map((entry) => entry.mapping.parameterLookupIdByKey(key)));
+    return ids.size == 1 ? [...ids][0] : null;
+  }
 }
 
 export function parameterLookupKey(id: ParameterLookupDefinitionId) {
   return `${id.lookupName}#${id.queryId}`;
+}
+
+function addMappingEntry(
+  map: Map<string, SyncConfigWithRequiredMapping[]>,
+  key: string,
+  config: SyncConfigWithRequiredMapping
+) {
+  const existing = map.get(key) ?? [];
+  existing.push(config);
+  map.set(key, existing);
 }
