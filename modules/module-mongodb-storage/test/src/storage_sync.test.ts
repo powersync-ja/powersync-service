@@ -676,7 +676,7 @@ streams:
       updateSyncRulesFromYaml(
         `
 config:
-  edition: 2
+  edition: 3
 
 streams:
   by_owner:
@@ -694,7 +694,7 @@ streams:
       updateSyncRulesFromYaml(
         `
 config:
-  edition: 2
+  edition: 3
 
 streams:
   by_project:
@@ -761,12 +761,12 @@ streams:
       const second = await factory.updateSyncRules(
         updateSyncRulesFromYaml(
           `
-	config:
-	  edition: 3
+config:
+  edition: 3
 
-	streams:
-	  by_project:
-	    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
+streams:
+  by_project:
+    query: SELECT * FROM todos WHERE project_id = subscription.parameter('project_id')
 `,
           { storageVersion }
         )
