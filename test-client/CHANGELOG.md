@@ -1,5 +1,21 @@
 # test-client
 
+## 0.1.74
+
+### Patch Changes
+
+- b116857: Resolve `!env` tags when the test client parses `powersync.yaml`, and add an optional `--env <path>` flag to load a `.env` file first.
+- Updated dependencies [17fd96b]
+- Updated dependencies [6e2a57e]
+- Updated dependencies [ec6df9f]
+- Updated dependencies [99d33d5]
+- Updated dependencies [e2bf1ad]
+- Updated dependencies [92cc83b]
+- Updated dependencies [15e2466]
+- Updated dependencies [ebeaa3b]
+- Updated dependencies [b116857]
+  - @powersync/service-core@1.22.0
+
 ## 0.1.73
 
 ### Patch Changes

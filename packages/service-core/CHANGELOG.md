@@ -1,5 +1,36 @@
 # @powersync/service-core
 
+## 1.22.0
+
+### Minor Changes
+
+- e2bf1ad: [Internal] rework resolveTables to handle multiple SourceTables.
+- 92cc83b: Add the experimental `unstable_sqlite_expression_engine` sync config option to evaluate Sync Streams with SQLite.
+- 15e2466: [MongoDB] Support snapshotting concurrently with streaming in storage v3+.
+- ebeaa3b: [Postgres] Skip storing a redundant copy of replicated rows in `current_data` for tables with `REPLICA IDENTITY FULL`.
+
+### Patch Changes
+
+- 17fd96b: Fix duration logs for "Processing batch"
+- 6e2a57e: Refactor HydratedSyncConfig to support multiple SyncConfigs.
+- ec6df9f: Add a custom Fastify error handler so uncaught errors honour the negotiated `Content-Encoding` (gzip/zstd) instead of returning a header that doesn't match the body.
+- 99d33d5: Normalize socket addresses to bare hostnames before IP-range validation, so direct-IP literals with any port form are recognized as IPs.
+- b116857: Resolve `!env` tags when the test client parses `powersync.yaml`, and add an optional `--env <path>` flag to load a `.env` file first.
+- Updated dependencies [6e2a57e]
+- Updated dependencies [99d33d5]
+- Updated dependencies [cae92ce]
+- Updated dependencies [5ac5345]
+- Updated dependencies [15cb880]
+- Updated dependencies [f2f5086]
+- Updated dependencies [5b1b215]
+- Updated dependencies [e2bf1ad]
+- Updated dependencies [92cc83b]
+- Updated dependencies [0aab0f9]
+- Updated dependencies [a94b6c3]
+  - @powersync/service-sync-rules@0.37.0
+  - @powersync/lib-services-framework@0.9.5
+  - @powersync/service-rsocket-router@0.2.21
+
 ## 1.21.0
 
 ### Minor Changes
