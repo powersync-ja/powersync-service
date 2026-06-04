@@ -1,3 +1,5 @@
+import * as sqlite from 'node:sqlite';
+
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import {
@@ -7,6 +9,7 @@ import {
   DEFAULT_HYDRATION_STATE,
   HydratedSyncConfig,
   HydrationState,
+  nodeSqlite,
   ParameterIndexLookupCreator,
   ParameterLookupScope,
   SyncConfigWithErrors,
@@ -45,7 +48,10 @@ export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
   }
 
   hydratedSyncConfig(): HydratedSyncConfig {
-    return this.syncConfigWithErrors.config.hydrate({ hydrationState: this.hydrationState });
+    return this.syncConfigWithErrors.config.hydrate({
+      hydrationState: this.hydrationState,
+      sqlite: nodeSqlite(sqlite)
+    });
   }
 }
 

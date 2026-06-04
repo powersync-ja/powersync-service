@@ -25,4 +25,10 @@ export interface SourceEntityDescriptor extends SourceTableRef {
    *  The columns that are used to uniquely identify a record in the source entity.
    */
   replicaIdColumns: ColumnDescriptor[];
+  /**
+   * Whether the source always sends complete row data with each operation (e.g. Postgres REPLICA
+   * IDENTITY FULL). When true, no current_data copy is needed. Undefined means the source does not
+   * report this, in which case we default to keeping a copy.
+   */
+  sendsCompleteRows?: boolean;
 }

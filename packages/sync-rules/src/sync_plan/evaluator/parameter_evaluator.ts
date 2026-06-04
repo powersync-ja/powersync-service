@@ -6,6 +6,7 @@ import { RequestParameters, SqliteParameterValue, SqliteValue } from '../../type
 import { isValidParameterValue } from '../../utils.js';
 import {
   mapExternalDataToInstantiation,
+  ScalarExpressionEngine,
   TableValuedFunction,
   TableValuedFunctionOutput
 } from '../engine/scalar_expression_engine.js';
@@ -149,12 +150,14 @@ export class RequestParameterEvaluators {
    * @param values The {@link plan.StreamQuerier.sourceInstantiation} of the querier to compile.
    * @param input Access to bucket and parameter sources generated for buckets and parameter lookups referenced by the
    * querier.
+   * @param engine The scalar SQL engine used to evaluate operators and functions on request data.
    */
   static prepare(
     stream: plan.StreamOptions,
     lookupStages: plan.ExpandingLookup[][],
     values: plan.ParameterValue[],
-    input: StreamInput
+    input: StreamInput,
+    engine: ScalarExpressionEngine
   ) {
     const mappedStages: PreparedExpandingLookup[][] = [];
     const lookupToStage = new Map<plan.ExpandingLookup, { stage: number; index: number }>();
@@ -163,7 +166,7 @@ export class RequestParameterEvaluators {
       if (value.type == 'request') {
         // Prepare an expression evaluating the expression derived from request data.
         const mapper = mapExternalDataToInstantiation<plan.RequestSqlParameterValue>();
-        const prepared = input.engine.prepareEvaluator({ filters: [], outputs: [mapper.transform(value.expr)] });
+        const prepared = engine.prepareEvaluator({ filters: [], outputs: [mapper.transform(value.expr)] });
         const instantiation = mapper.instantiation;
 
         return {
@@ -213,7 +216,7 @@ export class RequestParameterEvaluators {
             })
           );
 
-          const prepared = input.engine.prepareEvaluator({
+          const prepared = engine.prepareEvaluator({
             tableValuedFunctions: [fn],
             outputs: lookup.outputs.map((e) => visitExpr(mapOutputs, e, null)),
             filters: lookup.filters.map((e) => visitExpr(mapOutputs, e, null))

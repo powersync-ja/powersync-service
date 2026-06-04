@@ -1,6 +1,12 @@
 import { BasicRouterRequest, Context, JwtPayload, SyncRulesBucketStorage } from '@/index.js';
-import { RouterResponse, ServiceError, logger } from '@powersync/lib-services-framework';
-import { DEFAULT_HYDRATION_STATE, SqlSyncRules } from '@powersync/service-sync-rules';
+import { logger, RouterResponse, ServiceError } from '@powersync/lib-services-framework';
+import {
+  DEFAULT_HYDRATION_STATE,
+  HydrateSyncConfigParams,
+  nodeSqlite,
+  SqlSyncRules
+} from '@powersync/service-sync-rules';
+import * as sqlite from 'node:sqlite';
 import { Readable, Writable } from 'stream';
 import { pipeline } from 'stream/promises';
 import { describe, expect, it } from 'vitest';
@@ -10,6 +16,11 @@ import { DEFAULT_PARAM_LOGGING_FORMAT_OPTIONS, limitParamsForLogging } from '../
 import { mockServiceContext } from './mocks.js';
 
 describe('Stream Route', () => {
+  const defaultHydrationOptions: HydrateSyncConfigParams = {
+    hydrationState: DEFAULT_HYDRATION_STATE,
+    sqlite: nodeSqlite(sqlite)
+  };
+
   describe('compressed stream', () => {
     it('handles missing sync rules', async () => {
       const context: Context = {
@@ -45,7 +56,7 @@ describe('Stream Route', () => {
 
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+          return new SqlSyncRules('bucket_definitions: {}').hydrate(defaultHydrationOptions);
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');
@@ -83,7 +94,7 @@ describe('Stream Route', () => {
     it('logs the application metadata', async () => {
       const storage = {
         getParsedSyncRules() {
-          return new SqlSyncRules('bucket_definitions: {}').hydrate({ hydrationState: DEFAULT_HYDRATION_STATE });
+          return new SqlSyncRules('bucket_definitions: {}').hydrate(defaultHydrationOptions);
         },
         watchCheckpointChanges: async function* (options) {
           throw new Error('Simulated storage error');

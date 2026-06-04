@@ -13,9 +13,8 @@ import {
   TimeValuePrecision
 } from '@powersync/service-sync-rules';
 
-import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
+import { ErrorCode, logger, ServiceAssertionError, ServiceError } from '@powersync/lib-services-framework';
 import { MongoLSN } from '../common/MongoLSN.js';
-import { CHECKPOINTS_COLLECTION } from './replication-utils.js';
 
 export function getMongoRelation(
   source: mongo.ChangeStreamNameSpace,
@@ -179,30 +178,53 @@ export async function createCheckpoint(
   db: mongo.Db,
   id: mongo.ObjectId | string
 ): Promise<string> {
-  const session = client.startSession();
-  try {
-    // We use an unique id per process, and clear documents on startup.
-    // This is so that we can filter events for our own process only, and ignore
-    // events from other processes.
-    await db.collection(CHECKPOINTS_COLLECTION).findOneAndUpdate(
-      {
-        _id: id as any
-      },
-      {
-        $inc: { i: 1 }
-      },
-      {
-        upsert: true,
-        returnDocument: 'after',
-        session
+  const TRIES = 2;
+  for (let i = 0; i < TRIES; i++) {
+    try {
+      return await createCheckpointInner(client, db, id);
+    } catch (e) {
+      if (i < TRIES - 1) {
+        logger.warn(`Failed to create checkpoint on attempt ${i + 1}`, e);
+      } else {
+        throw e;
       }
-    );
-    const time = session.operationTime!;
-    // TODO: Use the above when we support custom write checkpoints
-    return new MongoLSN({ timestamp: time }).comparable;
-  } finally {
-    await session.endSession();
+    }
   }
+  throw new ServiceAssertionError(`Unreachable code`);
+}
+
+async function createCheckpointInner(
+  client: mongo.MongoClient,
+  db: mongo.Db,
+  id: mongo.ObjectId | string
+): Promise<string> {
+  // We use an unique id per process, and clear documents on startup.
+  // This is so that we can filter events for our own process only, and ignore
+  // events from other processes.
+
+  // We use a command instead of a regular update to avoid auto retries on writes.
+  // An auto retry on the write can trigger a weird edge case where the change stream event
+  // has the clusterTime of the first write, while the returned operation time is for the second no-op write.
+  // Instead, we do manual retries, which does not have the same write de-duplication logic.
+  // A sentinal-based approach would be better here, but that is a much bigger change.
+
+  const response = await db.command({
+    findAndModify: '_powersync_checkpoints',
+    query: {
+      _id: id as any
+    },
+    new: true,
+    upsert: true,
+    update: {
+      $inc: { i: 1 }
+    }
+  });
+
+  const time = response.operationTime as mongo.Timestamp | undefined;
+  if (time == null) {
+    throw new ServiceError(ErrorCode.PSYNC_S1004, `clusterTime not available for checkpoint`);
+  }
+  return new MongoLSN({ timestamp: time }).comparable;
 }
 
 const mongoTimeOptions: DateTimeSourceOptions = {

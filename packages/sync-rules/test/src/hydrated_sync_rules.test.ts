@@ -1,10 +1,20 @@
+import * as sqlite from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 import { DEFAULT_HYDRATION_STATE } from '../../src/HydrationState.js';
-import { HydratedSyncConfig, ScopedParameterLookup, SqlSyncRules } from '../../src/index.js';
+import {
+  HydratedSyncConfig,
+  HydrateSyncConfigParams,
+  nodeSqlite,
+  ScopedParameterLookup,
+  SqlSyncRules
+} from '../../src/index.js';
 import { ASSETS, lookupScope, PARSE_OPTIONS, USERS } from './util.js';
 
 describe('hydrated sync rules', () => {
-  const hydrationParams = { hydrationState: DEFAULT_HYDRATION_STATE };
+  const hydrationParams: HydrateSyncConfigParams = {
+    hydrationState: DEFAULT_HYDRATION_STATE,
+    sqlite: nodeSqlite(sqlite)
+  };
 
   test('can evaluate rows across multiple sync configs', () => {
     const { config: first } = SqlSyncRules.fromYaml(

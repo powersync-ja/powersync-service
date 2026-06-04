@@ -234,6 +234,30 @@ export class WalStreamTestContext implements AsyncDisposable {
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
   }
+
+  /**
+   * Get resolved tables for testing table-level configuration.
+   *
+   * There is no "list all tables" storage method, so we re-run the same resolution the WAL stream
+   * does during the initial snapshot: for every source-table pattern, read the relation (including
+   * its replica identity) from Postgres and resolve it via a writer. Resolution is idempotent, so
+   * this returns the persisted SourceTable for each table, with the computed `storeCurrentData`.
+   */
+  async getResolvedTables(): Promise<storage.SourceTable[]> {
+    if (this.storage == null) {
+      throw new Error('updateSyncRules() first');
+    }
+    const db = await this.connectionManager.snapshotConnection();
+    // Release the backend per call - the connection manager otherwise holds it until dispose.
+    await using _ = { [Symbol.asyncDispose]: () => db.end() };
+    await using writer = await this.storage.createWriter(test_utils.BATCH_OPTIONS);
+    const result: storage.SourceTable[] = [];
+    for (const tablePattern of this.walStream.sync_rules.getSourceTables()) {
+      const tables = await this.walStream.getQualifiedTableNames(writer, db, tablePattern);
+      result.push(...tables);
+    }
+    return result;
+  }
 }
 
 export async function withMaxWalSize(db: pgwire.PgClient, size: string) {

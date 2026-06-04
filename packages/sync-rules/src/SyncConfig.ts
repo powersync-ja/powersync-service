@@ -1,4 +1,9 @@
-import { BucketDataSource, BucketSource, CreateSourceParams, ParameterIndexLookupCreator } from './BucketSource.js';
+import {
+  BucketDataSource,
+  BucketSource,
+  HydrateSyncConfigParams,
+  ParameterIndexLookupCreator
+} from './BucketSource.js';
 import { CompatibilityContext } from './compatibility.js';
 import { YamlError } from './errors.js';
 import { SqlEventDescriptor } from './events/SqlEventDescriptor.js';
@@ -42,7 +47,7 @@ export abstract class SyncConfig {
    *
    * @param params.hydrationState Transforms bucket ids based on persisted state.
    */
-  hydrate(params: CreateSourceParams): HydratedSyncConfig {
+  hydrate(params: HydrateSyncConfigParams): HydratedSyncConfig {
     return new HydratedSyncConfig({
       definitions: [this],
       createParams: params

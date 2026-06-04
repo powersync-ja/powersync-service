@@ -5,7 +5,6 @@ import {
   DEFAULT_TAG,
   deserializeSyncPlan,
   ExpressionType,
-  javaScriptExpressionEngine,
   PrecompiledSyncConfig,
   SourceTableDefinition,
   sqlTypeName,
@@ -41,8 +40,6 @@ describe('schema inference', () => {
     const serializedPlan = compileSingleStreamAndSerialize(...queries);
     const plan = deserializeSyncPlan(serializedPlan);
     const rules = new PrecompiledSyncConfig(plan, new CompatibilityContext({ edition: 3 }), [], {
-      // Engine isn't actually used here, but required to load sync plan
-      engine: javaScriptExpressionEngine(CompatibilityContext.FULL_BACKWARDS_COMPATIBILITY),
       sourceText: '',
       defaultSchema: 'test_schema'
     });
