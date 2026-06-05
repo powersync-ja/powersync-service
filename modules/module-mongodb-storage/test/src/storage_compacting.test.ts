@@ -544,8 +544,14 @@ bucket_definitions:
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     const allOps = docs.flatMap((d) => d.ops);
     const moveOps = allOps.filter((op) => op.op === 'MOVE');
-    expect(moveOps.length).toBe(2);
-    expect(moveOps.map((op) => op.o).sort()).toEqual([10n, 20n]);
+    // Pre-existing MOVE@20 + new MOVE@10 are collapsed into CLEAR
+    expect(moveOps.length).toBe(0);
+    const clearOps = allOps.filter((op) => op.op === 'CLEAR');
+    expect(clearOps.length).toBe(1);
+    expect(clearOps[0].o).toBe(20n);
+    const putOps = allOps.filter((op) => op.op === 'PUT');
+    expect(putOps.length).toBe(1);
+    expect(putOps[0].o).toBe(30n);
   });
 
   test('6. compaction survivor integrity - CLEAR ops preserved', async () => {
@@ -581,14 +587,12 @@ bucket_definitions:
 
     const docs = await collection.find({ '_id.b': BUCKET }).toArray();
     const allOps = docs.flatMap((d) => d.ops);
-    const putOps = allOps.filter((op) => op.op === 'PUT');
-    expect(putOps.length).toBe(0);
-    const removeOps = allOps.filter((op) => op.op === 'REMOVE');
-    expect(removeOps.length).toBe(1);
-    expect(removeOps[0].o).toBe(20n);
-    const moveOps = allOps.filter((op) => op.op === 'MOVE');
-    expect(moveOps.length).toBe(1);
-    expect(moveOps[0].o).toBe(10n);
+    // MOVE@10 + REMOVE@20 collapsed into CLEAR@20
+    const clearOps = allOps.filter((op) => op.op === 'CLEAR');
+    expect(clearOps.length).toBe(1);
+    expect(clearOps[0].o).toBe(20n);
+    expect(allOps.filter((op) => op.op === 'REMOVE').length).toBe(0);
+    expect(allOps.filter((op) => op.op === 'MOVE').length).toBe(0);
   });
 
   test('7. empty bucket compact is a no-op', async () => {
@@ -1093,10 +1097,8 @@ bucket_definitions:
     await compact(bucketStorage, 30n);
 
     const surviving = await readAllOps(collection);
-    expect(surviving).toHaveLength(3);
-    expect(surviving[0]).toMatchObject({ op: 'MOVE', o: 10n });
-    expect(surviving[1]).toMatchObject({ op: 'MOVE', o: 20n });
-    expect(surviving[2]).toMatchObject({ row_id: 'A', o: 30n, op: 'REMOVE' });
+    expect(surviving).toHaveLength(1);
+    expect(surviving[0]).toMatchObject({ op: 'CLEAR', o: 30n });
   });
 
   test('5. one surviving PUT per document plus MOVE tombstones', async () => {
@@ -1298,10 +1300,10 @@ bucket_definitions:
     expect(checksumAfter).toBe(checksumBefore);
 
     const allOpsAfter = docsAfter.flatMap((d) => d.ops);
-    expect(allOpsAfter.length).toBe(5);
-    const moveOps = allOpsAfter.filter((op) => op.op === 'MOVE');
-    expect(moveOps.length).toBe(2);
-    expect(moveOps.map((op) => op.o).sort()).toEqual([10n, 20n]);
+    // Two MOVEs collapsed into one CLEAR
+    expect(allOpsAfter.length).toBe(4);
+    const clearOps = allOpsAfter.filter((op) => op.op === 'CLEAR');
+    expect(clearOps.length).toBe(1);
   });
 
   test('checksum preserved across compaction with multiple documents', async () => {
@@ -1327,10 +1329,10 @@ bucket_definitions:
     expect(checksumAfter).toBe(checksumBefore);
 
     const allOpsAfter = docsAfter.flatMap((d) => d.ops);
-    expect(allOpsAfter.length).toBe(6);
-    const moveOps = allOpsAfter.filter((op) => op.op === 'MOVE');
-    expect(moveOps.length).toBe(2);
-    expect(moveOps.map((op) => op.o).sort()).toEqual([10n, 20n]);
+    // Two MOVEs collapsed into one CLEAR
+    expect(allOpsAfter.length).toBe(5);
+    const clearOps = allOpsAfter.filter((op) => op.op === 'CLEAR');
+    expect(clearOps.length).toBe(1);
   });
 
   test('tombstones have null data and pack densely after rechunking', async () => {
@@ -1952,5 +1954,129 @@ bucket_definitions:
     // Checksum must be preserved across compaction
     const checksumAfter = docsAfter.reduce((sum, d) => addChecksums(sum, Number(d.checksum)), 0);
     expect(checksumAfter).toBe(checksumBefore);
+  });
+
+  describe('V3 CLEAR pass', () => {
+    async function doCompact(bucketStorage: MongoSyncBucketStorage, maxOpId: bigint) {
+      await bucketStorage.compact({
+        clearBatchLimit: 200,
+        moveBatchLimit: 10,
+        moveBatchQueryLimit: 10,
+        minBucketChanges: 1,
+        minChangeRatio: 0,
+        maxOpId,
+        signal: null as any
+      });
+    }
+
+    // Helper to find a CLEAR op in a bucket
+    async function hasClearOp(collection: any): Promise<boolean> {
+      const allOps = await readAllOps(collection);
+      return allOps.some((op) => op.op === 'CLEAR');
+    }
+
+    // Helper to assert checksum preservation before/after compact
+    async function assertChecksumPreserved(collection: any, compactFn: () => Promise<void>) {
+      const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+      const checksumBefore = docsBefore.reduce((sum: number, d: any) => addChecksums(sum, Number(d.checksum)), 0);
+      await compactFn();
+      const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
+      const checksumAfter = docsAfter.reduce((sum: number, d: any) => addChecksums(sum, Number(d.checksum)), 0);
+      expect(checksumAfter).toBe(checksumBefore);
+    }
+
+    test('duplicate rows produce CLEAR op', async () => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+      const doc = serializeBucketData(BUCKET, [
+        makeOp(10, 'A', 'a1', ctx, sourceTableId),
+        makeOp(20, 'A', 'a2', ctx, sourceTableId),
+        makeOp(30, 'A', 'a3', ctx, sourceTableId)
+      ]);
+      await insertDocs(collection, [doc]);
+      await insertBucketState(bucketStateCollection, ctx.definitionId, 30n);
+
+      await doCompact(bucketStorage, 30n);
+
+      expect(await hasClearOp(collection)).toBe(true);
+    });
+
+    test('unique rows produce no CLEAR op', async () => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+      const doc = serializeBucketData(BUCKET, [
+        makeOp(10, 'A', 'a1', ctx, sourceTableId),
+        makeOp(20, 'B', 'b1', ctx, sourceTableId)
+      ]);
+      await insertDocs(collection, [doc]);
+      await insertBucketState(bucketStateCollection, ctx.definitionId, 20n);
+
+      await doCompact(bucketStorage, 20n);
+
+      expect(await hasClearOp(collection)).toBe(false);
+      const allOps = await readAllOps(collection);
+      expect(allOps.length).toBe(2);
+      expect(allOps.every((op) => op.op === 'PUT')).toBe(true);
+    });
+
+    test('end-to-end: duplicate + unique rows, checksum preserved', async () => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+      const doc = serializeBucketData(BUCKET, [
+        makeOp(10, 'A', 'a1', ctx, sourceTableId),
+        makeOp(20, 'A', 'a2', ctx, sourceTableId),
+        makeOp(30, 'B', 'b1', ctx, sourceTableId),
+        makeOp(40, 'A', 'a3', ctx, sourceTableId)
+      ]);
+      await insertDocs(collection, [doc]);
+      await insertBucketState(bucketStateCollection, ctx.definitionId, 40n);
+
+      await assertChecksumPreserved(collection, () => doCompact(bucketStorage, 40n));
+
+      expect(await hasClearOp(collection)).toBe(true);
+      const allOps = await readAllOps(collection);
+      const putOps = allOps.filter((op) => op.op === 'PUT');
+      expect(putOps.length).toBe(2);
+      expect(putOps.some((op) => op.row_id === 'B' && op.o === 30n)).toBe(true);
+      expect(putOps.some((op) => op.row_id === 'A' && op.o === 40n)).toBe(true);
+    });
+
+    // 15 MOVE ops, each in its own document. moveBatchQueryLimit=1
+    // forces the MOVE pass to produce 15 separate rechunked documents
+    // (one per batch). clearBatchLimit=5 forces the CLEAR read loop
+    // to paginate through 3 iterations.
+    test('read pagination iterates across multiple read batches', async () => {
+      const { bucketStorage, collection, bucketStateCollection, ctx, sourceTableId } = await setupV3();
+
+      const docs: BucketDataDocumentV3[] = [];
+      for (let i = 1; i <= 15; i++) {
+        const op = { ...makeOp(i, `row_${i}`, '', ctx, sourceTableId), op: 'MOVE' as const, data: null };
+        docs.push(serializeBucketData(BUCKET, [op]));
+      }
+      await insertDocs(collection, docs);
+      await insertBucketState(bucketStateCollection, ctx.definitionId, 15n);
+
+      const docsBefore = await collection.find({ '_id.b': BUCKET }).toArray();
+      const checksumBefore = docsBefore.reduce((sum: number, d: any) => addChecksums(sum, Number(d.checksum)), 0);
+
+      await bucketStorage.compact({
+        clearBatchLimit: 5,
+        moveBatchLimit: 1,
+        moveBatchQueryLimit: 1,
+        minBucketChanges: 1,
+        minChangeRatio: 0,
+        maxOpId: 15n,
+        signal: null as any
+      });
+
+      const docsAfter = await collection.find({ '_id.b': BUCKET }).toArray();
+      const checksumAfter = docsAfter.reduce((sum: number, d: any) => addChecksums(sum, Number(d.checksum)), 0);
+      expect(checksumAfter).toBe(checksumBefore);
+
+      expect(await hasClearOp(collection)).toBe(true);
+      const allOps = await readAllOps(collection);
+      expect(allOps.length).toBe(1);
+      expect(allOps[0].op).toBe('CLEAR');
+    });
   });
 });

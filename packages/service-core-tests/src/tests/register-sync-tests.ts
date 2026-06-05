@@ -1193,17 +1193,17 @@ bucket_definitions:
     expect(lines2).toMatchSnapshot();
 
     if (options.compressedBucketStorage) {
-      // v3+ converts superseded ops to MOVE tombstones during compaction.
-      // The client receives MOVE ops for the superseded operations, followed
-      // by a checkpoint_complete.
+      // v3+ converts superseded ops to MOVE tombstones during the MOVE pass,
+      // then the CLEAR pass collapses the leading MOVE sequence into a CLEAR op.
       expect(lines2[0]).toEqual({
         data: expect.objectContaining({
           has_more: false,
-          data: expect.arrayContaining([
+          data: [
+            // The first two ops have been replaced by a single CLEAR op
             expect.objectContaining({
-              op: 'MOVE'
+              op: 'CLEAR'
             })
-          ])
+          ]
         })
       });
     } else {

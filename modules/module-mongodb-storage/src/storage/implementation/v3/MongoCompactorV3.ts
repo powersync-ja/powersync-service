@@ -387,6 +387,20 @@ export class MongoCompactorV3 extends MongoCompactor {
       this.logger.info(`Compacted batch of ${batchDocs.length} documents for bucket ${bucket}`);
     }
 
+    // --- Clear: collapse leading MOVE/REMOVE/CLEAR sequence ---
+    if (lastNotPut != null && opsSincePut >= 2) {
+      const cleared = await this.clearBucketLeading(
+        lastNotPut,
+        bucketContext,
+        collection,
+        context,
+        resolvedDefinitionId
+      );
+      if (cleared > 0) {
+        totalOpCount = totalOpCount - cleared + 1; // cleared ops replaced by one CLEAR op
+      }
+    }
+
     // --- Finalize: update bucket checksums and state ---
     this.updateBucketChecksums({
       bucket,
@@ -405,5 +419,200 @@ export class MongoCompactorV3 extends MongoCompactor {
     }
 
     logger.info(`Compacted bucket ${bucket}: ${totalOpCount} surviving ops`);
+  }
+
+  /**
+   * Collapse the leading sequence of MOVE/REMOVE/CLEAR ops at the start
+   * of the bucket into a single CLEAR op. Reads forward (ascending) from
+   * minId up to lastNotPut, then replaces all cleared documents in one
+   * atomic transaction.
+   *
+   * Returns the number of ops collapsed (for bucket state adjustment).
+   */
+  private async clearBucketLeading(
+    lastNotPut: bigint,
+    bucketContext: SingleBucketStore,
+    collection: mongo.Collection<BucketDataDocumentV3 & { bsonSize?: number | bigint }>,
+    context: { replicationStreamId: number; definitionId: string },
+    resolvedDefinitionId: string
+  ): Promise<number> {
+    const bucket = bucketContext.key.bucket;
+    const lowerBound = bucketContext.minId;
+    let highestSeenOp = 0n;
+
+    const idsToDelete: BucketDataDocumentV3['_id'][] = [];
+    let combinedChecksum = 0n;
+    let clearedOpCount = 0;
+    let maxTargetOp: bigint | null = null;
+    const boundarySurvivors: BucketDataDoc[] = [];
+
+    let expectedDocCount = 0;
+    let expectedChecksum = 0n;
+    let expectedOpCount = 0;
+
+    // --- Read: paginate ascending, collect docs to delete ---
+    while (true) {
+      this.signal?.throwIfAborted();
+
+      const pipeline: mongo.Document[] = [
+        {
+          $match: {
+            '_id.b': bucket,
+            _id: {
+              $gt: { b: bucket, o: highestSeenOp }
+            }
+          }
+        },
+        { $sort: { _id: 1 } },
+        { $limit: this.clearBatchLimit },
+        {
+          $project: {
+            _id: 1,
+            min_op: 1,
+            checksum: 1,
+            count: 1,
+            target_op: 1,
+            ops: 1
+          }
+        }
+      ];
+
+      const rawBatch = await collection.aggregate(pipeline).toArray();
+
+      if (rawBatch.length == 0) {
+        break;
+      }
+
+      let boundaryFound = false;
+
+      for (const doc of rawBatch) {
+        if (doc.min_op > lastNotPut) {
+          boundaryFound = true;
+          break;
+        }
+
+        if (doc._id.o > lastNotPut) {
+          // Boundary inside this document: split
+          boundaryFound = true;
+          idsToDelete.push(doc._id);
+          expectedDocCount++;
+          expectedChecksum += doc.checksum;
+          expectedOpCount += doc.count;
+
+          for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
+            if (op.o <= lastNotPut) {
+              if (op.op == 'PUT') {
+                throw new ReplicationAssertionError(
+                  `Unexpected PUT at op ${op.o} in CLEAR region for bucket ${bucket}`
+                );
+              }
+              combinedChecksum += op.checksum;
+              clearedOpCount++;
+              if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
+                maxTargetOp = op.target_op;
+              }
+            } else {
+              boundarySurvivors.push(op);
+            }
+          }
+          break;
+        } else {
+          // Entire doc is in CLEAR region
+          idsToDelete.push(doc._id);
+          expectedDocCount++;
+          expectedChecksum += doc.checksum;
+          expectedOpCount += doc.count;
+
+          for (const op of loadBucketDataDocument(context, doc as unknown as BucketDataDocumentV3)) {
+            if (op.op == 'PUT') {
+              throw new ReplicationAssertionError(`Unexpected PUT at op ${op.o} in CLEAR region for bucket ${bucket}`);
+            }
+            combinedChecksum += op.checksum;
+            clearedOpCount++;
+            if (op.target_op != null && (maxTargetOp == null || op.target_op > maxTargetOp)) {
+              maxTargetOp = op.target_op;
+            }
+          }
+        }
+      }
+
+      highestSeenOp = (rawBatch[rawBatch.length - 1]._id as BucketDataDocumentV3['_id']).o;
+
+      if (boundaryFound) {
+        break;
+      }
+
+      if (rawBatch.length < this.clearBatchLimit) {
+        break;
+      }
+    }
+
+    if (idsToDelete.length == 0) {
+      return 0;
+    }
+
+    this.logger.info(`Clearing ${clearedOpCount} ops (${idsToDelete.length} docs) at ${bucket} up to ${lastNotPut}`);
+
+    // --- Write: single atomic transaction ---
+    const session = this.db.client.startSession();
+    try {
+      await session.withTransaction(
+        async () => {
+          // Verify documents haven't been modified since we read them
+          const verification = await collection
+            .aggregate<{ docCount: number; checksumSum: bigint | null; opCountSum: number | null }>(
+              [
+                { $match: { _id: { $in: idsToDelete } as any } },
+                {
+                  $group: {
+                    _id: null,
+                    docCount: { $sum: 1 },
+                    checksumSum: { $sum: '$checksum' },
+                    opCountSum: { $sum: '$count' }
+                  }
+                }
+              ],
+              { session }
+            )
+            .next();
+
+          if (
+            verification == null ||
+            verification.docCount !== expectedDocCount ||
+            verification.checksumSum !== expectedChecksum ||
+            verification.opCountSum !== expectedOpCount
+          ) {
+            throw new Error(`Concurrent modification detected during CLEAR for bucket ${bucket}. Aborting.`);
+          }
+
+          await collection.deleteMany({ _id: { $in: idsToDelete } } as any, { session });
+
+          // CLEAR document
+          const clearOp = {
+            bucketKey: { ...context, bucket },
+            o: lastNotPut,
+            op: 'CLEAR' as const,
+            checksum: combinedChecksum,
+            data: null,
+            target_op: maxTargetOp
+          } satisfies BucketDataDoc;
+          await collection.insertOne(serializeBucketData(bucket, [clearOp]) as any, { session });
+
+          // Surviving ops from boundary split
+          if (boundarySurvivors.length > 0) {
+            const survivingDocs = chunkBucketData(boundarySurvivors).map((chunk) => serializeBucketData(bucket, chunk));
+            await collection.insertMany(survivingDocs as any, { session });
+          }
+        },
+        {
+          writeConcern: { w: 'majority' },
+          readConcern: { level: 'snapshot' }
+        }
+      );
+    } finally {
+      await session.endSession();
+    }
+
+    return clearedOpCount;
   }
 }
