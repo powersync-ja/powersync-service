@@ -4,6 +4,34 @@ import { requestParameters, TestSourceTable } from '../../util.js';
 import { syncTest } from './utils.js';
 
 describe('operators match SQLite', () => {
+  syncTest('substring() indexes by code points, not UTF-16 code units (matches SQLite)', ({ sync }) => {
+    // SQLite's substr() indexes by characters (code points). JavaScript's
+    // String.prototype.substring and .length count UTF-16 code units, so
+    // for a non-BMP code point (emoji 😀, CJK Extension B+, ancient scripts)
+    // - which is one code point but two code units - slicing in the middle
+    // of the surrogate pair returns a broken unpaired surrogate. Same
+    // silent-failure class as #644-#647 / #565 / upper/lower / length().
+    const streams = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: 'SELECT id, substring(name, 1, 2) AS first_two FROM tbl'
+`);
+
+    const table = new TestSourceTable('tbl');
+    function firstTwo(name: SqliteValue) {
+      const [row] = streams.evaluateRow({ sourceTable: table, record: { id: 'ignored', name } });
+      return row.data['first_two'];
+    }
+
+    expect(firstTwo('hello')).toStrictEqual('he'); // ASCII (control)
+    expect(firstTwo('a😀bc')).toStrictEqual('a😀'); // was 'a\uD83D' (unpaired surrogate)
+    expect(firstTwo('😀😀😀')).toStrictEqual('😀😀'); // two whole emoji
+    expect(firstTwo('𐀀ab')).toStrictEqual('𐀀a'); // U+10000 Linear B
+  });
+
   syncTest('division by zero', ({ sync }) => {
     // Regression test for https://github.com/powersync-ja/powersync-service/pull/646.
     const streams = sync.prepareSyncStreams(`

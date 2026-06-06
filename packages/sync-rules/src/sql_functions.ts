@@ -101,18 +101,29 @@ const substring: DocumentedSqlFunction = {
       // Different from undefined in this case, to match SQLite behavior
       return null;
     }
+    // SQLite's substr() indexes by *characters* (Unicode code points), not
+    // UTF-16 code units. JavaScript's `String.prototype.substring` and
+    // `String.prototype.length` count code units, so any non-BMP code point
+    // (emoji like 😀, CJK Extension B-G, ancient scripts) is counted as 2 -
+    // and slicing in the middle of a surrogate pair returns a broken
+    // unpaired surrogate. Walk the string once into a code-point array and
+    // slice that instead, to match SQLite. Same silent-failure class as the
+    // length() / upper() / lower() fixes (#664 / #663) and the merged
+    // #644-#647.
+    const codePoints = [...text];
+    const totalLen = codePoints.length;
     const castLength = cast(length ?? null, 'integer') as bigint | null;
     let realLength: number;
     if (castLength == null) {
       // undefined (not specified)
-      realLength = text.length + 1; // +1 to account for the start = 0 special case
+      realLength = totalLen + 1; // +1 to account for the start = 0 special case
     } else {
       realLength = Number(castLength);
     }
 
     let realStart = 0;
     if (startIndex < 0n) {
-      realStart = Math.max(0, text.length + Number(startIndex));
+      realStart = Math.max(0, totalLen + Number(startIndex));
     } else if (startIndex == 0n) {
       // Weird special case
       realStart = 0;
@@ -124,10 +135,10 @@ const substring: DocumentedSqlFunction = {
     if (realLength < 0) {
       // Negative length means we return that many characters _before_
       // the start index.
-      return text.substring(realStart + realLength, realStart);
+      return codePoints.slice(realStart + realLength, realStart).join('');
     }
 
-    return text.substring(realStart, realStart + realLength);
+    return codePoints.slice(realStart, realStart + realLength).join('');
   },
   parameters: [
     { name: 'value', type: ExpressionType.TEXT, optional: false },
@@ -137,7 +148,7 @@ const substring: DocumentedSqlFunction = {
   getReturnType(args) {
     return ExpressionType.TEXT;
   },
-  detail: 'Compute a substring',
+  detail: 'Compute a substring (indexes by Unicode code points to match SQLite)',
   documentation: 'The start index starts at 1. If no length is specified, the remainder of the string is returned.'
 };
 
