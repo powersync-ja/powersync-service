@@ -4,6 +4,36 @@ import { requestParameters, TestSourceTable } from '../../util.js';
 import { syncTest } from './utils.js';
 
 describe('operators match SQLite', () => {
+  syncTest('length() counts Unicode code points, not UTF-16 code units (matches SQLite)', ({ sync }) => {
+    // SQLite's length(X) on text returns the number of characters
+    // (Unicode code points). JavaScript's String.prototype.length returns
+    // UTF-16 code units, so non-BMP code points (emoji 😀, CJK Extension B+,
+    // ancient scripts, etc.) are counted as 2 in JS but 1 in SQLite. A
+    // bucket-key expression like `length(name)` produced different integer
+    // values server-side vs client-side, silently routing rows to the
+    // wrong bucket. Same class as #644-#647 / #565 / ASCII upper/lower.
+    const streams = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: 'SELECT id, length(name) AS len FROM tbl'
+`);
+
+    const table = new TestSourceTable('tbl');
+    function len(name: SqliteValue): SqliteJsonValue {
+      const [row] = streams.evaluateRow({ sourceTable: table, record: { id: 'ignored', name } });
+      return row.data['len'];
+    }
+
+    expect(len('hello')).toStrictEqual(5n);
+    expect(len('straße')).toStrictEqual(6n); // ß is BMP, ok in both
+    expect(len('😀')).toStrictEqual(1n); // emoji, was 2n
+    expect(len('a😀b')).toStrictEqual(3n); // a + emoji + b, was 4n
+    expect(len('𐀀')).toStrictEqual(1n); // U+10000 Linear B, was 2n
+  });
+
   syncTest('division by zero', ({ sync }) => {
     // Regression test for https://github.com/powersync-ja/powersync-service/pull/646.
     const streams = sync.prepareSyncStreams(`

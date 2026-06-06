@@ -157,6 +157,25 @@ const hex: DocumentedSqlFunction = {
   detail: 'Convert a blob to hex text'
 };
 
+/**
+ * SQLite's `length(X)` on text returns the number of *characters* in X
+ * (Unicode code points), not bytes and not UTF-16 code units. JavaScript's
+ * `String.prototype.length` returns UTF-16 code units, so any non-BMP code
+ * point (emoji like 😀, CJK Extension B-G, ancient scripts, etc.) is
+ * counted as 2 in JS but 1 by SQLite.
+ *
+ * Iterating the string with `for...of` walks code points instead, matching
+ * SQLite's character count. Same silent-failure class as #644 / #645 /
+ * #646 / #647 / the ASCII upper/lower fix. Blobs already match SQLite
+ * (byte length).
+ */
+function countCodePoints(text: string): number {
+  let n = 0;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  for (const _ of text) n++;
+  return n;
+}
+
 const length: DocumentedSqlFunction = {
   debugName: 'length',
   call(value: SqliteValue) {
@@ -166,14 +185,14 @@ const length: DocumentedSqlFunction = {
       return BigInt(value.byteLength);
     } else {
       value = castAsText(value);
-      return BigInt(value!.length);
+      return BigInt(countCodePoints(value!));
     }
   },
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.INTEGER;
   },
-  detail: 'Returns the length of a text or blob value'
+  detail: 'Returns the number of characters in text (code points) or bytes in a blob (matches SQLite)'
 };
 
 const base64: DocumentedSqlFunction = {
