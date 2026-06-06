@@ -4,6 +4,42 @@ import { requestParameters, TestSourceTable } from '../../util.js';
 import { syncTest } from './utils.js';
 
 describe('operators match SQLite', () => {
+  syncTest('upper / lower use ASCII-only semantics (matches SQLite default)', ({ sync }) => {
+    // SQLite's default upper()/lower() only handles a-z / A-Z; non-ASCII
+    // letters pass through unchanged. JavaScript's toUpperCase/toLowerCase
+    // are Unicode-aware and length-changing (ß -> SS, fi -> FI). When the
+    // evaluator and the client disagree on the result of upper(), bucket
+    // keys silently diverge and rows are routed to the wrong bucket.
+    const streams = sync.prepareSyncStreams(`
+config:
+  edition: 3
+
+streams:
+  a:
+    query: 'SELECT id, UPPER(name) AS upper, LOWER(name) AS lower FROM tbl'
+`);
+
+    const table = new TestSourceTable('tbl');
+
+    function evaluate(name: SqliteValue) {
+      const [row] = streams.evaluateRow({ sourceTable: table, record: { id: 'ignored', name } });
+      return { upper: row.data['upper'], lower: row.data['lower'] };
+    }
+
+    // ASCII works exactly as before.
+    expect(evaluate('hello')).toStrictEqual({ upper: 'HELLO', lower: 'hello' });
+    expect(evaluate('Hello World')).toStrictEqual({ upper: 'HELLO WORLD', lower: 'hello world' });
+
+    // Non-ASCII letters now pass through unchanged (matching SQLite),
+    // instead of being length-changed by JS Unicode folding.
+    expect(evaluate('straße')).toStrictEqual({ upper: 'STRAßE', lower: 'straße' });
+    expect(evaluate('ﬁle')).toStrictEqual({ upper: 'ﬁLE', lower: 'ﬁle' });
+
+    // Length is preserved (was previously length-changed by JS folds).
+    expect(evaluate('straße').upper).toHaveLength('straße'.length);
+    expect(evaluate('ﬁle').upper).toHaveLength('ﬁle'.length);
+  });
+
   syncTest('division by zero', ({ sync }) => {
     // Regression test for https://github.com/powersync-ja/powersync-service/pull/646.
     const streams = sync.prepareSyncStreams(`

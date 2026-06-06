@@ -60,30 +60,62 @@ export function getOperatorFunction(op: string): SqlFunction {
   };
 }
 
+/**
+ * SQLite's default `upper()` and `lower()` are ASCII-only: only `a-z` <-> `A-Z`
+ * are converted; all other characters (including length-changing case folds
+ * like ß -> SS, fi -> FI, I-dot) pass through unchanged.
+ *
+ * `String.prototype.toUpperCase()` / `.toLowerCase()` in JavaScript are
+ * Unicode-aware and DO perform length-changing folds, so an `upper()` or
+ * `lower()` call evaluated server-side here produces a different string than
+ * the same call run client-side against SQLite. Bucket keys silently desync;
+ * rows containing non-ASCII letters end up routed to the wrong bucket.
+ *
+ * Same class of bug as the merged Sync Streams correctness fixes
+ * #644 / #645 / #646 / #647.
+ */
+function asciiToUpper(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    out += code >= 97 && code <= 122 ? String.fromCharCode(code - 32) : text[i];
+  }
+  return out;
+}
+
+function asciiToLower(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    out += code >= 65 && code <= 90 ? String.fromCharCode(code + 32) : text[i];
+  }
+  return out;
+}
+
 const upper: DocumentedSqlFunction = {
   debugName: 'upper',
   call(value: SqliteValue) {
     const text = castAsText(value);
-    return text?.toUpperCase() ?? null;
+    return text == null ? null : asciiToUpper(text);
   },
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
   },
-  detail: 'Convert text to upper case'
+  detail: 'Convert ASCII a-z to A-Z (matches SQLite default; non-ASCII passes through)'
 };
 
 const lower: DocumentedSqlFunction = {
   debugName: 'lower',
   call(value: SqliteValue) {
     const text = castAsText(value);
-    return text?.toLowerCase() ?? null;
+    return text == null ? null : asciiToLower(text);
   },
   parameters: [{ name: 'value', type: ExpressionType.ANY, optional: false }],
   getReturnType(args) {
     return ExpressionType.TEXT;
   },
-  detail: 'Convert text to lower case'
+  detail: 'Convert ASCII A-Z to a-z (matches SQLite default; non-ASCII passes through)'
 };
 
 const substring: DocumentedSqlFunction = {
