@@ -426,8 +426,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   async setResumeLsn(lsn: string): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.replicationStreamId,
-        'sync_configs._id': { $in: this.syncConfigIds }
+        _id: this.replicationStreamId
       },
       {
         $set: {
@@ -536,6 +535,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
+    // FIXME: This should only affect relevant sync configs
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId,
@@ -581,6 +581,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {
+    // FIXME: This should only affect relevant sync configs
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId,
@@ -604,6 +605,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   ): Promise<storage.SourceTable[]> {
     const session = this.session;
     const ids = tables.map((table) => mongoTableId(table.id));
+    // FIXME: This should only affect relevant sync configs
 
     await this.withTransaction(async () => {
       await this.db.commonSourceTables(this.replicationStreamId).updateMany(
