@@ -254,6 +254,7 @@ export class StreamQueryParser {
       return false;
     }
 
+    this.diagnoseAliasedPrimaryWithJoin(node.from);
     node.from?.forEach((f) => this.processFrom(f));
     if (node.where) {
       this.addAndTermToWhereClause(node.where);
@@ -355,6 +356,70 @@ export class StreamQueryParser {
         this.addAndTermToWhereClause(join.on);
       }
     }
+  }
+
+  /**
+   * Diagnose silent-row-loss from joining onto an aliased primary table when one or more join targets are
+   * unaliased. See #565: a query like
+   *
+   *   SELECT cm.* FROM chat_messages cm
+   *     INNER JOIN chat_conversations ON cm.conversation_id = chat_conversations.id
+   *     WHERE chat_conversations.user_id = auth.user_id()
+   *
+   * parses, but filter compilation cannot route the `chat_conversations.user_id` reference back to the
+   * joined table when the primary table wears an alias and the joined table is referenced by its bare name.
+   * Downstream the stream may silently degenerate and sync zero rows.
+   *
+   * The check intentionally suppresses the warning when *every* join target is also aliased — that is the
+   * idiom for queries where the author has already disambiguated scopes (e.g. `FROM users AS u JOIN orgs
+   * AS uom ON ...`) and the silent-row-loss footgun does not apply.
+   *
+   * Escape hatch: if the primary alias is double-quoted in source SQL (e.g. `FROM user_data AS "users"`) we
+   * treat that as a deliberate signal that the author has accepted the constraint and suppress the warning.
+   */
+  private diagnoseAliasedPrimaryWithJoin(fromList: From[] | nil) {
+    if (!fromList || fromList.length < 2) {
+      return;
+    }
+    const primary = fromList[0];
+    if (primary.type != 'table' || !primary.name.alias) {
+      return;
+    }
+    if (this.aliasIsQuoted(primary.name)) {
+      return;
+    }
+    const hasUnaliasedJoin = fromList.slice(1).some((entry) => {
+      if (entry.type == 'table') {
+        return !entry.name.alias;
+      }
+      if (entry.type == 'call' || entry.type == 'statement') {
+        return !entry.alias;
+      }
+      return false;
+    });
+    if (!hasUnaliasedJoin) {
+      return;
+    }
+    this.errors.report(
+      'Joining onto an aliased primary table is not currently supported and may silently sync zero rows: ' +
+        'filter expressions that reference the joined table cannot be resolved through the alias. ' +
+        'Drop the alias on the primary table, or quote it (`AS "' +
+        primary.name.alias +
+        '"`) to silence this warning if the join is intentional.',
+      primary.name,
+      { isWarning: true }
+    );
+  }
+
+  private aliasIsQuoted(name: PGNode): boolean {
+    const loc = name._location;
+    if (!loc) {
+      return false;
+    }
+    // The alias appears at the tail of the from-table fragment. A quoted alias is the only way for a literal
+    // double-quote to show up here, so the substring test is sufficient and intentionally cheap.
+    const text = this.originalText.substring(loc.start, loc.end);
+    return text.includes('"');
   }
 
   private resolveTableValued(call: ExprCall, source: SyntacticResultSetSource): TableValuedResultSet {

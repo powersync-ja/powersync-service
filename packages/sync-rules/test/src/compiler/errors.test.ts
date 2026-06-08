@@ -12,6 +12,19 @@ function expectSingleErrorSource(yaml: string, source: string) {
   expect(sources[0]).toEqual(source);
 }
 
+function aliasedPrimaryJoinWarning(alias: string, source: string) {
+  return {
+    isWarning: true,
+    message:
+      'Joining onto an aliased primary table is not currently supported and may silently sync zero rows: ' +
+      'filter expressions that reference the joined table cannot be resolved through the alias. ' +
+      'Drop the alias on the primary table, or quote it (`AS "' +
+      alias +
+      '"`) to silence this warning if the join is intentional.',
+    source
+  };
+}
+
 describe('compilation errors', () => {
   test('parsing error in query', () => {
     const [errors] = yamlToSyncPlan(`
@@ -117,6 +130,7 @@ streams:
 
   test('join with using', () => {
     expect(compilationErrorsForSingleStream('SELECT u.* FROM users u INNER JOIN orgs USING (org_id)')).toStrictEqual([
+      aliasedPrimaryJoinWarning('u', 'users'),
       {
         message: 'USING is not supported',
         source: 'SELECT u.* FROM users u INNER JOIN orgs USING (org_id)'
@@ -139,6 +153,7 @@ streams:
         'SELECT u.*, orgs.* FROM users u INNER JOIN orgs ON u.id = auth.user_id() AND u.org = orgs.id'
       )
     ).toStrictEqual([
+      aliasedPrimaryJoinWarning('u', 'users'),
       {
         message: "Sync streams can only select from a single table, and this one already selects from 'users'.",
         source: 'orgs.*'
@@ -152,6 +167,7 @@ streams:
         "SELECT u.* FROM users u INNER JOIN orgs WHERE u.name || orgs.name = subscription.parameter('a')"
       )
     ).toStrictEqual([
+      aliasedPrimaryJoinWarning('u', 'users'),
       {
         message:
           "This expression already references 'users', so it can't also reference data from this row unless the two are compared with an equals operator.",
@@ -164,6 +180,7 @@ streams:
     expect(
       compilationErrorsForSingleStream('SELECT u.* FROM users u INNER JOIN orgs ON u.org = orgs.id WHERE is_public')
     ).toStrictEqual([
+      aliasedPrimaryJoinWarning('u', 'users'),
       {
         message: 'Invalid unqualified reference since multiple tables are in scope',
         source: 'is_public'
@@ -262,6 +279,34 @@ streams:
     expect(compilationErrorsForSingleStream('select i.* from issues i FULL JOIN users u')).toStrictEqual([
       { message: 'FULL JOIN is not supported', source: 'select i.* from issues i FULL JOIN users u' }
     ]);
+  });
+
+  test('aliased primary table with join (silent-row-loss diagnostic for #565)', () => {
+    // The silent-row-loss case: an aliased primary table joined onto another table where the WHERE clause
+    // references the joined table by name. Filter compilation can't route the reference back through the
+    // alias and the stream may silently sync zero rows. Surface a non-fatal warning pointing at the workaround.
+    expect(
+      compilationErrorsForSingleStream(
+        'SELECT cm.* FROM chat_messages cm ' +
+          'INNER JOIN chat_conversations ON cm.conversation_id = chat_conversations.id ' +
+          'WHERE chat_conversations.user_id = auth.user_id()'
+      )
+    ).toStrictEqual([aliasedPrimaryJoinWarning('cm', 'chat_messages')]);
+  });
+
+  test('aliased primary table with join: quoted alias is an escape hatch', () => {
+    // Quoting the alias signals deliberate intent and suppresses the warning. The maintainer-suggested
+    // form is `FROM user_data AS "users", $joins`.
+    expect(
+      compilationErrorsForSingleStream(
+        'SELECT users.* FROM user_data AS "users", chat_msg WHERE users.id = chat_msg.user_id'
+      )
+    ).toStrictEqual([]);
+  });
+
+  test('aliased primary table without join: no warning', () => {
+    // A bare aliased primary with no join is the canonical safe form.
+    expect(compilationErrorsForSingleStream('SELECT u.* FROM users u WHERE u.id = auth.user_id()')).toStrictEqual([]);
   });
 
   test('subquery star', () => {
