@@ -112,15 +112,14 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
   parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
     const storageConfig = this.getStorageConfig();
     const syncConfigs = this.configs.map((config) => {
-      const content = new MongoPersistedSyncConfigContentV3(this.db, this.doc, config);
-      const parsed = storage.PersistedSyncConfigContent.prototype.parsed.call(content, options);
-      const [syncConfig] = parsed.syncConfigs;
-      if (syncConfig == null) {
-        throw new ServiceAssertionError(`Expected one parsed sync config`);
-      }
       return {
         syncConfigId: config._id.toHexString(),
-        syncConfig,
+        syncConfig: storage.parsePersistedSyncConfigContent({
+          content: config.content,
+          compiledPlan: config.serialized_plan ?? null,
+          storageVersion: this.storageVersion,
+          parseOptions: options
+        }),
         mapping: BucketDefinitionMapping.fromSyncConfig(config)
       };
     });

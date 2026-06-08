@@ -35,7 +35,7 @@ import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
-import { MongoPersistedSyncConfigContentV1 } from './MongoPersistedSyncConfigContent.js';
+import { MongoPersistedSyncConfigContentBase } from './MongoPersistedSyncConfigContent.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
@@ -84,7 +84,7 @@ export abstract class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    protected readonly syncConfigContent: MongoPersistedSyncConfigContentV1,
+    protected readonly syncConfigContent: MongoPersistedSyncConfigContentBase,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions

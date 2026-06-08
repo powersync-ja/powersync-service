@@ -22,6 +22,59 @@ import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
 
+export interface ParsePersistedSyncConfigContentOptions {
+  content: string;
+  compiledPlan: SerializedSyncPlan | null;
+  storageVersion: number;
+  parseOptions: ParseSyncConfigOptions;
+}
+
+export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfigContentOptions): SyncConfigWithErrors {
+  const { content, compiledPlan, storageVersion, parseOptions } = options;
+
+  if (compiledPlan == null) {
+    // Fallback: Only parse from YAML if no compiled plan is available.
+    return SqlSyncRules.fromYaml(content, parseOptions);
+  }
+
+  const plan = deserializeSyncPlan(compiledPlan.plan);
+  const compatibility = CompatibilityContext.deserialize(compiledPlan.compatibility);
+  const eventDefinitions: SqlEventDescriptor[] = [];
+  for (const [name, queries] of Object.entries(compiledPlan.eventDescriptors)) {
+    const descriptor = new SqlEventDescriptor(name, compatibility);
+    for (const query of queries) {
+      descriptor.addSourceQuery(query, parseOptions);
+    }
+
+    eventDefinitions.push(descriptor);
+  }
+
+  const precompiled = new PrecompiledSyncConfig(plan, compatibility, eventDefinitions, {
+    defaultSchema: parseOptions.defaultSchema,
+    sourceText: content
+  });
+
+  // Note: If the original content did not define a storage version, this will still set the storage version.
+  // This means asUpdateOptions will not change the storage version, even if the default changes.
+  precompiled.storageVersion = storageVersion;
+
+  const errors: YamlError[] = [];
+  if (compiledPlan.errors) {
+    for (const error of compiledPlan.errors) {
+      const location: ErrorLocation | undefined = error.location && {
+        start: error.location.start_offset,
+        end: error.location.end_offset
+      };
+      const asYamlError = new YamlError(new Error(error.message), location);
+      asYamlError.type = error.level;
+
+      errors.push(asYamlError);
+    }
+  }
+
+  return { config: precompiled, errors };
+}
+
 /**
  * Immutable sync config content for one sync config inside a replication stream.
  *
@@ -89,49 +142,12 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
    * This does not depend on any other configs in the same replication stream.
    */
   protected parseSingleConfig(options: ParseSyncConfigOptions): SyncConfigWithErrors {
-    // Do we have a compiled sync plan? If so, restore from there instead of parsing everything again.
-    let config: SyncConfigWithErrors;
-    if (this.compiled_plan != null) {
-      const plan = deserializeSyncPlan(this.compiled_plan.plan);
-      const compatibility = CompatibilityContext.deserialize(this.compiled_plan.compatibility);
-      const eventDefinitions: SqlEventDescriptor[] = [];
-      for (const [name, queries] of Object.entries(this.compiled_plan.eventDescriptors)) {
-        const descriptor = new SqlEventDescriptor(name, compatibility);
-        for (const query of queries) {
-          descriptor.addSourceQuery(query, options);
-        }
-
-        eventDefinitions.push(descriptor);
-      }
-
-      const precompiled = new PrecompiledSyncConfig(plan, compatibility, eventDefinitions, {
-        defaultSchema: options.defaultSchema,
-        sourceText: this.sync_rules_content
-      });
-
-      // Note: If the original content did not define a storage version, this will still set the storage version.
-      // This means asUpdateOptions will not change the storage version, even if the default changes.
-      precompiled.storageVersion = this.storageVersion;
-
-      const errors: YamlError[] = [];
-      if (this.compiled_plan.errors) {
-        for (const error of this.compiled_plan.errors) {
-          const location: ErrorLocation | undefined = error.location && {
-            start: error.location.start_offset,
-            end: error.location.end_offset
-          };
-          const asYamlError = new YamlError(new Error(error.message), location);
-          asYamlError.type = error.level;
-
-          errors.push(asYamlError);
-        }
-      }
-
-      config = { config: precompiled, errors };
-    } else {
-      config = SqlSyncRules.fromYaml(this.sync_rules_content, options);
-    }
-    return config;
+    return parsePersistedSyncConfigContent({
+      content: this.sync_rules_content,
+      compiledPlan: this.compiled_plan,
+      storageVersion: this.storageVersion,
+      parseOptions: options
+    });
   }
 
   parsed(options: ParseSyncConfigOptions): ParsedSyncConfigSet {

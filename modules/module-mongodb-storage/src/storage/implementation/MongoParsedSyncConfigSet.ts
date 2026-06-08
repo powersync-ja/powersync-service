@@ -8,6 +8,7 @@ import {
   HydratedSyncConfig,
   HydrationState,
   nodeSqlite,
+  SyncConfigWithErrors,
   versionedHydrationState
 } from '@powersync/service-sync-rules';
 import {
@@ -21,7 +22,7 @@ import { MongoHydrationState } from './MongoHydrationState.js';
 
 export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
   public readonly hydrationState: HydrationState;
-  public readonly syncConfigs: storage.ParsedSyncConfigSet['syncConfigs'];
+  public readonly syncConfigs: SyncConfigWithErrors[];
   public readonly slot_name: string;
   public readonly mapping: BucketDefinitionMapping;
 
