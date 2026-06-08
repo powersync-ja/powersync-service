@@ -46,6 +46,59 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     return this.store;
   }
 
+  private selectedSyncConfigObjectIds(syncConfigIds: string[]): bson.ObjectId[] {
+    const selectedIds = new Set(this.syncConfigIds.map((id) => id.toHexString()));
+    return syncConfigIds
+      .filter((id) => selectedIds.has(id) && bson.ObjectId.isValid(id))
+      .map((id) => new bson.ObjectId(id));
+  }
+
+  private relevantSyncConfigIds(table: storage.SourceTable): bson.ObjectId[] {
+    const bucketDataSourceIds = table.bucketDataSources.map((source) => this.mapping.bucketSourceId(source));
+    const parameterLookupSourceIds = table.parameterLookupSources.map((source) =>
+      this.mapping.parameterLookupId(source)
+    );
+    return this.selectedSyncConfigObjectIds(
+      this.mapping.syncConfigIdsForSourceTable(
+        this.syncConfigIds.map((id) => id.toHexString()),
+        table.ref,
+        bucketDataSourceIds,
+        parameterLookupSourceIds
+      )
+    );
+  }
+
+  private relevantSyncConfigIdsForTables(tables: storage.SourceTable[]): bson.ObjectId[] {
+    const ids = new Map<string, bson.ObjectId>();
+    for (const table of tables) {
+      for (const id of this.relevantSyncConfigIds(table)) {
+        ids.set(id.toHexString(), id);
+      }
+    }
+    return [...ids.values()];
+  }
+
+  private snapshotBlockingSourceTablesFilter(): Record<string, unknown> {
+    const clauses = this.syncConfigIds.flatMap((syncConfigId) => {
+      const filter = this.mapping.snapshotBlockingSourceTablesFilter(syncConfigId.toHexString()) as {
+        $or?: Record<string, unknown>[];
+      };
+      return filter.$or ?? [];
+    });
+
+    if (clauses.length == 0) {
+      return {
+        snapshot_done: false,
+        _id: { $exists: false }
+      };
+    }
+
+    return {
+      snapshot_done: false,
+      $or: clauses
+    };
+  }
+
   protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
     for (const table of sourceTables) {
       await this.db
@@ -535,7 +588,6 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   }
 
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
-    // FIXME: This should only affect relevant sync configs
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId,
@@ -560,12 +612,9 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
-      const count = await this.db.sourceTablesV3(this.replicationStreamId).countDocuments(
-        {
-          snapshot_done: false
-        },
-        { session: this.session }
-      );
+      const count = await this.db
+        .sourceTablesV3(this.replicationStreamId)
+        .countDocuments(this.snapshotBlockingSourceTablesFilter(), { session: this.session });
       if (count > 0) {
         if (options?.throwOnConflict ?? true) {
           throw new ReplicationAssertionError(
@@ -580,12 +629,16 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     });
   }
 
-  async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {
-    // FIXME: This should only affect relevant sync configs
+  async markTableSnapshotRequired(table: storage.SourceTable): Promise<void> {
+    const syncConfigIds = this.relevantSyncConfigIds(table);
+    if (syncConfigIds.length == 0) {
+      return;
+    }
+
     await this.db.sync_rules.updateOne(
       {
         _id: this.replicationStreamId,
-        'sync_configs._id': { $in: this.syncConfigIds }
+        'sync_configs._id': { $in: syncConfigIds }
       },
       {
         $set: {
@@ -594,7 +647,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       },
       {
         session: this.session,
-        arrayFilters: [{ 'config._id': { $in: this.syncConfigIds } }]
+        arrayFilters: [{ 'config._id': { $in: syncConfigIds } }]
       }
     );
   }
@@ -605,7 +658,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   ): Promise<storage.SourceTable[]> {
     const session = this.session;
     const ids = tables.map((table) => mongoTableId(table.id));
-    // FIXME: This should only affect relevant sync configs
+    const syncConfigIds = this.relevantSyncConfigIdsForTables(tables);
 
     await this.withTransaction(async () => {
       await this.db.commonSourceTables(this.replicationStreamId).updateMany(
@@ -621,11 +674,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
         { session }
       );
 
-      if (no_checkpoint_before_lsn != null) {
+      if (no_checkpoint_before_lsn != null && syncConfigIds.length > 0) {
         await this.db.sync_rules.updateOne(
           {
             _id: this.replicationStreamId,
-            'sync_configs._id': { $in: this.syncConfigIds }
+            'sync_configs._id': { $in: syncConfigIds }
           },
           {
             $set: {
@@ -637,7 +690,8 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
           },
           {
             session: this.session,
-            arrayFilters: [{ 'config._id': { $in: this.syncConfigIds } }]
+            // Only set for sync configs that use this table
+            arrayFilters: [{ 'config._id': { $in: syncConfigIds } }]
           }
         );
       }

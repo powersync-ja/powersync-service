@@ -11,6 +11,7 @@ import {
   serializedStreamBucketDataSourceEquality,
   serializedStreamParameterIndexLookupCreatorEquality,
   SerializedSyncPlanV1,
+  SourceTableRef,
   SyncConfigWithErrors
 } from '@powersync/service-sync-rules';
 import { SyncConfigDefinition } from '../storage-index.js';
@@ -21,12 +22,13 @@ export interface SerializedSyncConfigWithMapping {
 }
 
 export interface SyncConfigWithMapping {
+  syncConfigId?: string;
   syncConfig: SyncConfigWithErrors;
   mapping: BucketDefinitionMapping | null;
 }
 
 export interface SyncConfigWithRequiredMapping {
-  syncConfigId?: string;
+  syncConfigId: string;
   syncConfig: SyncConfigWithErrors;
   mapping: BucketDefinitionMapping;
 }
@@ -173,13 +175,47 @@ export class BucketDefinitionMapping {
       parameter_indexes: { ...this.parameterLookupMapping }
     };
   }
+
+  syncConfigIdsForSourceTable(
+    selectedSyncConfigIds: string[],
+    _table: SourceTableRef,
+    bucketDataSourceIds: BucketDefinitionId[],
+    parameterLookupSourceIds: ParameterIndexId[]
+  ): string[] {
+    return bucketDataSourceIds.length > 0 || parameterLookupSourceIds.length > 0 ? selectedSyncConfigIds : [];
+  }
+
+  snapshotBlockingSourceTablesFilter(_syncConfigId: string): Record<string, unknown> {
+    const clauses: Record<string, unknown>[] = [];
+    const bucketDataSourceIds = this.allBucketDefinitionIds();
+    if (bucketDataSourceIds.length > 0) {
+      clauses.push({ bucket_data_source_ids: { $in: bucketDataSourceIds } });
+    }
+    const parameterLookupSourceIds = this.allParameterIndexIds();
+    if (parameterLookupSourceIds.length > 0) {
+      clauses.push({ parameter_lookup_source_ids: { $in: parameterLookupSourceIds } });
+    }
+    if (clauses.length == 0) {
+      return {
+        snapshot_done: false,
+        _id: { $exists: false }
+      };
+    }
+    return {
+      snapshot_done: false,
+      $or: clauses
+    };
+  }
 }
 
 export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapping {
   private bucketDataSourceMappings = new WeakMap<BucketDataSource, BucketDefinitionMapping>();
   private bucketDataSourceMappingsByName = new Map<string, SyncConfigWithRequiredMapping[]>();
+  private bucketDataSourceSyncConfigIdsById = new Map<BucketDefinitionId, Set<string>>();
   private parameterLookupMappings = new WeakMap<ParameterIndexLookupCreator, BucketDefinitionMapping>();
   private parameterLookupMappingsByKey = new Map<string, SyncConfigWithRequiredMapping[]>();
+  private parameterLookupSyncConfigIdsById = new Map<ParameterIndexId, Set<string>>();
+  private syncConfigsById = new Map<string, SyncConfigWithRequiredMapping>();
   private mappings: BucketDefinitionMapping[];
 
   constructor(syncConfigs: SyncConfigWithRequiredMapping[]) {
@@ -187,13 +223,20 @@ export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapp
     this.mappings = syncConfigs.map((config) => config.mapping);
 
     for (const config of syncConfigs) {
+      this.syncConfigsById.set(config.syncConfigId, config);
       for (const source of config.syncConfig.config.bucketDataSources) {
         this.bucketDataSourceMappings.set(source, config.mapping);
         addMappingEntry(this.bucketDataSourceMappingsByName, source.uniqueName, config);
+        addSetEntry(this.bucketDataSourceSyncConfigIdsById, config.mapping.bucketSourceId(source), config.syncConfigId);
       }
       for (const source of config.syncConfig.config.bucketParameterLookupSources) {
         this.parameterLookupMappings.set(source, config.mapping);
         addMappingEntry(this.parameterLookupMappingsByKey, parameterLookupKey(source.sourceId), config);
+        addSetEntry(
+          this.parameterLookupSyncConfigIdsById,
+          config.mapping.parameterLookupId(source),
+          config.syncConfigId
+        );
       }
     }
   }
@@ -235,6 +278,36 @@ export class MultiSyncConfigBucketDefinitionMapping extends BucketDefinitionMapp
     return [...new Set(this.mappings.flatMap((mapping) => mapping.allParameterIndexIds()))];
   }
 
+  syncConfigIdsForSourceTable(
+    _selectedSyncConfigIds: string[],
+    table: SourceTableRef,
+    bucketDataSourceIds: BucketDefinitionId[],
+    parameterLookupSourceIds: ParameterIndexId[]
+  ): string[] {
+    const ids = new Set<string>();
+    for (const sourceId of bucketDataSourceIds) {
+      addAll(ids, this.bucketDataSourceSyncConfigIdsById.get(sourceId));
+    }
+    for (const sourceId of parameterLookupSourceIds) {
+      addAll(ids, this.parameterLookupSyncConfigIdsById.get(sourceId));
+    }
+    for (const [syncConfigId, config] of this.syncConfigsById) {
+      if (config.syncConfig.config.tableTriggersEvent(table)) {
+        ids.add(syncConfigId);
+      }
+    }
+    return [...ids];
+  }
+
+  snapshotBlockingSourceTablesFilter(syncConfigId: string): Record<string, unknown> {
+    const config = this.syncConfigsById.get(syncConfigId);
+    if (config == null) {
+      throw new ServiceAssertionError(`No mapping found for sync config ${syncConfigId}`);
+    }
+
+    return config.mapping.snapshotBlockingSourceTablesFilter(syncConfigId);
+  }
+
   private unambiguousBucketSourceIdByName(uniqueName: string): BucketDefinitionId | null {
     const entries = this.bucketDataSourceMappingsByName.get(uniqueName) ?? [];
     const ids = new Set(entries.map((entry) => entry.mapping.bucketSourceIdByName(uniqueName)));
@@ -260,4 +333,16 @@ function addMappingEntry(
   const existing = map.get(key) ?? [];
   existing.push(config);
   map.set(key, existing);
+}
+
+function addSetEntry<K, V>(map: Map<K, Set<V>>, key: K, value: V) {
+  const existing = map.get(key) ?? new Set<V>();
+  existing.add(value);
+  map.set(key, existing);
+}
+
+function addAll<T>(target: Set<T>, values: Iterable<T> | undefined) {
+  for (const value of values ?? []) {
+    target.add(value);
+  }
 }

@@ -39,8 +39,19 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
       throw new ServiceAssertionError(`Expected one parsed sync config`);
     }
 
+    if (storageConfig.incrementalReprocessing) {
+      const syncConfigId = this.syncConfigId;
+      if (syncConfigId == null) {
+        throw new ServiceAssertionError(`syncConfigId is required for v3 sync config content`);
+      }
+
+      return new MongoParsedSyncConfigSet(parsed.replicationStreamId, storageConfig, parsed.replicationStreamName, [
+        { syncConfigId, syncConfig, mapping: this.mapping }
+      ]);
+    }
+
     return new MongoParsedSyncConfigSet(parsed.replicationStreamId, storageConfig, parsed.replicationStreamName, [
-      { syncConfig, mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
+      { syncConfig, mapping: null }
     ]);
   }
 }
