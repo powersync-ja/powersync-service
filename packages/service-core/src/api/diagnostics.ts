@@ -28,11 +28,9 @@ export interface DiagnosticsOptions {
 export const DEFAULT_DATASOURCE_ID = 'default';
 
 export async function getSyncRulesStatus(
-  bucketStorage: storage.BucketStorageFactory,
   apiHandler: RouteAPI,
-  sync_rules: storage.PersistedSyncConfigContent | null,
+  syncConfig: storage.PersistedSyncConfigContent | null,
   options: DiagnosticsOptions,
-  syncConfigStatus?: storage.PersistedSyncConfigStatus | null,
   /**
    * Storage instance for the replication stream of this config.
    *
@@ -41,7 +39,7 @@ export async function getSyncRulesStatus(
    */
   systemStorage?: storage.SyncRulesBucketStorage
 ): Promise<SyncRulesStatus | undefined> {
-  if (sync_rules == null) {
+  if (syncConfig == null) {
     return undefined;
   }
 
@@ -53,7 +51,7 @@ export async function getSyncRulesStatus(
   let parsed: SyncConfigWithErrors;
   let persisted: storage.ParsedSyncConfigSet;
   try {
-    persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
+    persisted = syncConfig.parsed(apiHandler.getParseSyncRulesOptions());
     // A content object represents a single sync config, so its parsed result has exactly one entry.
     const [singleConfig] = persisted.syncConfigs;
     if (singleConfig == null) {
@@ -62,7 +60,7 @@ export async function getSyncRulesStatus(
     parsed = singleConfig;
   } catch (e) {
     return {
-      content: include_content ? sync_rules.sync_rules_content : undefined,
+      content: include_content ? syncConfig.sync_rules_content : undefined,
       connections: [],
       errors: [{ level: 'fatal', message: e.message, ts: now }]
     };
@@ -102,10 +100,10 @@ export async function getSyncRulesStatus(
         logger.warn(`Unable to get replication lag`, e);
       }
 
-      if (apiHandler.getSlotWalBudget && sync_rules.replicationStreamName) {
+      if (apiHandler.getSlotWalBudget && syncConfig.replicationStreamName) {
         try {
           slot_wal_budget = await apiHandler.getSlotWalBudget({
-            slotName: sync_rules.replicationStreamName
+            slotName: syncConfig.replicationStreamName
           });
         } catch (e) {
           logger.warn(`Unable to get WAL budget`, e);
@@ -148,7 +146,7 @@ export async function getSyncRulesStatus(
   }
 
   const errors = tables_flat.flatMap((info) => info.errors);
-  const statusSource = syncConfigStatus ?? (await sync_rules.getSyncConfigStatus());
+  const statusSource = await syncConfig.getSyncConfigStatus();
 
   if (statusSource?.last_fatal_error) {
     errors.push({
@@ -218,12 +216,12 @@ export async function getSyncRulesStatus(
   }
 
   return {
-    content: include_content ? sync_rules.sync_rules_content : undefined,
+    content: include_content ? syncConfig.sync_rules_content : undefined,
     connections: [
       {
         id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
         tag: tag,
-        slot_name: sync_rules.replicationStreamName,
+        slot_name: syncConfig.replicationStreamName,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?
         last_lsn: status?.checkpoint_lsn ?? undefined,

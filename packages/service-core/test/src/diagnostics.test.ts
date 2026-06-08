@@ -1,6 +1,6 @@
 import { DiagnosticsOptions, getSyncRulesStatus } from '@/api/diagnostics.js';
 import { RouteAPI, SlotWalBudgetInfo } from '@/api/RouteAPI.js';
-import { BucketStorageFactory, ParsedSyncConfigSet, storage } from '@/index.js';
+import { ParsedSyncConfigSet, storage } from '@/index.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
@@ -13,7 +13,10 @@ bucket_definitions:
       - SELECT id FROM test_table
 `;
 
-function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.PersistedSyncConfigContent {
+function makeSyncRulesContent(overrides?: {
+  slot_name?: string;
+  status?: storage.PersistedSyncConfigStatus;
+}): storage.PersistedSyncConfigContent {
   // We don't implement the entire interface correctly here - just enough to test the diagnostics logic.
   return {
     replicationStreamId: 1,
@@ -35,16 +38,18 @@ function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.Persi
     asUpdateOptions: null as any,
     getStorageConfig: null as any,
     async getSyncConfigStatus() {
-      return {
-        id: '1',
-        replicationStreamId: 1,
-        state: storage.SyncRuleState.ACTIVE,
-        last_checkpoint_lsn: 'some_lsn',
-        last_fatal_error: null,
-        last_fatal_error_ts: null,
-        last_keepalive_ts: new Date(),
-        last_checkpoint_ts: new Date()
-      };
+      return (
+        overrides?.status ?? {
+          id: '1',
+          replicationStreamId: 1,
+          state: storage.SyncRuleState.ACTIVE,
+          last_checkpoint_lsn: 'some_lsn',
+          last_fatal_error: null,
+          last_fatal_error_ts: null,
+          last_keepalive_ts: new Date(),
+          last_checkpoint_ts: new Date()
+        }
+      );
     }
   } as storage.PersistedSyncConfigContent;
 }
@@ -59,10 +64,6 @@ function makeSystemStorage() {
       };
     }
   } as storage.SyncRulesBucketStorage;
-}
-
-function makeBucketStorage() {
-  return {} as unknown as BucketStorageFactory;
 }
 
 function makeRouteAPI(walBudget?: SlotWalBudgetInfo | undefined): RouteAPI {
@@ -105,14 +106,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       safe_wal_size: 4 * GB,
       max_slot_wal_keep_size: 10 * GB
     });
-    const result = await getSyncRulesStatus(
-      makeBucketStorage(),
-      api,
-      makeSyncRulesContent(),
-      OPTIONS,
-      null,
-      makeSystemStorage()
-    );
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walWarnings = result!.errors.filter((e) => e.message.includes('WAL budget'));
     expect(walWarnings).toHaveLength(1);
     expect(walWarnings[0].level).toBe('warning');
@@ -125,14 +119,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       safe_wal_size: 8 * GB,
       max_slot_wal_keep_size: 10 * GB
     });
-    const result = await getSyncRulesStatus(
-      makeBucketStorage(),
-      api,
-      makeSyncRulesContent(),
-      OPTIONS,
-      null,
-      makeSystemStorage()
-    );
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walWarnings = result!.errors.filter((e) => e.message.includes('WAL budget'));
     expect(walWarnings).toHaveLength(0);
   });
@@ -143,14 +130,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       safe_wal_size: -2.4 * GB,
       max_slot_wal_keep_size: 1 * 1024 * 1024 // 1MB
     });
-    const result = await getSyncRulesStatus(
-      makeBucketStorage(),
-      api,
-      makeSyncRulesContent(),
-      OPTIONS,
-      null,
-      makeSystemStorage()
-    );
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walWarnings = result!.errors.filter((e) => e.message.includes('WAL budget'));
     expect(walWarnings).toHaveLength(1);
     expect(walWarnings[0].message).toContain('0%');
@@ -161,14 +141,7 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
     const api = makeRouteAPI({
       wal_status: 'lost'
     });
-    const result = await getSyncRulesStatus(
-      makeBucketStorage(),
-      api,
-      makeSyncRulesContent(),
-      OPTIONS,
-      null,
-      makeSystemStorage()
-    );
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walErrors = result!.errors.filter(
       (e) => e.message.includes('WAL budget') || e.message.includes('PSYNC_S1146')
     );
@@ -177,21 +150,14 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
 
   test('no WAL error when getSlotWalBudget is not defined', async () => {
     const api = makeRouteAPI();
-    const result = await getSyncRulesStatus(
-      makeBucketStorage(),
-      api,
-      makeSyncRulesContent(),
-      OPTIONS,
-      null,
-      makeSystemStorage()
-    );
+    const result = await getSyncRulesStatus(api, makeSyncRulesContent(), OPTIONS, makeSystemStorage());
     const walErrors = result!.errors.filter(
       (e) => e.message.includes('WAL budget') || e.message.includes('PSYNC_S1146')
     );
     expect(walErrors).toHaveLength(0);
   });
 
-  test('uses separate sync config status for status-derived diagnostics fields', async () => {
+  test('uses sync config status for status-derived diagnostics fields', async () => {
     const configStatus: storage.PersistedSyncConfigStatus = {
       id: 'config-a',
       replicationStreamId: 1,
@@ -203,11 +169,9 @@ describe('getSyncRulesStatus WAL budget warnings', () => {
       last_checkpoint_ts: new Date('2026-01-01T00:02:00.000Z')
     };
     const result = await getSyncRulesStatus(
-      makeBucketStorage(),
       makeRouteAPI(),
-      makeSyncRulesContent(),
+      makeSyncRulesContent({ status: configStatus }),
       OPTIONS,
-      configStatus,
       makeSystemStorage()
     );
 

@@ -66,12 +66,10 @@ export const diagnostics = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
     const active = await activeBucketStorage.getActiveSyncConfigContent();
-    const activeConfigStatus = active == null ? null : await active.getSyncConfigStatus();
     const activeStorage = await activeBucketStorage.getActiveStorage();
     const deploying = await activeBucketStorage.getDeployingSyncConfigContent();
 
     const active_status = await api.getSyncRulesStatus(
-      activeBucketStorage,
       apiHandler,
       active,
       {
@@ -79,7 +77,6 @@ export const diagnostics = routeDefinition({
         check_connection: status.connected,
         live_status: true
       },
-      activeConfigStatus,
       activeStorage ?? undefined
     );
 
@@ -90,7 +87,6 @@ export const diagnostics = routeDefinition({
             const stream = await activeBucketStorage.getReplicationStream(syncConfig.replicationStreamId);
             const systemStorage = stream == null ? undefined : activeBucketStorage.getInstance(stream);
             return api.getSyncRulesStatus(
-              activeBucketStorage,
               apiHandler,
               syncConfig,
               {
@@ -98,7 +94,6 @@ export const diagnostics = routeDefinition({
                 check_connection: status.connected,
                 live_status: true
               },
-              await syncConfig.getSyncConfigStatus(),
               systemStorage
             );
           })(deploying);
@@ -252,16 +247,11 @@ export const validate = routeDefinition({
       });
     }
 
-    const status = (await api.getSyncRulesStatus(
-      service_context.storageEngine.activeBucketStorage,
-      apiHandler,
-      sync_rules,
-      {
-        include_content: false,
-        check_connection: connectionStatus.connected,
-        live_status: false
-      }
-    ))!;
+    const status = (await api.getSyncRulesStatus(apiHandler, sync_rules, {
+      include_content: false,
+      check_connection: connectionStatus.connected,
+      live_status: false
+    }))!;
 
     if (connectionStatus == null) {
       status.errors.push({ level: 'fatal', message: 'No connection configured', ts: new Date().toISOString() });

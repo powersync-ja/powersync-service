@@ -124,7 +124,6 @@ bucket_definitions:
       }));
       const activeBucketStorage = {
         getActiveSyncConfigContent: vi.fn(async () => active),
-        getActiveSyncConfigStatus: vi.fn(async () => active.getSyncConfigStatus()),
         getActiveStorage: vi.fn(async () => getInstance()),
         getDeployingSyncConfigContent: vi.fn(async () => deploying),
         getReplicationStream: vi.fn(async (id: number) => ({ id, slot_name: `slot_${id}` })),

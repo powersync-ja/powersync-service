@@ -12,8 +12,8 @@ import { notifySyncRulesUpdate } from './batch/PostgresBucketBatch.js';
 import { PostgresSyncRulesStorage } from './PostgresSyncRulesStorage.js';
 import {
   PostgresPersistedReplicationStream,
-  PostgresPersistedSyncRulesContent
-} from './sync-rules/PostgresPersistedSyncRulesContent.js';
+  PostgresPersistedSyncConfigContent
+} from './sync-rules/PostgresPersistedSyncConfigContent.js';
 
 export type PostgresBucketStorageOptions = {
   config: NormalizedPostgresStorageConfig;
@@ -322,7 +322,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       return null;
     }
 
-    return new PostgresPersistedSyncRulesContent(this.db, activeRow);
+    return new PostgresPersistedSyncConfigContent(this.db, activeRow);
   }
 
   async getDeployingSyncConfigContent(): Promise<storage.PersistedSyncConfigContent | null> {
@@ -341,7 +341,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       .decoded(models.SyncRules)
       .first();
 
-    return row == null ? null : new PostgresPersistedSyncRulesContent(this.db, row);
+    return row == null ? null : new PostgresPersistedSyncConfigContent(this.db, row);
   }
 
   async getReplicationStreamConfigs(replicationStreamId: number): Promise<storage.PersistedSyncConfigContent[]> {
@@ -359,7 +359,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       return [];
     }
 
-    return [new PostgresPersistedSyncRulesContent(this.db, row)];
+    return [new PostgresPersistedSyncConfigContent(this.db, row)];
   }
 
   async getSyncConfigContent(
@@ -384,7 +384,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
       return null;
     }
 
-    return new PostgresPersistedSyncRulesContent(this.db, row);
+    return new PostgresPersistedSyncConfigContent(this.db, row);
   }
 
   async getReplicationStream(replicationStreamId: number): Promise<storage.PersistedReplicationStream | null> {

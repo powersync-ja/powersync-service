@@ -3,7 +3,7 @@ import { ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
 import { models } from '../../types/types.js';
 
-export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncConfigContent {
+export class PostgresPersistedSyncConfigContent extends storage.PersistedSyncConfigContent {
   constructor(
     private db: lib_postgres.DatabaseClient,
     row: models.SyncRulesDecoded
@@ -48,7 +48,7 @@ function syncConfigStatusFromRow(row: models.SyncRulesDecoded): storage.Persiste
 
 export class PostgresPersistedReplicationStream extends storage.PersistedReplicationStream {
   current_lock: storage.ReplicationLock | null = null;
-  readonly syncConfigContent: readonly PostgresPersistedSyncRulesContent[];
+  readonly syncConfigContent: readonly PostgresPersistedSyncConfigContent[];
 
   constructor(
     private db: lib_postgres.DatabaseClient,
@@ -60,7 +60,7 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
       state: row.state as storage.SyncRuleState,
       storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
-    this.syncConfigContent = [new PostgresPersistedSyncRulesContent(this.db, this.row)];
+    this.syncConfigContent = [new PostgresPersistedSyncConfigContent(this.db, this.row)];
   }
 
   parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
