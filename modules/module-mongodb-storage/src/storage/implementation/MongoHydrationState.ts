@@ -38,7 +38,7 @@ export class MongoHydrationState implements HydrationState {
     // However, the definition may change without changing the name, so we unique defId in the bucketPrefix.
     // defId is not unique across replication streams, so we include the replicationStreamId as well.
     return {
-      bucketPrefix: `${source.uniqueName}#${this.replicationStreamId.toString(16)}#${defId}`,
+      bucketPrefix: `${source.uniqueName}.${this.replicationStreamId.toString(16)}.${defId}`,
       source
     };
   }
