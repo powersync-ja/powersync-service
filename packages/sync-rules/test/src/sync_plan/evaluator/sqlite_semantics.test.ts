@@ -145,5 +145,73 @@ streams:
       expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'false-row', nullable_flag: 0n } })).toHaveLength(1);
       expect(desc.evaluateRow({ sourceTable: DOCS, record: { id: 'true-row', nullable_flag: 1n } })).toHaveLength(0);
     });
+
+    syncTest('substring() indexes by code points', ({ sync }) => {
+      const streams = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+
+streams:
+  a:
+    query: 'SELECT id, substring(name, 1, 2) AS first_two FROM docs'
+`);
+
+      function firstTwo(name: SqliteValue) {
+        const [row] = streams.evaluateRow({ sourceTable: DOCS, record: { id: 'ignored', name } });
+        return row.data['first_two'];
+      }
+
+      expect(firstTwo('hello')).toStrictEqual('he');
+      expect(firstTwo('a😀bc')).toStrictEqual('a😀');
+      expect(firstTwo('😀😀😀')).toStrictEqual('😀😀');
+      expect(firstTwo('𐀀ab')).toStrictEqual('𐀀a');
+    });
+
+    syncTest('length() counts Unicode code points, not UTF-16 code units', ({ sync }) => {
+      const streams = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+
+streams:
+  a:
+    query: 'SELECT id, length(name) AS len FROM docs'
+`);
+
+      function len(name: SqliteValue): SqliteJsonValue {
+        const [row] = streams.evaluateRow({ sourceTable: DOCS, record: { id: 'ignored', name } });
+        return row.data['len'];
+      }
+
+      expect(len('hello')).toStrictEqual(5n);
+      expect(len('straße')).toStrictEqual(6n);
+      expect(len('😀')).toStrictEqual(1n);
+      expect(len('a😀b')).toStrictEqual(3n);
+      expect(len('𐀀')).toStrictEqual(1n);
+    });
+
+    syncTest('upper() / lower() are unicode-aware', ({ sync }) => {
+      const streams = sync.prepareSyncStreams(`
+config:
+  edition: 3
+  unstable_sqlite_expression_engine: true
+
+streams:
+  a:
+    query: 'SELECT id, UPPER(name) AS upper, LOWER(name) AS lower FROM docs'
+`);
+
+      function evaluate(name: SqliteValue) {
+        const [row] = streams.evaluateRow({ sourceTable: DOCS, record: { id: 'ignored', name } });
+        return { upper: row.data['upper'], lower: row.data['lower'] };
+      }
+
+      expect(evaluate('hello')).toStrictEqual({ upper: 'HELLO', lower: 'hello' });
+      expect(evaluate('Hello World')).toStrictEqual({ upper: 'HELLO WORLD', lower: 'hello world' });
+
+      expect(evaluate('Straße')).toStrictEqual({ upper: 'STRASSE', lower: 'straße' });
+      expect(evaluate('ﬁle')).toStrictEqual({ upper: 'FILE', lower: 'ﬁle' });
+    });
   });
 });
