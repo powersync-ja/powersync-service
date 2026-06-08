@@ -1030,8 +1030,8 @@ streams:
     );
 
     const mongoFactory = factory as MongoBucketStorage;
-    const bucketStorage = mongoFactory.getInstance(syncRules) as any;
-    const db = bucketStorage.db;
+    const bucketStorage = mongoFactory.getInstance(syncRules);
+    const db = bucketStorage.db as VersionedPowerSyncMongoV3;
     await db.initializeStreamStorage(syncRules.replicationStreamId);
 
     const sourceTableA = new bson.ObjectId();
@@ -1076,7 +1076,11 @@ streams:
       .sourceRecordsV3(syncRules.replicationStreamId, sourceTableB)
       .insertMany([{ _id: 'later-delete', data: null, buckets: [], lookups: [], pending_delete: 12n }]);
 
-    const store = new SourceRecordStoreV3(db, syncRules.replicationStreamId, bucketStorage.sync_rules.mapping);
+    const store = new SourceRecordStoreV3(
+      db,
+      syncRules.replicationStreamId,
+      bucketStorage.replicationStream.syncConfigContent[0].mapping
+    );
     const logger = { info() {} } as any;
 
     await store.postCommitCleanup(6n, logger);

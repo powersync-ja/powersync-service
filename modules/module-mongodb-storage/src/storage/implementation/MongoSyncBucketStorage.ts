@@ -84,7 +84,7 @@ export abstract class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly replicationStreamId: number,
-    protected readonly replicationStream: MongoPersistedReplicationStream,
+    public readonly replicationStream: MongoPersistedReplicationStream,
     public readonly replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
