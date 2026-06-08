@@ -540,11 +540,11 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       { sort: { _id: -1 }, limit: 1 }
     );
 
-    return this.getSyncRulesContent(doc, [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED]);
+    return this.getSyncConfigContentFromDoc(doc, [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED]);
   }
 
-  private async getSyncRulesContent(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
-    return (await this.getSyncRulesContents(doc, stateFilter))[0] ?? null;
+  private async getSyncConfigContentFromDoc(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
+    return (await this.getSyncConfigContentsFromDoc(doc, stateFilter))[0] ?? null;
   }
 
   async getReplicationStream(replicationStreamId: number): Promise<storage.PersistedReplicationStream | null> {
@@ -586,7 +586,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return new MongoPersistedReplicationStream(this.db, doc as SyncRuleDocumentV1);
   }
 
-  private async getSyncRulesContents(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
+  private async getSyncConfigContentsFromDoc(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
     if (doc == null) {
       return [];
     }
@@ -625,7 +625,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       { sort: { _id: -1 }, limit: 1 }
     );
 
-    return this.getSyncRulesContent(doc, [storage.SyncRuleState.PROCESSING]);
+    return this.getSyncConfigContentFromDoc(doc, [storage.SyncRuleState.PROCESSING]);
   }
 
   async getReplicationStreamConfigs(
@@ -636,7 +636,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       return [];
     }
 
-    return this.getSyncRulesContents(doc, [
+    return this.getSyncConfigContentsFromDoc(doc, [
       storage.SyncRuleState.PROCESSING,
       storage.SyncRuleState.ACTIVE,
       storage.SyncRuleState.ERRORED,

@@ -75,8 +75,8 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
   }
 
   async getStorageMetrics(): Promise<storage.StorageMetrics> {
-    const active_sync_rules = await this.getActiveSyncRules({ defaultSchema: 'public' });
-    if (active_sync_rules == null) {
+    const activeSyncConfigContent = await this.getActiveSyncConfigContent();
+    if (activeSyncConfigContent == null) {
       return {
         operations_size_bytes: 0,
         parameters_size_bytes: 0,

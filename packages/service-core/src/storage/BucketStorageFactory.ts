@@ -9,13 +9,8 @@ import {
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
-import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { PersistedReplicationStream } from './PersistedReplicationStream.js';
-import {
-  ParseSyncConfigOptions,
-  PersistedSyncConfigContent,
-  PersistedSyncConfigId
-} from './PersistedSyncConfigContent.js';
+import { PersistedSyncConfigContent, PersistedSyncConfigId } from './PersistedSyncConfigContent.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { ReportStorage } from './ReportStorage.js';
@@ -79,14 +74,6 @@ export abstract class BucketStorageFactory
    * Replication should be restarted after this.
    */
   abstract restartReplication(replicationStreamId: number): Promise<void>;
-
-  /**
-   * Get the sync config used for querying.
-   */
-  async getActiveSyncRules(options: ParseSyncConfigOptions): Promise<ParsedSyncConfigSet | null> {
-    const content = await this.getActiveSyncConfigContent();
-    return content?.parsed(options) ?? null;
-  }
 
   /**
    * Get the sync config used for querying.

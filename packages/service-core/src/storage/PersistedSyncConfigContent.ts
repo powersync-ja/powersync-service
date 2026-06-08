@@ -77,9 +77,9 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
 /**
  * Immutable sync config content for one sync config inside a replication stream.
  *
- * This represents the parsed/compiled config plus the per-config status, but
- * deliberately does NOT expose stream lifecycle concerns (locking, terminating).
- * Use {@link PersistedReplicationStream} for those.
+ * This represents the persisted config content. Fetch per-config status with
+ * {@link getSyncConfigStatus}. Use {@link PersistedReplicationStream} for stream
+ * lifecycle concerns such as locking and termination.
  */
 
 export abstract class PersistedSyncConfigContent implements PersistedSyncConfigContentData {
@@ -92,7 +92,6 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
   readonly syncConfigId: PersistedSyncConfigId | null;
 
   constructor(data: PersistedSyncConfigContentData) {
-    Object.assign(this, data);
     this.replicationStreamId = data.replicationStreamId;
     this.sync_rules_content = data.sync_rules_content;
     this.compiled_plan = data.compiled_plan;
