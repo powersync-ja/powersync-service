@@ -27,13 +27,18 @@ export class MongoHydrationState implements HydrationState {
   }
 
   getBucketSourceScope(source: BucketDataSource): BucketDataScope {
-    // At the moment uniqueName is constant for the same BucketDataSource, so we can use it in the name.
-    // We can consider changing to for example bucketSourceId(source) in the future, which could allow changing a
-    // sync stream name without re-syncing, but that makes debugging more difficult.
+    const syncConfig = this.bucketDataSourceSyncConfig.get(source);
+    if (syncConfig == null) {
+      throw new ServiceAssertionError(`No sync config found for bucket data source ${source.uniqueName}`);
+    }
+    const mapping = syncConfig.mapping;
+    const defId = mapping.bucketSourceId(source);
+    // Currently uniqueName is constant for a BucketDataSource within a replication stream. This may change in the
+    // future, in which case we need to reconsider the bucketPrefix here.
+    // However, the definition may change without changing the name, so we unique defId in the bucketPrefix.
+    // defId is not unique across replication streams, so we include the replicationStreamId as well.
     return {
-      // Keep this aligned with versionedHydrationState() for now.
-      // May consider changing the format before stable release, e.g. bucketPrefix: defId
-      bucketPrefix: `${this.replicationStreamId}#${source.uniqueName}`,
+      bucketPrefix: `${source.uniqueName}#${this.replicationStreamId.toString(16)}#${defId}`,
       source
     };
   }
