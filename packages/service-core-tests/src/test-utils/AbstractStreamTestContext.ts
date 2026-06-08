@@ -55,39 +55,39 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getDeployingSyncConfigContent();
-    if (syncRules == null) {
-      throw new Error(`Next sync rules not available`);
+    const syncConfigContent = await this.factory.getDeployingSyncConfigContent();
+    if (syncConfigContent == null) {
+      throw new Error(`Next sync config not available`);
     }
-    const stream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    const stream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
     if (stream == null) {
       throw new Error(`Next replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
+    this.syncRulesContent = syncConfigContent;
     this.replicationStream = stream;
     this.storage = this.factory.getInstance(stream);
     return this.storage!;
   }
 
   async loadActiveSyncRules() {
-    const syncRules = await this.factory.getActiveSyncConfigContent();
-    if (syncRules == null) {
-      throw new Error(`Active sync rules not available`);
+    const syncConfigContent = await this.factory.getActiveSyncConfigContent();
+    if (syncConfigContent == null) {
+      throw new Error(`Active sync config not available`);
     }
     const storage = await this.factory.getActiveStorage();
     if (storage == null) {
       throw new Error(`Active replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
+    this.syncRulesContent = syncConfigContent;
     this.storage = storage;
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncConfigContent {
+  private getSyncConfigContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
-      throw new Error('Sync rules not configured - call updateSyncRules() first');
+      throw new Error('Sync config not configured - call updateSyncRules() first');
     }
     return this.syncRulesContent;
   }
@@ -139,7 +139,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
   }
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
-    const helpers = new StorageDataHelpers(this.storage!, this.getSyncRulesContent());
+    const helpers = new StorageDataHelpers(this.storage!, this.getSyncConfigContent());
     const checkpoint = await this.getCheckpoint(options);
     return helpers.getBucketsDataBatch(buckets, checkpoint);
   }
@@ -148,15 +148,15 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
    * This waits for a client checkpoint.
    */
   async getBucketData(bucket: string, start?: InternalOpId | string | undefined, options?: { timeout?: number }) {
-    const helpers = new StorageDataHelpers(this.storage!, this.getSyncRulesContent());
+    const helpers = new StorageDataHelpers(this.storage!, this.getSyncConfigContent());
     const checkpoint = await this.getCheckpoint(options);
     return helpers.getBucketData(bucket, checkpoint, start);
   }
 
   async getChecksums(buckets: string[], options?: { timeout?: number }) {
     const checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncRules, bucket, 0n));
+    const syncConfigContent = this.getSyncConfigContent();
+    const versionedBuckets = buckets.map((bucket) => bucketRequest(syncConfigContent, bucket, 0n));
     const checksums = await this.storage!.getChecksums(checkpoint, versionedBuckets);
 
     const unversioned = new Map();
@@ -180,9 +180,9 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.getSyncRulesContent();
+    const syncConfigContent = this.getSyncConfigContent();
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const map = [bucketRequest(syncRules, bucket, start)];
+    const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];

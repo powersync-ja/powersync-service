@@ -84,13 +84,13 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async loadNextSyncRules() {
-    const syncRules = await this.factory.getDeployingSyncConfigContent();
-    if (syncRules == null) {
+    const syncConfigContent = await this.factory.getDeployingSyncConfigContent();
+    if (syncConfigContent == null) {
       throw new Error(`Next replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    const replicationStream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    this.syncRulesContent = syncConfigContent;
+    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
     if (replicationStream == null) {
       throw new Error(`Next replication stream not available`);
     }
@@ -99,13 +99,13 @@ export class CDCStreamTestContext implements AsyncDisposable {
   }
 
   async loadActiveSyncRules() {
-    const syncRules = await this.factory.getActiveSyncConfigContent();
-    if (syncRules == null) {
+    const syncConfigContent = await this.factory.getActiveSyncConfigContent();
+    if (syncConfigContent == null) {
       throw new Error(`Active replication stream not available`);
     }
 
-    this.syncRulesContent = syncRules;
-    const replicationStream = await this.factory.getReplicationStream(syncRules.replicationStreamId);
+    this.syncRulesContent = syncConfigContent;
+    const replicationStream = await this.factory.getReplicationStream(syncConfigContent.replicationStreamId);
     if (replicationStream == null) {
       throw new Error(`Active replication stream not available`);
     }
@@ -113,7 +113,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
     return this.storage!;
   }
 
-  private getSyncRulesContent(): storage.PersistedSyncConfigContent {
+  private getSyncConfigContent(): storage.PersistedSyncConfigContent {
     if (this.syncRulesContent == null) {
       throw new Error('Sync config not configured - call updateSyncRules() first');
     }
@@ -191,8 +191,8 @@ export class CDCStreamTestContext implements AsyncDisposable {
 
   async getBucketsDataBatch(buckets: Record<string, InternalOpId>, options?: { timeout?: number }) {
     let checkpoint = await this.getCheckpoint(options);
-    const syncRules = this.getSyncRulesContent();
-    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncRules, bucket, start));
+    const syncConfigContent = this.getSyncConfigContent();
+    const map = Object.entries(buckets).map(([bucket, start]) => bucketRequest(syncConfigContent, bucket, start));
     return test_utils.fromAsync(this.storage!.getBucketDataBatch(checkpoint, map));
   }
 
@@ -204,9 +204,9 @@ export class CDCStreamTestContext implements AsyncDisposable {
     if (typeof start == 'string') {
       start = BigInt(start);
     }
-    const syncRules = this.getSyncRulesContent();
+    const syncConfigContent = this.getSyncConfigContent();
     const checkpoint = await this.getCheckpoint(options);
-    let map = [bucketRequest(syncRules, bucket, start)];
+    let map = [bucketRequest(syncConfigContent, bucket, start)];
     let data: OplogEntry[] = [];
     while (true) {
       const batch = this.storage!.getBucketDataBatch(checkpoint, map);
@@ -216,7 +216,7 @@ export class CDCStreamTestContext implements AsyncDisposable {
       if (batches.length == 0 || !batches[0]!.chunkData.has_more) {
         break;
       }
-      map = [bucketRequest(syncRules, bucket, BigInt(batches[0]!.chunkData.next_after))];
+      map = [bucketRequest(syncConfigContent, bucket, BigInt(batches[0]!.chunkData.next_after))];
     }
     return data;
   }
@@ -235,8 +235,8 @@ export class CDCStreamTestContext implements AsyncDisposable {
       start = BigInt(start);
     }
     const { checkpoint } = await this.storage!.getCheckpoint();
-    const syncRules = this.getSyncRulesContent();
-    const map = [bucketRequest(syncRules, bucket, start)];
+    const syncConfigContent = this.getSyncConfigContent();
+    const map = [bucketRequest(syncConfigContent, bucket, start)];
     const batch = this.storage!.getBucketDataBatch(checkpoint, map);
     const batches = await test_utils.fromAsync(batch);
     return batches[0]?.chunkData.data ?? [];
