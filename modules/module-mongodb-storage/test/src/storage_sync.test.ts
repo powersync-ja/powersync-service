@@ -917,6 +917,7 @@ streams:
       await using firstWriter = await firstStorage.createWriter(test_utils.BATCH_OPTIONS);
       await firstWriter.markAllSnapshotDone('1/1');
       await firstWriter.commit('1/1');
+      const initialActiveStorage = (await factory.getActiveStorage()) as MongoSyncBucketStorage;
 
       let configs = await factory.getReplicationStreamConfigs(first.replicationStreamId);
       const firstConfigId = configs[0].syncConfigId;
@@ -972,6 +973,13 @@ streams:
       ]);
       expect(await factory.getDeployingSyncConfigContent()).toBeNull();
       expect((await factory.getActiveSyncConfigContent())?.syncConfigId).not.toBe(firstConfigId);
+      const updatedActiveStorage = (await factory.getActiveStorage()) as MongoSyncBucketStorage;
+      expect(updatedActiveStorage.replicationStream.replicationJobId).not.toBe(
+        initialActiveStorage.replicationStream.replicationJobId
+      );
+      expect(updatedActiveStorage.replicationStream.replicationJobId).toContain(
+        (await factory.getActiveSyncConfigContent())!.syncConfigId
+      );
     }
   );
 

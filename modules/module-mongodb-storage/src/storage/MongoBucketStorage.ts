@@ -730,7 +730,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     // It is important that this instance is cached.
     // Not for the instance construction itself, but to ensure that internal caches on the instance
     // are re-used properly.
-    if (this.activeStorageCache?.replicationStreamId == stream.replicationStreamId) {
+    if (this.activeStorageCache?.replicationStream.replicationJobId == stream.replicationJobId) {
       return this.activeStorageCache;
     } else {
       const instance = this.getInstance(stream);
