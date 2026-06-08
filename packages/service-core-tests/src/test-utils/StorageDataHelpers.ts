@@ -1,8 +1,8 @@
 import {
   InternalOpId,
   OplogEntry,
+  ParsedSyncConfigSet,
   PersistedSyncConfigContent,
-  PersistedSyncRules,
   SyncRulesBucketStorage
 } from '@powersync/service-core';
 import { bucketRequest } from './general-utils.js';
@@ -10,9 +10,9 @@ import { fromAsync } from './stream_utils.js';
 
 export class StorageDataHelpers {
   storage: SyncRulesBucketStorage;
-  syncRules: PersistedSyncConfigContent | PersistedSyncRules;
+  syncRules: PersistedSyncConfigContent | ParsedSyncConfigSet;
 
-  constructor(storage: SyncRulesBucketStorage, syncRules: PersistedSyncConfigContent | PersistedSyncRules) {
+  constructor(storage: SyncRulesBucketStorage, syncRules: PersistedSyncConfigContent | ParsedSyncConfigSet) {
     this.storage = storage;
     this.syncRules = syncRules;
   }

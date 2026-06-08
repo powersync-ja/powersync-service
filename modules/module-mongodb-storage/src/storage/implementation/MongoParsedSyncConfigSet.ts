@@ -19,9 +19,9 @@ import {
 import { StorageConfig } from './models.js';
 import { MongoHydrationState } from './MongoHydrationState.js';
 
-export class MongoPersistedSyncRules implements storage.PersistedSyncRules {
+export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
   public readonly hydrationState: HydrationState;
-  public readonly syncConfigs: storage.PersistedSyncRules['syncConfigs'];
+  public readonly syncConfigs: storage.ParsedSyncConfigSet['syncConfigs'];
   public readonly slot_name: string;
   public readonly mapping: BucketDefinitionMapping;
 

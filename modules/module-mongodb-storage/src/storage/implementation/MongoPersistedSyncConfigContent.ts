@@ -5,7 +5,7 @@ import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleDocumentV1 }
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig } from './models.js';
-import { MongoPersistedSyncRules } from './MongoPersistedSyncRules.js';
+import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 
 export abstract class MongoPersistedSyncConfigContentBase extends storage.PersistedSyncConfigContent {
   public readonly mapping: BucketDefinitionMapping;
@@ -31,7 +31,7 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
     return getMongoStorageConfig(this.storageVersion);
   }
 
-  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
     const parsed = super.parsed(options);
     const storageConfig = this.getStorageConfig();
     const [syncConfig] = parsed.syncConfigs;
@@ -39,7 +39,7 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
       throw new ServiceAssertionError(`Expected one parsed sync config`);
     }
 
-    return new MongoPersistedSyncRules(parsed.id, storageConfig, parsed.slot_name, [
+    return new MongoParsedSyncConfigSet(parsed.id, storageConfig, parsed.slot_name, [
       { syncConfig, mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
     ]);
   }
@@ -109,7 +109,7 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
     this.syncConfigIds = configs.map((config) => config._id);
   }
 
-  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
     const storageConfig = this.getStorageConfig();
     const syncConfigs = this.configs.map((config) => {
       const content = new MongoPersistedSyncConfigContentV3(this.db, this.doc, config);
@@ -125,6 +125,6 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
       };
     });
 
-    return new MongoPersistedSyncRules(this.id, storageConfig, this.slot_name, syncConfigs);
+    return new MongoParsedSyncConfigSet(this.id, storageConfig, this.slot_name, syncConfigs);
   }
 }

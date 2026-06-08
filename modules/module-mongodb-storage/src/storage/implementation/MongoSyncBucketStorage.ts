@@ -75,7 +75,7 @@ export abstract class MongoSyncBucketStorage
 
   readonly checksums: MongoChecksums;
 
-  private parsedSyncRulesCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncRulesOptions } | undefined;
+  private parsedSyncConfigCache: { parsed: HydratedSyncConfig; options: storage.ParseSyncConfigOptions } | undefined;
   private writeCheckpointAPI: MongoWriteCheckpointAPI;
   public readonly logger: Logger;
   public readonly storageConfig: StorageConfig;
@@ -84,7 +84,7 @@ export abstract class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly group_id: number,
-    protected readonly sync_rules: MongoPersistedSyncConfigContentV1,
+    protected readonly syncConfigContent: MongoPersistedSyncConfigContentV1,
     public readonly slot_name: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
@@ -98,7 +98,7 @@ export abstract class MongoSyncBucketStorage
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
       sync_rules_id: group_id
     });
-    this.logger = sync_rules.logger;
+    this.logger = syncConfigContent.logger;
   }
 
   /**
@@ -119,7 +119,7 @@ export abstract class MongoSyncBucketStorage
   }
 
   get mapping() {
-    return this.sync_rules.mapping;
+    return this.syncConfigContent.mapping;
   }
 
   protected get versionContext(): MongoSyncBucketStorageContext {
@@ -145,13 +145,13 @@ export abstract class MongoSyncBucketStorage
     });
   }
 
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): HydratedSyncConfig {
-    const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): HydratedSyncConfig {
+    const { parsed, options: cachedOptions } = this.parsedSyncConfigCache ?? {};
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncConfig(), options };
+      this.parsedSyncConfigCache = { parsed: this.syncConfigContent.parsed(options).hydratedSyncConfig(), options };
     }
 
-    return this.parsedSyncRulesCache!.parsed;
+    return this.parsedSyncConfigCache!.parsed;
   }
 
   async getCheckpoint(): Promise<storage.ReplicationCheckpoint> {
@@ -196,7 +196,7 @@ export abstract class MongoSyncBucketStorage
     await this.initializeStorage();
 
     const state = await this.getWriterSyncState();
-    const parsed = this.sync_rules.parsed(options) as storage.PersistedSyncRules & {
+    const parsed = this.syncConfigContent.parsed(options) as storage.ParsedSyncConfigSet & {
       mapping?: BucketDefinitionMapping;
     };
 
@@ -204,7 +204,7 @@ export abstract class MongoSyncBucketStorage
       logger: options.logger ?? this.logger,
       db: this.db,
       syncRules: parsed.hydratedSyncConfig(),
-      mapping: parsed.mapping ?? this.sync_rules.mapping,
+      mapping: parsed.mapping ?? this.syncConfigContent.mapping,
       groupId: this.group_id,
       slotName: this.slot_name,
       lastCheckpointLsn: state.lastCheckpointLsn,

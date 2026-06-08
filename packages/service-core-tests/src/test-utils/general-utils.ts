@@ -4,7 +4,7 @@ import * as bson from 'bson';
 
 export const ZERO_LSN = '0/0';
 
-export const PARSE_OPTIONS: storage.ParseSyncRulesOptions = {
+export const PARSE_OPTIONS: storage.ParseSyncConfigOptions = {
   defaultSchema: 'public'
 };
 
@@ -93,9 +93,9 @@ export function getBatchData(
 }
 
 function isParsedSyncRules(
-  syncRules: storage.PersistedSyncConfigContent | storage.PersistedSyncRules
-): syncRules is storage.PersistedSyncRules {
-  return (syncRules as storage.PersistedSyncRules).syncConfigs !== undefined;
+  syncRules: storage.PersistedSyncConfigContent | storage.ParsedSyncConfigSet
+): syncRules is storage.ParsedSyncConfigSet {
+  return (syncRules as storage.ParsedSyncConfigSet).syncConfigs !== undefined;
 }
 
 /**
@@ -103,7 +103,7 @@ function isParsedSyncRules(
  * This converts a bucket name like "global[]" into the actual bucket name, for use in tests.
  */
 export function bucketRequest(
-  syncRules: storage.PersistedSyncConfigContent | storage.PersistedSyncRules,
+  syncRules: storage.PersistedSyncConfigContent | storage.ParsedSyncConfigSet,
   bucket: string,
   start?: InternalOpId | string | number
 ): BucketDataRequest {

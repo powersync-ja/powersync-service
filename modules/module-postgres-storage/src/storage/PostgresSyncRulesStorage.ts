@@ -67,7 +67,7 @@ export class PostgresSyncRulesStorage
 
   //   TODO we might be able to share this in an abstract class
   private parsedSyncRulesCache:
-    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncRulesOptions }
+    | { parsed: sync_rules.HydratedSyncConfig; options: storage.ParseSyncConfigOptions }
     | undefined;
   private _checksumCache: storage.ChecksumCache | undefined;
 
@@ -107,7 +107,7 @@ export class PostgresSyncRulesStorage
   }
 
   //   TODO we might be able to share this in an abstract class
-  getParsedSyncRules(options: storage.ParseSyncRulesOptions): sync_rules.HydratedSyncConfig {
+  getParsedSyncRules(options: storage.ParseSyncConfigOptions): sync_rules.HydratedSyncConfig {
     const { parsed, options: cachedOptions } = this.parsedSyncRulesCache ?? {};
     /**
      * Check if the cached sync config, if present, had the same options.

@@ -195,7 +195,7 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
     super(data);
   }
 
-  parsed(options: storage.ParseSyncRulesOptions): storage.PersistedSyncRules {
+  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
     const syncConfig = SqlSyncRules.fromYaml(this.sync_rules_content, {
       ...this.apiHandler.getParseSyncRulesOptions(),
       schema: this.schema

@@ -1,6 +1,6 @@
 import { SyncConfig, TablePattern } from '@powersync/service-sync-rules';
 import * as types from '@powersync/service-types';
-import { ParseSyncRulesOptions, SyncRulesBucketStorage } from '../storage/storage-index.js';
+import { ParseSyncConfigOptions, SyncRulesBucketStorage } from '../storage/storage-index.js';
 
 export interface PatternResult {
   schema: string;
@@ -94,7 +94,7 @@ export interface RouteAPI {
   /**
    * Get the default schema (or database) when only a table name is specified in sync config.
    */
-  getParseSyncRulesOptions(): ParseSyncRulesOptions;
+  getParseSyncRulesOptions(): ParseSyncConfigOptions;
 }
 
 export type ReplicationHeadCallback<T> = (head: string) => Promise<T>;

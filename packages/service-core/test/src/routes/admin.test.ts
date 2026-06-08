@@ -1,4 +1,4 @@
-import { BasicRouterRequest, Context, JwtPayload, PersistedSyncRules, storage } from '@/index.js';
+import { BasicRouterRequest, Context, JwtPayload, ParsedSyncConfigSet, storage } from '@/index.js';
 import { logger } from '@powersync/lib-services-framework';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, it, vi } from 'vitest';
@@ -70,7 +70,7 @@ bucket_definitions:
         });
         return {
           syncConfigs: [syncRules]
-        } as PersistedSyncRules;
+        } as ParsedSyncConfigSet;
       },
       asUpdateOptions: vi.fn(),
       getStorageConfig: vi.fn(),

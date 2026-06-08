@@ -18,12 +18,8 @@ import * as sqlite from 'node:sqlite';
 import { Logger } from 'winston';
 import { SyncRuleState } from './BucketStorage.js';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
-import {
-  ParseSyncRulesOptions,
-  PersistedSyncConfigId,
-  PersistedSyncConfigStatus,
-  PersistedSyncRules
-} from './PersistedSyncRulesContent.js';
+import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
+import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
 
 /**
@@ -92,7 +88,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
    *
    * This does not depend on any other configs in the same replication stream.
    */
-  protected parseSingleConfig(options: ParseSyncRulesOptions): SyncConfigWithErrors {
+  protected parseSingleConfig(options: ParseSyncConfigOptions): SyncConfigWithErrors {
     // Do we have a compiled sync plan? If so, restore from there instead of parsing everything again.
     let config: SyncConfigWithErrors;
     if (this.compiled_plan != null) {
@@ -138,7 +134,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
     return config;
   }
 
-  parsed(options: ParseSyncRulesOptions): PersistedSyncRules {
+  parsed(options: ParseSyncConfigOptions): ParsedSyncConfigSet {
     let hydrationState: HydrationState;
     const config = this.parseSingleConfig(options);
 
@@ -205,4 +201,8 @@ export interface PersistedSyncConfigContentData {
   readonly state?: SyncRuleState;
   readonly syncConfigId?: PersistedSyncConfigId | null;
   readonly replicationJobId?: string;
+}
+export type PersistedSyncConfigId = string;
+export interface ParseSyncConfigOptions {
+  defaultSchema: string;
 }

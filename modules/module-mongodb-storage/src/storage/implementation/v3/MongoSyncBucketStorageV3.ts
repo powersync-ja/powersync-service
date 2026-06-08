@@ -132,7 +132,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoChecksumsV3(this.db, this.group_id, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.sync_rules.mapping
+      mapping: this.syncConfigContent.mapping
     });
   }
 

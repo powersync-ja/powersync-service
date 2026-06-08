@@ -1,6 +1,6 @@
 import { DiagnosticsOptions, getSyncRulesStatus } from '@/api/diagnostics.js';
 import { RouteAPI, SlotWalBudgetInfo } from '@/api/RouteAPI.js';
-import { BucketStorageFactory, PersistedSyncRules, storage } from '@/index.js';
+import { BucketStorageFactory, ParsedSyncConfigSet, storage } from '@/index.js';
 import { SqlSyncRules } from '@powersync/service-sync-rules';
 import { describe, expect, test } from 'vitest';
 
@@ -36,7 +36,7 @@ function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.Persi
       });
       return {
         syncConfigs: [syncRules]
-      } as PersistedSyncRules;
+      } as ParsedSyncConfigSet;
     },
     logger: null as any,
     asUpdateOptions: null as any,

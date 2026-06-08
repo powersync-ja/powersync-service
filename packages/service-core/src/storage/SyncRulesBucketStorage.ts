@@ -10,7 +10,7 @@ import { PerformanceTracer } from '../tracing/PerformanceTracer.js';
 import * as util from '../util/util-index.js';
 import { BucketStorageBatch, FlushedResult, SaveUpdate } from './BucketStorageBatch.js';
 import { BucketStorageFactory } from './BucketStorageFactory.js';
-import { ParseSyncRulesOptions } from './PersistedSyncRulesContent.js';
+import { ParseSyncConfigOptions } from './PersistedSyncConfigContent.js';
 import { SourceEntityDescriptor } from './SourceEntity.js';
 import { SourceTable } from './SourceTable.js';
 import { StorageVersionConfig } from './StorageVersionConfig.js';
@@ -44,7 +44,7 @@ export interface SyncRulesBucketStorage
     callback: (batch: BucketStorageBatch) => Promise<void>
   ): Promise<FlushedResult | null>;
 
-  getParsedSyncRules(options: ParseSyncRulesOptions): HydratedSyncConfig;
+  getParsedSyncRules(options: ParseSyncConfigOptions): HydratedSyncConfig;
 
   /**
    * Terminate the replication stream.
@@ -177,7 +177,7 @@ export interface ResolveTablesResult {
   dropTables: SourceTable[];
 }
 
-export interface CreateWriterOptions extends ParseSyncRulesOptions {
+export interface CreateWriterOptions extends ParseSyncConfigOptions {
   zeroLSN: string;
   /**
    * Whether or not to store a copy of the current data.

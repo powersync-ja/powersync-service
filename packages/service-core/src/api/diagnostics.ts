@@ -51,7 +51,7 @@ export async function getSyncRulesStatus(
   const now = new Date().toISOString();
 
   let parsed: SyncConfigWithErrors;
-  let persisted: storage.PersistedSyncRules;
+  let persisted: storage.ParsedSyncConfigSet;
   try {
     persisted = sync_rules.parsed(apiHandler.getParseSyncRulesOptions());
     // A content object represents a single sync config, so its parsed result has exactly one entry.

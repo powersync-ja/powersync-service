@@ -9,14 +9,14 @@ import {
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
+import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { PersistedReplicationStream } from './PersistedReplicationStream.js';
-import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import {
-  ParseSyncRulesOptions,
-  PersistedSyncConfigId,
-  PersistedSyncConfigStatus,
-  PersistedSyncRules
-} from './PersistedSyncRulesContent.js';
+  ParseSyncConfigOptions,
+  PersistedSyncConfigContent,
+  PersistedSyncConfigId
+} from './PersistedSyncConfigContent.js';
+import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { ReportStorage } from './ReportStorage.js';
@@ -84,7 +84,7 @@ export abstract class BucketStorageFactory
   /**
    * Get the sync config used for querying.
    */
-  async getActiveSyncRules(options: ParseSyncRulesOptions): Promise<PersistedSyncRules | null> {
+  async getActiveSyncRules(options: ParseSyncConfigOptions): Promise<ParsedSyncConfigSet | null> {
     const content = await this.getActiveSyncConfigContent();
     return content?.parsed(options) ?? null;
   }

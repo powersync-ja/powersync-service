@@ -1,4 +1,4 @@
-import { api, ParseSyncRulesOptions, ReplicationHeadCallback, ReplicationLagOptions } from '@powersync/service-core';
+import { api, ParseSyncConfigOptions, ReplicationHeadCallback, ReplicationLagOptions } from '@powersync/service-core';
 import * as sync_rules from '@powersync/service-sync-rules';
 import * as service_types from '@powersync/service-types';
 import { isConvexCheckpointTable } from '../common/ConvexCheckpoints.js';
@@ -179,7 +179,7 @@ export class ConvexRouteAPIAdapter implements api.RouteAPI {
     await this.shutdown();
   }
 
-  getParseSyncRulesOptions(): ParseSyncRulesOptions {
+  getParseSyncRulesOptions(): ParseSyncConfigOptions {
     return {
       defaultSchema: this.connectionManager.schema
     };
