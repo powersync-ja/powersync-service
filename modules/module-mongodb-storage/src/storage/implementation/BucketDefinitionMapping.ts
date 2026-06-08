@@ -63,14 +63,21 @@ export class BucketDefinitionMapping {
     return new BucketDefinitionMapping(definitions, parameterLookups);
   }
 
+  /**
+   *
+   * @param compatibleConfigs SyncConfigs with definitions that may be re-used
+   * @param newPlan
+   * @param reservedMappings _all_ mappings used currently and historically for the replication stream; used to construct new ids
+   * @returns
+   */
   static constructIncrementalMappingFromSerializedPlans(
-    existing: SerializedSyncConfigWithMapping[],
-    newPlan: SerializedSyncPlanV1
+    compatibleConfigs: SerializedSyncConfigWithMapping[],
+    newPlan: SerializedSyncPlanV1,
+    reservedMappings: BucketDefinitionMapping[]
   ): BucketDefinitionMapping {
-    // FIXME: These ids may conflict with existing mappings if sync configs are de-activated.
     let nextBucketDefinitionId =
-      existing
-        .map((c) => c.mapping.allBucketDefinitionIds())
+      reservedMappings
+        .map((mapping) => mapping.allBucketDefinitionIds())
         .flat()
         .reduce((maxId, id) => Math.max(maxId, parseInt(id, 16)), 0) + 1;
     function generateNewBucketDefinitionId(): BucketDefinitionId {
@@ -79,8 +86,8 @@ export class BucketDefinitionMapping {
       return id;
     }
     let nextParameterIndexId =
-      existing
-        .map((c) => c.mapping.allParameterIndexIds())
+      reservedMappings
+        .map((mapping) => mapping.allParameterIndexIds())
         .flat()
         .reduce((maxId, id) => Math.max(maxId, parseInt(id, 16)), 0) + 1;
     function generateNewParameterIndexId(): ParameterIndexId {
@@ -98,7 +105,7 @@ export class BucketDefinitionMapping {
       serializedStreamParameterIndexLookupCreatorEquality
     );
 
-    for (const config of existing) {
+    for (const config of compatibleConfigs) {
       for (const bucket of config.plan.buckets) {
         compatibleBuckets.putIfAbsent({ bucket, dataSources: config.plan.dataSources }, () =>
           config.mapping.bucketSourceIdByName(bucket.uniqueName)
