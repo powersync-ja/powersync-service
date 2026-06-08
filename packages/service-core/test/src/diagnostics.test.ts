@@ -16,10 +16,9 @@ bucket_definitions:
 function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.PersistedSyncConfigContent {
   // We don't implement the entire interface correctly here - just enough to test the diagnostics logic.
   return {
-    id: 1,
     replicationStreamId: 1,
     syncConfigId: null,
-    slot_name: overrides?.slot_name ?? 'test_slot',
+    replicationStreamName: overrides?.slot_name ?? 'test_slot',
     sync_rules_content: MINIMAL_SYNC_RULES,
     compiled_plan: null,
     active: true,

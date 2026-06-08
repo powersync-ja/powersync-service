@@ -375,7 +375,7 @@ bucket_definitions:
       // Here we explicitly drop the replication slot, which should always be handled.
       await pool.query({
         statement: `SELECT pg_drop_replication_slot($1)`,
-        params: [{ type: 'varchar', value: storage?.slot_name! }]
+        params: [{ type: 'varchar', value: storage?.replicationStreamName! }]
       });
 
       await context.loadActiveSyncRules();
@@ -433,7 +433,7 @@ bucket_definitions:
       await using context = await openContext({ doNotClear: true });
       const { pool } = context;
       const storage = await context.factory.getActiveStorage();
-      const slotName = storage?.slot_name!;
+      const slotName = storage?.replicationStreamName!;
 
       // Here, we write data to the WAL until the replication slot is lost.
       const TRIES = 100;

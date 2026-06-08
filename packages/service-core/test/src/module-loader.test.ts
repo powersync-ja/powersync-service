@@ -123,7 +123,7 @@ describe('module loader', () => {
   it('passes replication streams through teardown options', async () => {
     const module = new RecordingModule('RecordingModule');
     const moduleManager = new ModuleManager();
-    const replicationStreams = [{ id: 1 }] as storage.PersistedReplicationStream[];
+    const replicationStreams = [{ replicationStreamId: 1 }] as storage.PersistedReplicationStream[];
 
     moduleManager.register([module]);
     await moduleManager.tearDown({ replicationStreams, syncRules: replicationStreams });

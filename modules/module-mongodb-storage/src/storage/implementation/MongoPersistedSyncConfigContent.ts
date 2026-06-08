@@ -39,7 +39,7 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
       throw new ServiceAssertionError(`Expected one parsed sync config`);
     }
 
-    return new MongoParsedSyncConfigSet(parsed.id, storageConfig, parsed.slot_name, [
+    return new MongoParsedSyncConfigSet(parsed.replicationStreamId, storageConfig, parsed.replicationStreamName, [
       { syncConfig, mapping: storageConfig.incrementalReprocessing ? this.mapping : null }
     ]);
   }
@@ -47,12 +47,12 @@ export abstract class MongoPersistedSyncConfigContentBase extends storage.Persis
 export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigContentBase {
   constructor(db: PowerSyncMongo, doc: SyncRuleDocumentV1) {
     super(db, {
-      id: doc._id,
+      replicationStreamId: doc._id,
       sync_rules_content: doc.content,
       compiled_plan: doc.serialized_plan ?? null,
       last_checkpoint_lsn: doc.last_checkpoint_lsn,
       // Handle legacy values
-      slot_name: doc.slot_name ?? `powersync_${doc._id}`,
+      replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       last_fatal_error: doc.last_fatal_error,
       last_fatal_error_ts: doc.last_fatal_error_ts,
       last_checkpoint_ts: doc.last_checkpoint_ts,
@@ -87,12 +87,12 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
       throw new ServiceAssertionError(`Cannot find sync config ${selected._id} in replication stream ${doc._id}`);
     }
     super(db, {
-      id: doc._id,
+      replicationStreamId: doc._id,
       sync_rules_content: selected.content,
       compiled_plan: selected.serialized_plan ?? null,
 
       last_checkpoint_lsn: state?.last_checkpoint_lsn ?? null,
-      slot_name: doc.slot_name ?? `powersync_${doc._id}`,
+      replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       last_fatal_error: doc.last_fatal_error,
       last_fatal_error_ts: doc.last_fatal_error_ts,
       last_checkpoint_ts: doc.last_checkpoint_ts,
@@ -124,6 +124,11 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
       };
     });
 
-    return new MongoParsedSyncConfigSet(this.id, storageConfig, this.slot_name, syncConfigs);
+    return new MongoParsedSyncConfigSet(
+      this.replicationStreamId,
+      storageConfig,
+      this.replicationStreamName,
+      syncConfigs
+    );
   }
 }

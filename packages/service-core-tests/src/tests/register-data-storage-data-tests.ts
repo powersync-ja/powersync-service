@@ -1629,7 +1629,7 @@ bucket_definitions:
     expect(cp2.lsn).toEqual('3/1');
 
     const activeSyncRules = await factory.getActiveSyncConfigContent();
-    expect(activeSyncRules?.id).toEqual(syncRules.id);
+    expect(activeSyncRules?.replicationStreamId).toEqual(syncRules.replicationStreamId);
 
     // At this point, it should be a truely empty checkpoint
     const result4 = await writer.commit('4/1', { createEmptyCheckpoints: false });
@@ -1777,7 +1777,7 @@ streams:
 `)
     );
 
-    const [deployedContent] = await factory.getReplicationStreamConfigs(deployed.id);
+    const [deployedContent] = await factory.getReplicationStreamConfigs(deployed.replicationStreamId);
     expect(deployedContent).toBeDefined();
     const [deployedConfig] = deployedContent.parsed({ defaultSchema: 'ignored' }).syncConfigs;
     expect(deployedConfig).toBeDefined();

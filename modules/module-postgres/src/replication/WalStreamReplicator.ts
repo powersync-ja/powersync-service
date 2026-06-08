@@ -19,7 +19,7 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
 
   createJob(options: replication.CreateJobOptions): WalStreamReplicationJob {
     return new WalStreamReplicationJob({
-      id: this.createJobId(options.storage.group_id),
+      id: this.createJobId(options.storage.replicationStreamId),
       storage: options.storage,
       metrics: this.metrics,
       connectionFactory: this.connectionFactory,
@@ -36,7 +36,7 @@ export class WalStreamReplicator extends replication.AbstractReplicator<WalStrea
     });
     try {
       // TODO: Slot_name will likely have to come from a different source in the future
-      await cleanUpReplicationSlot(syncRulesStorage.slot_name, connectionManager.pool);
+      await cleanUpReplicationSlot(syncRulesStorage.replicationStreamName, connectionManager.pool);
     } finally {
       await connectionManager.end();
     }

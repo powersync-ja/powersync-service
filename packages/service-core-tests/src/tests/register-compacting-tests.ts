@@ -17,7 +17,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -125,7 +125,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -242,7 +242,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -331,7 +331,7 @@ bucket_definitions:
               - select * from test where b = bucket.b`)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -462,7 +462,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -541,7 +541,7 @@ bucket_definitions:
     `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);
@@ -613,7 +613,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const testTable = await test_utils.resolveTestTable(writer, 'test', ['id'], config);

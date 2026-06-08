@@ -38,8 +38,8 @@ export interface PostgresBucketBatchOptions {
   logger: Logger;
   db: lib_postgres.DatabaseClient;
   sync_rules: sync_rules.HydratedSyncConfig;
-  group_id: number;
-  slot_name: string;
+  replicationStreamId: number;
+  replicationStreamName: string;
   last_checkpoint_lsn: string | null;
   store_current_data: boolean;
   keep_alive_op?: InternalOpId | null;
@@ -112,7 +112,7 @@ export class PostgresBucketBatch
     super();
     this.logger = options.logger;
     this.db = options.db;
-    this.group_id = options.group_id;
+    this.group_id = options.replicationStreamId;
     this.last_checkpoint_lsn = options.last_checkpoint_lsn;
     this.resumeFromLsn = options.resumeFromLsn;
     this.skipExistingRows = options.skip_existing_rows;
@@ -1134,7 +1134,7 @@ export class PostgresBucketBatch
           {
             level: errors.ErrorSeverity.WARNING,
             metadata: {
-              replication_slot: this.options.slot_name,
+              replication_slot: this.options.replicationStreamName,
               table: record.sourceTable.qualifiedName
             }
           }
@@ -1190,7 +1190,7 @@ export class PostgresBucketBatch
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {
-                replication_slot: this.options.slot_name,
+                replication_slot: this.options.replicationStreamName,
                 table: record.sourceTable.qualifiedName
               }
             }
@@ -1231,7 +1231,7 @@ export class PostgresBucketBatch
             {
               level: errors.ErrorSeverity.WARNING,
               metadata: {
-                replication_slot: this.options.slot_name,
+                replication_slot: this.options.replicationStreamName,
                 table: record.sourceTable.qualifiedName
               }
             }

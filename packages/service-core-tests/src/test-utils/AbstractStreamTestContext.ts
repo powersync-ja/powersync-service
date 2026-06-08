@@ -49,7 +49,7 @@ export abstract class AbstractStreamTestContext implements AsyncDisposable {
       updateSyncRulesFromYaml(content, { validate: true, storageVersion: this.storageVersion })
     );
     this.replicationStream = stream;
-    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(stream.id))[0];
+    this.syncRulesContent = (await this.factory.getReplicationStreamConfigs(stream.replicationStreamId))[0];
     this.storage = this.factory.getInstance(stream);
     return this.storage!;
   }

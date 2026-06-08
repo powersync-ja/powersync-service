@@ -11,15 +11,29 @@ export type { MongoSyncBucketStorage };
 
 export function createMongoSyncBucketStorage(
   factory: MongoBucketStorage,
-  group_id: number,
+  replicationStreamId: number,
   sync_rules: MongoPersistedSyncConfigContentV1,
-  slot_name: string,
+  replicationStreamName: string,
   writeCheckpointMode: storage.WriteCheckpointMode | undefined,
   options: MongoSyncBucketStorageOptions
 ): MongoSyncBucketStorage {
   if (sync_rules.getStorageConfig().incrementalReprocessing) {
-    return new MongoSyncBucketStorageV3(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+    return new MongoSyncBucketStorageV3(
+      factory,
+      replicationStreamId,
+      sync_rules,
+      replicationStreamName,
+      writeCheckpointMode,
+      options
+    );
   }
 
-  return new MongoSyncBucketStorageV1(factory, group_id, sync_rules, slot_name, writeCheckpointMode, options);
+  return new MongoSyncBucketStorageV1(
+    factory,
+    replicationStreamId,
+    sync_rules,
+    replicationStreamName,
+    writeCheckpointMode,
+    options
+  );
 }

@@ -84,12 +84,11 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
  */
 
 export abstract class PersistedSyncConfigContent implements PersistedSyncConfigContentData {
-  readonly id: number;
   readonly replicationJobId: string;
   readonly replicationStreamId: number;
   readonly sync_rules_content: string;
   readonly compiled_plan: SerializedSyncPlan | null;
-  readonly slot_name: string;
+  readonly replicationStreamName: string;
   readonly active: boolean;
   readonly state: SyncRuleState;
   readonly storageVersion: number;
@@ -106,18 +105,17 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
 
   constructor(data: PersistedSyncConfigContentData) {
     Object.assign(this, data);
-    this.id = data.id;
-    this.replicationJobId = data.replicationJobId ?? String(data.id);
-    this.replicationStreamId = data.id;
+    this.replicationJobId = data.replicationJobId ?? String(data.replicationStreamId);
+    this.replicationStreamId = data.replicationStreamId;
     this.sync_rules_content = data.sync_rules_content;
     this.compiled_plan = data.compiled_plan;
-    this.slot_name = data.slot_name;
+    this.replicationStreamName = data.replicationStreamName;
     this.active = data.active;
     this.state = data.state ?? (data.active ? SyncRuleState.ACTIVE : SyncRuleState.PROCESSING);
     this.storageVersion = data.storageVersion;
     this.syncConfigId = data.syncConfigId ?? null;
     this.last_checkpoint_lsn = data.last_checkpoint_lsn;
-    this.logger = defaultLogger.child({ prefix: `[${this.slot_name}] ` });
+    this.logger = defaultLogger.child({ prefix: `[${this.replicationStreamName}] ` });
   }
 
   /**
@@ -130,7 +128,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
     if (storageConfig == null) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1005,
-        `Unsupported storage version ${this.storageVersion} for replication stream ${this.id}`
+        `Unsupported storage version ${this.storageVersion} for replication stream ${this.replicationStreamId}`
       );
     }
     return storageConfig;
@@ -159,14 +157,14 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
       storageConfig.versionedBuckets ||
       config.config.compatibility.isEnabled(CompatibilityOption.versionedBucketIds)
     ) {
-      hydrationState = versionedHydrationState(this.id);
+      hydrationState = versionedHydrationState(this.replicationStreamId);
     } else {
       hydrationState = DEFAULT_HYDRATION_STATE;
     }
 
     return {
-      id: this.id,
-      slot_name: this.slot_name,
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
       syncConfigs: [config],
       hydrationState,
       hydratedSyncConfig: () => {
@@ -186,7 +184,7 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
 
   getSyncConfigStatus(): PersistedSyncConfigStatus {
     return {
-      id: this.syncConfigId ?? String(this.id),
+      id: this.syncConfigId ?? String(this.replicationStreamId),
       replicationStreamId: this.replicationStreamId,
       state: this.state,
       last_checkpoint_lsn: this.last_checkpoint_lsn,
@@ -198,10 +196,10 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
   }
 }
 export interface PersistedSyncConfigContentData {
-  readonly id: number;
+  readonly replicationStreamId: number;
   readonly sync_rules_content: string;
   readonly compiled_plan: SerializedSyncPlan | null;
-  readonly slot_name: string;
+  readonly replicationStreamName: string;
   /**
    * True if this is the "active" copy of the sync config.
    */

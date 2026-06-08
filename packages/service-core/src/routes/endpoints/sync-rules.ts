@@ -73,7 +73,7 @@ export const deploySyncRules = routeDefinition({
     const sync_rules = await storageEngine.activeBucketStorage.updateSyncRules(updateSyncRulesFromConfig(syncConfig));
 
     return {
-      slot_name: sync_rules.slot_name
+      slot_name: sync_rules.replicationStreamName
     };
   }
 });
@@ -127,7 +127,7 @@ export const currentSyncRules = routeDefinition({
 
     const response = {
       current: {
-        slot_name: sync_rules.slot_name,
+        slot_name: sync_rules.replicationStreamName,
         content: sync_rules.sync_rules_content,
         ...info
       },
@@ -135,7 +135,7 @@ export const currentSyncRules = routeDefinition({
         next == null
           ? null
           : {
-              slot_name: next.slot_name,
+              slot_name: next.replicationStreamName,
               content: next.sync_rules_content,
               ...next_info
             }
@@ -182,7 +182,7 @@ export const reprocessSyncRules = routeDefinition({
       })
     );
     return {
-      slot_name: new_rules.slot_name
+      slot_name: new_rules.replicationStreamName
     };
   }
 });

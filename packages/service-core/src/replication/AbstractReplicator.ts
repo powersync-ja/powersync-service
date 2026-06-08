@@ -210,7 +210,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
         // New sync config was found (or resume after restart)
         try {
           let lock: storage.ReplicationLock;
-          if (configuredLock?.sync_rules_id == replicationStream.id) {
+          if (configuredLock?.sync_rules_id == replicationStream.replicationStreamId) {
             lock = configuredLock;
           } else {
             lock = await replicationStream.lock();
@@ -262,7 +262,7 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
     // Replication stream stopped previously, including by a different process.
     const stopped = await this.storage.getStoppedReplicationStreams();
     for (let replicationStream of stopped) {
-      if (this.clearingJobs.has(replicationStream.id)) {
+      if (this.clearingJobs.has(replicationStream.replicationStreamId)) {
         // Already in progress
         continue;
       }
@@ -276,9 +276,9 @@ export abstract class AbstractReplicator<T extends AbstractReplicationJob = Abst
           syncRuleStorage.logger.warn(`Failed clean up replication config`, e);
         })
         .finally(() => {
-          this.clearingJobs.delete(replicationStream.id);
+          this.clearingJobs.delete(replicationStream.replicationStreamId);
         });
-      this.clearingJobs.set(replicationStream.id, promise);
+      this.clearingJobs.set(replicationStream.replicationStreamId, promise);
     }
   }
 

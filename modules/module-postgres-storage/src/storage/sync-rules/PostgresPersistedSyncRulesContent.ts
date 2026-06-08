@@ -9,11 +9,11 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncConf
     row: models.SyncRulesDecoded
   ) {
     super({
-      id: Number(row.id),
+      replicationStreamId: Number(row.id),
       sync_rules_content: row.content,
       compiled_plan: row.sync_plan,
       last_checkpoint_lsn: row.last_checkpoint_lsn,
-      slot_name: row.slot_name,
+      replicationStreamName: row.slot_name,
       last_fatal_error: row.last_fatal_error,
       last_checkpoint_ts: row.last_checkpoint_ts ? new Date(row.last_checkpoint_ts) : null,
       last_keepalive_ts: row.last_keepalive_ts ? new Date(row.last_keepalive_ts) : null,
@@ -32,8 +32,8 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
     private readonly row: models.SyncRulesDecoded
   ) {
     super({
-      id: Number(row.id),
-      slot_name: row.slot_name,
+      replicationStreamId: Number(row.id),
+      replicationStreamName: row.slot_name,
       state: row.state as storage.SyncRuleState,
       storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
@@ -46,7 +46,7 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
   async lock(): Promise<storage.ReplicationLock> {
     const manager = new lib_postgres.PostgresLockManager({
       db: this.db,
-      name: `sync_rules_${this.id}_${this.slot_name}`
+      name: `sync_rules_${this.replicationStreamId}_${this.replicationStreamName}`
     });
     const lockHandle = await manager.acquire();
     if (!lockHandle) {
@@ -63,7 +63,7 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
     }, 30_130);
 
     return (this.current_lock = {
-      sync_rules_id: this.id,
+      sync_rules_id: this.replicationStreamId,
       release: async () => {
         clearInterval(interval);
         return lockHandle.release();

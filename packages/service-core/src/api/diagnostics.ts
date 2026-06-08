@@ -102,10 +102,10 @@ export async function getSyncRulesStatus(
         logger.warn(`Unable to get replication lag`, e);
       }
 
-      if (apiHandler.getSlotWalBudget && sync_rules.slot_name) {
+      if (apiHandler.getSlotWalBudget && sync_rules.replicationStreamName) {
         try {
           slot_wal_budget = await apiHandler.getSlotWalBudget({
-            slotName: sync_rules.slot_name
+            slotName: sync_rules.replicationStreamName
           });
         } catch (e) {
           logger.warn(`Unable to get WAL budget`, e);
@@ -223,7 +223,7 @@ export async function getSyncRulesStatus(
       {
         id: sourceConfig.id ?? DEFAULT_DATASOURCE_ID,
         tag: tag,
-        slot_name: sync_rules.slot_name,
+        slot_name: sync_rules.replicationStreamName,
         initial_replication_done: status?.snapshot_done ?? false,
         // TODO: Rename?
         last_lsn: status?.checkpoint_lsn ?? undefined,

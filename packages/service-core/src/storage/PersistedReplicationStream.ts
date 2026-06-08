@@ -5,9 +5,9 @@ import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
 
 export abstract class PersistedReplicationStream implements PersistedReplicationStreamData {
-  readonly id: number;
+  readonly replicationStreamId: number;
   readonly replicationJobId: string;
-  readonly slot_name: string;
+  readonly replicationStreamName: string;
   readonly state: SyncRuleState;
   readonly storageVersion: number;
   readonly logger: Logger;
@@ -15,12 +15,12 @@ export abstract class PersistedReplicationStream implements PersistedReplication
   abstract readonly current_lock: ReplicationLock | null;
 
   constructor(data: PersistedReplicationStreamData) {
-    this.id = data.id;
-    this.replicationJobId = data.replicationJobId ?? String(data.id);
-    this.slot_name = data.slot_name;
+    this.replicationStreamId = data.replicationStreamId;
+    this.replicationJobId = data.replicationJobId ?? String(data.replicationStreamId);
+    this.replicationStreamName = data.replicationStreamName;
     this.state = data.state;
     this.storageVersion = data.storageVersion;
-    this.logger = defaultLogger.child({ prefix: `[${this.slot_name}] ` });
+    this.logger = defaultLogger.child({ prefix: `[${this.replicationStreamName}] ` });
   }
 
   getStorageConfig(): StorageVersionConfig {
@@ -28,7 +28,7 @@ export abstract class PersistedReplicationStream implements PersistedReplication
     if (storageConfig == null) {
       throw new ServiceError(
         ErrorCode.PSYNC_S1005,
-        `Unsupported storage version ${this.storageVersion} for replication stream ${this.id}`
+        `Unsupported storage version ${this.storageVersion} for replication stream ${this.replicationStreamId}`
       );
     }
     return storageConfig;
@@ -37,9 +37,12 @@ export abstract class PersistedReplicationStream implements PersistedReplication
   abstract lock(): Promise<ReplicationLock>;
 }
 export interface PersistedReplicationStreamData {
-  readonly id: number;
-  readonly slot_name: string;
+  readonly replicationStreamId: number;
+  readonly replicationStreamName: string;
   readonly state: SyncRuleState;
   readonly storageVersion: number;
+  /**
+   * Uniquely identifies a job, as a combination of replication stream and processing sync configs.
+   */
   readonly replicationJobId?: string;
 }

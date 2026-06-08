@@ -83,9 +83,9 @@ export abstract class MongoSyncBucketStorage
 
   constructor(
     public readonly factory: MongoBucketStorage,
-    public readonly group_id: number,
+    public readonly replicationStreamId: number,
     protected readonly syncConfigContent: MongoPersistedSyncConfigContentBase,
-    public readonly slot_name: string,
+    public readonly replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
@@ -96,7 +96,7 @@ export abstract class MongoSyncBucketStorage
     this.writeCheckpointAPI = new MongoWriteCheckpointAPI({
       db: this.db,
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
-      sync_rules_id: group_id
+      sync_rules_id: replicationStreamId
     });
     this.logger = syncConfigContent.logger;
   }
@@ -125,7 +125,7 @@ export abstract class MongoSyncBucketStorage
   protected get versionContext(): MongoSyncBucketStorageContext {
     return {
       db: this.db,
-      group_id: this.group_id,
+      group_id: this.replicationStreamId,
       mapping: this.mapping
     };
   }
@@ -141,7 +141,7 @@ export abstract class MongoSyncBucketStorage
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,
-      sync_rules_id: this.group_id
+      sync_rules_id: this.replicationStreamId
     });
   }
 
@@ -184,7 +184,7 @@ export abstract class MongoSyncBucketStorage
       return;
     }
 
-    await this.db.initializeStreamStorage(this.group_id);
+    await this.db.initializeStreamStorage(this.replicationStreamId);
     await this.initializeVersionStorage();
     this.#storageInitialized = true;
   }
@@ -205,8 +205,8 @@ export abstract class MongoSyncBucketStorage
       db: this.db,
       syncRules: parsed.hydratedSyncConfig(),
       mapping: parsed.mapping ?? this.syncConfigContent.mapping,
-      groupId: this.group_id,
-      slotName: this.slot_name,
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
       lastCheckpointLsn: state.lastCheckpointLsn,
       resumeFromLsn: state.resumeFromLsn,
       keepaliveOp: state.keepaliveOp,
@@ -337,7 +337,7 @@ export abstract class MongoSyncBucketStorage
     const message = String(e.message ?? 'Replication failure');
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id
+        _id: this.replicationStreamId
       },
       {
         $set: {
@@ -417,7 +417,7 @@ export abstract class MongoSyncBucketStorage
     for await (const nextCheckpoint of iter) {
       if (nextCheckpoint.lsn != null && !queriedInitialWriteCheckpoint) {
         writeCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
-          sync_rules_id: this.group_id,
+          sync_rules_id: this.replicationStreamId,
           user_id: options.user_id,
           heads: {
             '1': nextCheckpoint.lsn
@@ -450,7 +450,7 @@ export abstract class MongoSyncBucketStorage
         let updatedWriteCheckpoint = updates.updatedWriteCheckpoints.get(options.user_id) ?? null;
         if (updates.invalidateWriteCheckpoints) {
           updatedWriteCheckpoint = await this.writeCheckpointAPI.lastWriteCheckpoint({
-            sync_rules_id: this.group_id,
+            sync_rules_id: this.replicationStreamId,
             user_id: options.user_id,
             heads: {
               '1': nextCheckpoint.lsn!

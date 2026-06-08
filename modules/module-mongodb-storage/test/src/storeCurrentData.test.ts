@@ -81,7 +81,7 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
 
@@ -115,7 +115,7 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const table = await test_utils.resolveTestTable(writer, 'test_data', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -136,14 +136,16 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     expect(test_utils.getBatchData(batch)).toMatchObject([{ op: 'PUT', object_id: 'test1' }]);
 
     // No row payload retained in current_data.
-    expect(await storedRowPayload(storageVersion, factory, bucketStorage, syncRules.id, table)).toBeNull();
+    expect(
+      await storedRowPayload(storageVersion, factory, bucketStorage, syncRules.replicationStreamId, table)
+    ).toBeNull();
   });
 
   test('storeCurrentData=true retains the row payload in current_data', async () => {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const table = await test_utils.resolveTestTable(writer, 'test_data', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -163,7 +165,9 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     );
     expect(test_utils.getBatchData(batch)).toMatchObject([{ op: 'PUT', object_id: 'test1' }]);
 
-    expect(await storedRowPayload(storageVersion, factory, bucketStorage, syncRules.id, table)).toMatchObject({
+    expect(
+      await storedRowPayload(storageVersion, factory, bucketStorage, syncRules.replicationStreamId, table)
+    ).toMatchObject({
       id: 'test1'
     });
   });
@@ -172,7 +176,7 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     await using factory = await INITIALIZED_MONGO_STORAGE_FACTORY.factory();
     const syncRules = await factory.updateSyncRules(updateSyncRulesFromYaml(SYNC_RULES, { storageVersion }));
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
     const table = await test_utils.resolveTestTable(writer, 'test_data', ['id'], INITIALIZED_MONGO_STORAGE_FACTORY);
@@ -202,7 +206,9 @@ function registerStoreCurrentDataTests(storageVersion: number) {
     expect(data.length).toBeGreaterThan(0);
     expect(data.at(-1)).toMatchObject({ op: 'PUT', object_id: 'test1' });
 
-    expect(await storedRowPayload(storageVersion, factory, bucketStorage, syncRules.id, table)).toBeNull();
+    expect(
+      await storedRowPayload(storageVersion, factory, bucketStorage, syncRules.replicationStreamId, table)
+    ).toBeNull();
   });
 }
 

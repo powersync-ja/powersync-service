@@ -179,7 +179,7 @@ export const reprocess = routeDefinition({
           // Previously the connection was asserted with `!`
           tag: baseConfig.tag,
           id: baseConfig.id,
-          slot_name: new_rules.slot_name
+          slot_name: new_rules.replicationStreamName
         }
       ]
     });
@@ -202,8 +202,8 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
     });
 
     return {
-      id: this.id,
-      slot_name: this.slot_name,
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
       syncConfigs: [syncConfig],
       hydrationState: DEFAULT_HYDRATION_STATE,
       hydratedSyncConfig() {
@@ -233,8 +233,8 @@ export const validate = routeDefinition({
 
     const sync_rules = new FakeSyncRulesContentForValidation(apiHandler, schema, {
       // Dummy values
-      id: 0,
-      slot_name: '',
+      replicationStreamId: 0,
+      replicationStreamName: '',
       active: false,
       last_checkpoint_lsn: '',
       storageVersion: storage.LEGACY_STORAGE_VERSION,

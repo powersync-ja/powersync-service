@@ -34,7 +34,7 @@ function registerStorageVersionTests(storageVersion: number) {
         )
       );
       const bucketStorage = factory.getInstance(syncRules);
-      const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+      const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
       const globalBucket = bucketRequest(syncRulesContent, 'global[]');
 
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);

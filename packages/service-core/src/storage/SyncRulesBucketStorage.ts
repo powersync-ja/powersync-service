@@ -22,8 +22,8 @@ import { SyncStorageWriteCheckpointAPI } from './WriteCheckpointAPI.js';
 export interface SyncRulesBucketStorage
   extends ObserverClient<SyncRulesBucketStorageListener>,
     SyncStorageWriteCheckpointAPI {
-  readonly group_id: number;
-  readonly slot_name: string;
+  readonly replicationStreamId: number;
+  readonly replicationStreamName: string;
   readonly storageConfig: StorageVersionConfig;
 
   readonly factory: BucketStorageFactory;

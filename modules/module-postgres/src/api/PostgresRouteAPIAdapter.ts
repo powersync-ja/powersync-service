@@ -162,7 +162,7 @@ export class PostgresRouteAPIAdapter implements api.RouteAPI {
 
   async getReplicationLagBytes(options: api.ReplicationLagOptions): Promise<number | undefined> {
     const { bucketStorage } = options;
-    const slotName = bucketStorage.slot_name;
+    const slotName = bucketStorage.replicationStreamName;
     const results = await lib_postgres.retriedQuery(this.pool, {
       statement: `SELECT
   slot_name,

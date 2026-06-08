@@ -23,16 +23,16 @@ import { MongoHydrationState } from './MongoHydrationState.js';
 export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
   public readonly hydrationState: HydrationState;
   public readonly syncConfigs: SyncConfigWithErrors[];
-  public readonly slot_name: string;
+  public readonly replicationStreamName: string;
   public readonly mapping: BucketDefinitionMapping;
 
   constructor(
-    public readonly id: number,
+    public readonly replicationStreamId: number,
     storageConfig: StorageConfig,
     slotName: string,
     syncConfigs: SyncConfigWithMapping[]
   ) {
-    this.slot_name = slotName;
+    this.replicationStreamName = slotName;
     this.syncConfigs = syncConfigs.map((config) => config.syncConfig);
     if (this.syncConfigs.length == 0) {
       throw new ServiceAssertionError(`At least one sync config is required`);
@@ -53,7 +53,7 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
         throw new ServiceAssertionError(`mapping is required for v3 storage`);
       }
       const mappedConfigs = syncConfigs as SyncConfigWithRequiredMapping[];
-      this.hydrationState = new MongoHydrationState(mappedConfigs, this.id);
+      this.hydrationState = new MongoHydrationState(mappedConfigs, this.replicationStreamId);
       this.mapping = new MultiSyncConfigBucketDefinitionMapping(mappedConfigs);
     } else if (!compatibility.isEnabled(CompatibilityOption.versionedBucketIds) && !storageConfig.versionedBuckets) {
       const [syncConfig] = syncConfigs;
@@ -67,7 +67,7 @@ export class MongoParsedSyncConfigSet implements storage.ParsedSyncConfigSet {
       if (syncConfigs.length != 1 || syncConfig == null) {
         throw new ServiceAssertionError(`Non-incremental storage requires exactly one sync config`);
       }
-      this.hydrationState = versionedHydrationState(this.id);
+      this.hydrationState = versionedHydrationState(this.replicationStreamId);
       this.mapping = syncConfig.mapping ?? new BucketDefinitionMapping();
     }
   }

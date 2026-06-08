@@ -98,7 +98,7 @@ export abstract class MongoCompactor {
     protected readonly db: VersionedPowerSyncMongo,
     options: MongoCompactOptions
   ) {
-    this.group_id = storage.group_id;
+    this.group_id = storage.replicationStreamId;
     this.idLimitBytes = (options.memoryLimitMB ?? DEFAULT_MEMORY_LIMIT_MB) * 1024 * 1024;
     this.moveBatchLimit = options.moveBatchLimit ?? DEFAULT_MOVE_BATCH_LIMIT;
     this.moveBatchQueryLimit = options.moveBatchQueryLimit ?? DEFAULT_MOVE_BATCH_QUERY_LIMIT;

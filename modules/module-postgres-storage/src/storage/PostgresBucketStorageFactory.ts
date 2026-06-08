@@ -259,13 +259,13 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     `.execute();
   }
 
-  async restartReplication(sync_rules_group_id: number): Promise<void> {
+  async restartReplication(replicationStreamId: number): Promise<void> {
     const next = await this.getDeployingSyncConfigContent();
     const active = await this.getActiveSyncConfigContent();
 
     // In both the below cases, we create a new replication stream.
     // The current one will continue serving sync requests until the next one has finished processing.
-    if (next != null && next.id == sync_rules_group_id) {
+    if (next != null && next.replicationStreamId == replicationStreamId) {
       // We need to redo the "next" replication stream
 
       await this.updateSyncRules(next.asUpdateOptions());
@@ -275,10 +275,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         SET
           state = ${{ value: storage.SyncRuleState.STOP, type: 'varchar' }}
         WHERE
-          id = ${{ value: next.id, type: 'int4' }}
+          id = ${{ value: next.replicationStreamId, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.PROCESSING, type: 'varchar' }}
       `.execute();
-    } else if (next == null && active?.id == sync_rules_group_id) {
+    } else if (next == null && active?.replicationStreamId == replicationStreamId) {
       // Slot removed for "active" replication stream, while there is no "next" one.
       await this.updateSyncRules(active.asUpdateOptions());
 
@@ -288,10 +288,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         SET
           state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         WHERE
-          id = ${{ value: active.id, type: 'int4' }}
+          id = ${{ value: active.replicationStreamId, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
       `.execute();
-    } else if (next != null && active?.id == sync_rules_group_id) {
+    } else if (next != null && active?.replicationStreamId == replicationStreamId) {
       // Already have "next" replication stream - don't update any.
 
       // Pro-actively stop replicating, but still serve clients with existing data
@@ -300,7 +300,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
         SET
           state = ${{ value: storage.SyncRuleState.ERRORED, type: 'varchar' }}
         WHERE
-          id = ${{ value: active.id, type: 'int4' }}
+          id = ${{ value: active.replicationStreamId, type: 'int4' }}
           AND state = ${{ value: storage.SyncRuleState.ACTIVE, type: 'varchar' }}
       `.execute();
     }
@@ -472,7 +472,7 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     // It is important that this instance is cached.
     // Not for the instance construction itself, but to ensure that internal caches on the instance
     // are re-used properly.
-    if (this.activeStorageCache?.group_id == stream.id) {
+    if (this.activeStorageCache?.replicationStreamId == stream.replicationStreamId) {
       return this.activeStorageCache;
     } else {
       const instance = this.getInstance(stream);

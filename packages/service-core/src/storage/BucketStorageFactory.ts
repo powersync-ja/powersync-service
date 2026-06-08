@@ -79,7 +79,7 @@ export abstract class BucketStorageFactory
    *
    * Replication should be restarted after this.
    */
-  abstract restartReplication(sync_rules_group_id: number): Promise<void>;
+  abstract restartReplication(replicationStreamId: number): Promise<void>;
 
   /**
    * Get the sync config used for querying.

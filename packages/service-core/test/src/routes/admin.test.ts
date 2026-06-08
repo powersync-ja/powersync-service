@@ -42,10 +42,9 @@ describe('admin routes', () => {
     const lastKeepaliveTs = new Date('2026-01-01T00:00:00.000Z');
     const lastCheckpointTs = new Date('2026-01-01T00:00:00.000Z');
     const content = {
-      id,
       replicationStreamId: id,
       syncConfigId,
-      slot_name: `slot_${id}`,
+      replicationStreamName: `slot_${id}`,
       sync_rules_content:
         options.content ??
         `
@@ -154,8 +153,8 @@ bucket_definitions:
     it('reprocesses the active sync config', async () => {
       const active = makeSyncConfigContent({ id: 7, syncConfigId: 'active-config' });
       const updateSyncRules = vi.fn(async () => ({
-        id: 8,
-        slot_name: 'new_slot',
+        replicationStreamId: 8,
+        replicationStreamName: 'new_slot',
         state: storage.SyncRuleState.PROCESSING,
         storageVersion: storage.LEGACY_STORAGE_VERSION,
         replicationJobId: '8',

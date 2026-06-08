@@ -33,11 +33,11 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       throw new ReplicationAssertionError('Missing sync config id for v3 batch');
     }
     this.syncConfigIds = syncConfigIds;
-    this.store = new SourceRecordStoreV3(this.db, this.group_id, this.mapping);
+    this.store = new SourceRecordStoreV3(this.db, this.replicationStreamId, this.mapping);
   }
 
   protected createPersistedBatch(writtenSize: number): PersistedBatch {
-    return new PersistedBatchV3(this.db, this.group_id, this.mapping, writtenSize, {
+    return new PersistedBatchV3(this.db, this.replicationStreamId, this.mapping, writtenSize, {
       logger: this.logger
     });
   }
@@ -49,7 +49,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   protected async cleanupDroppedSourceTables(sourceTables: storage.SourceTable[]) {
     for (const table of sourceTables) {
       await this.db
-        .sourceRecordsV3(this.group_id, mongoTableId(table.id))
+        .sourceRecordsV3(this.replicationStreamId, mongoTableId(table.id))
         .drop()
         .catch((error) => {
           if (lib_mongo.isMongoServerError(error) && error.codeName === 'NamespaceNotFound') {
@@ -77,7 +77,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const initializeSourceRecordsFor: bson.ObjectId[] = [];
 
     await this.db.client.withSession(async (session) => {
-      const col = this.db.commonSourceTables(this.group_id);
+      const col = this.db.commonSourceTables(this.replicationStreamId);
       const exactFilter: Record<string, unknown> = {
         connection_id,
         schema_name: schema,
@@ -219,7 +219,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     });
 
     for (const sourceTableId of initializeSourceRecordsFor) {
-      await this.db.initializeSourceRecordsCollection(this.group_id, sourceTableId);
+      await this.db.initializeSourceRecordsCollection(this.replicationStreamId, sourceTableId);
     }
 
     return result!;
@@ -280,7 +280,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
   async getSourceTableStatus(table: storage.SourceTable): Promise<storage.SourceTable | null> {
     const doc = (await this.db
-      .commonSourceTables(this.group_id)
+      .commonSourceTables(this.replicationStreamId)
       .findOne({ _id: mongoTableId(table.id) }, { session: this.session })) as SourceTableDocumentV3 | null;
     if (doc == null) {
       return null;
@@ -313,7 +313,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
     const preUpdateDocument = await this.db.sync_rules.findOne(
       {
-        _id: this.group_id,
+        _id: this.replicationStreamId,
         'sync_configs._id': { $in: this.syncConfigIds }
       },
       {
@@ -331,7 +331,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       ) ?? [];
     if (states.length == 0) {
       throw new ReplicationAssertionError(
-        `Failed to update checkpoint - no matching sync_config for _id: ${this.group_id}/${this.syncConfigIds
+        `Failed to update checkpoint - no matching sync_config for _id: ${this.replicationStreamId}/${this.syncConfigIds
           .map((id) => id.toHexString())
           .join(',')}`
       );
@@ -380,7 +380,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
       await this.db.sync_rules.updateOne(
         {
-          _id: this.group_id,
+          _id: this.replicationStreamId,
           'sync_configs._id': state._id
         },
         {
@@ -426,7 +426,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   async setResumeLsn(lsn: string): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id,
+        _id: this.replicationStreamId,
         'sync_configs._id': { $in: this.syncConfigIds }
       },
       {
@@ -448,7 +448,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     await session.withTransaction(async () => {
       const doc = await this.db.sync_rules.findOne(
         {
-          _id: this.group_id,
+          _id: this.replicationStreamId,
           'sync_configs._id': { $in: this.syncConfigIds }
         },
         {
@@ -475,7 +475,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       ) {
         await this.db.sync_rules.updateOne(
           {
-            _id: this.group_id,
+            _id: this.replicationStreamId,
             'sync_configs._id': { $in: this.syncConfigIds }
           },
           {
@@ -492,7 +492,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
 
         await this.db.sync_rules.updateMany(
           {
-            _id: { $ne: this.group_id },
+            _id: { $ne: this.replicationStreamId },
             state: { $in: [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED] }
           },
           syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP),
@@ -506,7 +506,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       ) {
         await this.db.sync_rules.updateOne(
           {
-            _id: this.group_id,
+            _id: this.replicationStreamId,
             'sync_configs._id': { $in: processingStates.map((state) => state._id) }
           },
           {
@@ -538,7 +538,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   async markAllSnapshotDone(no_checkpoint_before_lsn: string): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id,
+        _id: this.replicationStreamId,
         'sync_configs._id': { $in: this.syncConfigIds }
       },
       {
@@ -560,7 +560,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   async markSnapshotDone(no_checkpoint_before_lsn: string, options?: { throwOnConflict?: boolean }): Promise<void> {
     await this.withTransaction(async () => {
       // Protect against race conditions
-      const count = await this.db.sourceTablesV3(this.group_id).countDocuments(
+      const count = await this.db.sourceTablesV3(this.replicationStreamId).countDocuments(
         {
           snapshot_done: false
         },
@@ -583,7 +583,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
   async markTableSnapshotRequired(_table: storage.SourceTable): Promise<void> {
     await this.db.sync_rules.updateOne(
       {
-        _id: this.group_id,
+        _id: this.replicationStreamId,
         'sync_configs._id': { $in: this.syncConfigIds }
       },
       {
@@ -606,7 +606,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
     const ids = tables.map((table) => mongoTableId(table.id));
 
     await this.withTransaction(async () => {
-      await this.db.commonSourceTables(this.group_id).updateMany(
+      await this.db.commonSourceTables(this.replicationStreamId).updateMany(
         { _id: { $in: ids } },
         {
           $set: {
@@ -622,7 +622,7 @@ export class MongoBucketBatchV3 extends MongoBucketBatch {
       if (no_checkpoint_before_lsn != null) {
         await this.db.sync_rules.updateOne(
           {
-            _id: this.group_id,
+            _id: this.replicationStreamId,
             'sync_configs._id': { $in: this.syncConfigIds }
           },
           {

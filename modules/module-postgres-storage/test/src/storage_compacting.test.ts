@@ -17,7 +17,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
 
     const result = await (async () => {
       await using writer = await bucketStorage.createWriter(test_utils.BATCH_OPTIONS);
@@ -71,7 +71,7 @@ bucket_definitions:
       `)
     );
     const bucketStorage = factory.getInstance(syncRules);
-    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.id))[0];
+    const syncRulesContent = (await factory.getReplicationStreamConfigs(syncRules.replicationStreamId))[0];
     const request = bucketRequest(syncRulesContent, 'global[]');
 
     const result = await (async () => {
@@ -112,7 +112,7 @@ bucket_definitions:
     const dataBefore = test_utils.getBatchData(rowsBefore);
     const clearToOpId = BigInt(dataBefore[2].op_id);
 
-    const compactor = new PostgresCompactor(factory.db, bucketStorage.group_id, {});
+    const compactor = new PostgresCompactor(factory.db, bucketStorage.replicationStreamId, {});
     // Trigger the private method directly
     await expect(compactor.clearBucketForTests(request.bucket, clearToOpId)).rejects.toThrow(
       /Unexpected PUT operation/

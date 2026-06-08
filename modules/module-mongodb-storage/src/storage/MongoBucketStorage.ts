@@ -8,7 +8,7 @@ import { mongo } from '@powersync/lib-service-mongodb';
 
 import { CompatibilityContext } from '@powersync/service-sync-rules';
 import { ObjectId } from 'bson';
-import { generateSlotName } from '../utils/util.js';
+import { generateReplicationStreamName } from '../utils/util.js';
 import { BucketDefinitionMapping } from './implementation/BucketDefinitionMapping.js';
 import type { MongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
 import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBucketStorage.js';
@@ -67,16 +67,16 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       replicationStream instanceof MongoPersistedReplicationStream
         ? replicationStream.toSyncConfigContent()
         : replicationStream;
-    let { id, slot_name } = replicationStream;
-    if ((typeof id as any) == 'bigint') {
-      id = Number(id);
+    let { replicationStreamId, replicationStreamName } = replicationStream;
+    if ((typeof replicationStreamId as any) == 'bigint') {
+      replicationStreamId = Number(replicationStreamId);
     }
     const storageConfig = (syncRulesContent as MongoPersistedSyncConfigContentV1).getStorageConfig();
     const syncRuleStorage = createMongoSyncBucketStorage(
       this,
-      id,
+      replicationStreamId,
       syncRulesContent as MongoPersistedSyncConfigContentV1,
-      slot_name,
+      replicationStreamName,
       undefined,
       {
         ...this.internalOptions,
@@ -114,23 +114,23 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     };
   }
 
-  async restartReplication(sync_rules_group_id: number) {
+  async restartReplication(replicationStreamId: number) {
     const next = await this.getDeployingSyncConfigContent();
     const active = await this.getActiveSyncConfigContent();
 
-    if (next != null && next.id == sync_rules_group_id) {
+    if (next != null && next.replicationStreamId == replicationStreamId) {
       // We need to redo the "next" replication stream
       await this.updateSyncRules(next.asUpdateOptions());
       // Pro-actively stop replicating
       await this.db.sync_rules.updateOne(
         {
-          _id: next.id,
+          _id: next.replicationStreamId,
           state: storage.SyncRuleState.PROCESSING
         },
         syncRuleStateUpdatePipeline(storage.SyncRuleState.STOP)
       );
       await this.db.notifyCheckpoint();
-    } else if (next == null && active?.id == sync_rules_group_id) {
+    } else if (next == null && active?.replicationStreamId == replicationStreamId) {
       // Slot removed for "active" replication stream, while there is no "next" one.
       await this.updateSyncRules(active.asUpdateOptions());
 
@@ -140,18 +140,18 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
 
       await this.db.sync_rules.updateOne(
         {
-          _id: active.id,
+          _id: active.replicationStreamId,
           state: storage.SyncRuleState.ACTIVE
         },
         syncRuleStateUpdatePipeline(storage.SyncRuleState.ERRORED)
       );
       await this.db.notifyCheckpoint();
-    } else if (next != null && active?.id == sync_rules_group_id) {
+    } else if (next != null && active?.replicationStreamId == replicationStreamId) {
       // Already have next replication stream, but need to stop replicating the active one.
 
       await this.db.sync_rules.updateOne(
         {
-          _id: active.id,
+          _id: active.replicationStreamId,
           state: storage.SyncRuleState.ACTIVE
         },
         syncRuleStateUpdatePipeline(storage.SyncRuleState.ERRORED)
@@ -267,7 +267,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       );
 
       const id = Number(id_doc!.op_id);
-      const slot_name = generateSlotName(this.slot_name_prefix, id);
+      const replicationStreamName = generateReplicationStreamName(this.slot_name_prefix, id);
 
       const mapping =
         options.config.plan == null
@@ -303,7 +303,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
         ],
         snapshot_lsn: undefined,
         state: storage.SyncRuleState.PROCESSING,
-        slot_name: slot_name,
+        slot_name: replicationStreamName,
         last_checkpoint_ts: null,
         last_fatal_error: null,
         last_fatal_error_ts: null,
@@ -472,7 +472,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
       );
 
       const id = Number(id_doc!.op_id);
-      const slot_name = generateSlotName(this.slot_name_prefix, id);
+      const slot_name = generateReplicationStreamName(this.slot_name_prefix, id);
 
       const doc: SyncRuleDocumentV1 = {
         _id: id,
@@ -714,7 +714,7 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     // It is important that this instance is cached.
     // Not for the instance construction itself, but to ensure that internal caches on the instance
     // are re-used properly.
-    if (this.activeStorageCache?.group_id == stream.id) {
+    if (this.activeStorageCache?.replicationStreamId == stream.replicationStreamId) {
       return this.activeStorageCache;
     } else {
       const instance = this.getInstance(stream);

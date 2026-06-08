@@ -29,8 +29,8 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
             .join(',')}`;
 
     super({
-      id: doc._id,
-      slot_name: doc.slot_name ?? `powersync_${doc._id}`,
+      replicationStreamId: doc._id,
+      replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
       state: doc.state,
       storageVersion,
       replicationJobId

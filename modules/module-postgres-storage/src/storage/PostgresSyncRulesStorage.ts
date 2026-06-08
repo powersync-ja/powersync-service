@@ -52,9 +52,9 @@ export class PostgresSyncRulesStorage
 {
   [framework.DO_NOT_LOG] = true;
 
-  public readonly group_id: number;
+  public readonly replicationStreamId: number;
   public readonly sync_rules: storage.PersistedSyncConfigContent;
-  public readonly slot_name: string;
+  public readonly replicationStreamName: string;
   public readonly factory: PostgresBucketStorageFactory;
   public readonly storageConfig: StorageVersionConfig;
   public readonly logger: framework.Logger;
@@ -73,10 +73,10 @@ export class PostgresSyncRulesStorage
 
   constructor(protected options: PostgresSyncRulesStorageOptions) {
     super();
-    this.group_id = options.sync_rules.id;
+    this.replicationStreamId = options.sync_rules.replicationStreamId;
     this.db = options.db;
     this.sync_rules = options.sync_rules;
-    this.slot_name = options.sync_rules.slot_name;
+    this.replicationStreamName = options.sync_rules.replicationStreamName;
     this.factory = options.factory;
     this.storageConfig = options.sync_rules.getStorageConfig();
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
@@ -127,7 +127,7 @@ export class PostgresSyncRulesStorage
       SET
         last_fatal_error = ${{ type: 'varchar', value: message }}
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }};
+        id = ${{ type: 'int4', value: this.replicationStreamId }};
     `.execute();
   }
 
@@ -139,7 +139,7 @@ export class PostgresSyncRulesStorage
       maxOpId = checkpoint.checkpoint;
     }
 
-    return new PostgresCompactor(this.db, this.group_id, {
+    return new PostgresCompactor(this.db, this.replicationStreamId, {
       ...options,
       maxOpId,
       logger: this.logger
@@ -154,7 +154,7 @@ export class PostgresSyncRulesStorage
   lastWriteCheckpoint(filters: storage.SyncStorageLastWriteCheckpointFilters): Promise<bigint | null> {
     return this.writeCheckpointAPI.lastWriteCheckpoint({
       ...filters,
-      sync_rules_id: this.group_id
+      sync_rules_id: this.replicationStreamId
     });
   }
 
@@ -174,7 +174,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
       .decoded(pick(models.SyncRules, ['last_checkpoint', 'last_checkpoint_lsn']))
       .first();
@@ -196,7 +196,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
       .decoded(pick(models.SyncRules, ['last_checkpoint_lsn', 'no_checkpoint_before', 'keepalive_op', 'snapshot_lsn']))
       .first();
@@ -207,8 +207,8 @@ export class PostgresSyncRulesStorage
       logger: options.logger ?? this.logger,
       db: this.db,
       sync_rules: this.sync_rules.parsed(options).hydratedSyncConfig(),
-      group_id: this.group_id,
-      slot_name: this.slot_name,
+      replicationStreamId: this.replicationStreamId,
+      replicationStreamName: this.replicationStreamName,
       last_checkpoint_lsn: checkpoint_lsn,
       keep_alive_op: syncRules?.keepalive_op,
       resumeFromLsn: maxLsn(syncRules?.snapshot_lsn, checkpoint_lsn),
@@ -254,7 +254,7 @@ export class PostgresSyncRulesStorage
         value: lookups.map((l) => storage.serializeLookupBuffer(l).toString('hex'))
       }}) WITH ORDINALITY AS requested (value, index)
           WHERE
-            group_id = ${{ type: 'int4', value: this.group_id }}
+            group_id = ${{ type: 'int4', value: this.replicationStreamId }}
             AND lookup = decode((requested.value ->> 0)::text, 'hex') -- Decode the hex string to bytea
             AND id <= ${{ type: 'int8', value: checkpoint.checkpoint }}
           ORDER BY
@@ -381,7 +381,7 @@ export class PostgresSyncRulesStorage
           LIMIT
             $3;`,
       params: [
-        { type: 'int4', value: this.group_id },
+        { type: 'int4', value: this.replicationStreamId },
         { type: 'int8', value: end },
         { type: 'int4', value: batchRowLimit },
         ...filters.flatMap((f) => [
@@ -497,7 +497,7 @@ export class PostgresSyncRulesStorage
         state = ${{ type: 'varchar', value: storage.SyncRuleState.TERMINATED }},
         snapshot_done = ${{ type: 'bool', value: false }}
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
   }
 
@@ -512,7 +512,7 @@ export class PostgresSyncRulesStorage
       FROM
         sync_rules
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `
       .decoded(
         pick(models.SyncRules, ['snapshot_done', 'last_checkpoint_lsn', 'state', 'snapshot_lsn', 'keepalive_op'])
@@ -542,27 +542,27 @@ export class PostgresSyncRulesStorage
         last_checkpoint = NULL,
         no_checkpoint_before = NULL
       WHERE
-        id = ${{ type: 'int4', value: this.group_id }}
+        id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
     await this.db.sql`
       DELETE FROM bucket_data
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
     await this.db.sql`
       DELETE FROM bucket_parameters
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
 
-    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.group_id });
+    await this.currentDataStore.deleteGroupRows(this.db, { groupId: this.replicationStreamId });
 
     await this.db.sql`
       DELETE FROM source_tables
       WHERE
-        group_id = ${{ type: 'int4', value: this.group_id }}
+        group_id = ${{ type: 'int4', value: this.replicationStreamId }}
     `.execute();
   }
 
@@ -603,7 +603,7 @@ export class PostgresSyncRulesStorage
         AND b.op_id > f.start_op_id
         AND b.op_id <= f.end_op_id
       WHERE
-        b.group_id = ${{ type: 'int4', value: this.group_id }}
+        b.group_id = ${{ type: 'int4', value: this.replicationStreamId }}
       GROUP BY
         b.bucket_name;
     `.rows<{ bucket: string; checksum_total: bigint; total: bigint; has_clear_op: number }>();
