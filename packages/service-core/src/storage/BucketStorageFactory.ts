@@ -16,7 +16,6 @@ import {
   PersistedSyncConfigContent,
   PersistedSyncConfigId
 } from './PersistedSyncConfigContent.js';
-import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
 import { ReplicationEventPayload } from './ReplicationEventPayload.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { ReportStorage } from './ReportStorage.js';
@@ -95,11 +94,6 @@ export abstract class BucketStorageFactory
   abstract getActiveSyncConfigContent(): Promise<PersistedSyncConfigContent | null>;
 
   /**
-   * Get status for the active sync config.
-   */
-  abstract getActiveSyncConfigStatus(): Promise<PersistedSyncConfigStatus | null>;
-
-  /**
    * Get the sync config that is still deploying.
    */
   abstract getDeployingSyncConfigContent(): Promise<PersistedSyncConfigContent | null>;
@@ -113,13 +107,6 @@ export abstract class BucketStorageFactory
    * Get one exact sync config by persisted config id.
    */
   abstract getSyncConfigContent(syncConfigId: PersistedSyncConfigId): Promise<PersistedSyncConfigContent | null>;
-
-  /**
-   * Get per-config statuses associated with a replication stream.
-   */
-  async getReplicationStreamConfigStatuses(replicationStreamId: number): Promise<PersistedSyncConfigStatus[]> {
-    return (await this.getReplicationStreamConfigs(replicationStreamId)).map((config) => config.getSyncConfigStatus());
-  }
 
   /**
    * Get a replication stream by id, regardless of state.

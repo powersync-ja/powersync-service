@@ -325,15 +325,6 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     return new PostgresPersistedSyncRulesContent(this.db, activeRow);
   }
 
-  async getActiveSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
-    const content = await this.getActiveSyncConfigContent();
-    if (content == null) {
-      return null;
-    }
-
-    return content.getSyncConfigStatus();
-  }
-
   async getDeployingSyncConfigContent(): Promise<storage.PersistedSyncConfigContent | null> {
     const row = await this.db.sql`
       SELECT

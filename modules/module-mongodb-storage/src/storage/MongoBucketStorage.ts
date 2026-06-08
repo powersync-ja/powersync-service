@@ -543,15 +543,6 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     return this.getSyncRulesContent(doc, [storage.SyncRuleState.ACTIVE, storage.SyncRuleState.ERRORED]);
   }
 
-  async getActiveSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
-    const content = await this.getActiveSyncConfigContent();
-    if (content == null) {
-      return null;
-    }
-
-    return content.getSyncConfigStatus();
-  }
-
   private async getSyncRulesContent(doc: SyncRuleDocumentBase | null, stateFilter: storage.SyncRuleState[]) {
     return (await this.getSyncRulesContents(doc, stateFilter))[0] ?? null;
   }

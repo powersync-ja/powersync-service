@@ -54,14 +54,7 @@ bucket_definitions:
       - SELECT id FROM test
 `,
       compiled_plan: null,
-      active,
-      state,
       storageVersion: storage.LEGACY_STORAGE_VERSION,
-      last_checkpoint_lsn: null,
-      last_fatal_error: null,
-      last_fatal_error_ts: null,
-      last_keepalive_ts: lastKeepaliveTs,
-      last_checkpoint_ts: lastCheckpointTs,
       parsed(options?: any) {
         const syncRules = SqlSyncRules.fromYaml(content.sync_rules_content, {
           ...options,
@@ -73,7 +66,7 @@ bucket_definitions:
       },
       asUpdateOptions: vi.fn(),
       getStorageConfig: vi.fn(),
-      getSyncConfigStatus() {
+      async getSyncConfigStatus() {
         return {
           id: syncConfigId,
           replicationStreamId: id,

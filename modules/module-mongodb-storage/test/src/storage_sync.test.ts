@@ -652,8 +652,8 @@ streams:
 
     const configs = await factory.getReplicationStreamConfigs(second.replicationStreamId);
     expect(configs).toHaveLength(1);
-    const statuses = await factory.getReplicationStreamConfigStatuses(second.replicationStreamId);
-    expect(statuses.map((status) => status.id).sort()).toEqual(
+    const statuses = await Promise.all(configs.map((config) => config.getSyncConfigStatus()));
+    expect(statuses.map((status) => status?.id).sort()).toEqual(
       stream.sync_configs.map((config) => config._id.toHexString()).sort()
     );
     const parsed = (replicatingStreams[0] as MongoPersistedReplicationStream).parsed(test_utils.PARSE_OPTIONS);

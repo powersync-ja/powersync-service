@@ -12,16 +12,38 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncConf
       replicationStreamId: Number(row.id),
       sync_rules_content: row.content,
       compiled_plan: row.sync_plan,
-      last_checkpoint_lsn: row.last_checkpoint_lsn,
       replicationStreamName: row.slot_name,
-      last_fatal_error: row.last_fatal_error,
-      last_checkpoint_ts: row.last_checkpoint_ts ? new Date(row.last_checkpoint_ts) : null,
-      last_keepalive_ts: row.last_keepalive_ts ? new Date(row.last_keepalive_ts) : null,
-      active: row.state == 'ACTIVE',
-      state: row.state as storage.SyncRuleState,
       storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
   }
+
+  async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
+    const row = await this.db.sql`
+      SELECT
+        *
+      FROM
+        sync_rules
+      WHERE
+        id = ${{ value: this.replicationStreamId, type: 'int4' }}
+    `
+      .decoded(models.SyncRules)
+      .first();
+
+    return row == null ? null : syncConfigStatusFromRow(row);
+  }
+}
+
+function syncConfigStatusFromRow(row: models.SyncRulesDecoded): storage.PersistedSyncConfigStatus {
+  return {
+    id: String(row.id),
+    replicationStreamId: Number(row.id),
+    state: row.state as storage.SyncRuleState,
+    snapshot_done: row.snapshot_done,
+    last_checkpoint_lsn: row.last_checkpoint_lsn,
+    last_fatal_error: row.last_fatal_error,
+    last_keepalive_ts: row.last_keepalive_ts ? new Date(row.last_keepalive_ts) : null,
+    last_checkpoint_ts: row.last_checkpoint_ts ? new Date(row.last_checkpoint_ts) : null
+  };
 }
 
 export class PostgresPersistedReplicationStream extends storage.PersistedReplicationStream {

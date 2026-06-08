@@ -1,7 +1,12 @@
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
-import { storage, SyncRuleState } from '@powersync/service-core';
+import { storage } from '@powersync/service-core';
 import * as bson from 'bson';
-import { ReplicationStreamDocumentV3, SyncConfigDefinition, SyncRuleDocumentV1 } from '../storage-index.js';
+import {
+  ReplicationStreamDocumentV3,
+  SyncConfigDefinition,
+  SyncRuleConfigStateV3,
+  SyncRuleDocumentV1
+} from '../storage-index.js';
 import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
 import { PowerSyncMongo } from './db.js';
 import { getMongoStorageConfig } from './models.js';
@@ -61,19 +66,21 @@ export class MongoPersistedSyncConfigContentV1 extends MongoPersistedSyncConfigC
       replicationStreamId: doc._id,
       sync_rules_content: doc.content,
       compiled_plan: doc.serialized_plan ?? null,
-      last_checkpoint_lsn: doc.last_checkpoint_lsn,
       // Handle legacy values
       replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
-      last_fatal_error: doc.last_fatal_error,
-      last_fatal_error_ts: doc.last_fatal_error_ts,
-      last_checkpoint_ts: doc.last_checkpoint_ts,
-      last_keepalive_ts: doc.last_keepalive_ts,
-      active: doc.state == SyncRuleState.ACTIVE,
-      state: doc.state,
       storageVersion: doc.storage_version ?? storage.LEGACY_STORAGE_VERSION,
       mapping: new BucketDefinitionMapping(),
       syncConfigId: null
     });
+  }
+
+  async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
+    const doc = await this.db.sync_rules.findOne<SyncRuleDocumentV1>({ _id: this.replicationStreamId });
+    if (doc == null) {
+      return null;
+    }
+
+    return syncConfigStatusFromV1(doc);
   }
 }
 export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigContentBase {
@@ -89,17 +96,58 @@ export class MongoPersistedSyncConfigContentV3 extends MongoPersistedSyncConfigC
       sync_rules_content: config.content,
       compiled_plan: config.serialized_plan ?? null,
 
-      last_checkpoint_lsn: state?.last_checkpoint_lsn ?? null,
       replicationStreamName: doc.slot_name ?? `powersync_${doc._id}`,
-      last_fatal_error: doc.last_fatal_error,
-      last_fatal_error_ts: doc.last_fatal_error_ts,
-      last_checkpoint_ts: doc.last_checkpoint_ts,
-      last_keepalive_ts: doc.last_keepalive_ts,
-      active: doc.state == SyncRuleState.ACTIVE && state.state == SyncRuleState.ACTIVE,
-      state: state.state,
       storageVersion: doc.storage_version,
       mapping: BucketDefinitionMapping.fromSyncConfig(config),
       syncConfigId: config._id
     });
   }
+
+  async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
+    const doc = await this.db.sync_rules.findOne<ReplicationStreamDocumentV3>({
+      _id: this.replicationStreamId,
+      'sync_configs._id': this.syncConfigObjectId
+    });
+    if (doc == null) {
+      return null;
+    }
+
+    const state = doc.sync_configs.find((c) => c._id.equals(this.syncConfigObjectId));
+    if (state == null) {
+      return null;
+    }
+
+    return syncConfigStatusFromV3(doc, state);
+  }
+}
+
+function syncConfigStatusFromV1(doc: SyncRuleDocumentV1): storage.PersistedSyncConfigStatus {
+  return {
+    id: String(doc._id),
+    replicationStreamId: doc._id,
+    state: doc.state,
+    snapshot_done: doc.snapshot_done,
+    last_checkpoint_lsn: doc.last_checkpoint_lsn,
+    last_fatal_error: doc.last_fatal_error,
+    last_fatal_error_ts: doc.last_fatal_error_ts,
+    last_keepalive_ts: doc.last_keepalive_ts,
+    last_checkpoint_ts: doc.last_checkpoint_ts
+  };
+}
+
+function syncConfigStatusFromV3(
+  doc: ReplicationStreamDocumentV3,
+  state: SyncRuleConfigStateV3
+): storage.PersistedSyncConfigStatus {
+  return {
+    id: state._id.toHexString(),
+    replicationStreamId: doc._id,
+    state: state.state,
+    snapshot_done: state.snapshot_done,
+    last_checkpoint_lsn: state.last_checkpoint_lsn,
+    last_fatal_error: doc.last_fatal_error,
+    last_fatal_error_ts: doc.last_fatal_error_ts,
+    last_keepalive_ts: doc.last_keepalive_ts,
+    last_checkpoint_ts: doc.last_checkpoint_ts
+  };
 }

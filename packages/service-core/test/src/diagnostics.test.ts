@@ -21,13 +21,7 @@ function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.Persi
     replicationStreamName: overrides?.slot_name ?? 'test_slot',
     sync_rules_content: MINIMAL_SYNC_RULES,
     compiled_plan: null,
-    active: true,
     storageVersion: 1,
-    last_checkpoint_lsn: 'some_lsn',
-    last_fatal_error: null,
-    last_fatal_error_ts: null,
-    last_keepalive_ts: new Date(),
-    last_checkpoint_ts: new Date(),
     parsed(options?: any) {
       const syncRules = SqlSyncRules.fromYaml(MINIMAL_SYNC_RULES, {
         ...options,
@@ -39,7 +33,19 @@ function makeSyncRulesContent(overrides?: { slot_name?: string }): storage.Persi
     },
     logger: null as any,
     asUpdateOptions: null as any,
-    getStorageConfig: null as any
+    getStorageConfig: null as any,
+    async getSyncConfigStatus() {
+      return {
+        id: '1',
+        replicationStreamId: 1,
+        state: storage.SyncRuleState.ACTIVE,
+        last_checkpoint_lsn: 'some_lsn',
+        last_fatal_error: null,
+        last_fatal_error_ts: null,
+        last_keepalive_ts: new Date(),
+        last_checkpoint_ts: new Date()
+      };
+    }
   } as storage.PersistedSyncConfigContent;
 }
 

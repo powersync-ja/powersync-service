@@ -16,7 +16,6 @@ import {
 } from '@powersync/service-sync-rules';
 import * as sqlite from 'node:sqlite';
 import { Logger } from 'winston';
-import { SyncRuleState } from './BucketStorage.js';
 import { SerializedSyncPlan, UpdateSyncRulesOptions } from './BucketStorageFactory.js';
 import { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
 import { PersistedSyncConfigStatus } from './PersistedSyncConfigStatus.js';
@@ -88,19 +87,9 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
   readonly sync_rules_content: string;
   readonly compiled_plan: SerializedSyncPlan | null;
   readonly replicationStreamName: string;
-  readonly active: boolean;
-  readonly state: SyncRuleState;
   readonly storageVersion: number;
   readonly logger: Logger;
   readonly syncConfigId: PersistedSyncConfigId | null;
-
-  // FIXME: These are not immutable, unlike the rest of this class
-  readonly last_checkpoint_lsn: string | null;
-
-  readonly last_fatal_error?: string | null;
-  readonly last_fatal_error_ts?: Date | null;
-  readonly last_keepalive_ts?: Date | null;
-  readonly last_checkpoint_ts?: Date | null;
 
   constructor(data: PersistedSyncConfigContentData) {
     Object.assign(this, data);
@@ -108,11 +97,8 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
     this.sync_rules_content = data.sync_rules_content;
     this.compiled_plan = data.compiled_plan;
     this.replicationStreamName = data.replicationStreamName;
-    this.active = data.active;
-    this.state = data.state ?? (data.active ? SyncRuleState.ACTIVE : SyncRuleState.PROCESSING);
     this.storageVersion = data.storageVersion;
     this.syncConfigId = data.syncConfigId ?? null;
-    this.last_checkpoint_lsn = data.last_checkpoint_lsn;
     this.logger = defaultLogger.child({ prefix: `[${this.replicationStreamName}] ` });
   }
 
@@ -180,37 +166,18 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
     };
   }
 
-  getSyncConfigStatus(): PersistedSyncConfigStatus {
-    return {
-      id: this.syncConfigId ?? String(this.replicationStreamId),
-      replicationStreamId: this.replicationStreamId,
-      state: this.state,
-      last_checkpoint_lsn: this.last_checkpoint_lsn,
-      last_fatal_error: this.last_fatal_error,
-      last_fatal_error_ts: this.last_fatal_error_ts,
-      last_keepalive_ts: this.last_keepalive_ts,
-      last_checkpoint_ts: this.last_checkpoint_ts
-    };
-  }
+  /**
+   * Fetch the current persisted state for this exact sync config.
+   */
+  abstract getSyncConfigStatus(): Promise<PersistedSyncConfigStatus | null>;
 }
 export interface PersistedSyncConfigContentData {
   readonly replicationStreamId: number;
   readonly sync_rules_content: string;
   readonly compiled_plan: SerializedSyncPlan | null;
   readonly replicationStreamName: string;
-  /**
-   * True if this is the "active" copy of the sync config.
-   */
-  readonly active: boolean;
   readonly storageVersion: number;
 
-  readonly last_checkpoint_lsn: string | null;
-
-  readonly last_fatal_error?: string | null;
-  readonly last_fatal_error_ts?: Date | null;
-  readonly last_keepalive_ts?: Date | null;
-  readonly last_checkpoint_ts?: Date | null;
-  readonly state?: SyncRuleState;
   readonly syncConfigId?: PersistedSyncConfigId | null;
 }
 export type PersistedSyncConfigId = string;

@@ -66,7 +66,7 @@ export const diagnostics = routeDefinition({
       storageEngine: { activeBucketStorage }
     } = service_context;
     const active = await activeBucketStorage.getActiveSyncConfigContent();
-    const activeConfigStatus = await activeBucketStorage.getActiveSyncConfigStatus();
+    const activeConfigStatus = active == null ? null : await active.getSyncConfigStatus();
     const activeStorage = await activeBucketStorage.getActiveStorage();
     const deploying = await activeBucketStorage.getDeployingSyncConfigContent();
 
@@ -98,7 +98,7 @@ export const diagnostics = routeDefinition({
                 check_connection: status.connected,
                 live_status: true
               },
-              syncConfig.getSyncConfigStatus(),
+              await syncConfig.getSyncConfigStatus(),
               systemStorage
             );
           })(deploying);
@@ -214,6 +214,10 @@ class FakeSyncRulesContentForValidation extends storage.PersistedSyncConfigConte
       }
     };
   }
+
+  async getSyncConfigStatus(): Promise<storage.PersistedSyncConfigStatus | null> {
+    return null;
+  }
 }
 
 export const validate = routeDefinition({
@@ -235,8 +239,6 @@ export const validate = routeDefinition({
       // Dummy values
       replicationStreamId: 0,
       replicationStreamName: '',
-      active: false,
-      last_checkpoint_lsn: '',
       storageVersion: storage.LEGACY_STORAGE_VERSION,
       sync_rules_content: content,
       compiled_plan: null
