@@ -15,11 +15,11 @@ import { createMongoSyncBucketStorage } from './implementation/createMongoSyncBu
 import { PowerSyncMongo } from './implementation/db.js';
 import { getMongoStorageConfig, StorageConfig, SyncRuleDocumentBase } from './implementation/models.js';
 import { MongoChecksumOptions } from './implementation/MongoChecksums.js';
+import { MongoPersistedReplicationStream } from './implementation/MongoPersistedReplicationStream.js';
 import {
-  MongoPersistedReplicationStream,
   MongoPersistedSyncConfigContentV1,
   MongoPersistedSyncConfigContentV3
-} from './implementation/MongoPersistedSyncRulesContent.js';
+} from './implementation/MongoPersistedSyncConfigContent.js';
 import { syncRuleStateUpdatePipeline } from './implementation/SyncRuleStateUpdate.js';
 import { SyncRuleDocumentV1 } from './implementation/v1/models.js';
 import { VersionedPowerSyncMongoV3 } from './implementation/v3/VersionedPowerSyncMongoV3.js';

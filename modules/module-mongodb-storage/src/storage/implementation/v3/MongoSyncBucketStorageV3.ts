@@ -28,7 +28,7 @@ import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
 import {
   MongoPersistedSyncConfigContentV1,
   MongoPersistedSyncConfigContentV3
-} from '../MongoPersistedSyncRulesContent.js';
+} from '../MongoPersistedSyncConfigContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV3,

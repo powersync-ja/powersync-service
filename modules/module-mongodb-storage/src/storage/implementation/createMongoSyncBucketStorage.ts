@@ -1,6 +1,6 @@
 import { storage } from '@powersync/service-core';
 import { MongoBucketStorage } from '../MongoBucketStorage.js';
-import { MongoPersistedSyncConfigContentV1 } from './MongoPersistedSyncRulesContent.js';
+import { MongoPersistedSyncConfigContentV1 } from './MongoPersistedSyncConfigContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from './MongoSyncBucketStorage.js';
 import { MongoSyncBucketStorageV1 } from './v1/MongoSyncBucketStorageV1.js';
 import { MongoSyncBucketStorageV3 } from './v3/MongoSyncBucketStorageV3.js';

@@ -9,10 +9,10 @@ import {
 } from '@powersync/service-sync-rules';
 import { ReplicationError } from '@powersync/service-types';
 import { syncConfigYamlErrorToReplicationError } from '../util/errors.js';
+import { PersistedReplicationStream } from './PersistedReplicationStream.js';
+import { PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import {
   ParseSyncRulesOptions,
-  PersistedReplicationStream,
-  PersistedSyncConfigContent,
   PersistedSyncConfigId,
   PersistedSyncConfigStatus,
   PersistedSyncRules

@@ -27,7 +27,7 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import { MongoPersistedSyncConfigContentV1 } from '../MongoPersistedSyncRulesContent.js';
+import { MongoPersistedSyncConfigContentV1 } from '../MongoPersistedSyncConfigContent.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
