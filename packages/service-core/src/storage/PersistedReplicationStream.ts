@@ -1,6 +1,8 @@
 import { logger as defaultLogger, ErrorCode, ServiceError } from '@powersync/lib-services-framework';
 import { Logger } from 'winston';
 import { SyncRuleState } from './BucketStorage.js';
+import type { ParsedSyncConfigSet } from './ParsedSyncConfigSet.js';
+import type { ParseSyncConfigOptions, PersistedSyncConfigContent } from './PersistedSyncConfigContent.js';
 import { ReplicationLock } from './ReplicationLock.js';
 import { STORAGE_VERSION_CONFIG, StorageVersionConfig } from './StorageVersionConfig.js';
 
@@ -12,6 +14,7 @@ export abstract class PersistedReplicationStream implements PersistedReplication
   readonly storageVersion: number;
   readonly logger: Logger;
 
+  abstract readonly syncConfigContent: readonly PersistedSyncConfigContent[];
   abstract readonly current_lock: ReplicationLock | null;
 
   constructor(data: PersistedReplicationStreamData) {
@@ -35,6 +38,8 @@ export abstract class PersistedReplicationStream implements PersistedReplication
   }
 
   abstract lock(): Promise<ReplicationLock>;
+
+  abstract parsed(options: ParseSyncConfigOptions): ParsedSyncConfigSet;
 }
 export interface PersistedReplicationStreamData {
   readonly replicationStreamId: number;
@@ -43,6 +48,8 @@ export interface PersistedReplicationStreamData {
   readonly storageVersion: number;
   /**
    * Uniquely identifies a job, as a combination of replication stream and processing sync configs.
+   *
+   * Used in-memory only.
    */
   readonly replicationJobId?: string;
 }

@@ -41,7 +41,7 @@ import { PostgresCompactor } from './PostgresCompactor.js';
 export type PostgresSyncRulesStorageOptions = {
   factory: PostgresBucketStorageFactory;
   db: lib_postgres.DatabaseClient;
-  sync_rules: storage.PersistedSyncConfigContent;
+  replicationStream: storage.PersistedReplicationStream;
   write_checkpoint_mode?: storage.WriteCheckpointMode;
   batchLimits: RequiredOperationBatchLimits;
 };
@@ -53,6 +53,7 @@ export class PostgresSyncRulesStorage
   [framework.DO_NOT_LOG] = true;
 
   public readonly replicationStreamId: number;
+  public readonly replicationStream: storage.PersistedReplicationStream;
   public readonly sync_rules: storage.PersistedSyncConfigContent;
   public readonly replicationStreamName: string;
   public readonly factory: PostgresBucketStorageFactory;
@@ -73,14 +74,15 @@ export class PostgresSyncRulesStorage
 
   constructor(protected options: PostgresSyncRulesStorageOptions) {
     super();
-    this.replicationStreamId = options.sync_rules.replicationStreamId;
+    this.replicationStream = options.replicationStream;
+    this.replicationStreamId = options.replicationStream.replicationStreamId;
     this.db = options.db;
-    this.sync_rules = options.sync_rules;
-    this.replicationStreamName = options.sync_rules.replicationStreamName;
+    this.sync_rules = options.replicationStream.syncConfigContent[0];
+    this.replicationStreamName = options.replicationStream.replicationStreamName;
     this.factory = options.factory;
-    this.storageConfig = options.sync_rules.getStorageConfig();
+    this.storageConfig = options.replicationStream.getStorageConfig();
     this.currentDataStore = new PostgresCurrentDataStore(this.storageConfig);
-    this.logger = options.sync_rules.logger;
+    this.logger = options.replicationStream.logger;
 
     this.writeCheckpointAPI = new PostgresWriteCheckpointAPI({
       db: this.db,
@@ -114,7 +116,7 @@ export class PostgresSyncRulesStorage
      * Parse sync config if the options are different or if there is no cached value.
      */
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncRulesCache = { parsed: this.sync_rules.parsed(options).hydratedSyncConfig(), options };
+      this.parsedSyncRulesCache = { parsed: this.replicationStream.parsed(options).hydratedSyncConfig(), options };
     }
 
     return this.parsedSyncRulesCache!.parsed;

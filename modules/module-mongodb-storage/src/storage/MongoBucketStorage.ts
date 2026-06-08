@@ -63,19 +63,18 @@ export class MongoBucketStorage extends storage.BucketStorageFactory {
     replicationStream: storage.PersistedReplicationStream,
     options?: GetIntanceOptions
   ): MongoSyncBucketStorage {
-    const syncRulesContent =
-      replicationStream instanceof MongoPersistedReplicationStream
-        ? replicationStream.toSyncConfigContent()
-        : replicationStream;
+    if (!(replicationStream instanceof MongoPersistedReplicationStream)) {
+      throw new Error(`Expected MongoPersistedReplicationStream`);
+    }
     let { replicationStreamId, replicationStreamName } = replicationStream;
     if ((typeof replicationStreamId as any) == 'bigint') {
       replicationStreamId = Number(replicationStreamId);
     }
-    const storageConfig = (syncRulesContent as MongoPersistedSyncConfigContentV1).getStorageConfig();
+    const storageConfig = replicationStream.getStorageConfig();
     const syncRuleStorage = createMongoSyncBucketStorage(
       this,
       replicationStreamId,
-      syncRulesContent as MongoPersistedSyncConfigContentV1,
+      replicationStream,
       replicationStreamName,
       undefined,
       {

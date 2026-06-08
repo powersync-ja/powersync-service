@@ -27,7 +27,7 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import { MongoPersistedSyncConfigContentV1 } from '../MongoPersistedSyncConfigContent.js';
+import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV1,
@@ -50,12 +50,12 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
   constructor(
     factory: MongoBucketStorage,
     replicationStreamId: number,
-    sync_rules: MongoPersistedSyncConfigContentV1,
+    replicationStream: MongoPersistedReplicationStream,
     replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
-    super(factory, replicationStreamId, sync_rules, replicationStreamName, writeCheckpointMode, options);
+    super(factory, replicationStreamId, replicationStream, replicationStreamName, writeCheckpointMode, options);
   }
 
   protected async initializeVersionStorage(): Promise<void> {}
@@ -166,7 +166,7 @@ export class MongoSyncBucketStorageV1 extends MongoSyncBucketStorage {
     return new MongoChecksumsV1(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.syncConfigContent.mapping
+      mapping: this.replicationStream.storageContent.mapping
     });
   }
 

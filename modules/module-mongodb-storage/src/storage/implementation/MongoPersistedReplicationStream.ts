@@ -1,8 +1,12 @@
 import { mongo } from '@powersync/lib-service-mongodb';
 import { ServiceAssertionError } from '@powersync/lib-services-framework';
 import { storage } from '@powersync/service-core';
+import * as bson from 'bson';
 import { ReplicationStreamDocumentV3, SyncConfigDefinition } from '../storage-index.js';
+import { BucketDefinitionMapping } from './BucketDefinitionMapping.js';
+import { MongoParsedSyncConfigSet } from './MongoParsedSyncConfigSet.js';
 import {
+  MongoPersistedSyncConfigContentBase,
   MongoPersistedSyncConfigContentV1,
   MongoPersistedSyncConfigContentV3
 } from './MongoPersistedSyncConfigContent.js';
@@ -13,6 +17,7 @@ import { SyncRuleDocumentV1 } from './v1/models.js';
 
 export class MongoPersistedReplicationStream extends storage.PersistedReplicationStream {
   public current_lock: MongoSyncRulesLock | null = null;
+  public readonly syncConfigContent: readonly MongoPersistedSyncConfigContentBase[];
 
   constructor(
     private readonly db: PowerSyncMongo,
@@ -35,21 +40,64 @@ export class MongoPersistedReplicationStream extends storage.PersistedReplicatio
       storageVersion,
       replicationJobId
     });
+
+    this.syncConfigContent = this.createSyncConfigContent();
   }
 
   getStorageConfig() {
     return getMongoStorageConfig(this.storageVersion);
   }
 
-  toSyncConfigContent(): MongoPersistedSyncConfigContentV1 | MongoPersistedSyncConfigContentV3 {
+  private createSyncConfigContent(): MongoPersistedSyncConfigContentBase[] {
     if (this.getStorageConfig().incrementalReprocessing) {
       if (this.configs.length == 0) {
         throw new ServiceAssertionError(`Cannot create v3 storage without sync config definitions`);
       }
-      return new MongoPersistedSyncConfigContentV3(this.db, this.doc as ReplicationStreamDocumentV3, this.configs);
+      return this.configs.map(
+        (config) => new MongoPersistedSyncConfigContentV3(this.db, this.doc as ReplicationStreamDocumentV3, config)
+      );
     }
 
-    return new MongoPersistedSyncConfigContentV1(this.db, this.doc as SyncRuleDocumentV1);
+    return [new MongoPersistedSyncConfigContentV1(this.db, this.doc as SyncRuleDocumentV1)];
+  }
+
+  get syncConfigIds(): bson.ObjectId[] {
+    return this.configs.map((config) => config._id);
+  }
+
+  get storageContent(): MongoPersistedSyncConfigContentBase {
+    const [content] = this.syncConfigContent;
+    if (content == null) {
+      throw new ServiceAssertionError(`Cannot create storage without sync config content`);
+    }
+    return content;
+  }
+
+  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    const storageConfig = this.getStorageConfig();
+    if (!storageConfig.incrementalReprocessing) {
+      return this.storageContent.parsed(options);
+    }
+
+    const syncConfigs = this.configs.map((config) => {
+      return {
+        syncConfigId: config._id.toHexString(),
+        syncConfig: storage.parsePersistedSyncConfigContent({
+          content: config.content,
+          compiledPlan: config.serialized_plan ?? null,
+          storageVersion: this.storageVersion,
+          parseOptions: options
+        }),
+        mapping: BucketDefinitionMapping.fromSyncConfig(config)
+      };
+    });
+
+    return new MongoParsedSyncConfigSet(
+      this.replicationStreamId,
+      storageConfig,
+      this.replicationStreamName,
+      syncConfigs
+    );
   }
 
   async lock(session?: mongo.ClientSession) {

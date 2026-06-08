@@ -26,6 +26,7 @@ export class PostgresPersistedSyncRulesContent extends storage.PersistedSyncConf
 
 export class PostgresPersistedReplicationStream extends storage.PersistedReplicationStream {
   current_lock: storage.ReplicationLock | null = null;
+  readonly syncConfigContent: readonly PostgresPersistedSyncRulesContent[];
 
   constructor(
     private db: lib_postgres.DatabaseClient,
@@ -37,10 +38,11 @@ export class PostgresPersistedReplicationStream extends storage.PersistedReplica
       state: row.state as storage.SyncRuleState,
       storageVersion: row.storage_version ?? storage.LEGACY_STORAGE_VERSION
     });
+    this.syncConfigContent = [new PostgresPersistedSyncRulesContent(this.db, this.row)];
   }
 
-  toSyncConfigContent(): PostgresPersistedSyncRulesContent {
-    return new PostgresPersistedSyncRulesContent(this.db, this.row);
+  parsed(options: storage.ParseSyncConfigOptions): storage.ParsedSyncConfigSet {
+    return this.syncConfigContent[0].parsed(options);
   }
 
   async lock(): Promise<storage.ReplicationLock> {

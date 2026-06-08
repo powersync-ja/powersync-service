@@ -656,9 +656,7 @@ streams:
     expect(statuses.map((status) => status.id).sort()).toEqual(
       stream.sync_configs.map((config) => config._id.toHexString()).sort()
     );
-    const parsed = (replicatingStreams[0] as MongoPersistedReplicationStream)
-      .toSyncConfigContent()
-      .parsed(test_utils.PARSE_OPTIONS);
+    const parsed = (replicatingStreams[0] as MongoPersistedReplicationStream).parsed(test_utils.PARSE_OPTIONS);
     expect(parsed.syncConfigs).toHaveLength(1);
     expect(parsed.hydratedSyncConfig().bucketDataSources).toHaveLength(1);
 

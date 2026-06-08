@@ -35,7 +35,7 @@ import { MongoBucketBatchOptions } from './MongoBucketBatch.js';
 import { MongoChecksumOptions, MongoChecksums } from './MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from './MongoCompactor.js';
 import { MongoParameterCompactor } from './MongoParameterCompactor.js';
-import { MongoPersistedSyncConfigContentBase } from './MongoPersistedSyncConfigContent.js';
+import { MongoPersistedReplicationStream } from './MongoPersistedReplicationStream.js';
 import { MongoWriteCheckpointAPI } from './MongoWriteCheckpointAPI.js';
 
 export interface MongoSyncBucketStorageOptions {
@@ -84,7 +84,7 @@ export abstract class MongoSyncBucketStorage
   constructor(
     public readonly factory: MongoBucketStorage,
     public readonly replicationStreamId: number,
-    protected readonly syncConfigContent: MongoPersistedSyncConfigContentBase,
+    protected readonly replicationStream: MongoPersistedReplicationStream,
     public readonly replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
@@ -98,7 +98,7 @@ export abstract class MongoSyncBucketStorage
       mode: writeCheckpointMode ?? storage.WriteCheckpointMode.MANAGED,
       sync_rules_id: replicationStreamId
     });
-    this.logger = syncConfigContent.logger;
+    this.logger = replicationStream.logger;
   }
 
   /**
@@ -119,7 +119,7 @@ export abstract class MongoSyncBucketStorage
   }
 
   get mapping() {
-    return this.syncConfigContent.mapping;
+    return this.replicationStream.storageContent.mapping;
   }
 
   protected get versionContext(): MongoSyncBucketStorageContext {
@@ -148,7 +148,7 @@ export abstract class MongoSyncBucketStorage
   getParsedSyncRules(options: storage.ParseSyncConfigOptions): HydratedSyncConfig {
     const { parsed, options: cachedOptions } = this.parsedSyncConfigCache ?? {};
     if (!parsed || options.defaultSchema != cachedOptions?.defaultSchema) {
-      this.parsedSyncConfigCache = { parsed: this.syncConfigContent.parsed(options).hydratedSyncConfig(), options };
+      this.parsedSyncConfigCache = { parsed: this.replicationStream.parsed(options).hydratedSyncConfig(), options };
     }
 
     return this.parsedSyncConfigCache!.parsed;
@@ -196,7 +196,7 @@ export abstract class MongoSyncBucketStorage
     await this.initializeStorage();
 
     const state = await this.getWriterSyncState();
-    const parsed = this.syncConfigContent.parsed(options) as storage.ParsedSyncConfigSet & {
+    const parsed = this.replicationStream.parsed(options) as storage.ParsedSyncConfigSet & {
       mapping?: BucketDefinitionMapping;
     };
 
@@ -204,7 +204,7 @@ export abstract class MongoSyncBucketStorage
       logger: options.logger ?? this.logger,
       db: this.db,
       syncRules: parsed.hydratedSyncConfig(),
-      mapping: parsed.mapping ?? this.syncConfigContent.mapping,
+      mapping: parsed.mapping ?? this.replicationStream.storageContent.mapping,
       replicationStreamId: this.replicationStreamId,
       replicationStreamName: this.replicationStreamName,
       lastCheckpointLsn: state.lastCheckpointLsn,

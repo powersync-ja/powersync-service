@@ -25,10 +25,7 @@ import { MongoBucketBatchOptions } from '../MongoBucketBatch.js';
 import { MongoChecksums } from '../MongoChecksums.js';
 import { MongoCompactOptions, MongoCompactor } from '../MongoCompactor.js';
 import { MongoParameterCompactor } from '../MongoParameterCompactor.js';
-import {
-  MongoPersistedSyncConfigContentV1,
-  MongoPersistedSyncConfigContentV3
-} from '../MongoPersistedSyncConfigContent.js';
+import { MongoPersistedReplicationStream } from '../MongoPersistedReplicationStream.js';
 import { MongoSyncBucketStorage, MongoSyncBucketStorageOptions } from '../MongoSyncBucketStorage.js';
 import {
   BucketDataDocumentV3,
@@ -49,25 +46,22 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
   declare readonly db: VersionedPowerSyncMongoV3;
   declare readonly checksums: MongoChecksumsV3;
 
-  private readonly syncRulesV3: MongoPersistedSyncConfigContentV3;
-
   constructor(
     factory: MongoBucketStorage,
     replicationStreamId: number,
-    sync_rules: MongoPersistedSyncConfigContentV1,
+    replicationStream: MongoPersistedReplicationStream,
     replicationStreamName: string,
     writeCheckpointMode: storage.WriteCheckpointMode | undefined,
     options: MongoSyncBucketStorageOptions
   ) {
-    super(factory, replicationStreamId, sync_rules, replicationStreamName, writeCheckpointMode, options);
-    if (!(sync_rules instanceof MongoPersistedSyncConfigContentV3)) {
+    super(factory, replicationStreamId, replicationStream, replicationStreamName, writeCheckpointMode, options);
+    if (replicationStream.syncConfigIds.length == 0) {
       throw new ServiceAssertionError('Missing sync config id for storage v3');
     }
-    this.syncRulesV3 = sync_rules;
   }
 
   private get syncConfigIds(): bson.ObjectId[] {
-    return this.syncRulesV3.syncConfigIds;
+    return this.replicationStream.syncConfigIds;
   }
 
   private get syncRulesCollection(): mongo.Collection<ReplicationStreamDocumentV3> {
@@ -132,7 +126,7 @@ export class MongoSyncBucketStorageV3 extends MongoSyncBucketStorage {
     return new MongoChecksumsV3(this.db, this.replicationStreamId, {
       ...options.checksumOptions,
       storageConfig: options?.storageConfig,
-      mapping: this.syncConfigContent.mapping
+      mapping: this.replicationStream.storageContent.mapping
     });
   }
 

@@ -84,7 +84,6 @@ export function parsePersistedSyncConfigContent(options: ParsePersistedSyncConfi
  */
 
 export abstract class PersistedSyncConfigContent implements PersistedSyncConfigContentData {
-  readonly replicationJobId: string;
   readonly replicationStreamId: number;
   readonly sync_rules_content: string;
   readonly compiled_plan: SerializedSyncPlan | null;
@@ -105,7 +104,6 @@ export abstract class PersistedSyncConfigContent implements PersistedSyncConfigC
 
   constructor(data: PersistedSyncConfigContentData) {
     Object.assign(this, data);
-    this.replicationJobId = data.replicationJobId ?? String(data.replicationStreamId);
     this.replicationStreamId = data.replicationStreamId;
     this.sync_rules_content = data.sync_rules_content;
     this.compiled_plan = data.compiled_plan;
@@ -214,7 +212,6 @@ export interface PersistedSyncConfigContentData {
   readonly last_checkpoint_ts?: Date | null;
   readonly state?: SyncRuleState;
   readonly syncConfigId?: PersistedSyncConfigId | null;
-  readonly replicationJobId?: string;
 }
 export type PersistedSyncConfigId = string;
 export interface ParseSyncConfigOptions {

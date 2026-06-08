@@ -55,14 +55,10 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     replicationStream: storage.PersistedReplicationStream,
     options?: GetIntanceOptions
   ): storage.SyncRulesBucketStorage {
-    const syncRulesContent =
-      replicationStream instanceof PostgresPersistedReplicationStream
-        ? replicationStream.toSyncConfigContent()
-        : replicationStream;
     const syncRuleStorage = new PostgresSyncRulesStorage({
       factory: this,
       db: this.db,
-      sync_rules: syncRulesContent as storage.PersistedSyncConfigContent,
+      replicationStream,
       batchLimits: this.options.config.batch_limits
     });
     if (!options?.skipLifecycleHooks) {
@@ -472,8 +468,9 @@ export class PostgresBucketStorageFactory extends storage.BucketStorageFactory {
     // It is important that this instance is cached.
     // Not for the instance construction itself, but to ensure that internal caches on the instance
     // are re-used properly.
-    if (this.activeStorageCache?.replicationStreamId == stream.replicationStreamId) {
-      return this.activeStorageCache;
+    const activeStorageCache = this.activeStorageCache;
+    if (activeStorageCache?.replicationStreamId == stream.replicationStreamId) {
+      return activeStorageCache;
     } else {
       const instance = this.getInstance(stream);
       this.activeStorageCache = instance;
