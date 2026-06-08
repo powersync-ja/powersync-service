@@ -209,6 +209,7 @@ streams:
 
       expect(evaluate('hello')).toStrictEqual({ upper: 'HELLO', lower: 'hello' });
       expect(evaluate('Hello World')).toStrictEqual({ upper: 'HELLO WORLD', lower: 'hello world' });
+      expect(evaluate(null)).toStrictEqual({ upper: null, lower: null });
 
       expect(evaluate('Straße')).toStrictEqual({ upper: 'STRASSE', lower: 'straße' });
       expect(evaluate('ﬁle')).toStrictEqual({ upper: 'FILE', lower: 'ﬁle' });
