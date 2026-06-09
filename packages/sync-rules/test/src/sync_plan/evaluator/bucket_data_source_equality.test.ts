@@ -1,4 +1,4 @@
-import { describe, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { StableHasher } from '../../../../src/compiler/equality.js';
 import {
   BucketDataSource,
@@ -8,10 +8,9 @@ import {
   SyncConfig
 } from '../../../../src/index.js';
 import { compileToSyncPlanWithoutErrors } from '../../compiler/utils.js';
-import { syncTest } from './utils.js';
 
 describe('prepared bucket data source equality', () => {
-  syncTest('matches equivalent prepared bucket sources from different plans', ({ sync }) => {
+  it('matches equivalent prepared bucket sources from different plans', () => {
     const firstYaml = `
 config:
   edition: 3
@@ -31,7 +30,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
-  syncTest('does not match when output columns differ', ({ sync }) => {
+  it('does not match when output columns differ', () => {
     const firstYaml = `
 config:
   edition: 3
@@ -51,7 +50,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, false);
   });
 
-  syncTest('does not match when partitioning differs', ({ sync }) => {
+  it('does not match when partitioning differs', () => {
     const firstYaml = `
 config:
   edition: 3
@@ -71,7 +70,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, false);
   });
 
-  syncTest('does not match equivalent bucket sources with different stream names', ({ sync }) => {
+  it('does not match equivalent bucket sources with different stream names', () => {
     const firstYaml = `
 config:
   edition: 3
@@ -95,7 +94,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, false, true);
   });
 
-  syncTest('matches when subqueries differ but the data source does not', ({ sync }) => {
+  it('matches when subqueries differ but the data source does not', () => {
     const firstYaml = `
 config:
   edition: 3
@@ -123,7 +122,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
-  syncTest('matches when only bucket input parameters differ', ({ sync }) => {
+  it('matches when only bucket input parameters differ', () => {
     const firstYaml = `
 config:
   edition: 3
@@ -143,7 +142,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
-  syncTest('matches buckets with the same data sources in a different order', ({ sync }) => {
+  it('matches buckets with the same data sources in a different order', () => {
     const firstYaml = `
 config:
   edition: 3
@@ -167,7 +166,7 @@ streams:
     expectSerializedBucketSources(firstYaml, secondYaml, true);
   });
 
-  syncTest('compares table-valued function output expressions by their bindings', ({ sync }) => {
+  it('compares table-valued function output expressions by their bindings', () => {
     const firstYaml = `
 config:
   edition: 3

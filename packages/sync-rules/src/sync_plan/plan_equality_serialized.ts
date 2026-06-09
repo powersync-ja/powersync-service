@@ -10,11 +10,26 @@ export interface SerializedBucketDataSourceWithDataSources {
   dataSources: readonly SerializedDataSource[];
 }
 
-export const serializedStreamDataSourceEquality = jsonEquality<SerializedDataSource>();
-
+/**
+ * Equality for SerializedParameterIndexLookupCreator.
+ *
+ * This compares the JSON form directly. These are self-contained and use a stable serialization form, so it's
+ * safe to compare this way.
+ *
+ * These are only considered equal if the lookupName remains the same, so may be affected by changing order of queries.
+ */
 export const serializedStreamParameterIndexLookupCreatorEquality =
   jsonEquality<SerializedParameterIndexLookupCreator>();
 
+/**
+ * SerializedBucketDataSource is not safe to compare _directly_, since it contains index references to SerializedDataSource
+ * in the serialized sync plan. However, each SerializedDataSource is self-contained and safe to compare directly.
+ *
+ * So we compare the SerializedDataSource excluding `bucket.sources`, as well as the resolved SerializedDataSources (order independent).
+ * The caller is responsible for resolving the SerializedDataSources.
+ *
+ * These are only considered equal if uniqueName is the same, so may be affected by changing order of joins/subqueries.
+ */
 export const serializedStreamBucketDataSourceEquality: Equality<SerializedBucketDataSourceWithDataSources> = {
   hash(hasher, value) {
     hasher.addString(JSON.stringify(bucketIdentity(value)));
