@@ -34,7 +34,10 @@ export * from './types/time.js';
 export * from './utils.js';
 
 export * from './compiler/compiler.js';
-export { Database, SQLite, Statement, nodeSqlite } from './sync_plan/engine/sqlite.js';
+export { HashMap, HashSet } from './compiler/equality.js';
+export { javaScriptExpressionEngine } from './sync_plan/engine/javascript.js';
+export { Database, SQLite, Statement, nodeSqlite, sqliteExpressionEngine } from './sync_plan/engine/sqlite.js';
 export { PrecompiledSyncConfig } from './sync_plan/evaluator/index.js';
 export * from './sync_plan/plan.js';
-export { deserializeSyncPlan, serializeSyncPlan } from './sync_plan/serialize.js';
+export * from './sync_plan/plan_equality_serialized.js';
+export * from './sync_plan/serialize.js';
